@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Xeno-Racer UI sandbox</title>
+    <link rel="icon" href="data:," />
+    <style>
+      html, body { margin: 0; height: 100%; background: #05060a; overflow: hidden; }
+      /* Stand-in for the 3D scene the game renders behind the UI. Photo: Poly Haven "Goegap Road" (CC0). */
+      #bg {
+        position: fixed; inset: -4%;
+        background: #0a0c10 url(/assets/ui/backdrop.jpg) 30% 60% / auto 108% no-repeat;
+        animation: pan 46s ease-in-out infinite alternate;
+      }
+      body.still #bg { animation: none; }
+      @keyframes pan { from { background-position: 8% 60%; } to { background-position: 92% 60%; } }
+      #ui { position: fixed; inset: 0; pointer-events: none; }
+      #car { position: fixed; left: 50%; bottom: 14%; width: 30vw; transform: translateX(-50%); opacity: 0.0; pointer-events: none; }
+      body.car #car { opacity: 1; }
+      #carbox { position: fixed; left: 42%; top: 22%; width: 54%; height: 58%; border: 2px dashed rgba(22, 224, 189, 0.55); background: rgba(22, 224, 189, 0.06); display: none; pointer-events: none; font: 600 22px 'Barlow Condensed', sans-serif; letter-spacing: 0.3em; color: rgba(22, 224, 189, 0.9); padding: 14px 20px; text-transform: uppercase; }
+      body.guides #carbox { display: block; }
+    </style>
+  </head>
+  <body>
+    <div id="bg"></div>
+    <svg id="car" viewBox="0 0 520 220" aria-hidden="true">
+      <!-- a rough rear-3/4-less silhouette to judge HUD occlusion in chase view -->
+      <path d="M60 170 L80 90 Q90 50 150 44 L370 44 Q430 50 440 90 L460 170 Q462 190 440 192 L80 192 Q58 190 60 170 Z" fill="#0d1017" opacity="0.92" />
+      <path d="M122 70 L148 52 L372 52 L398 70 Z" fill="#1c2230" opacity="0.95" />
+      <rect x="82" y="108" width="86" height="16" rx="6" fill="#ff2e43" opacity="0.9" />
+      <rect x="352" y="108" width="86" height="16" rx="6" fill="#ff2e43" opacity="0.9" />
+      <rect x="150" y="170" width="220" height="12" rx="5" fill="#05060a" />
+      <rect x="40" y="168" width="70" height="46" rx="10" fill="#07080c" />
+      <rect x="410" y="168" width="70" height="46" rx="10" fill="#07080c" />
+    </svg>
+    <div id="carbox">3D car preview area</div>
+    <div id="ui"></div>
+    <script type="module" src="/sandbox/ui/main.ts"></script>
+  </body>
+</html>
