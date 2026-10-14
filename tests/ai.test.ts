@@ -59,7 +59,9 @@ function lapTest(trackId: string, carId: string, difficulty: Difficulty, laps = 
     prevS = tp.s;
     impacts = car.state.impactCount;
   }
-  return { est, lapTimes, resets, impacts, offTrack, maxSpeed: maxSpeed * 3.6, length: track.length };
+  const temps = car.state.wheels.map((w) => w.tempC.toFixed(0)).join('/');
+  const brakes = car.state.wheels.map((w) => w.brakeTempC.toFixed(0)).join('/');
+  return { est, lapTimes, resets, impacts, offTrack, maxSpeed: maxSpeed * 3.6, length: track.length, temps, brakes };
 }
 
 describe('AI driver', () => {
@@ -71,7 +73,7 @@ describe('AI driver', () => {
         const r = lapTest(t.info.id, c.id, 'alien', 2);
         const fmt = (x: number) => `${Math.floor(x / 60)}:${(x % 60).toFixed(2).padStart(5, '0')}`;
         rows.push(
-          `${t.info.id.padEnd(9)} ${c.id.padEnd(10)} len ${r.length.toFixed(0)} m  est ${fmt(r.est)}  laps ${r.lapTimes.map(fmt).join(' ')}  vmax ${r.maxSpeed.toFixed(0)}  resets ${r.resets}  impacts ${r.impacts}  off ${r.offTrack.toFixed(1)}s`,
+          `${t.info.id.padEnd(9)} ${c.id.padEnd(10)} len ${r.length.toFixed(0)} m  est ${fmt(r.est)}  laps ${r.lapTimes.map(fmt).join(' ')}  vmax ${r.maxSpeed.toFixed(0)}  resets ${r.resets}  impacts ${r.impacts}  off ${r.offTrack.toFixed(1)}s  tires ${r.temps}C  brakes ${r.brakes}C`,
         );
         if (r.lapTimes.length < 2 || r.resets > 0) fails.push(`${t.info.id}/${c.id}`);
       }

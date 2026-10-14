@@ -689,8 +689,8 @@ export class Vehicle {
       wh.skid = smoothstep(0.85, 2.2, rho) * smoothstep(0.6, 3.5, vSlip);
       // tread temperature: sliding power + carcass flex − convection
       const pSlip = Math.abs(wh.fx * (wh.omega * wh.radius - vLong)) + Math.abs(wh.fy * vLat);
-      const heat = 0.1 * pSlip + 0.0025 * wh.load * aLong;
-      const cool = (9 + 0.9 * aLong) * (wh.tempC - AMBIENT_C);
+      const heat = 0.18 * pSlip + 0.006 * wh.load * aLong;
+      const cool = (6 + 0.55 * aLong) * (wh.tempC - AMBIENT_C);
       wh.tempC += ((heat - cool) / 2600) * dt;
     }
 
