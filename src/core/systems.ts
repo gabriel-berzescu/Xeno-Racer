@@ -89,6 +89,9 @@ export type CreateRenderSystem = (canvas: HTMLCanvasElement, g: GraphicsSettings
 
 /** Tire smoke, dust, skidmarks, sparks, exhaust flames, debris. */
 export interface EffectsSystem {
+  /** Tell effects about a car (exhaust positions, size) before its first update. id = VehicleState.id. */
+  registerCar(id: number, def: CarDefinition): void;
+  unregisterCar(id: number): void;
   update(dt: number, cars: readonly VehicleState[], camera: THREE.Camera): void;
   clear(): void;
   dispose(): void;
@@ -123,6 +126,8 @@ export interface CarVisual {
   /** Apply chassis + wheel transforms, suspension, brake lights, disc glow, steering wheel, headlights. */
   update(state: VehicleState, dt: number, env: EnvironmentState): void;
   setLivery(l: Livery): void;
+  /** The player's car: full detail, interior, real headlight spotlights at night. AI cars: cheaper. */
+  setPlayer(on: boolean): void;
   /** Hide exterior parts that block the cockpit view / show the interior. */
   setCockpitView(on: boolean): void;
   /** World-space anchors (Object3D children of root) for cameras. +Z forward. */
@@ -181,6 +186,8 @@ export interface UIDeps {
   version: string;
   /** Personal best laps, key = `${trackId}/${carId}` (seconds). */
   bestLaps: Record<string, number>;
+  /** Minimap geometry for any track (for the track-select preview). */
+  minimapFor(trackId: string): MinimapTrack | null;
   onIntent(intent: UIIntent): void;
   sound(s: UiSound): void;
 }
