@@ -185,9 +185,14 @@ export class RaceSession {
         this.events.push({ type: 'lap', entrant: p.entrant, time: lap, best, personalBest });
       }
     }
-    p.lapStart = now;
+    // In a race lap 1 is timed from lights-out (the grid sits behind the line); otherwise the
+    // first crossing of a rolling start begins the lap.
+    const keepStart = p.crossings === 1 && this.config.mode === 'race';
+    if (!keepStart) {
+      p.lapStart = now;
+      p.sectorStart = now;
+    }
     p.sector = 0;
-    p.sectorStart = now;
     p.sectorTimes = [null, null, null];
     if (!this.unlimited) {
       const total = this.config.laps;

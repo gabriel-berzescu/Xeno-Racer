@@ -975,7 +975,7 @@ export class Game {
       position: pp.position,
       totalCars: this.cars.length,
       raceTime: racing ? t - session.startTime : 0,
-      lapTime: racing && pp.crossings >= 1 ? t - pp.lapStart : 0,
+      lapTime: racing && (pp.crossings >= 1 || cfg.mode === 'race') ? t - pp.lapStart : 0,
       lastLap: pp.lapTimes.length ? pp.lapTimes[pp.lapTimes.length - 1] : null,
       bestLap: pp.bestLap ?? session.storedBest,
       delta: session.liveDelta(),
