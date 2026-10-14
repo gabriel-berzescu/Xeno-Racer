@@ -51,6 +51,9 @@ page.on('console', (m) => {
   if (t === 'error' || t === 'warning') console.log(`[${t}] ${m.text()}`);
   else if (opts.log) console.log(`[${t}] ${m.text()}`);
 });
+page.on('response', (r) => {
+  if (r.status() >= 400) console.log(`[http ${r.status()}] ${r.url()}`);
+});
 page.on('pageerror', (e) => {
   threw = true;
   console.log(`[pageerror] ${e.message}\n${e.stack ?? ''}`);
