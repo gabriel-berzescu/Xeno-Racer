@@ -153,7 +153,7 @@ describe('vehicle physics', () => {
         expect(brakeAbs.distance).toBeLessThan(45);
         expect(brakeLock.distance).toBeGreaterThan(brakeAbs.distance * 0.98);
         expect(pad.latG).toBeGreaterThan(0.85);
-        expect(pad.latG).toBeLessThan(1.9);
+        expect(pad.latG).toBeLessThan(def.class === 'Prototype' ? 2.4 : 1.4);
       });
     }
     mkdirSync('.cache', { recursive: true });

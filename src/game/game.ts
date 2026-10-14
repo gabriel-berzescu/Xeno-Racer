@@ -546,7 +546,7 @@ export class Game {
       case 'previewTrack':
         break;
       case 'menuOpened':
-        if (i.screen !== 'setup') this.clearPreview();
+        if (i.screen !== 'setup:car') this.clearPreview();
         break;
       case 'watchReplay':
         this.startReplay();
@@ -943,7 +943,7 @@ export class Game {
     });
     const up = def.physics.drivetrain.upshiftRpm;
     const shiftLight = Math.max(0, Math.min(1, (st.rpm - (up - 2200)) / 2200));
-    const tires = st.wheels.map((w, i) => ({ slip: Math.min(2, p.vehicle.slipUsage(i)), tempC: w.tempC, load: w.load / p.vehicle.staticLoad(i) }));
+    const tires = st.wheels.map((w, i) => ({ slip: Math.min(1.25, p.vehicle.slipUsage(i)), tempC: w.tempC, load: w.load / p.vehicle.staticLoad(i) }));
     const cars = this.cars.map((c) => {
       const s = c.vehicle.state;
       _v.set(0, 0, 1).applyQuaternion(s.quaternion);
