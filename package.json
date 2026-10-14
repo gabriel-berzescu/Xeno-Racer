@@ -1,0 +1,28 @@
+{
+  "name": "xeno-racer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Xeno-Racer — a realistic racing game for the browser, built for a gamepad.",
+  "scripts": {
+    "dev": "vite --port 5199 --strictPort",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --port 5198 --strictPort",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "shot": "node scripts/shot.mjs"
+  },
+  "dependencies": {
+    "n8ao": "^2.0.1",
+    "postprocessing": "^6.39.5",
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "@types/three": "^0.186.0",
+    "playwright-core": "^1.64.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.4"
+  }
+}
