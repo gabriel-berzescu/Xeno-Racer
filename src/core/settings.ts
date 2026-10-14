@@ -14,7 +14,7 @@ export const DEFAULT_SETTINGS: Settings = {
   graphics: { ...QUALITY_PRESETS.high },
   audio: { master: 0.85, engine: 0.9, effects: 0.85, music: 0.5, ui: 0.6 },
   controls: { steerDeadzone: 0.08, steerLinearity: 1.6, pedalDeadzone: 0.04, speedSensitivity: 0.6, steerSpeed: 1, vibration: true, invertLookY: false },
-  assists: { abs: true, tcs: 'low', esc: false, autoShift: true, steeringAssist: 0.35, autoClutch: true },
+  assists: { abs: true, tcs: 'low', esc: true, autoShift: true, steeringAssist: 0.35, autoClutch: true },
   units: 'kmh',
   hud: { minimap: true, telemetry: false, ghost: true, standings: true },
   camera: { fov: 62, defaultMode: 'chase', shake: 0.6 },

@@ -4,7 +4,10 @@
  * asks for roughly the front tires' peak slip angle instead of full lock — the same idea as the
  * "normal" steering in console sims. Counter-steer help lives in the vehicle (assists.steeringAssist).
  */
+import { Vector3 } from 'three';
 import type { CarDefinition, ControlSettings, VehicleState } from '../core/contracts';
+
+const _left = new Vector3();
 
 const smoothstep = (a: number, b: number, x: number) => {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
@@ -25,7 +28,16 @@ export class SteeringFilter {
     // road-wheel angle that saturates the front tires at this speed: kinematic + peak slip
     const gripAngle = (ch.wheelbase * tf.mu * 9.81) / Math.max(v * v, 1) + tf.peakSlipAngle * 1.35;
     const limit = Math.min(1, gripAngle / ch.maxSteer);
-    const scale = 1 + (limit - 1) * controls.speedSensitivity;
+    let scale = 1 + (limit - 1) * controls.speedSensitivity;
+    // never limit counter-steer: when the car slides, the stick may ask for as much angle as the
+    // slide needs (body slip + a margin) in the direction that catches it
+    const fwd = state.forwardSpeed;
+    if (fwd > 3) {
+      _left.set(1, 0, 0).applyQuaternion(state.quaternion);
+      const beta = Math.atan2(state.velocity.dot(_left), fwd); // + = travelling left of the nose
+      const counter = (raw < 0 && beta > 0) || (raw > 0 && beta < 0);
+      if (counter) scale = Math.min(1, scale + (Math.abs(beta) * 1.4) / ch.maxSteer);
+    }
     const target = Math.max(-1, Math.min(1, raw)) * scale;
     let rate = controls.steerSpeed * (5.0 - 2.6 * smoothstep(0, 45, v));
     if (Math.abs(target) < Math.abs(this.cur) || Math.sign(target) !== Math.sign(this.cur)) rate *= 1.7;
