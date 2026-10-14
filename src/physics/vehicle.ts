@@ -56,6 +56,7 @@ const _force = new Vector3();
 const _torque = new Vector3();
 const _q1 = new Quaternion();
 const _ground: GroundSample = { height: 0, normal: new Vector3(0, 1, 0), surface: 'asphalt' };
+const _gN = new Vector3();
 const _tp: TrackPoint = { s: 0, d: 0, segment: 0, widthLeft: 0, widthRight: 0, wallLeft: 0, wallRight: 0, tx: 0, tz: 1, lx: 1, lz: 0, y: 0 };
 
 /** Deterministic per-vehicle PRNG (mulberry32). */
@@ -205,11 +206,13 @@ export class Vehicle {
   private hullHint = -1;
   private comHint = -1;
   private readonly hullPoints: Vector3[] = [];
+  private readonly groundPoints: Vector3[] = [];
   private readonly hullRadiusXZ: number;
   private scrapeAcc = 0;
   private readonly scrapePt = new Vector3();
   private impactCooldown = 0;
   private readonly hullCenterLocal: Vector3;
+  private readonly maxWheelForce: number;
 
   constructor(
     readonly id: number,
@@ -244,6 +247,7 @@ export class Vehicle {
     this.wheels[2].driveWeight = this.wheels[3].driveWeight = (1 - fs) / 2;
 
     this.engineInertia = s.engine.inertia;
+    this.maxWheelForce = c.mass * GRAVITY * 2.5;
     this.torquePeak = peakTorque(s.engine);
     this.clutchMax = this.torquePeak * 1.7;
     {
@@ -262,6 +266,24 @@ export class Vehicle {
     for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) this.hullPoints.push(new Vector3(o.x + sx * h.x, o.y + sy * h.y, o.z + sz * h.z));
     this.hullPoints.push(new Vector3(o.x + h.x, o.y, o.z), new Vector3(o.x - h.x, o.y, o.z), new Vector3(o.x, o.y, o.z + h.z), new Vector3(o.x, o.y, o.z - h.z));
     this.hullRadiusXZ = Math.hypot(h.x, h.z) + Math.hypot(o.x, o.z);
+    // Ground-contact points follow a real underbody: a flat skid plank between the axles, a nose
+    // and tail lip a little higher, bumper corners rounded up and in; plus roof and shoulder points
+    // for when the car is on its side or roof.
+    const bottom = o.y - h.y;
+    const top = o.y + h.y;
+    const front = o.z + h.z;
+    const rear = o.z - h.z;
+    const halfW = h.x;
+    const plankX = Math.max(0.2, halfW - 0.32);
+    const plankZ = c.wheelbase * 0.38;
+    const zMid = c.cgToFrontAxle - c.wheelbase / 2;
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) this.groundPoints.push(new Vector3(sx * plankX, bottom, zMid + sz * plankZ));
+    this.groundPoints.push(new Vector3(0, bottom + 0.035, front - 0.12), new Vector3(0, bottom + 0.07, rear + 0.12));
+    for (const sx of [-1, 1]) {
+      this.groundPoints.push(new Vector3(sx * (halfW - 0.18), bottom + 0.13, front - 0.25), new Vector3(sx * (halfW - 0.18), bottom + 0.16, rear + 0.25));
+      this.groundPoints.push(new Vector3(sx * halfW, o.y, o.z)); // shoulders
+      for (const sz of [-1, 1]) this.groundPoints.push(new Vector3(sx * (halfW - 0.15), top, o.z + sz * h.z * 0.45)); // roof
+    }
 
     const ws = (): WheelState => ({
       hub: new Vector3(),
@@ -540,9 +562,28 @@ export class Vehicle {
     for (let i = 0; i < 4; i++) {
       const wh = wheels[i];
       const ext = _v1.copy(p).addScaledVector(ax, wh.mx).addScaledVector(ay, wh.yExt).addScaledVector(az, wh.mz);
+      // Tire envelope: a tire rides over small ridges rather than into them — sample the contact
+      // patch region fore and aft, take the highest point and the mean normal.
       wh.hint = this.track.groundAt(ext.x, ext.z, _ground, wh.hint);
-      const n = _ground.normal;
-      const h = _ground.height;
+      const surface = _ground.surface;
+      let h = _ground.height;
+      const n = _gN.copy(_ground.normal);
+      const reach = wh.radius * 0.38;
+      const fx = az.x * reach;
+      const fz = az.z * reach;
+      this.track.groundAt(ext.x + fx, ext.z + fz, _ground, wh.hint);
+      if (_ground.height > h) h = _ground.height;
+      n.add(_ground.normal);
+      this.track.groundAt(ext.x - fx, ext.z - fz, _ground, wh.hint);
+      if (_ground.height > h) h = _ground.height;
+      n.add(_ground.normal).normalize();
+      // never trust a near-vertical face as a support plane
+      if (n.y < 0.9) {
+        n.y = 0.9;
+        const k = Math.sqrt((1 - 0.81) / Math.max(1e-6, n.x * n.x + n.z * n.z));
+        n.x *= k;
+        n.z *= k;
+      }
       const nu = n.dot(ay);
       const dist = n.y * (ext.y - h);
       const xReq = nu > 0.25 ? (wh.radius - dist) / nu : -1;
@@ -550,7 +591,7 @@ export class Vehicle {
       dh = clamp(dh, -5, 5);
       wh.prevGroundH = h;
       wh.normal.copy(n);
-      wh.surface = _ground.surface;
+      wh.surface = surface;
       if (xReq > 0) {
         contacts++;
         const travel = wh.susp.travel;
@@ -568,8 +609,9 @@ export class Vehicle {
         if (spring < 0) spring = 0;
         const damper = (wh.compVel > 0 ? wh.susp.bump : wh.susp.rebound) * wh.compVel;
         let stop = 0;
-        if (wh.bottom > 0) stop = wh.susp.spring * 30 * wh.bottom + wh.susp.bump * 6 * Math.max(0, wh.compVel);
-        wh.suspForce = spring + damper + stop;
+        if (wh.bottom > 0) stop = wh.susp.spring * 30 * Math.min(wh.bottom, 0.04) + wh.susp.bump * 6 * Math.max(0, wh.compVel);
+        // a wheel can't push harder than ~10 g on its corner
+        wh.suspForce = Math.min(spring + damper + stop, this.maxWheelForce);
       } else {
         wh.contact = false;
         wh.compression = 0;
@@ -1026,7 +1068,13 @@ export class Vehicle {
   // ───────────────────────────────────────────────────────────────────────────
 
   /** Single-body contact against static geometry at world point P with normal n. */
+  /** Debug counters (not part of the contract). */
+  debugGroundHits = 0;
+  debugWallHits = 0;
+
   private resolveStatic(P: Vector3, n: Vector3, pen: number, restitution: number, friction: number, kind: ImpactKind): void {
+    if (kind === 'ground') this.debugGroundHits++;
+    else this.debugWallHits++;
     const v = this.v;
     const w = this.w;
     const r = _r.subVectors(P, this.p);
@@ -1116,16 +1164,17 @@ export class Vehicle {
     const upright = ay.y;
     const tr = this.track;
     const P = _v1;
-    for (let i = 0; i < this.hullPoints.length; i++) {
-      const hp = this.hullPoints[i];
-      const isTop = hp.y > this.hullCenterLocal.y;
-      if (isTop && upright > 0.5) continue; // roof can only touch when the car is on its side/roof
+    for (let i = 0; i < this.groundPoints.length; i++) {
+      const hp = this.groundPoints[i];
+      const isTop = hp.y > this.hullCenterLocal.y - 0.05;
+      if (isTop && upright > 0.5) continue; // roof/shoulders only touch when the car is on its side/roof
       P.copy(hp).applyQuaternion(this.q).add(this.p);
       this.hullHint = tr.groundAt(P.x, P.z, _ground, this.hullHint);
       const pen = (_ground.height - P.y) * _ground.normal.y;
       if (pen <= 0) continue;
       _groundN.copy(_ground.normal);
-      this.resolveStatic(P, _groundN, pen, 0.12, 0.45, 'ground');
+      // skid blocks slide easily; bodywork digs in
+      this.resolveStatic(P, _groundN, pen, 0.1, isTop ? 0.55 : 0.28, 'ground');
     }
   }
 

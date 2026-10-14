@@ -1,0 +1,83 @@
+/**
+ * AI validation: an AI car must lap every track cleanly at a sensible pace.
+ * Run: npx vitest run tests/ai.test.ts   (writes .cache/ai-laps.txt)
+ */
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { Matrix4, Vector3 } from 'three';
+import { describe, expect, it } from 'vitest';
+import { AIDriver, profileLapTime } from '../src/ai';
+import { CARS, getCar } from '../src/cars';
+import type { Difficulty, TrackPoint } from '../src/core/contracts';
+import { PhysicsWorld } from '../src/physics';
+import { TRACKS, loadTrackRuntime } from '../src/track';
+
+const DT = 1 / 60;
+
+function lapTest(trackId: string, carId: string, difficulty: Difficulty, laps = 2) {
+  const track = loadTrackRuntime(trackId);
+  const def = getCar(carId);
+  const world = new PhysicsWorld(track);
+  const car = world.addVehicle(def);
+  car.assists = { abs: true, tcs: 'low', esc: false, autoShift: true, steeringAssist: 0, autoClutch: true };
+  const slot = track.grid[0];
+  car.placeOnGround(slot.position, slot.quaternion, 0);
+  car.setTemperatures(1);
+  const ai = new AIDriver(track, def, { difficulty, seed: 1 });
+  const est = profileLapTime(ai.line, ai.profile) / ai.skill.pace;
+  const tp: TrackPoint = { s: 0, d: 0, segment: 0, widthLeft: 0, widthRight: 0, wallLeft: 0, wallRight: 0, tx: 0, tz: 1, lx: 1, lz: 0, y: 0 };
+  let hint = -1;
+  hint = track.project(car.p.x, car.p.z, tp, hint);
+  let prevS = tp.s;
+  let crossings = 0;
+  let lapStart = 0;
+  const lapTimes: number[] = [];
+  let resets = 0;
+  let impacts = 0;
+  let offTrack = 0;
+  let maxSpeed = 0;
+  const limit = est * (laps + 1.5) + 30;
+  while (world.time < limit && lapTimes.length < laps) {
+    ai.update(DT, car.state, world.states, car.controls, true);
+    if (ai.needsReset) {
+      resets++;
+      const f = track.frameAt(track.wrapS(ai.s), { position: new Vector3(), tangent: new Vector3(), normal: new Vector3(), left: new Vector3(), widthLeft: 0, widthRight: 0, wallLeft: 0, wallRight: 0, curvature: 0, bank: 0 });
+      const q = car.q.clone();
+      q.setFromRotationMatrix(new Matrix4().makeBasis(f.left, f.normal, f.tangent));
+      car.placeOnGround(f.position, q, 0);
+      ai.onReset();
+    }
+    world.step(DT);
+    hint = track.project(car.p.x, car.p.z, tp, hint);
+    if (Math.abs(tp.d) > Math.max(tp.widthLeft, tp.widthRight) + 1.5) offTrack += DT;
+    maxSpeed = Math.max(maxSpeed, car.state.speed);
+    let ds = tp.s - prevS;
+    if (ds < -track.length / 2) {
+      crossings++;
+      if (crossings >= 2) lapTimes.push(world.time - lapStart);
+      lapStart = world.time;
+    }
+    prevS = tp.s;
+    impacts = car.state.impactCount;
+  }
+  return { est, lapTimes, resets, impacts, offTrack, maxSpeed: maxSpeed * 3.6, length: track.length };
+}
+
+describe('AI driver', () => {
+  it('laps every track with every car', () => {
+    const rows: string[] = [];
+    const fails: string[] = [];
+    for (const t of TRACKS) {
+      for (const c of CARS) {
+        const r = lapTest(t.info.id, c.id, 'alien', 2);
+        const fmt = (x: number) => `${Math.floor(x / 60)}:${(x % 60).toFixed(2).padStart(5, '0')}`;
+        rows.push(
+          `${t.info.id.padEnd(9)} ${c.id.padEnd(10)} len ${r.length.toFixed(0)} m  est ${fmt(r.est)}  laps ${r.lapTimes.map(fmt).join(' ')}  vmax ${r.maxSpeed.toFixed(0)}  resets ${r.resets}  impacts ${r.impacts}  off ${r.offTrack.toFixed(1)}s`,
+        );
+        if (r.lapTimes.length < 2 || r.resets > 0) fails.push(`${t.info.id}/${c.id}`);
+      }
+    }
+    mkdirSync('.cache', { recursive: true });
+    writeFileSync('.cache/ai-laps.txt', rows.join('\n') + '\n');
+    expect(fails).toEqual([]);
+  }, 600000);
+});

@@ -1,8 +1,8 @@
 import { writeFileSync } from 'node:fs';
 import { Quaternion, Vector3 } from 'three';
 import { it } from 'vitest';
-import { getCar } from '../src/cars';
-import { PhysicsWorld, createFlatTrack } from '../src/physics';
+import { getCar } from '../../src/cars';
+import { PhysicsWorld, createFlatTrack } from '../../src/physics';
 it.skipIf(!process.env.CAR)('probe launch (set CAR=<id>)', () => {
   const def = getCar(process.env.CAR ?? 'vanta-gt');
   const world = new PhysicsWorld(createFlatTrack());
