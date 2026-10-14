@@ -10,7 +10,7 @@ const sandboxPages = Object.fromEntries(
 );
 
 export default defineConfig({
-  server: { host: '127.0.0.1' },
+  server: { host: '127.0.0.1', watch: { ignored: ['**/shots/**', '**/.cache/**', '**/previews/**'] } },
   build: {
     target: 'es2022',
     chunkSizeWarningLimit: 4000,

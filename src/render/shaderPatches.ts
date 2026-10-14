@@ -1,0 +1,312 @@
+/**
+ * Global three.js shader-chunk patches (owner: render).
+ *
+ * Why global: every lit material in the game (track, cars, scenery from other modules) must get
+ * cascaded sun shadows and sky-matched fog without any per-material setup. three compiles materials
+ * from the mutable `ShaderChunk` / `ShaderLib` tables, so patching those once, before the first
+ * material compiles, covers everything.
+ *
+ * 1. Cascaded shadows. The sun is N directional lights, each with its own (nested, texel-snapped,
+ *    focus-centred) shadow map. The patched `lights_fragment_begin` evaluates light 0 only and picks
+ *    the finest cascade that contains the fragment, blending to the next one near the cascade edge
+ *    (outermost fades to "lit"). Filtering is a Vogel-disk PCF with receiver-plane depth bias, which
+ *    removes acne on grazing golden-hour surfaces without peter-panning. With a single shadow-casting
+ *    directional light everything behaves exactly like stock three.js.
+ * 2. Fog. Same exp2 falloff as stock, but the fog colour is looked up per view direction in a small
+ *    horizon table (azimuth relative to the sun), so distant geometry fades into the actual sky colour
+ *    (warm glow toward the sun, cool haze away from it) instead of one flat colour.
+ *
+ * Both degrade to stock behaviour when their uniforms are never set (e.g. a custom ShaderMaterial).
+ */
+import { ShaderChunk, ShaderLib, UniformsLib } from 'three';
+
+/** vec4 xrFog[9]: [0] = (sunAz.x, sunAz.z, 0, enabled), [1..8] = horizon table rgb. */
+export const xrFogUniform = { value: new Float32Array(4 * 9) };
+/** vec4 xrCsm[4]: per cascade (planeGradientClamp, zBias, filterRadiusTexels, tapCount (cascade 0)). */
+export const xrCsmUniform = { value: new Float32Array(4 * 4) };
+
+export const MAX_CASCADES = 4;
+
+const MARK = '__xrPatched';
+
+const FOG_PARS_VERTEX = /* glsl */ `
+#ifdef USE_FOG
+
+	varying float vFogDepth;
+	varying vec3 vFogDir;
+
+#endif
+`;
+
+const FOG_VERTEX = /* glsl */ `
+#ifdef USE_FOG
+
+	vFogDepth = - mvPosition.z;
+	vFogDir = ( vec4( mvPosition.xyz, 0.0 ) * viewMatrix ).xyz;
+
+#endif
+`;
+
+const FOG_PARS_FRAGMENT = /* glsl */ `
+#ifdef USE_FOG
+
+	uniform vec3 fogColor;
+	varying float vFogDepth;
+	varying vec3 vFogDir;
+
+	#ifdef FOG_EXP2
+
+		uniform float fogDensity;
+
+	#else
+
+		uniform float fogNear;
+		uniform float fogFar;
+
+	#endif
+
+	uniform vec4 xrFog[ 9 ];
+
+	vec3 xrFogColor( vec3 dirN ) {
+
+		if ( xrFog[ 0 ].w < 0.5 ) return fogColor;
+
+		float hl = length( dirN.xz );
+		vec2 hn = hl > 1e-4 ? dirN.xz / hl : vec2( 1.0, 0.0 );
+		float cr = abs( hn.x * xrFog[ 0 ].y - hn.y * xrFog[ 0 ].x );
+		float phi = atan( cr, dot( hn, xrFog[ 0 ].xy ) );
+		float t = sqrt( phi / 3.14159265 ) * 7.0;
+		int i = clamp( int( floor( t ) ), 0, 6 );
+		return mix( xrFog[ i + 1 ].rgb, xrFog[ i + 2 ].rgb, clamp( t - float( i ), 0.0, 1.0 ) );
+
+	}
+
+#endif
+`;
+
+const FOG_FRAGMENT = /* glsl */ `
+#ifdef USE_FOG
+
+	#ifdef FOG_EXP2
+
+		float fogFactor = 1.0 - exp( - fogDensity * fogDensity * vFogDepth * vFogDepth );
+
+	#else
+
+		float fogFactor = smoothstep( fogNear, fogFar, vFogDepth );
+
+	#endif
+
+	gl_FragColor.rgb = mix( gl_FragColor.rgb, xrFogColor( normalize( vFogDir ) ), fogFactor );
+
+#endif
+`;
+
+/** Appended to shadowmap_pars_fragment (inside its #ifdef USE_SHADOWMAP). */
+const CSM_FUNCTIONS = /* glsl */ `
+
+	#if NUM_DIR_LIGHT_SHADOWS > 1 && defined( SHADOWMAP_TYPE_PCF )
+
+	#define XR_CSM 1
+
+	uniform vec4 xrCsm[ 4 ];
+
+	float xrCascadeWeight( vec3 s, float fade ) {
+
+		if ( s.z > 1.0 ) return 0.0;
+		float e = min( min( s.x, 1.0 - s.x ), min( s.y, 1.0 - s.y ) );
+		return smoothstep( 0.0, fade, e );
+
+	}
+
+	// receiver-plane depth gradient (z per uv) from screen-space derivatives of the shadow coordinate
+	vec2 xrPlaneGradient( vec3 sx, vec3 sy, float clampTo ) {
+
+		float det = sx.x * sy.y - sx.y * sy.x;
+		vec2 g = vec2( 0.0 );
+		if ( abs( det ) > 1e-14 ) {
+			g = vec2( sy.y * sx.z - sx.y * sy.z, sx.x * sy.z - sy.x * sx.z ) / det;
+			g = clamp( g, vec2( - clampTo ), vec2( clampTo ) );
+		}
+		return g;
+
+	}
+
+	float xrCascadeTap( sampler2DShadow map, vec3 s, vec2 g, vec4 prm, vec2 mapSize ) {
+
+		vec2 texel = 1.0 / mapSize;
+		float phi = interleavedGradientNoise( gl_FragCoord.xy ) * PI2;
+		int taps = int( xrCsm[ 0 ].w );
+		if ( taps <= 0 ) return 1.0;
+		float sum = 0.0;
+		for ( int i = 0; i < 8; i ++ ) {
+			if ( i >= taps ) break;
+			vec2 o = vogelDiskSample( i, taps, phi ) * prm.z * texel;
+			sum += textureLod( map, vec3( s.xy + o, s.z - prm.y + dot( g, o ) ), 0.0 );
+		}
+		return sum / float( taps );
+
+	}
+
+	float xrCascadeShadow() {
+
+		vec4 c0 = vDirectionalShadowCoord[ 0 ];
+		vec3 s0 = c0.xyz / c0.w;
+		vec2 g0 = xrPlaneGradient( dFdx( s0 ), dFdy( s0 ), xrCsm[ 0 ].x );
+		#if NUM_DIR_LIGHT_SHADOWS > 1
+		vec4 c1 = vDirectionalShadowCoord[ 1 ];
+		vec3 s1 = c1.xyz / c1.w;
+		vec2 g1 = xrPlaneGradient( dFdx( s1 ), dFdy( s1 ), xrCsm[ 1 ].x );
+		#endif
+		#if NUM_DIR_LIGHT_SHADOWS > 2
+		vec4 c2 = vDirectionalShadowCoord[ 2 ];
+		vec3 s2 = c2.xyz / c2.w;
+		vec2 g2 = xrPlaneGradient( dFdx( s2 ), dFdy( s2 ), xrCsm[ 2 ].x );
+		#endif
+		#if NUM_DIR_LIGHT_SHADOWS > 3
+		vec4 c3 = vDirectionalShadowCoord[ 3 ];
+		vec3 s3 = c3.xyz / c3.w;
+		vec2 g3 = xrPlaneGradient( dFdx( s3 ), dFdy( s3 ), xrCsm[ 3 ].x );
+		#endif
+
+		float result = 0.0;
+		float remaining = 1.0;
+		float w = xrCascadeWeight( s0, 0.08 );
+		if ( w > 0.0 ) {
+			result += remaining * w * xrCascadeTap( directionalShadowMap[ 0 ], s0, g0, xrCsm[ 0 ], directionalLightShadows[ 0 ].shadowMapSize );
+			remaining *= 1.0 - w;
+		}
+		#if NUM_DIR_LIGHT_SHADOWS > 1
+		if ( remaining > 0.004 ) {
+			w = xrCascadeWeight( s1, 0.08 );
+			if ( w > 0.0 ) {
+				result += remaining * w * xrCascadeTap( directionalShadowMap[ 1 ], s1, g1, xrCsm[ 1 ], directionalLightShadows[ 1 ].shadowMapSize );
+				remaining *= 1.0 - w;
+			}
+		}
+		#endif
+		#if NUM_DIR_LIGHT_SHADOWS > 2
+		if ( remaining > 0.004 ) {
+			w = xrCascadeWeight( s2, 0.08 );
+			if ( w > 0.0 ) {
+				result += remaining * w * xrCascadeTap( directionalShadowMap[ 2 ], s2, g2, xrCsm[ 2 ], directionalLightShadows[ 2 ].shadowMapSize );
+				remaining *= 1.0 - w;
+			}
+		}
+		#endif
+		#if NUM_DIR_LIGHT_SHADOWS > 3
+		if ( remaining > 0.004 ) {
+			w = xrCascadeWeight( s3, 0.08 );
+			if ( w > 0.0 ) {
+				result += remaining * w * xrCascadeTap( directionalShadowMap[ 3 ], s3, g3, xrCsm[ 3 ], directionalLightShadows[ 3 ].shadowMapSize );
+				remaining *= 1.0 - w;
+			}
+		}
+		#endif
+		result += remaining;
+		return mix( 1.0, result, directionalLightShadows[ 0 ].shadowIntensity );
+
+	}
+
+	#endif
+`;
+
+const DIR_LIGHT_BLOCK = /* glsl */ `#if ( NUM_DIR_LIGHTS > 0 ) && defined( RE_Direct )
+
+	DirectionalLight directionalLight;
+	#if defined( USE_SHADOWMAP ) && NUM_DIR_LIGHT_SHADOWS > 0
+	DirectionalLightShadow directionalLightShadow;
+	#endif
+
+	#pragma unroll_loop_start
+	for ( int i = 0; i < NUM_DIR_LIGHTS; i ++ ) {
+
+		#if defined( USE_SHADOWMAP ) && defined( XR_CSM ) && ( UNROLLED_LOOP_INDEX > 0 ) && ( UNROLLED_LOOP_INDEX < NUM_DIR_LIGHT_SHADOWS )
+		#else
+
+		directionalLight = directionalLights[ i ];
+
+		getDirectionalLightInfo( directionalLight, directLight );
+
+		#if defined( USE_SHADOWMAP ) && ( UNROLLED_LOOP_INDEX < NUM_DIR_LIGHT_SHADOWS )
+		#if defined( XR_CSM )
+		directLight.color *= ( directLight.visible && receiveShadow ) ? xrCascadeShadow() : 1.0;
+		#else
+		directionalLightShadow = directionalLightShadows[ i ];
+		directLight.color *= ( directLight.visible && receiveShadow ) ? getShadow( directionalShadowMap[ i ], directionalLightShadow.shadowMapSize, directionalLightShadow.shadowIntensity, directionalLightShadow.shadowBias, directionalLightShadow.shadowRadius, vDirectionalShadowCoord[ i ] ) : 1.0;
+		#endif
+		#endif
+
+		RE_Direct( directLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight );
+
+		#endif
+
+	}
+	#pragma unroll_loop_end
+
+#endif`;
+
+export interface PatchResult {
+  csm: boolean;
+  fog: boolean;
+}
+
+let result: PatchResult | null = null;
+
+/** Idempotent. Call before any material is compiled. */
+export function installShaderPatches(): PatchResult {
+  if (result) return result;
+  const chunks = ShaderChunk as unknown as Record<string, string>;
+  if ((chunks as Record<string, unknown>)[MARK]) {
+    result = { csm: true, fog: true };
+    return result;
+  }
+
+  let csm = false;
+  let fog = false;
+
+  // ---- cascaded shadows -------------------------------------------------------------------
+  const pars = chunks.shadowmap_pars_fragment;
+  const begin = chunks.lights_fragment_begin;
+  const blockRe = /#if \( NUM_DIR_LIGHTS > 0 \) && defined\( RE_Direct \)[\s\S]*?#pragma unroll_loop_end\s*#endif/;
+  const lastEndif = typeof pars === 'string' ? pars.lastIndexOf('#endif') : -1;
+  if (typeof begin === 'string' && blockRe.test(begin) && lastEndif > 0) {
+    chunks.lights_fragment_begin = begin.replace(blockRe, DIR_LIGHT_BLOCK);
+    chunks.shadowmap_pars_fragment = pars.slice(0, lastEndif) + CSM_FUNCTIONS + '\n' + pars.slice(lastEndif);
+    csm = true;
+  } else {
+    console.warn('[render] cascaded shadow patch skipped: three.js shader chunks differ from the expected layout');
+  }
+
+  // ---- fog --------------------------------------------------------------------------------
+  if (
+    typeof chunks.fog_vertex === 'string' &&
+    chunks.fog_vertex.includes('vFogDepth') &&
+    typeof chunks.fog_fragment === 'string' &&
+    chunks.fog_fragment.includes('fogColor')
+  ) {
+    chunks.fog_pars_vertex = FOG_PARS_VERTEX;
+    chunks.fog_vertex = FOG_VERTEX;
+    chunks.fog_pars_fragment = FOG_PARS_FRAGMENT;
+    chunks.fog_fragment = FOG_FRAGMENT;
+    fog = true;
+  } else {
+    console.warn('[render] fog patch skipped: unexpected fog chunks');
+  }
+
+  // ---- uniforms: make them part of every built-in material's uniform table -----------------
+  const lib = ShaderLib as unknown as Record<string, { uniforms?: Record<string, unknown> }>;
+  for (const key of Object.keys(lib)) {
+    const u = lib[key].uniforms;
+    if (!u) continue;
+    if (fog && 'fogColor' in u) u.xrFog = xrFogUniform;
+    if (csm && 'directionalShadowMatrix' in u) u.xrCsm = xrCsmUniform;
+  }
+  const libU = UniformsLib as unknown as Record<string, Record<string, unknown>>;
+  if (fog && libU.fog) libU.fog.xrFog = xrFogUniform;
+  if (csm && libU.lights) libU.lights.xrCsm = xrCsmUniform;
+
+  chunks[MARK] = '1';
+  result = { csm, fog };
+  return result;
+}

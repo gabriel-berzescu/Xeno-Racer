@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Xeno-Racer — render noise debug</title>
+    <style>
+      html, body { margin: 0; background: #202428; color: #ddd; font: 12px system-ui; }
+      canvas { margin: 6px; border: 1px solid #555; background: #7a8794; }
+      div { display: inline-block; }
+    </style>
+  </head>
+  <body>
+    <script>if (navigator.webdriver) { const N = window.WebSocket; const S = function (u, p) { const h = p === "vite-hmr" || (Array.isArray(p) && p.indexOf("vite-hmr") >= 0); if (!h) return new N(u, p); return { readyState: 0, addEventListener() {}, removeEventListener() {}, send() {}, close() {}, dispatchEvent() { return true; } }; }; S.prototype = N.prototype; S.CONNECTING = 0; S.OPEN = 1; S.CLOSING = 2; S.CLOSED = 3; window.WebSocket = S; }</script>
+    <script type="module">
+      import { makeSmokeAtlas, makeCloudNoise } from '/src/render/noise.ts';
+      function show(label, data, size, channel, scale = 2, over = null) {
+        const c = document.createElement('canvas');
+        c.width = size; c.height = size;
+        c.style.width = size * scale + 'px'; c.style.height = size * scale + 'px';
+        const ctx = c.getContext('2d');
+        const img = ctx.createImageData(size, size);
+        for (let i = 0; i < size * size; i++) {
+          const v = channel === 'rgb' ? null : data[i * 4 + channel];
+          if (channel === 'rgb') { img.data[i*4] = data[i*4]; img.data[i*4+1] = data[i*4+1]; img.data[i*4+2] = data[i*4+2]; }
+          else { img.data[i*4] = img.data[i*4+1] = img.data[i*4+2] = v; }
+          img.data[i*4+3] = 255;
+        }
+        ctx.putImageData(img, 0, 0);
+        const d = document.createElement('div');
+        d.innerHTML = '<div>' + label + '</div>';
+        d.appendChild(c);
+        document.body.appendChild(d);
+      }
+      const atlas = makeSmokeAtlas(256);
+      show('smoke atlas alpha (density)', atlas, 256, 3, 2);
+      show('smoke atlas G (detail)', atlas, 256, 1, 2);
+      show('smoke atlas B (shape)', atlas, 256, 2, 2);
+      const cloud = makeCloudNoise(256);
+      show('cloud R', cloud, 256, 0, 1);
+      show('cloud G', cloud, 256, 1, 1);
+      show('cloud B', cloud, 256, 2, 1);
+      show('cloud A', cloud, 256, 3, 1);
+      window.__READY__ = true;
+    </script>
+  </body>
+</html>
