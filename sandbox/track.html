@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Xeno-Racer — track sandbox</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #0b0c10; overflow: hidden; font: 12px/1.3 system-ui, sans-serif; color: #eef0f3; }
+      #c { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+      #hud { position: fixed; left: 10px; top: 8px; text-shadow: 0 1px 3px #000; pointer-events: none; white-space: pre; opacity: 0.85; }
+      #map { position: fixed; inset: 0; width: 100%; height: 100%; display: none; background: #10151a; }
+    </style>
+  </head>
+  <body>
+    <canvas id="c"></canvas>
+    <canvas id="map"></canvas>
+    <div id="hud"></div>
+    <script type="module" src="./track/main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,430 @@
+/**
+ * Procedural foliage textures: leaf-cluster / needle-spray cut-outs, bark, and whole-tree billboards.
+ *
+ * Everything is uploaded as un-premultiplied RGBA DataTextures: the colour of fully transparent texels is the
+ * tile's average leaf colour, so mip levels never turn grey or dark at the cut-out edges (canvas textures
+ * premultiply, which is what made distant canopies look frosty).
+ */
+import * as THREE from 'three';
+import { mulberry32 } from '../math';
+
+export type FoliageKind = 'broad' | 'pine' | 'poplar';
+
+export const TILE = 256;
+/** Atlas layout: [cluster A | cluster B | bark]. */
+export const TILES = 3;
+
+/** u range of tile i inside the atlas, inset so bilinear taps never reach the neighbour. */
+export function tileU(i: number, inset = 0.03): [number, number] {
+  const w = 1 / TILES;
+  return [i * w + w * inset, (i + 1) * w - w * inset];
+}
+
+type Pal = { dark: string[]; mid: string[]; light: string[]; hi: string[]; rib: string };
+
+const PAL: Record<FoliageKind, Pal> = {
+  broad: {
+    dark: ['#10230a', '#142a0c', '#192f0f'],
+    mid: ['#1f4313', '#254a14', '#2b5117'],
+    light: ['#355a1c', '#3d6320', '#466b23'],
+    hi: ['#587a27', '#648329', '#6f8630'],
+    rib: 'rgba(190,215,120,0.16)',
+  },
+  poplar: {
+    dark: ['#183410', '#1c3c12', '#224414'],
+    mid: ['#2c5419', '#335c1b', '#3a661e'],
+    light: ['#46712a', '#507d2c', '#5a8832'],
+    hi: ['#6e9433', '#7aa03a', '#86a941'],
+    rib: 'rgba(215,235,160,0.18)',
+  },
+  pine: {
+    dark: ['#091c10', '#0b2213', '#0d2916'],
+    mid: ['#102f19', '#133620', '#173e23'],
+    light: ['#1b4426', '#204c2a', '#265531'],
+    hi: ['#33603c', '#3b6a43', '#44744b'],
+    rib: 'rgba(0,0,0,0)',
+  },
+};
+
+function mk(w: number, h: number): [HTMLCanvasElement, CanvasRenderingContext2D] {
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  return [c, c.getContext('2d')!];
+}
+
+/** Canvas (tiles side by side) -> un-premultiplied RGBA DataTexture with dilated colours and a mip chain. */
+function toDataTexture(c: HTMLCanvasElement, tiles: number, aniso: number): THREE.DataTexture {
+  const w = c.width;
+  const h = c.height;
+  const src = c.getContext('2d')!.getImageData(0, 0, w, h).data;
+  const out = new Uint8Array(w * h * 4);
+  const tw = w / tiles;
+  for (let t = 0; t < tiles; t++) {
+    let sr = 0;
+    let sg = 0;
+    let sb = 0;
+    let n = 0;
+    for (let y = 0; y < h; y++) {
+      for (let x = t * tw; x < (t + 1) * tw; x++) {
+        const i = (y * w + x) * 4;
+        if (src[i + 3] > 200) {
+          sr += src[i];
+          sg += src[i + 1];
+          sb += src[i + 2];
+          n++;
+        }
+      }
+    }
+    const mr = n ? sr / n : 60;
+    const mg = n ? sg / n : 90;
+    const mb = n ? sb / n : 40;
+    for (let y = 0; y < h; y++) {
+      for (let x = t * tw; x < (t + 1) * tw; x++) {
+        const i = (y * w + x) * 4;
+        const j = ((h - 1 - y) * w + x) * 4; // flip rows: v = 0 is the bottom, like canvas textures
+        const a = src[i + 3];
+        const k = Math.min(1, a / 72); // rim pixels: un-premultiplied colours are noisy, ease toward the mean
+        out[j] = mr + (src[i] - mr) * k;
+        out[j + 1] = mg + (src[i + 1] - mg) * k;
+        out[j + 2] = mb + (src[i + 2] - mb) * k;
+        out[j + 3] = a;
+      }
+    }
+  }
+  const tex = new THREE.DataTexture(out, w, h, THREE.RGBAFormat);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.generateMipmaps = true;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.anisotropy = aniso;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+// ── leaves & needles ─────────────────────────────────────────────────────────────
+
+function leaf(g: CanvasRenderingContext2D, x: number, y: number, ang: number, len: number, wid: number, fill: string, rib: string): void {
+  g.save();
+  g.translate(x, y);
+  g.rotate(ang);
+  g.beginPath();
+  g.moveTo(0, 0);
+  g.bezierCurveTo(len * 0.2, -wid, len * 0.7, -wid * 0.8, len, 0);
+  g.bezierCurveTo(len * 0.7, wid * 0.8, len * 0.2, wid, 0, 0);
+  g.closePath();
+  g.fillStyle = fill;
+  g.fill();
+  g.strokeStyle = rib;
+  g.lineWidth = Math.max(0.7, wid * 0.09);
+  g.beginPath();
+  g.moveTo(len * 0.06, 0);
+  g.lineTo(len * 0.86, 0);
+  g.stroke();
+  g.restore();
+}
+
+/** A branchlet of leaves: irregular lumpy silhouette, dense dark interior, lighter leaf tops. */
+function broadCluster(g: CanvasRenderingContext2D, ox: number, rnd: () => number, pal: Pal, scale: number): void {
+  g.save();
+  g.beginPath();
+  g.rect(ox, 0, TILE, TILE);
+  g.clip();
+  const cx = ox + TILE / 2;
+  const cy = TILE / 2;
+  const circles: [number, number, number][] = [];
+  const K = 9 + ((rnd() * 4) | 0);
+  for (let k = 0; k < K; k++) {
+    const a = rnd() * Math.PI * 2;
+    const r = Math.sqrt(rnd()) * 58;
+    circles.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r * 0.9, 20 + rnd() * 18]);
+  }
+  const pick = (): [number, number, number] | null => {
+    for (let tries = 0; tries < 24; tries++) {
+      const x = cx + (rnd() * 2 - 1) * 108;
+      const y = cy + (rnd() * 2 - 1) * 108;
+      for (const c of circles) {
+        const dx = x - c[0];
+        const dy = y - c[1];
+        if (dx * dx + dy * dy < c[2] * c[2]) return [x, y, Math.atan2(dy, dx)];
+      }
+    }
+    return null;
+  };
+  const passes: [string[], number, number][] = [
+    [pal.dark, 300, 1.0],
+    [pal.mid, 150, 0.95],
+    [pal.light, 95, 0.9],
+    [pal.hi, 30, 0.8],
+  ];
+  for (const [cols, count, sz] of passes) {
+    for (let i = 0; i < count; i++) {
+      const p = pick();
+      if (!p) continue;
+      const len = (19 + rnd() * 13) * sz * scale;
+      const wid = len * (0.4 + rnd() * 0.14);
+      leaf(g, p[0], p[1], p[2] + (rnd() - 0.5) * 1.7, len, wid, cols[(rnd() * cols.length) | 0], pal.rib);
+    }
+  }
+  g.restore();
+}
+
+/** A fir branchlet: central twig along +x with drooping herringbone needles (tip at the right). */
+function pineFrond(g: CanvasRenderingContext2D, ox: number, rnd: () => number, pal: Pal, tilt: number): void {
+  g.save();
+  g.beginPath();
+  g.rect(ox, 0, TILE, TILE);
+  g.clip();
+  const x0 = ox + 8;
+  const x1 = ox + TILE - 10;
+  const cy = TILE / 2;
+  const twigY = (t: number) => cy + Math.sin(t * Math.PI) * tilt * -10 + t * tilt * 6;
+  g.lineCap = 'round';
+  // twig
+  g.strokeStyle = '#2b1f16';
+  g.lineWidth = 3.2;
+  g.beginPath();
+  g.moveTo(x0, twigY(0));
+  for (let k = 1; k <= 12; k++) g.lineTo(x0 + ((x1 - x0) * k) / 12, twigY(k / 12));
+  g.stroke();
+  const passes: [string[], number, number][] = [
+    [pal.dark, 3.6, 1.0],
+    [pal.mid, 2.6, 0.92],
+    [pal.light, 1.9, 0.8],
+    [pal.hi, 1.5, 0.52],
+  ];
+  const N = 78;
+  for (const [cols, width, lenMul] of passes) {
+    g.lineWidth = width;
+    for (let i = 0; i < N; i++) {
+      const t = (i + rnd()) / N;
+      const bx = x0 + (x1 - x0) * t;
+      const by = twigY(t);
+      const taper = 1 - Math.pow(t, 1.25) * 0.82;
+      for (const side of [-1, 1]) {
+        if (lenMul < 0.7 && rnd() < 0.55) continue;
+        const L = (86 * taper + 8) * lenMul * (0.78 + rnd() * 0.42);
+        const ang = side * (1.12 - 0.5 * t) + (rnd() - 0.5) * 0.34 + (tilt * 0.12);
+        // needles sweep forward (toward the tip): direction = (cos a, sin a) with a measured from +x
+        const ex = bx + Math.cos(ang) * L;
+        const ey = by + Math.sin(ang) * L;
+        g.strokeStyle = cols[(rnd() * cols.length) | 0];
+        g.beginPath();
+        g.moveTo(bx, by);
+        g.quadraticCurveTo(bx + Math.cos(ang * 0.7) * L * 0.55, by + Math.sin(ang * 0.7) * L * 0.55 + side * 3, ex, ey + 6 * Math.abs(side));
+        g.stroke();
+      }
+    }
+  }
+  g.restore();
+}
+
+function barkTile(g: CanvasRenderingContext2D, ox: number, rnd: () => number, kind: FoliageKind): void {
+  g.fillStyle = kind === 'pine' ? '#3f2d22' : kind === 'poplar' ? '#4f4a3f' : '#35291e';
+  g.fillRect(ox, 0, TILE, TILE);
+  for (let i = 0; i < 520; i++) {
+    const x = ox + 2 + rnd() * (TILE - 4);
+    const y = rnd() * TILE;
+    const l = 14 + rnd() * 60;
+    const v = Math.floor(18 + rnd() * 52);
+    g.fillStyle = kind === 'poplar' && rnd() < 0.12 ? '#1d1b18' : `rgba(${v},${Math.floor(v * 0.78)},${Math.floor(v * 0.55)},0.55)`;
+    g.fillRect(x, y, 1 + rnd() * 3, l);
+  }
+}
+
+/** Leaf-cluster / needle-spray atlas: [cluster A | cluster B | bark]. */
+export function makeLeafAtlas(kind: FoliageKind, aniso = 8): THREE.DataTexture {
+  const [c, g] = mk(TILE * TILES, TILE);
+  g.clearRect(0, 0, c.width, c.height);
+  const seed = kind === 'broad' ? 11 : kind === 'pine' ? 23 : 37;
+  const rnd = mulberry32(seed);
+  const pal = PAL[kind];
+  if (kind === 'pine') {
+    pineFrond(g, 0, rnd, pal, 0.6);
+    pineFrond(g, TILE, rnd, pal, -0.5);
+  } else {
+    broadCluster(g, 0, rnd, pal, kind === 'poplar' ? 0.8 : 1);
+    broadCluster(g, TILE, rnd, pal, kind === 'poplar' ? 0.8 : 1);
+  }
+  barkTile(g, TILE * 2, rnd, kind);
+  return toDataTexture(c, TILES, aniso);
+}
+
+// ── billboards ───────────────────────────────────────────────────────────────────
+
+/** Billboard tiles are square (256 px = one tree height); the quad width per species is BB_WIDTH (in tree heights). */
+export const BB_T = 256;
+export const BB_WIDTH = { broad: 1.0, poplar: 0.62, pine: 0.7 } as const;
+
+function dab(g: CanvasRenderingContext2D, x: number, y: number, r: number, fill: string, rnd: () => number): void {
+  g.fillStyle = fill;
+  g.beginPath();
+  g.ellipse(x, y, r * (1 + rnd() * 0.5), r * (0.6 + rnd() * 0.4), rnd() * Math.PI, 0, Math.PI * 2);
+  g.fill();
+}
+
+/** Run `draw` in design space: x in [0, 256 * width], y in [0, 256] (y down), mapped onto one square atlas tile. */
+function inTile(g: CanvasRenderingContext2D, tile: number, width: number, draw: (dw: number) => void): void {
+  g.save();
+  g.beginPath();
+  g.rect(tile * BB_T, 0, BB_T, BB_T);
+  g.clip();
+  g.translate(tile * BB_T, 0);
+  g.scale(1 / width, 1);
+  draw(BB_T * width);
+  g.restore();
+}
+
+function broadBillboard(g: CanvasRenderingContext2D, dw: number, rnd: () => number, pal: Pal, lobes: [number, number, number][], trunkTop: number): void {
+  g.fillStyle = '#3a2b1e';
+  g.fillRect(dw / 2 - 5, trunkTop, 10, BB_T - trunkTop);
+  g.fillStyle = '#291e15';
+  g.fillRect(dw / 2 + 1, trunkTop, 4, BB_T - trunkTop);
+  // lobes back to front (lower ones first so upper lobes overlap them)
+  const sorted = [...lobes].sort((a, b) => b[1] - a[1]);
+  for (const [lx, ly, lr] of sorted) {
+    const gr = g.createRadialGradient(lx - lr * 0.3, ly - lr * 0.38, lr * 0.1, lx, ly, lr * 1.05);
+    gr.addColorStop(0, pal.light[1]);
+    gr.addColorStop(0.55, pal.mid[1]);
+    gr.addColorStop(1, pal.dark[0]);
+    g.fillStyle = gr;
+    g.beginPath();
+    g.arc(lx, ly, lr, 0, Math.PI * 2);
+    g.fill();
+    // leaf speckle: light on the upper-left, dark on the lower-right, plus a ragged rim of leaves
+    const n = Math.floor(lr * 3.2);
+    for (let i = 0; i < n; i++) {
+      const a = rnd() * Math.PI * 2;
+      const r = Math.sqrt(rnd()) * lr * 1.04;
+      const px = lx + Math.cos(a) * r;
+      const py = ly + Math.sin(a) * r;
+      const lit = (-Math.cos(a) * 0.6 - Math.sin(a) * 0.8) * (0.4 + 0.6 * (r / lr)) + (rnd() - 0.5) * 0.5;
+      const pool = lit > 0.3 ? pal.hi : lit > -0.05 ? pal.light : lit > -0.4 ? pal.mid : pal.dark;
+      dab(g, px, py, 2.6 + rnd() * 3.4, pool[(rnd() * pool.length) | 0], rnd);
+    }
+  }
+}
+
+function pineBillboard(g: CanvasRenderingContext2D, dw: number, rnd: () => number, pal: Pal): void {
+  const cx = dw / 2;
+  g.fillStyle = '#33261b';
+  g.fillRect(cx - 4, 200, 8, 56);
+  const tiers = 11;
+  for (let i = 0; i < tiers; i++) {
+    const t = i / (tiers - 1);
+    const yTop = 12 + t * 168;
+    const w = 9 + (1 - Math.pow(1 - t, 0.9)) * 60;
+    const h = 30 + t * 22;
+    const gr = g.createLinearGradient(cx - w, 0, cx + w, 0);
+    gr.addColorStop(0, pal.mid[1]);
+    gr.addColorStop(0.5, pal.dark[1]);
+    gr.addColorStop(1, pal.dark[0]);
+    g.fillStyle = gr;
+    g.beginPath();
+    g.moveTo(cx, yTop - 8);
+    const steps = 10;
+    g.lineTo(cx + w, yTop + h * 0.85);
+    for (let k = steps; k >= 0; k--) {
+      const u = k / steps;
+      g.lineTo(cx - w + 2 * w * u, yTop + h * 0.92 - rnd() * 9 + (k % 2) * 8);
+    }
+    g.lineTo(cx - w, yTop + h * 0.85);
+    g.closePath();
+    g.fill();
+    const n = Math.floor(18 + w * 0.7);
+    for (let k = 0; k < n; k++) {
+      const px = cx + (rnd() * 2 - 1) * w * 0.96;
+      const py = yTop + 4 + rnd() * h * 0.9;
+      const lit = (-(px - cx) / w) * 0.7 + (1 - (py - yTop) / h) * 0.35 + (rnd() - 0.5) * 0.4;
+      const pool = lit > 0.45 ? pal.hi : lit > 0.0 ? pal.light : pal.mid;
+      dab(g, px, py, 2 + rnd() * 2.6, pool[(rnd() * pool.length) | 0], rnd);
+    }
+  }
+}
+
+/** Atlas of whole-tree silhouettes: [broad | poplar | pine], square tiles, unit tree height = 256 px. */
+export function makeBillboardAtlas(aniso = 4): THREE.DataTexture {
+  const [c, g] = mk(BB_T * 3, BB_T);
+  g.clearRect(0, 0, c.width, c.height);
+  const rnd = mulberry32(777);
+  inTile(g, 0, BB_WIDTH.broad, (dw) =>
+    broadBillboard(
+      g,
+      dw,
+      rnd,
+      PAL.broad,
+      [
+        [128, 94, 46],
+        [80, 108, 40],
+        [176, 108, 40],
+        [100, 62, 38],
+        [156, 62, 38],
+        [128, 40, 30],
+        [60, 132, 28],
+        [196, 132, 28],
+        [128, 128, 36],
+      ],
+      150,
+    ),
+  );
+  inTile(g, 1, BB_WIDTH.poplar, (dw) => {
+    const c0 = dw / 2;
+    broadBillboard(
+      g,
+      dw,
+      rnd,
+      PAL.poplar,
+      [
+        [c0, 160, 27],
+        [c0 - 1, 126, 31],
+        [c0 + 2, 92, 31],
+        [c0, 58, 27],
+        [c0, 28, 19],
+        [c0 - 20, 140, 20],
+        [c0 + 21, 108, 20],
+        [c0 - 20, 76, 19],
+        [c0 + 19, 46, 17],
+      ],
+      190,
+    );
+  });
+  inTile(g, 2, BB_WIDTH.pine, (dw) => pineBillboard(g, dw, rnd, PAL.pine));
+  return toDataTexture(c, 3, aniso);
+}
+
+// ── grass tufts ──────────────────────────────────────────────────────────────────
+
+/**
+ * A clump of grass blades on a transparent background. The texture is a grey-scale shade map (dark at the base,
+ * bright at the tips): the tuft material takes its colour from the ground shader so tufts blend into the terrain.
+ */
+export function makeTuftTexture(aniso = 8): THREE.DataTexture {
+  const S = 128;
+  const [c, g] = mk(S, S);
+  g.clearRect(0, 0, S, S);
+  const rnd = mulberry32(4242);
+  const blades = 26;
+  for (let i = 0; i < blades; i++) {
+    const t = (i + rnd()) / blades;
+    const bx = S * (0.5 + (t - 0.5) * 0.62) + (rnd() - 0.5) * 6;
+    const h = S * (0.5 + 0.46 * (1 - Math.abs(t - 0.5) * 1.4) * (0.7 + 0.3 * rnd()));
+    const lean = (t - 0.5) * 34 + (rnd() - 0.5) * 20;
+    const w = 3.6 + rnd() * 2.6;
+    const tipX = bx + lean * 1.2;
+    const tipY = S - h;
+    const gr = g.createLinearGradient(0, S, 0, tipY);
+    const lo = 70 + ((rnd() * 40) | 0);
+    const hi = 205 + ((rnd() * 50) | 0);
+    gr.addColorStop(0, `rgb(${lo},${lo},${lo})`);
+    gr.addColorStop(1, `rgb(${hi},${hi},${hi})`);
+    g.fillStyle = gr;
+    g.beginPath();
+    g.moveTo(bx - w, S);
+    g.quadraticCurveTo(bx - w * 0.5 + lean * 0.3, S - h * 0.55, tipX, tipY);
+    g.quadraticCurveTo(bx + w * 0.5 + lean * 0.5, S - h * 0.5, bx + w, S);
+    g.closePath();
+    g.fill();
+  }
+  return toDataTexture(c, 1, aniso);
+}

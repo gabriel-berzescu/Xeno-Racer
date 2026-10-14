@@ -1,0 +1,494 @@
+/**
+ * Track runtime tests (headless). Run: npx vitest run tests/track.test.ts
+ */
+import { Quaternion, Vector3 } from 'three';
+import { describe, expect, it } from 'vitest';
+import type { GroundSample, TrackFrame, TrackPoint } from '../src/core/contracts';
+import { TRACKS, loadTrackRuntime } from '../src/track';
+import type { TrackRuntimeImpl } from '../src/track';
+import { mulberry32 } from '../src/track/math';
+
+// ── per-track design limits ────────────────────────────────────────────────────
+interface Limits {
+  minRadius: number;
+  maxGrade: number;
+  minCrestR: number;
+  minSagR: number;
+  maxBankDeg: number;
+  elev: [number, number];
+  length: [number, number];
+  /** Largest height step per 0.5 m allowed when walking away from the barrier (terrain steepness). */
+  maxFieldStep: number;
+}
+const LIMITS: Record<string, Limits> = {
+  aurelia: { minRadius: 29, maxGrade: 0.09, minCrestR: 450, minSagR: 200, maxBankDeg: 12, elev: [22, 38], length: [4400, 5100], maxFieldStep: 0.75 },
+  kuroyama: { minRadius: 11, maxGrade: 0.11, minCrestR: 250, minSagR: 120, maxBankDeg: 9, elev: [60, 400], length: [5000, 6200], maxFieldStep: 1.6 },
+};
+
+function newGround(): GroundSample {
+  return { height: 0, normal: new Vector3(), surface: 'asphalt' };
+}
+function newPoint(): TrackPoint {
+  return { s: 0, d: 0, segment: 0, widthLeft: 0, widthRight: 0, wallLeft: 0, wallRight: 0, tx: 0, tz: 0, lx: 0, lz: 0, y: 0 };
+}
+function newFrame(): TrackFrame {
+  return {
+    position: new Vector3(),
+    tangent: new Vector3(),
+    normal: new Vector3(),
+    left: new Vector3(),
+    widthLeft: 0,
+    widthRight: 0,
+    wallLeft: 0,
+    wallRight: 0,
+    curvature: 0,
+    bank: 0,
+  };
+}
+
+// First load of each track happens here so the timing is a cold one.
+const loadMs: Record<string, number> = {};
+for (const t of TRACKS) {
+  const t0 = performance.now();
+  loadTrackRuntime(t.info.id);
+  loadMs[t.info.id] = performance.now() - t0;
+}
+
+describe.each(TRACKS.map((t) => t.info.id))('track %s', (id) => {
+  const rt = loadTrackRuntime(id) as TrackRuntimeImpl;
+  const lim = LIMITS[id];
+  const N = rt.count;
+  const h = rt.spacing;
+  const wrapDiff = (a: number, b: number) => {
+    let d = a - b;
+    while (d > rt.length / 2) d -= rt.length;
+    while (d < -rt.length / 2) d += rt.length;
+    return d;
+  };
+
+  it('loads headless in < 300 ms', () => {
+    console.info(`[track:${id}] cold load ${loadMs[id].toFixed(0)} ms, ${rt.length.toFixed(1)} m, ${rt.count} samples`);
+    expect(loadMs[id]).toBeLessThan(300);
+  });
+
+  it('has a closed, evenly sampled centerline and sane metadata', () => {
+    expect(rt.info.id).toBe(id);
+    expect(rt.spacing).toBeLessThanOrEqual(1.0001);
+    expect(rt.spacing * rt.count).toBeCloseTo(rt.length, 6);
+    expect(rt.length).toBeGreaterThan(lim.length[0]);
+    expect(rt.length).toBeLessThan(lim.length[1]);
+    expect(Math.abs(rt.info.lengthHint - rt.length) / rt.length).toBeLessThan(0.04);
+    for (const a of [rt.px, rt.py, rt.pz, rt.tx, rt.ty, rt.tz, rt.nx, rt.ny, rt.nz, rt.lx, rt.ly, rt.lz, rt.widthLeft, rt.widthRight, rt.wallLeft, rt.wallRight, rt.curvature, rt.bank]) {
+      expect(a.length).toBe(N + 1);
+      expect(a[N]).toBeCloseTo(a[0], 3);
+    }
+    // evenly spaced
+    for (let i = 0; i < N; i += 7) {
+      const d = Math.hypot(rt.px[i + 1] - rt.px[i], rt.pz[i + 1] - rt.pz[i]);
+      expect(d).toBeGreaterThan(h * 0.97);
+      expect(d).toBeLessThan(h * 1.001);
+    }
+    expect(rt.sectors[0]).toBeGreaterThan(0);
+    expect(rt.sectors[1]).toBeGreaterThan(rt.sectors[0]);
+    expect(rt.sectors[1]).toBeLessThan(rt.length);
+    for (let i = 0; i < N; i += 5) {
+      expect(rt.px[i]).toBeGreaterThanOrEqual(rt.bounds.minX);
+      expect(rt.px[i]).toBeLessThanOrEqual(rt.bounds.maxX);
+      expect(rt.pz[i]).toBeGreaterThanOrEqual(rt.bounds.minZ);
+      expect(rt.pz[i]).toBeLessThanOrEqual(rt.bounds.maxZ);
+      expect(rt.py[i]).toBeGreaterThanOrEqual(rt.bounds.minY - 1e-3);
+      expect(rt.py[i]).toBeLessThanOrEqual(rt.bounds.maxY + 1e-3);
+    }
+    // frames are orthonormal
+    for (let i = 0; i < N; i += 11) {
+      const t = new Vector3(rt.tx[i], rt.ty[i], rt.tz[i]);
+      const n = new Vector3(rt.nx[i], rt.ny[i], rt.nz[i]);
+      const l = new Vector3(rt.lx[i], rt.ly[i], rt.lz[i]);
+      expect(t.length()).toBeCloseTo(1, 4);
+      expect(n.length()).toBeCloseTo(1, 4);
+      expect(l.length()).toBeCloseTo(1, 4);
+      expect(Math.abs(t.dot(n))).toBeLessThan(1e-4);
+      expect(Math.abs(t.dot(l))).toBeLessThan(1e-4);
+      expect(l.distanceTo(new Vector3().crossVectors(n, t))).toBeLessThan(1e-4);
+    }
+  });
+
+  it('pointAt -> project round-trips (s, d)', () => {
+    const rnd = mulberry32(1234);
+    const out = new Vector3();
+    const tp = newPoint();
+    let hint = -1;
+    let worstS = 0;
+    let worstD = 0;
+    for (let k = 0; k < 6000; k++) {
+      const s = rnd() * rt.length;
+      const f = rnd();
+      const wl = rt.wallLeft[Math.floor(s / h)];
+      const wr = rt.wallRight[Math.floor(s / h)];
+      const d = f < 0.5 ? (rnd() * 2 - 1) * 8 : -wr + 0.5 + rnd() * (wl + wr - 1);
+      rt.pointAt(s, d, out);
+      // alternate between no hint and a stale-ish hint
+      const useHint = k % 3 === 0 ? -1 : hint;
+      hint = rt.project(out.x, out.z, tp, useHint);
+      worstS = Math.max(worstS, Math.abs(wrapDiff(tp.s, s)));
+      worstD = Math.max(worstD, Math.abs(tp.d - d));
+    }
+    expect(worstS).toBeLessThan(0.01);
+    expect(worstD).toBeLessThan(0.01);
+    console.info(`[track:${id}] round-trip worst |ds| ${(worstS * 1000).toFixed(2)} mm, |dd| ${(worstD * 1000).toFixed(2)} mm`);
+  });
+
+  it('project is consistent with continuous motion and survives a bad hint', () => {
+    const out = new Vector3();
+    const tp = newPoint();
+    const tp2 = newPoint();
+    // drive a lap at 0.2 m steps with a rolling hint
+    let hint = -1;
+    for (let s = 0; s < rt.length; s += 0.2) {
+      rt.pointAt(s, 1.3, out);
+      hint = rt.project(out.x, out.z, tp, hint);
+      expect(Math.abs(wrapDiff(tp.s, s))).toBeLessThan(0.02);
+    }
+    // a wildly wrong hint on the road still finds the right place
+    const rnd = mulberry32(99);
+    for (let k = 0; k < 400; k++) {
+      const s = rnd() * rt.length;
+      rt.pointAt(s, (rnd() * 2 - 1) * 5, out);
+      rt.project(out.x, out.z, tp2, Math.floor(rnd() * N));
+      expect(Math.abs(wrapDiff(tp2.s, s))).toBeLessThan(0.05);
+    }
+  });
+
+  it('groundAt agrees with pointAt on the road and reports asphalt', () => {
+    const rnd = mulberry32(7);
+    const out = new Vector3();
+    const g = newGround();
+    let hint = -1;
+    for (let k = 0; k < 4000; k++) {
+      const s = rnd() * rt.length;
+      const i = Math.floor(s / h);
+      const d = (rnd() * 2 - 1) * 0.98 * (rnd() < 0.5 ? rt.widthLeft[i] : -rt.widthRight[i]);
+      rt.pointAt(s, d, out);
+      hint = rt.groundAt(out.x, out.z, g, hint);
+      expect(g.height).toBeCloseTo(out.y, 4);
+      expect(g.surface).toBe('asphalt');
+    }
+  });
+
+  it('is continuous: heights across the full corridor have no cliffs or needles', () => {
+    const rnd = mulberry32(42);
+    const out = new Vector3();
+    const g = newGround();
+    let maxSlope = 0;
+    for (let k = 0; k < 500; k++) {
+      const s = rnd() * rt.length;
+      const i = Math.floor(s / h);
+      const x0 = -rt.wallRight[i] - 1;
+      const x1 = rt.wallLeft[i] + 1;
+      let prev = NaN;
+      let hint = -1;
+      const step = 0.02;
+      for (let d = x0; d <= x1; d += step) {
+        rt.pointAt(s, d, out);
+        hint = rt.groundAt(out.x, out.z, g, hint);
+        if (!Number.isNaN(prev)) maxSlope = Math.max(maxSlope, Math.abs(g.height - prev) / step);
+        prev = g.height;
+      }
+    }
+    expect(maxSlope).toBeLessThan(0.36);
+    // and along the road at fixed offsets (ridges: 0.5 m period)
+    let maxAlong = 0;
+    for (const d of [-9, -7.4, -7.1, 0, 7.1, 7.4, 9]) {
+      let prev = NaN;
+      let hint = -1;
+      for (let s = 300; s < 1500; s += 0.03) {
+        rt.pointAt(s, d, out);
+        hint = rt.groundAt(out.x, out.z, g, hint);
+        if (!Number.isNaN(prev)) maxAlong = Math.max(maxAlong, Math.abs(g.height - prev) / 0.03);
+        prev = g.height;
+      }
+    }
+    expect(maxAlong).toBeLessThan(0.3);
+  });
+
+  it('curb relief never exceeds 4 cm and curbs are ramps', () => {
+    for (const S of [rt.L, rt.R]) {
+      let any = false;
+      for (let i = 0; i < N; i++) {
+        expect(S.curbH0[i] + S.curbH1[i]).toBeLessThanOrEqual(0.04 + 1e-9);
+        if (S.curbW[i] > 0.3) any = true;
+      }
+      if (rt.def.curbs !== false) expect(any).toBe(true);
+    }
+  });
+
+  it('every drivable point has a near-vertical normal that matches the height field', () => {
+    const g = newGround();
+    const g2 = newGround();
+    const out = new Vector3();
+    let minNy = 1;
+    let minAt = '';
+    let worstMismatch = 0;
+    let nonFinite = 0;
+    // coarse scan of the whole corridor
+    let hint = -1;
+    for (let s = 0; s < rt.length; s += 0.25) {
+      const i = Math.floor(s / h);
+      const x0 = -rt.wallRight[i];
+      const x1 = rt.wallLeft[i];
+      for (let d = x0; d <= x1; d += 0.11) {
+        rt.pointAt(s, d, out);
+        hint = rt.groundAt(out.x, out.z, g, hint);
+        if (!Number.isFinite(g.height) || !Number.isFinite(g.normal.y)) nonFinite++;
+        if (g.normal.y < minNy) {
+          minNy = g.normal.y;
+          minAt = `s=${s.toFixed(2)} d=${d.toFixed(2)} ${g.surface}`;
+        }
+      }
+    }
+    // dense scan around every curb strip (this is where needles used to hide)
+    for (const S of [rt.L, rt.R]) {
+      const sgn = S === rt.L ? 1 : -1;
+      for (let i = 0; i < N; i += 2) {
+        const cw = S.curbW[i];
+        if (cw < 0.02) continue;
+        for (let s = i * h; s < (i + 2) * h; s += 0.043) {
+          for (let u = -0.15; u <= cw + 0.15; u += 0.027) {
+            rt.pointAt(s, sgn * (S.W[i] + u), out);
+            hint = rt.groundAt(out.x, out.z, g, hint);
+            if (g.normal.y < minNy) {
+              minNy = g.normal.y;
+              minAt = `s=${s.toFixed(2)} u=${u.toFixed(2)} curb ${g.surface}`;
+            }
+            // analytic normal vs central differences over +-0.2 m of the height field
+            const e = 0.2;
+            const hx = (rt.heightXZ(out.x + e, out.z, hint) - rt.heightXZ(out.x - e, out.z, hint)) / (2 * e);
+            const hz = (rt.heightXZ(out.x, out.z + e, hint) - rt.heightXZ(out.x, out.z - e, hint)) / (2 * e);
+            const inv = 1 / Math.sqrt(hx * hx + 1 + hz * hz);
+            g2.normal.set(-hx * inv, inv, -hz * inv);
+            worstMismatch = Math.max(worstMismatch, g.normal.distanceTo(g2.normal));
+          }
+        }
+      }
+    }
+    expect(nonFinite).toBe(0);
+    console.info(`[track:${id}] min normal.y ${minNy.toFixed(4)} (${minAt}), worst normal/FD mismatch ${worstMismatch.toFixed(3)}`);
+    expect(minNy, `min normal.y at ${minAt}`).toBeGreaterThanOrEqual(0.95);
+    // ridges are 0.125 m ramps, so a 0.4 m FD window smooths them; the bound is loose but catches wrong derivatives
+    expect(worstMismatch).toBeLessThan(0.2);
+  });
+
+  it('keeps a continuous barrier corridor, at least 2 m beyond the asphalt everywhere', () => {
+    for (let i = 0; i < N; i++) {
+      expect(rt.wallLeft[i] - rt.widthLeft[i]).toBeGreaterThanOrEqual(2);
+      expect(rt.wallRight[i] - rt.widthRight[i]).toBeGreaterThanOrEqual(2);
+      // the barrier line may angle away gently, never jump (<= 0.25 m of lateral movement per metre)
+      expect(Math.abs(rt.wallLeft[i + 1] - rt.wallLeft[i])).toBeLessThan(0.25 * h);
+      expect(Math.abs(rt.wallRight[i + 1] - rt.wallRight[i])).toBeLessThan(0.25 * h);
+      expect(Math.abs(rt.widthLeft[i + 1] - rt.widthLeft[i])).toBeLessThan(0.06);
+    }
+  });
+
+  it('never self-approaches: non-adjacent parts stay > both wall distances + 20 m apart', () => {
+    let worst = Infinity;
+    let at = '';
+    const step = 3;
+    const X = rt.X;
+    const Z = rt.Z;
+    for (let i = 0; i < N; i += step) {
+      for (let j = i + step; j < N; j += step) {
+        let ds = (j - i) * h;
+        ds = Math.min(ds, rt.length - ds);
+        if (ds < 120) continue;
+        const dx = X[j] - X[i];
+        const dz = Z[j] - Z[i];
+        const dist = Math.hypot(dx, dz);
+        if (dist > 260) continue;
+        const wi = dx * rt.HLX[i] + dz * rt.HLZ[i] > 0 ? rt.wallLeft[i] : rt.wallRight[i];
+        const wj = -(dx * rt.HLX[j] + dz * rt.HLZ[j]) > 0 ? rt.wallLeft[j] : rt.wallRight[j];
+        const gap = dist - wi - wj;
+        if (gap < worst) {
+          worst = gap;
+          at = `s=${(i * h).toFixed(0)} vs ${(j * h).toFixed(0)}`;
+        }
+      }
+    }
+    expect(worst, `closest approach at ${at}`).toBeGreaterThan(20);
+  });
+
+  it('has a starting grid of >= 12 slots on asphalt behind the line', () => {
+    expect(rt.grid.length).toBeGreaterThanOrEqual(12);
+    const f = newFrame();
+    const g = newGround();
+    const q = new Quaternion();
+    const fwd = new Vector3();
+    const up = new Vector3();
+    for (let k = 0; k < rt.grid.length; k++) {
+      const slot = rt.grid[k];
+      const back = rt.length - slot.s;
+      expect(back).toBeGreaterThan(4);
+      expect(back).toBeLessThan(200);
+      rt.frameAt(slot.s, f);
+      const iseg = Math.floor(slot.s / h);
+      expect(Math.abs(slot.d) + 1.1).toBeLessThan(Math.min(rt.widthLeft[iseg], rt.widthRight[iseg]));
+      rt.groundAt(slot.position.x, slot.position.z, g);
+      expect(g.surface).toBe('asphalt');
+      expect(slot.position.y).toBeCloseTo(g.height, 3);
+      q.copy(slot.quaternion);
+      fwd.set(0, 0, 1).applyQuaternion(q);
+      up.set(0, 1, 0).applyQuaternion(q);
+      expect(fwd.dot(f.tangent)).toBeGreaterThan(0.9995);
+      expect(up.dot(f.normal)).toBeGreaterThan(0.9995);
+      if (k >= 2) {
+        expect(rt.grid[k - 2].s - slot.s).toBeCloseTo(8, 1); // 8 m between rows (further back = smaller s)
+      }
+      expect(Math.sign(slot.d)).toBe(k % 2 === 0 ? 1 : -1); // two-wide stagger
+    }
+  });
+
+  it('obeys curvature, vertical curvature, grade and bank design limits', () => {
+    let minR = Infinity;
+    let maxDk = 0;
+    for (let i = 0; i < N; i++) {
+      const k = Math.abs(rt.curvature[i]);
+      if (k > 1e-6) minR = Math.min(minR, 1 / k);
+      maxDk = Math.max(maxDk, Math.abs(rt.curvature[i + 1] - rt.curvature[i]) / h);
+    }
+    expect(minR).toBeGreaterThan(lim.minRadius);
+    expect(maxDk).toBeLessThan(0.004); // clothoids: curvature never jumps
+    let crest = 0;
+    let sag = 0;
+    let maxGrade = 0;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    let maxBank = 0;
+    let maxDb = 0;
+    for (let i = 1; i < N - 1; i++) {
+      const y2 = (rt.py[i + 1] - 2 * rt.py[i] + rt.py[i - 1]) / (h * h);
+      crest = Math.min(crest, y2);
+      sag = Math.max(sag, y2);
+      maxGrade = Math.max(maxGrade, Math.abs(rt.ty[i]) / Math.hypot(rt.tx[i], rt.tz[i]));
+    }
+    for (let i = 0; i < N; i++) {
+      minY = Math.min(minY, rt.py[i]);
+      maxY = Math.max(maxY, rt.py[i]);
+      maxBank = Math.max(maxBank, Math.abs(rt.bank[i]));
+      maxDb = Math.max(maxDb, Math.abs(rt.bank[i + 1] - rt.bank[i]) / h);
+    }
+    expect(maxGrade).toBeLessThan(lim.maxGrade);
+    expect(1 / Math.max(1e-9, -crest)).toBeGreaterThan(lim.minCrestR);
+    expect(1 / Math.max(1e-9, sag)).toBeGreaterThan(lim.minSagR);
+    expect((maxBank * 180) / Math.PI).toBeLessThan(lim.maxBankDeg);
+    expect((maxDb * 180) / Math.PI).toBeLessThan(0.5); // deg per metre
+    expect(maxY - minY).toBeGreaterThan(lim.elev[0]);
+    expect(maxY - minY).toBeLessThan(lim.elev[1]);
+    // no step in height between samples
+    for (let i = 0; i < N; i++) expect(Math.abs(rt.py[i + 1] - rt.py[i])).toBeLessThan(0.12);
+  });
+
+  it('wrapS, frameAt and pointAt are consistent', () => {
+    expect(rt.wrapS(-1)).toBeCloseTo(rt.length - 1, 6);
+    expect(rt.wrapS(rt.length + 5)).toBeCloseTo(5, 6);
+    expect(rt.wrapS(2.5 * rt.length)).toBeCloseTo(0.5 * rt.length, 5);
+    const f = newFrame();
+    const p = new Vector3();
+    const rnd = mulberry32(5);
+    for (let k = 0; k < 500; k++) {
+      const s = rnd() * rt.length;
+      rt.frameAt(s, f);
+      rt.pointAt(s, 0, p);
+      expect(f.position.distanceTo(p)).toBeLessThan(2e-3);
+      expect(f.tangent.length()).toBeCloseTo(1, 5);
+      expect(f.normal.length()).toBeCloseTo(1, 5);
+      expect(Math.abs(f.tangent.dot(f.normal))).toBeLessThan(5e-3);
+      expect(Math.abs(f.left.dot(f.normal))).toBeLessThan(5e-3);
+      // left of the frame points toward positive d
+      rt.pointAt(s, 3, p);
+      const toLeft = p.clone().sub(f.position);
+      expect(toLeft.dot(f.left)).toBeGreaterThan(2.9);
+    }
+  });
+
+  it('answers sanely far outside the corridor (finite, continuous)', () => {
+    const g = newGround();
+    const out = new Vector3();
+    const rnd = mulberry32(3);
+    for (let k = 0; k < 300; k++) {
+      rt.groundAt((rnd() * 2 - 1) * 6000, (rnd() * 2 - 1) * 6000, g);
+      expect(Number.isFinite(g.height)).toBe(true);
+      expect(g.normal.y).toBeGreaterThan(0.2);
+    }
+    // walk straight out from the barrier on several sides: no cliffs (< 45 deg per metre)
+    for (const sFrac of [0.05, 0.22, 0.41, 0.63, 0.88]) {
+      const s = sFrac * rt.length;
+      const i = Math.floor(s / h);
+      for (const sgn of [1, -1]) {
+        let prev = NaN;
+        let hint = -1;
+        const w = sgn > 0 ? rt.wallLeft[i] : rt.wallRight[i];
+        for (let u = w - 3; u < w + 120; u += 0.5) {
+          rt.pointAt(s, sgn * u, out);
+          hint = rt.groundAt(out.x, out.z, g, hint);
+          if (!Number.isNaN(prev)) expect(Math.abs(g.height - prev)).toBeLessThan(lim.maxFieldStep);
+          prev = g.height;
+        }
+      }
+    }
+  });
+
+  it('is fast: 1M groundAt calls with hints in < 1 s', () => {
+    const g = newGround();
+    const hints = [-1, -1, -1, -1];
+    const offs = [-0.9, 0.9, -0.85, 0.85];
+    const fwd = [1.4, 1.4, -1.3, -1.3];
+    const out = new Vector3();
+    // warm-up
+    for (let k = 0; k < 20000; k++) rt.groundAt(rt.px[k % N], rt.pz[k % N], g, -1);
+    const t0 = performance.now();
+    let sum = 0;
+    let s = 5;
+    for (let k = 0; k < 250000; k++) {
+      s += 0.07;
+      if (s > rt.length - 5) s = 5;
+      const i = Math.floor(s / h);
+      for (let w = 0; w < 4; w++) {
+        const ss = s + fwd[w];
+        const j = Math.floor(ss / h);
+        const x = rt.px[j] + rt.lx[j] * (offs[w] + 4.0 * Math.sin(s * 0.01));
+        const z = rt.pz[j] + rt.lz[j] * (offs[w] + 4.0 * Math.sin(s * 0.01));
+        hints[w] = rt.groundAt(x, z, g, hints[w]);
+        sum += g.height;
+      }
+      void i;
+    }
+    const ms = performance.now() - t0;
+    expect(Number.isFinite(sum)).toBe(true);
+    expect(ms, `1M groundAt took ${ms.toFixed(0)} ms`).toBeLessThan(1000);
+    // project (barrier collisions) is also called a lot
+    const tp = newPoint();
+    const t1 = performance.now();
+    let hint = -1;
+    for (let k = 0; k < 400000; k++) {
+      const j = (k * 3) % N;
+      rt.pointAt(j * h, 2 * Math.sin(k * 0.01), out);
+      hint = rt.project(out.x, out.z, tp, hint);
+    }
+    const ms2 = performance.now() - t1;
+    console.info(`[track:${id}] 1M groundAt ${ms.toFixed(0)} ms, 400k pointAt+project ${ms2.toFixed(0)} ms`);
+    expect(ms2, `400k pointAt+project took ${ms2.toFixed(0)} ms`).toBeLessThan(900);
+  });
+});
+
+describe('TRACKS', () => {
+  it('lists every track with complete info', () => {
+    expect(TRACKS.length).toBeGreaterThanOrEqual(2);
+    expect(TRACKS.map((t) => t.info.id)).toEqual(expect.arrayContaining(['aurelia', 'kuroyama']));
+    for (const t of TRACKS) {
+      expect(t.info.name.length).toBeGreaterThan(2);
+      expect(t.info.description.length).toBeGreaterThan(40);
+      expect(t.info.defaultLaps).toBeGreaterThan(0);
+      expect(t.info.color).toMatch(/^#[0-9a-f]{6}$/i);
+    }
+    expect(() => loadTrackRuntime('nope')).toThrow();
+  });
+});
