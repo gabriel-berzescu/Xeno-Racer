@@ -56,6 +56,8 @@ type Phase = 'boot' | 'menu' | 'loading' | 'race' | 'results';
 const _frame: TrackFrame = { position: new Vector3(), tangent: new Vector3(), normal: new Vector3(), left: new Vector3(), widthLeft: 0, widthRight: 0, wallLeft: 0, wallRight: 0, curvature: 0, bank: 0 };
 const _m4 = new Matrix4();
 const _v = new Vector3();
+const _v2 = new Vector3();
+const _v3 = new Vector3();
 
 export class Game {
   settings: Settings;
@@ -400,6 +402,7 @@ export class Game {
     this.render.scene.remove(this.preview.car.visual.root);
     this.preview.car.visual.dispose();
     this.preview = null;
+    this.camera?.setFov(this.settings.camera.fov);
     for (const c of this.cars) c.visual.root.visible = true;
     if (this.camera && this.phase === 'menu') {
       this.camera.setMode('tv');
@@ -613,8 +616,23 @@ export class Game {
       pw.step(dt);
       const car = this.preview.car;
       car.visual.update(car.vehicle.state, dt, this.render.env);
-      this.previewOrbit += dt * 0.18;
-      this.camera.update(dt, { state: car.vehicle.state, anchors: car.visual.anchors }, { x: Math.sin(this.previewOrbit) * 0.0 + 0.12, y: 0, back: false });
+      // showroom camera: slow orbit from a front three-quarter view, car framed in the right half
+      this.previewOrbit += dt * 0.11;
+      const st = car.vehicle.state;
+      const cam = this.camera.camera;
+      const theta = 0.62 + Math.sin(this.previewOrbit) * 0.55;
+      const r = 8.2;
+      _v.set(Math.sin(theta) * r, 1.35, Math.cos(theta) * r).applyQuaternion(st.quaternion).add(st.position);
+      cam.position.copy(_v);
+      _v2.copy(st.position);
+      _v2.y += 0.25;
+      cam.lookAt(_v2);
+      // shift the aim left so the car sits right of center, clear of the menu panel
+      _v3.set(1, 0, 0).applyQuaternion(cam.quaternion);
+      _v2.addScaledVector(_v3, -2.1);
+      cam.lookAt(_v2);
+      cam.fov = 38;
+      cam.updateProjectionMatrix();
       this.render.setFocus(car.vehicle.state.position);
       this.drawWorld(dt, car.vehicle.state.speed);
       return;
