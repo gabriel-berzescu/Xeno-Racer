@@ -37,6 +37,7 @@ import { createUI } from '../ui';
 import { GhostRecorder, ghostPose, loadBestLaps, loadGhost, recordKey, saveBestLap, saveGhost, type GhostLap } from './records';
 import { RaceSession, type Entrant } from './session';
 import { DRIVER_NAMES, opponentLivery } from './liveries';
+import { ReplayPlayer, ReplayRecorder } from './replay';
 
 export const VERSION = '0.9.0';
 
@@ -98,6 +99,8 @@ export class Game {
   private fpsAvg = 60;
   private minFrameMs = 0;
   private lastRender = 0;
+  private replayRec: ReplayRecorder | null = null;
+  private replay: { player: ReplayPlayer; t: number; target: number } | null = null;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -266,6 +269,8 @@ export class Game {
     this.session = null;
     this.world = null;
     this.autopilot = null;
+    this.replay = null;
+    this.replayRec = null;
     if (this.ghost) {
       this.render.scene.remove(this.ghost.visual.root);
       this.ghost.visual.dispose();
@@ -461,6 +466,8 @@ export class Game {
     if (this.params.get('autopilot') === '1') this.autopilot = new AIDriver(track, def, { difficulty: 'alien', seed: 99 });
 
     this.steering.reset();
+    this.replay = null;
+    this.replayRec = new ReplayRecorder(this.cars.length, this.world.time);
     const cam = (this.params.get('cam') as CameraMode) || this.settings.camera.defaultMode;
     this.camera.setMode(cam);
     this.camera.snap();
@@ -542,11 +549,7 @@ export class Game {
         if (i.screen !== 'setup') this.clearPreview();
         break;
       case 'watchReplay':
-        // spectate the rest of the race with the TV cameras
-        this.ui.show('none');
-        this.ui.setHudVisible(false);
-        this.camera.setMode('tv');
-        this.camera.snap();
+        this.startReplay();
         break;
     }
   }
@@ -655,6 +658,11 @@ export class Game {
     const player = this.player!;
     const pv = player.vehicle;
 
+    if (this.replay) {
+      this.updateReplay(dt, input);
+      return;
+    }
+
     // pause / menus
     if (input.pause) {
       this.setPaused(!this.paused);
@@ -714,6 +722,7 @@ export class Game {
     world.step(dt);
     session.update(dt, world.time);
     this.handleSessionEvents(now);
+    if (this.replayRec && session.phase !== 'countdown') this.replayRec.capture(world.time - this.replayRec.t0, world.states);
 
     // ghost recording / playback
     const pp = session.player;
@@ -858,6 +867,61 @@ export class Game {
     this.camera.snap();
     this.audio.setMusic(true);
     void cfg;
+  }
+
+  private startReplay(): void {
+    if (!this.replayRec || this.replayRec.frames < 30 || !this.world) return;
+    this.replay = { player: new ReplayPlayer(this.replayRec, this.world.states), t: 0, target: this.cars.indexOf(this.player!) };
+    this.effects?.clear();
+    this.ui.show('none');
+    this.ui.setHudVisible(false);
+    this.camera.setMode('tv');
+    this.camera.snap();
+    this.audio.setMusic(false);
+  }
+
+  private stopReplay(): void {
+    this.replay = null;
+    this.effects?.clear();
+    this.ui.show('results');
+    this.audio.setMusic(true);
+  }
+
+  private updateReplay(dt: number, input: InputFrame): void {
+    const r = this.replay!;
+    if (input.nav.back || input.pause) {
+      this.stopReplay();
+      return;
+    }
+    if (input.nav.right || input.nav.tabRight) {
+      r.target = (r.target + 1) % this.cars.length;
+      this.camera.snap();
+    }
+    if (input.nav.left || input.nav.tabLeft) {
+      r.target = (r.target - 1 + this.cars.length) % this.cars.length;
+      this.camera.snap();
+    }
+    if (input.cameraNext) this.camera.next();
+    r.t += dt;
+    if (r.t > r.player.rec.duration) {
+      r.t = 0;
+      this.effects?.clear();
+      this.camera.snap();
+    }
+    r.player.apply(r.t);
+    const states = r.player.states;
+    this.cars.forEach((c, i) => {
+      c.visual.update(states[i], dt, this.render.env);
+      c.sound?.update(states[i], dt);
+    });
+    this.effects?.update(dt, states, this.camera.camera);
+    const target = this.cars[r.target];
+    const ts = states[r.target];
+    this.camera.update(dt, { state: ts, anchors: target.visual.anchors }, { x: input.lookX, y: input.lookY, back: false });
+    this.render.setFocus(ts.position);
+    this.trackScene?.update(dt, this.camera.camera);
+    this.audio.setListener(this.camera.camera, ts.velocity);
+    this.render.render(this.camera.camera, dt, ts.speed);
   }
 
   private buildHud(now: number): HudState {
