@@ -925,7 +925,10 @@ function buildTvCameras(ctx: Ctx): { position: THREE.Vector3; s: number }[] {
   // start straight cameras
   const k0 = 0;
   add(rt.length - 120, -(rt.R.wall[k0] + 9), 5);
-  add(160, rt.L.wall[k0] + 6, 8); // above the pit lane: high enough to see the whole grid over the pit wall
+  // on the pit wall, high enough to see the whole grid over it, and inside the line of floodlight poles (which stand
+  // 1.6 m out from the wall): from farther out every pole between here and the grid crosses the picture
+  const k160 = Math.round(160 / rt.spacing) % rt.count;
+  add(160, rt.L.wall[k160] + 0.3, 8.5);
   add(rt.length * 0.5, rt.R.wall[Math.floor(rt.count / 2)] * -1 - 5, 3);
   out.sort((a, b) => a.s - b.s);
   // long straights and fast sweepers between corner cameras: a camera covers ~220 m of road coming
