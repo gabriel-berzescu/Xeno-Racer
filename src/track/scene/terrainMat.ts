@@ -142,8 +142,50 @@ const FRAG_NORMAL = /* glsl */ `
 
 /** Multiplier on the meadow texture's average colour (turns the moss-field texture into grass). */
 export function grassTint(ctx: Ctx): THREE.Vector3 {
-  return ctx.rt.info.id === 'kuroyama' ? new THREE.Vector3(0.9, 1.35, 2.2) : new THREE.Vector3(1.0, 1.62, 2.5);
+  const t = LOOKS[ctx.rt.info.id]?.tint ?? DEFAULT_LOOK.tint;
+  return new THREE.Vector3(...t);
 }
+
+/** Per-track ground look: rock and dirt slope ranges, rock tint and the far-hillside canopy (strength, fade-in start/end, forest mask). */
+interface TerrainLook {
+  tint: [number, number, number];
+  rockRange: [number, number];
+  dirtSlope: [number, number, number];
+  rockTint: [number, number, number];
+  canopy: [number, number, number, number];
+  canopyCol: [number, number, number];
+}
+
+/** Lowland meadows with patches of forest on the far hills. */
+const DEFAULT_LOOK: TerrainLook = {
+  tint: [1.0, 1.62, 2.5],
+  rockRange: [0.2, 0.4],
+  dirtSlope: [0.16, 0.26, 0.45],
+  rockTint: [1, 1, 1],
+  canopy: [0.8, 260, 1100, 1],
+  canopyCol: [0.05, 0.095, 0.035],
+};
+
+const LOOKS: Record<string, TerrainLook> = {
+  // mountains: rock only where it is really steep (and dark); far hillsides take a forest-canopy colour
+  kuroyama: {
+    tint: [0.9, 1.35, 2.2],
+    rockRange: [0.34, 0.68],
+    dirtSlope: [0.36, 0.72, 0.3],
+    rockTint: [0.62, 0.66, 0.6],
+    canopy: [0.92, 90, 650, 0],
+    canopyCol: [0.05, 0.085, 0.05],
+  },
+  // deep forest: the far hills are almost all canopy (a little broken up), darker and bluer than the meadow tracks
+  brennwald: {
+    tint: [0.95, 1.45, 2.3],
+    rockRange: [0.3, 0.6],
+    dirtSlope: [0.3, 0.6, 0.35],
+    rockTint: [0.8, 0.8, 0.76],
+    canopy: [0.9, 140, 800, 0.15],
+    canopyCol: [0.045, 0.08, 0.04],
+  },
+};
 
 export function makeTerrainMaterial(ctx: Ctx): THREE.MeshStandardMaterial {
   const t = ctx.tex;
@@ -159,14 +201,13 @@ export function makeTerrainMaterial(ctx: Ctx): THREE.MeshStandardMaterial {
     envMapIntensity: 0.7,
   });
   mat.name = 'terrain';
-  const mountain = ctx.rt.info.id === 'kuroyama';
+  const look = LOOKS[ctx.rt.info.id] ?? DEFAULT_LOOK;
   const tint = grassTint(ctx);
-  // mountains: rock only where it is really steep (and dark); far hillsides take a forest-canopy colour
-  const rockRange = mountain ? new THREE.Vector2(0.34, 0.68) : new THREE.Vector2(0.2, 0.4);
-  const dirtSlope = mountain ? new THREE.Vector3(0.36, 0.72, 0.3) : new THREE.Vector3(0.16, 0.26, 0.45);
-  const rockTint = mountain ? new THREE.Vector3(0.62, 0.66, 0.6) : new THREE.Vector3(1, 1, 1);
-  const canopy = mountain ? new THREE.Vector4(0.92, 90, 650, 0) : new THREE.Vector4(0.8, 260, 1100, 1);
-  const canopyCol = mountain ? new THREE.Vector3(0.05, 0.085, 0.05) : new THREE.Vector3(0.05, 0.095, 0.035);
+  const rockRange = new THREE.Vector2(...look.rockRange);
+  const dirtSlope = new THREE.Vector3(...look.dirtSlope);
+  const rockTint = new THREE.Vector3(...look.rockTint);
+  const canopy = new THREE.Vector4(...look.canopy);
+  const canopyCol = new THREE.Vector3(...look.canopyCol);
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uGrass = { value: t.moss.diff }; // lush meadow is the base layer
     shader.uniforms.uGrassN = { value: t.moss.nor };
