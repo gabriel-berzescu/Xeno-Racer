@@ -13,7 +13,7 @@
 import { Matrix4, Quaternion, Vector3 } from 'three';
 import { AIDriver } from '../ai';
 import { CARS, getCar } from '../cars';
-import { createAudioSystem, onLightning } from '../audio';
+import { createAudioSystem, onLightning, setWiper } from '../audio';
 import { createCarVisual } from '../carvis';
 import type {
   CameraMode,
@@ -1001,6 +1001,8 @@ export class Game {
     this.trackScene?.setStartLights(session.phase === 'countdown' ? session.lights : session.phase === 'racing' && world.time - session.startTime < 3 ? 6 : null);
     this.audio.setListener(this.camera.camera, pv.state.velocity);
     this.render.render(this.camera.camera, dt, pv.state.speed);
+    // the cockpit wiper: its swish and thunks follow the windscreen pass's own clock, so they land on the blade you see
+    setWiper(this.audio, (this.render as XenoRenderSystem).wiper);
 
     // rumble on impacts and kerbs
     this.rumble(player);

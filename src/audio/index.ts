@@ -10,6 +10,11 @@
  * Weather: setWeather(rain, wetness) drives (a) the rain / storm ambience, a stereo worklet voice that exists
  * only while it rains (weather.ts, dsp/weather-voice.ts: bed, drops, cabin drumming, thunder) and (b) every
  * car's wet-road sound (hiss, spray, splashes, slush; dsp/wet-road.ts) through the control vector.
+ *
+ * Wiper: setWiper(audio, feed) takes the renderer's view of the cockpit wiper (XenoRenderSystem.wiper: is the blade drawn, the
+ * windscreen pass's clock, the blade's schedule) once per frame and plays the motor, the rubber's swish and the thunks at the
+ * ends of each sweep on the blade's own schedule, sample-accurately, from a worklet voice that exists only while the blade is on
+ * screen (wiper.ts, wiper-model.ts, dsp/wiper-voice.ts).
  */
 import type * as THREE from 'three';
 import type { AudioSettings, EngineSoundProfile, UiSound } from '../core/contracts';
@@ -22,6 +27,8 @@ import { type ListenerState, type Lod, assignLod, listenerFromMatrix, makeListen
 import { UiSynth } from './ui-sounds';
 import { type StrikeInfo, WeatherSystem, createWeatherNode } from './weather';
 import { sanitizeWeather, type ThunderEvent } from './weather-model';
+import { WiperSystem, createWiperNode } from './wiper';
+import { WIPER_DISPLAY_LATENCY_S, type WiperFeed } from './wiper-model';
 
 export { CarSoundImpl, createCarNodes, setPannerPosition } from './carsound';
 export type { CarHost, CarNodes } from './carsound';
@@ -31,6 +38,10 @@ export { MenuMusic, MUSIC_INFO } from './music';
 export { UiSynth, UI_SOUND_LIST } from './ui-sounds';
 export { WeatherSystem, createWeatherNode, WEATHER_FADE_OUT_S } from './weather';
 export type { StrikeInfo, WeatherNode, WeatherNodeLike } from './weather';
+export { WiperSystem, createWiperNode, WIPER_NODE_KEEP_S } from './wiper';
+export type { WiperHost, WiperLogEntry, WiperNode, WiperNodeLike } from './wiper';
+export { WiperPlanner, WIPER_LOOKAHEAD_S, WIPER_STALE_S, WIPER_THUNK_VARIANTS, makeSweepCommand } from './wiper-model';
+export type { SweepCommand, WiperFeed } from './wiper-model';
 export { calibratedExhaustGain } from './dsp/engine-voice';
 
 /** URL of the bundled worklet module (differs between `vite dev` and `vite build`). */
@@ -60,6 +71,8 @@ class AudioSystemImpl implements AudioSystem, CarHost {
   wetness = 0;
   /** Rain / storm ambience; the worklet node only exists while it rains. */
   readonly weather: WeatherSystem;
+  /** The cockpit wiper; its worklet node only exists while the blade is on screen. */
+  readonly wiper: WiperSystem;
   /** Resolves when the worklet module is loaded (cars create their voices then). */
   readonly ready: Promise<void>;
 
@@ -103,6 +116,19 @@ class AudioSystemImpl implements AudioSystem, CarHost {
         ready: () => this.workletReady,
         makeNode: (seed) => createWeatherNode(this.ctx, this.graph, { seed }),
       },
+      this.owned ? 1 + Math.floor(Math.random() * 0x3fffffff) : 1,
+    );
+    this.wiper = new WiperSystem(
+      {
+        ready: () => this.workletReady,
+        running: () => this.ctx.state === 'running',
+        muted: () => this.paused || this.stale,
+        rain: () => this.weather.rain,
+        now: () => this.ctx.currentTime,
+        lead: () => this.wiperLead(),
+        makeNode: (seed) => createWiperNode(this.ctx, this.graph, { seed }),
+      },
+      this.ctx.sampleRate,
       this.owned ? 1 + Math.floor(Math.random() * 0x3fffffff) : 1,
     );
     this.ready = this.ctx.audioWorklet
@@ -221,7 +247,19 @@ class AudioSystemImpl implements AudioSystem, CarHost {
       this.graph.setPaused(true);
       for (const c of this.cars) c.sleep();
       this.weather.sleep();
+      this.wiper.sleep();
     }
+  }
+
+  /**
+   * Seconds to shift the wiper's sound for the delays between the audio clock and the picture: a rendered frame reaches the eye
+   * about two refreshes later, a sound scheduled now is heard outputLatency from now. (Offline contexts have neither: 0.)
+   */
+  private wiperLead(): number {
+    if (!this.owned) return 0;
+    const c = this.ctx as AudioContext;
+    const out = Number.isFinite(c.outputLatency) && c.outputLatency >= 0 ? c.outputLatency : Number.isFinite(c.baseLatency) ? c.baseLatency : 0;
+    return Math.min(0.12, Math.max(-0.12, WIPER_DISPLAY_LATENCY_S - Math.min(out, 0.25)));
   }
 
   update(dt: number): void {
@@ -255,6 +293,7 @@ class AudioSystemImpl implements AudioSystem, CarHost {
     // rain ambience: open or cabin mix and the windscreen follow the player's camera / speed
     const pl = this.player;
     this.weather.update(dt, pl ? pl.interior : 0, pl ? pl.speed : 0, this.paused || this.stale);
+    this.wiper.update(dt);
     this.music?.tick();
   }
 
@@ -296,6 +335,7 @@ class AudioSystemImpl implements AudioSystem, CarHost {
     if (p) {
       for (const c of this.cars) c.sleep();
       this.weather.sleep();
+      this.wiper.sleep();
     }
   }
 
@@ -350,6 +390,7 @@ class AudioSystemImpl implements AudioSystem, CarHost {
     if (this.musicStopTimer) clearTimeout(this.musicStopTimer);
     for (const c of [...this.cars]) c.dispose();
     this.weather.dispose();
+    this.wiper.dispose();
     this.music?.dispose();
     this.ui_.dispose();
     this.graph.dispose();
@@ -396,6 +437,19 @@ export function onLightning(audio: AudioSystem, cb: ((s: StrikeInfo) => void) | 
   const w = (audio as Partial<AudioSystemImpl>).weather;
   if (!w) return false;
   w.onStrike = cb;
+  return true;
+}
+
+/**
+ * The cockpit wiper: call once per rendered frame, right after the frame is drawn, with the renderer's view of the blade
+ * (XenoRenderSystem.wiper). While the blade is on screen the audio follows its schedule (motor, rubber swish, thunks at the
+ * ends of each sweep); when it is not (another camera, no rain, a menu) or when nothing is fed for a moment, the sound fades
+ * out. Returns false when this audio system has no wiper (the silent fallback).
+ */
+export function setWiper(audio: AudioSystem, feed: WiperFeed): boolean {
+  const w = (audio as Partial<AudioSystemImpl>).wiper;
+  if (!w) return false;
+  w.feed(feed);
   return true;
 }
 

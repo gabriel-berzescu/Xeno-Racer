@@ -3,6 +3,7 @@
  *   'xr-car'      one processor per car: the engine (output 0, mono) and the chassis sounds (output 1: stereo for
  *                 the player, mono for opponents), including the wet-road sound when the track is wet
  *   'xr-weather'  the rain / storm ambience (stereo), created only while it rains
+ *   'xr-wiper'    the cockpit wiper (stereo), created only while the blade is on screen; sweeps arrive with absolute frames
  *
  * Control arrives as Float32Array snapshots on the message port (see controls.ts) — or, for
  * deterministic offline renders, as a pre-recorded `script` passed through processorOptions.
@@ -14,8 +15,10 @@ import { CTL_LEN, makeControlVector, readEngineInputs } from './controls';
 import { ChassisVoice, readChassisInputs } from './dsp/chassis-voice';
 import { EngineVoice } from './dsp/engine-voice';
 import { WeatherVoice, getProtoBank } from './dsp/weather-voice';
+import { WiperVoice, getWiperBank } from './dsp/wiper-voice';
 import { getWetTables } from './dsp/wet-road';
 import { WCTL_LEN, type ThunderEvent, makeWeatherControlVector, readWeatherInputs } from './weather-model';
+import type { SweepCommand } from './wiper-model';
 
 // AudioWorkletGlobalScope globals (not in the project's lib set)
 declare const sampleRate: number;
@@ -156,10 +159,55 @@ class WeatherProcessor extends AudioWorkletProcessor {
 
 registerProcessor('xr-weather', WeatherProcessor);
 
+interface WiperProcessorOptions {
+  seed: number;
+  /** Offline mode: sweeps queued at the start (their f0 are context frames). */
+  sweeps?: SweepCommand[];
+}
+
+class WiperProcessor extends AudioWorkletProcessor {
+  private voice: WiperVoice;
+  private dead = false;
+  private scratch = new Float32Array(128);
+
+  constructor(options: { processorOptions: WiperProcessorOptions }) {
+    super();
+    const o = options.processorOptions;
+    this.voice = new WiperVoice(sampleRate, o.seed);
+    for (const c of o.sweeps ?? []) this.voice.queueSweep(c);
+    this.port.onmessage = (e: MessageEvent): void => {
+      const d = e.data;
+      if (d === 'dispose') this.dead = true;
+      else if (d && d.type === 'sweep') this.voice.queueSweep(d as SweepCommand);
+      else if (d && d.type === 'stop') this.voice.abort();
+      else if (d && d.type === 'gain') this.voice.inp.gain = Math.max(0, Number.isFinite(d.gain) ? d.gain : 1);
+    };
+  }
+
+  process(_inputs: Float32Array[][], outputs: Float32Array[][]): boolean {
+    if (this.dead) return false;
+    const out = outputs[0];
+    const l = out && out[0];
+    if (!l) return true;
+    const r = out[1];
+    if (r) this.voice.process(l, r, l.length, currentFrame);
+    else {
+      // a mono output: fold the two channels
+      if (this.scratch.length < l.length) this.scratch = new Float32Array(l.length);
+      this.voice.process(l, this.scratch, l.length, currentFrame);
+      for (let i = 0; i < l.length; i++) l[i] = 0.5 * (l[i] + this.scratch[i]);
+    }
+    return true;
+  }
+}
+
+registerProcessor('xr-wiper', WiperProcessor);
+
 // Build the shared lookup tables while the module loads (not in the middle of a render quantum).
 try {
   getWetTables(sampleRate);
   getProtoBank(sampleRate);
+  getWiperBank(sampleRate);
 } catch {
   /* built lazily by the first voice instead */
 }

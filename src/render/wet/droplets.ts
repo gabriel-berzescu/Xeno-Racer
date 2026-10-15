@@ -302,6 +302,127 @@ void main() {
 }
 `;
 
+// ── the wiper's schedule in TypeScript ──────────────────────────────────────────────────────────────────────────────
+// The picture is the shader above. This mirrors its three schedule functions (wiperDwell, wiperPeriod, wiperAngle) so that
+// other systems (the audio) can follow the very same blade from the pass's own clock. tests/wiper-schedule.test.ts parses the
+// GLSL and checks that the two agree at thousands of (time, rain) samples: a change to the shader's schedule that is not
+// copied here fails the build.
+
+/** The wiper's constants: W_OUT, W_A0, W_A1 and the dwell mix of the shader. */
+export const WIPER = {
+  /** Seconds per stroke (out, and again back). */
+  OUT: 0.42,
+  /** Park angle (rad from +x) and far end of the sweep. */
+  A0: 0.21,
+  A1: 2.45,
+  /** Pause between sweeps in light rain, and in a storm (seconds). */
+  DWELL_LIGHT: 2.4,
+  DWELL_STORM: 0.12,
+  /** The pause shrinks from DWELL_LIGHT to DWELL_STORM between these two rain values (smoothstep edges). */
+  RAIN_LO: 0.6,
+  RAIN_HI: 0.95,
+} as const;
+
+export type WiperStroke = 'out' | 'back' | 'parked';
+
+/** Where the blade is in its schedule at one instant. */
+export interface WiperState {
+  /** 'out' (park -> far end), 'back' (far end -> park) or 'parked' (the pause between sweeps). */
+  stroke: WiperStroke;
+  /** Seconds into the cycle: mod(time, period). A sweep starts at phase 0; the back stroke ends at 2 * strokeTime. */
+  phase: number;
+  /** Seconds per cycle: two strokes plus the pause. */
+  period: number;
+  /** The pause between sweeps (seconds). */
+  dwell: number;
+  /** Seconds per stroke. */
+  strokeTime: number;
+  /** The shader's `s`: eased-sweep input 0..1 (rises during the out stroke, falls during the back stroke, 0 when parked). */
+  s: number;
+  /** Where the blade is across its sweep, 0 = park end .. 1 = far end (the cosine-eased s). */
+  angle01: number;
+  /** Blade angle in radians: exactly the shader's wiperAngle(time). */
+  angle: number;
+  /** Progress through the current stroke (or through the pause when parked), 0..1. */
+  progress: number;
+  /** Blade speed as a share of its peak, sin(pi * s): 0 when parked or at either end, 1 at mid-stroke. */
+  speed01: number;
+}
+
+/** What the audio follows: the blade's clock and schedule, and whether the blade is on screen at all. */
+export interface WiperFeed {
+  /** The blade is drawn this frame: windscreen variant of the pass (cockpit, not hood or bumper), running, raining. */
+  drawn: boolean;
+  /** The droplet pass's clock (seconds) as of the frame just rendered: the shader's uTime. */
+  time: number;
+  /** The shader's uRain. */
+  rain: number;
+  state: WiperState;
+}
+
+function glslSmoothstep(e0: number, e1: number, x: number): number {
+  const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
+  return t * t * (3 - 2 * t);
+}
+
+/** Pause between sweeps: a few seconds in light rain, almost none in a storm (the shader's wiperDwell). */
+export function wiperDwell(rain: number): number {
+  const k = glslSmoothstep(WIPER.RAIN_LO, WIPER.RAIN_HI, rain);
+  return WIPER.DWELL_LIGHT * (1 - k) + WIPER.DWELL_STORM * k;
+}
+
+/** Seconds per cycle (the shader's wiperPeriod). */
+export function wiperPeriod(rain: number): number {
+  return 2 * WIPER.OUT + wiperDwell(rain);
+}
+
+export function makeWiperState(): WiperState {
+  return { stroke: 'parked', phase: 0, period: wiperPeriod(0), dwell: wiperDwell(0), strokeTime: WIPER.OUT, s: 0, angle01: 0, angle: WIPER.A0, progress: 0, speed01: 0 };
+}
+
+export function makeWiperFeed(): WiperFeed {
+  return { drawn: false, time: 0, rain: 0, state: makeWiperState() };
+}
+
+/** Fill `out` with the blade's state at `time` (the pass's clock) for the given rain. Allocation-free. */
+export function wiperStateInto(out: WiperState, time: number, rain: number): WiperState {
+  const t = time >= 0 && Number.isFinite(time) ? time : 0;
+  const r = rain >= 0 ? rain : 0;
+  const dwell = wiperDwell(r);
+  const period = 2 * WIPER.OUT + dwell;
+  // mod(t, period)
+  const ph = t - period * Math.floor(t / period);
+  let s = 0;
+  let stroke: WiperStroke = 'parked';
+  let progress = 0;
+  if (ph < WIPER.OUT) {
+    s = ph / WIPER.OUT;
+    stroke = 'out';
+    progress = s;
+  } else if (ph < 2 * WIPER.OUT) {
+    s = 2 - ph / WIPER.OUT;
+    stroke = 'back';
+    progress = ph / WIPER.OUT - 1;
+  } else progress = dwell > 0 ? (ph - 2 * WIPER.OUT) / dwell : 0;
+  const a01 = 0.5 - 0.5 * Math.cos(3.14159265 * s);
+  out.stroke = stroke;
+  out.phase = ph;
+  out.period = period;
+  out.dwell = dwell;
+  out.strokeTime = WIPER.OUT;
+  out.s = s;
+  out.angle01 = a01;
+  out.angle = WIPER.A0 + (WIPER.A1 - WIPER.A0) * a01;
+  out.progress = progress;
+  out.speed01 = Math.sin(Math.PI * s);
+  return out;
+}
+
+/** The blade's state at `time` for the given rain (see WiperState). */
+export function wiperState(time: number, rain: number): WiperState {
+  return wiperStateInto(makeWiperState(), time, rain);
+}
+
 export class DropletPass extends Pass {
   private readonly material: ShaderMaterial;
   private depthTexture: Texture | null = null;
@@ -363,6 +484,23 @@ export class DropletPass extends Pass {
   tick(dt: number): void {
     this.time += dt;
     if (this.time > 3600) this.time -= 3600;
+  }
+
+  /** The pass's clock (seconds): what the shader's uTime is fed with. */
+  get clock(): number {
+    return this.time;
+  }
+
+  /**
+   * The wiper as seen by the frame just rendered: is the blade on screen (the same condition as the shader's uWiper, and
+   * only while the pass runs), the clock and rain it was drawn with, and its place in the schedule. Allocation-free.
+   */
+  wiperFeed(out: WiperFeed): WiperFeed {
+    out.drawn = this.enabled && this.wiper && !this.lens;
+    out.time = this.time;
+    out.rain = this.rain;
+    wiperStateInto(out.state, this.time, this.rain);
+    return out;
   }
 
   override render(renderer: WebGLRenderer, inputBuffer: WebGLRenderTarget, outputBuffer: WebGLRenderTarget): void {

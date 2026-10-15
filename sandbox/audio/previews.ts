@@ -9,8 +9,9 @@ import { MenuMusic, UiSynth, buildMasterGraph } from '../../src/audio';
 import { encodeWav16 } from '../../src/audio/wav';
 import type { UiSound } from '../../src/core/contracts';
 import { DEFAULT_VOLUMES, SR, renderScene, type SceneResult } from './harness';
-import { followListener, impactCar, passByCar, run3Car, tireCar } from './scenarios';
+import { followListener, impactCar, passByCar, run3Car, steppedCar, tireCar } from './scenarios';
 import { db, peakAbs, rms, toBase64 } from './report-util';
+import { simulateWiper } from './wiper-sim';
 
 export interface PreviewWav {
   sr: number;
@@ -22,7 +23,14 @@ export interface PreviewWav {
   note: string;
 }
 
-function pack(r: SceneResult, channels: 1 | 2, note: string): PreviewWav {
+/** `boostToDb`: scale the whole render so its peak is this many dBFS (for sounds that are quiet by design); the note says by how much. */
+function pack(r: SceneResult, channels: 1 | 2, note: string, boostToDb?: number): PreviewWav {
+  if (boostToDb !== undefined) {
+    const pk = Math.max(peakAbs(r.left), peakAbs(r.right), 1e-9);
+    const g = Math.pow(10, boostToDb / 20) / pk;
+    r = { ...r, left: r.left.map((x) => x * g), right: r.right.map((x) => x * g) };
+    note += ` [raised by ${db(g).toFixed(0)} dB: on its own it is far quieter than this, see the cockpit mixes for its real level]`;
+  }
   let data: Float32Array[];
   if (channels === 1) {
     const m = new Float32Array(r.left.length);
@@ -64,8 +72,13 @@ async function renderMusicPreview(seconds: number, startBar: number): Promise<Sc
   return { left: buf.getChannelData(0).slice(), right: buf.getChannelData(1).slice(), sr: SR, renderMs: performance.now() - t0, quanta: 0 };
 }
 
-export async function renderPreviews(log: (m: string) => void): Promise<Record<string, PreviewWav>> {
+/** `only` = 'wiper' renders just the cockpit-wiper previews (the others take minutes). */
+export async function renderPreviews(log: (m: string) => void, only?: string): Promise<Record<string, PreviewWav>> {
   const out: Record<string, PreviewWav> = {};
+  if (only === 'wiper') {
+    await renderWiperPreviews(out, log);
+    return out;
+  }
 
   // 1) each engine: full throttle through 3 gears, lift, overrun pops (chase camera, exterior)
   for (const car of CARS) {
@@ -193,7 +206,46 @@ export async function renderPreviews(log: (m: string) => void): Promise<Record<s
 
   // 8) weather: rain ambience, cabin, thunder, wet tires, wheelspin slush, pass-by spray
   await renderWeatherPreviews(out, log);
+  // 9) the cockpit wiper: motor, rubber swish, the thunks at both ends of the sweep, a squeak now and then
+  await renderWiperPreviews(out, log);
   return out;
+}
+
+async function renderWiperPreviews(out: Record<string, PreviewWav>, log: (m: string) => void): Promise<void> {
+  const car = getCar('vanta-gt');
+  // the wiper alone, raised to a comfortable level to hear what it is made of
+  for (const [name, rain, note] of [
+    ['wiper-only-rain', 0.55, 'the cockpit wiper alone in the "rain" preset (0.55): one sweep every 3.24 s, the motor winds down at the park position, the glass squeaks now and then'],
+    ['wiper-only-storm', 1, 'the cockpit wiper alone in a storm (1.0): a sweep every 0.96 s, the motor never stops, a different sweep every time'],
+  ] as const) {
+    log(name);
+    const sim = simulateWiper({ seconds: 14, rain, fps: 60, jitter: 0.25, seed: 4, plannerSeed: 3 });
+    const r = await renderScene({ seconds: 12, cars: [], wiper: { sweeps: sim.sweeps }, volumes: DEFAULT_VOLUMES });
+    out[name] = pack(r, 2, note, -3);
+  }
+  // in the cabin: engine at a steady cruise, a lift, the cruise again, the cabin rain, wet tires, and the wiper on top
+  for (const [name, rain, wet, note] of [
+    ['wiper-rain-cockpit', 0.55, 0.75, 'Vanta GT in the cockpit view in the "rain" preset: a light cruise, a lift at 8 s, the cruise again. Cabin rain, wet tires and the wiper (a sweep every 3.24 s)'],
+    ['wiper-storm-cockpit', 1, 1, 'the same cruise in a storm: the wiper never stops (a sweep every 0.96 s) under the roar of the rain'],
+  ] as const) {
+    log(name);
+    const sim = simulateWiper({ seconds: 18, rain, fps: 60, jitter: 0.25, seed: 4, plannerSeed: 3 });
+    const c = steppedCar(car, [
+      { t: 0, rpm: 3400, throttle: 0.3, load: 0.3, speed: 33, gear: 4 },
+      { t: 8, rpm: 3000, throttle: 0, load: 0, speed: 31, gear: 4 },
+      { t: 11, rpm: 3400, throttle: 0.3, load: 0.3, speed: 33, gear: 4 },
+    ]);
+    const r = await renderScene({
+      seconds: 16,
+      cars: [{ ...c, interior: 1 }],
+      listener: followListener(c, 0, 1.0),
+      weather: { rain, interior: 1, speed: 33 },
+      wetness: wet,
+      wiper: { sweeps: sim.sweeps },
+      volumes: DEFAULT_VOLUMES,
+    });
+    out[name] = pack(r, 2, note);
+  }
 }
 
 async function renderWeatherPreviews(out: Record<string, PreviewWav>, log: (m: string) => void): Promise<void> {

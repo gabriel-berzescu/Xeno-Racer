@@ -4,7 +4,7 @@
  * worklet / graph / master chain run inside an OfflineAudioContext) and writes the results to
  * previews/audio/.
  *
- *   node sandbox/audio/render-previews.mjs [--port 5199] [--out previews/audio]
+ *   node sandbox/audio/render-previews.mjs [--port 5199] [--out previews/audio] [--only wiper]
  *
  * Point --port at a `vite preview` server to render from the production build instead.
  */
@@ -19,6 +19,7 @@ const opt = (name, def) => {
 };
 const port = opt('port', '5199');
 const outDir = resolve(opt('out', 'previews/audio'));
+const only = opt('only', '');
 mkdirSync(outDir, { recursive: true });
 
 const browser = await chromium.launch({
@@ -32,7 +33,7 @@ page.on('console', (m) => {
   if (m.type() === 'error') console.log('[console.error]', m.text().slice(0, 300));
 });
 const t0 = Date.now();
-await page.goto(`http://127.0.0.1:${port}/sandbox/audio.html?render=1`, { waitUntil: 'load', timeout: 90000 });
+await page.goto(`http://127.0.0.1:${port}/sandbox/audio.html?render=1${only ? `&only=${only}` : ''}`, { waitUntil: 'load', timeout: 90000 });
 await page.waitForFunction(() => window.__READY__ === true, null, { timeout: 300000, polling: 500 });
 const names = await page.evaluate(() => Object.keys(window.__AUDIO_WAVS__));
 let total = 0;

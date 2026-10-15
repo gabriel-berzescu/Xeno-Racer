@@ -3,8 +3,9 @@
  *
  *   sandbox/audio.html            interactive test bench for humans (default)
  *   sandbox/audio.html?test=1     offline self-test report  -> window.__AUDIO_REPORT__
- *                                 (&only=engines,tires,road,impacts,spatial,ui,music,master,cpu,realtime,weather)
+ *                                 (&only=engines,tires,road,impacts,spatial,ui,music,master,cpu,realtime,weather,wiper)
  *   sandbox/audio.html?render=1   renders the preview WAVs  -> window.__AUDIO_WAVS__ (used by render-previews.mjs)
+ *                                 (&only=wiper: just the cockpit-wiper ones)
  *
  * window.__READY__ is set when the page is ready (bench) or the run has finished (test / render).
  */
@@ -75,7 +76,7 @@ async function main(): Promise<void> {
     window.__AUDIO_WAVS__ = await renderPreviews((m) => {
       out.textContent = m;
       window.__AUDIO_PROGRESS__ = m;
-    });
+    }, params.get('only') ?? undefined);
     out.textContent = 'previews rendered: ' + Object.keys(window.__AUDIO_WAVS__ as Record<string, unknown>).join(', ');
     window.__READY__ = true;
   } else {

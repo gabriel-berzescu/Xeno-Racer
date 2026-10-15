@@ -51,7 +51,7 @@ import { FOG_TABLE_SIZE } from './atmosphere';
 import { solveEnvironment, type EnvSolution } from './environment';
 import { FinalEffect, SpeedEffect } from './effects-post';
 import { ParticlePass, particleUniforms, ShaftsPass } from './post';
-import { DropletPass } from './wet/droplets';
+import { DropletPass, makeWiperFeed, type WiperFeed } from './wet/droplets';
 import { SSRPass } from './wet/ssr';
 import { installShaderPatches, XR_LAMPS, xrFogUniform, xrLampColUniform, xrLampUniform, xrLampUpUniform } from './shaderPatches';
 import { SHADOW_OFF, shadowConfigFor, SunShadows } from './shadows';
@@ -123,6 +123,12 @@ export interface XenoRenderSystem extends RenderSystem {
   /** Camera of the last render() call. */
   readonly camera: PerspectiveCamera;
   readonly solution: EnvSolution | null;
+  /**
+   * The cockpit wiper as the last render() drew it: is the blade on screen, the windscreen pass's clock and rain, and where the
+   * blade is in its schedule. Read-only; the same object is refilled on every read (so read it right after render()). The audio
+   * follows it, so the swish and the thunks land on the picture's blade.
+   */
+  readonly wiper: WiperFeed;
 }
 
 interface Tier {
@@ -204,6 +210,7 @@ class RenderSystemImpl implements XenoRenderSystem {
   private shaftsBlend: TextureEffect | null = null;
   private ssrPass: SSRPass | null = null;
   private dropletPass: DropletPass | null = null;
+  private readonly wiperOut: WiperFeed = makeWiperFeed();
   private aaEffect: SMAAEffect | FXAAEffect | null = null;
   private pipelineKey = '';
   private flashAmp = 0;
@@ -425,6 +432,16 @@ class RenderSystemImpl implements XenoRenderSystem {
     pu.uSkyAmb.value.set(sol.skyAmbient[0] * rainLift, sol.skyAmbient[1] * rainLift, sol.skyAmbient[2] * rainLift);
     pu.uFogColor.value.set(sol.fogColor[0] * haze, sol.fogColor[1] * haze, sol.fogColor[2] * haze);
     this.flashApplied = f > 0.001;
+  }
+
+  get wiper(): WiperFeed {
+    const f = this.wiperOut;
+    const p = this.dropletPass;
+    if (!p) {
+      f.drawn = false;
+      return f;
+    }
+    return p.wiperFeed(f);
   }
 
   get debug(): XenoRenderSystem['debug'] {
