@@ -360,6 +360,18 @@
 .cc-pos.p3 { color: #e0955c; }
 .cc-pts { font-size: 22px; color: var(--teal); }
 .cc-next { padding: 6px 16px 6px 18px; font: 800 italic 24px / 1 var(--f-display); letter-spacing: 0.14em; text-transform: uppercase; color: #fff; background: var(--pink); clip-path: polygon(9px 0, 100% 0, calc(100% - 9px) 100%, 0 100%); }
+/* slim cards for a calendar of more than four rounds */
+.st-cal.compact { gap: 8px; }
+.st-cal.compact .cc { min-height: 0; grid-template-columns: 8px 44px minmax(0, 1fr) auto; column-gap: 14px; padding: 11px 20px 11px 0; }
+.st-cal.compact .cc-accent { margin: -11px 0; }
+.st-cal.compact .cc-n { width: 44px; height: 44px; font-size: 25px; }
+.st-cal.compact .cc-n .ico { width: 22px; height: 22px; }
+.st-cal.compact .cc-name { font-size: 30px; }
+.st-cal.compact .cc-sub { margin-top: 6px; }
+.st-cal.compact .cc-won { margin-top: 5px; font-size: 16px; }
+.st-cal.compact .cc-pos { font-size: 34px; }
+.st-cal.compact .cc-pts { font-size: 19px; }
+.st-cal.compact .cc-next { font-size: 20px; }
 
 /* ── championship: champion / final standings ──────────────────────────────── */
 
@@ -432,7 +444,7 @@
 /* narrow stages */
 .xr-stage[data-narrow] .st-table-panel { right: 620px; }
 .xr-stage[data-narrow] .st-cal-panel { width: 520px; }
-.xr-stage[data-narrow] .st-row { grid-template-columns: 50px 58px minmax(0, 1fr) repeat(var(--rounds), 62px) 84px 74px; padding: 0 16px 0 14px; font-size: 24px; }
+.xr-stage[data-narrow] .st-row { grid-template-columns: 50px 52px minmax(0, 1fr) repeat(var(--rounds), 54px) 80px 70px; padding: 0 16px 0 14px; font-size: 24px; }
 .xr-stage[data-narrow] .st-row .c-rd { padding-right: 8px; font-size: 22px; }
 .xr-stage[data-narrow] .st-row .c-pts { font-size: 28px; }
 .xr-stage[data-narrow] .st-row .c-gap { font-size: 20px; }
@@ -442,6 +454,9 @@
 .xr-stage[data-narrow] .cc { min-height: 106px; column-gap: 12px; grid-template-columns: 8px 46px minmax(0, 1fr) auto; }
 .xr-stage[data-narrow] .cc-n { width: 46px; height: 46px; font-size: 26px; }
 .xr-stage[data-narrow] .cc-name { font-size: 32px; }
+.xr-stage[data-narrow] .st-cal.compact .cc { min-height: 0; grid-template-columns: 8px 40px minmax(0, 1fr) auto; }
+.xr-stage[data-narrow] .st-cal.compact .cc-n { width: 40px; height: 40px; font-size: 23px; }
+.xr-stage[data-narrow] .st-cal.compact .cc-name { font-size: 27px; }
 .xr-stage[data-narrow] .st-me { padding: 12px 28px 14px 26px; }
 .xr-stage[data-narrow] .st-me-val .pn { font-size: 72px; }
 .xr-stage[data-narrow] .podium { width: 770px; gap: 12px; }

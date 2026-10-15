@@ -43,12 +43,14 @@ const PLAYER_COLOR = '#16e0bd';
 /** Chip colour for an opponent whose saved colour is unusable. */
 const FALLBACK_COLOR = '#8a93a3';
 
-/** The calendar is fixed: two circuits, four very different days. */
+/** The calendar is fixed: three circuits, six very different days, a thunderstorm to finish. */
 export const CALENDAR: readonly { trackId: string; environment: EnvironmentSettings }[] = [
   { trackId: 'aurelia', environment: { timeOfDay: 'golden', weather: 'clear' } },
   { trackId: 'kuroyama', environment: { timeOfDay: 'morning', weather: 'cloudy' } },
+  { trackId: 'brennwald', environment: { timeOfDay: 'morning', weather: 'clear' } },
   { trackId: 'aurelia', environment: { timeOfDay: 'night', weather: 'clear' } },
   { trackId: 'kuroyama', environment: { timeOfDay: 'dusk', weather: 'rain' } },
+  { trackId: 'brennwald', environment: { timeOfDay: 'noon', weather: 'storm' } },
 ];
 
 export const LENGTHS: readonly ChampionshipLength[] = ['short', 'standard', 'long'];

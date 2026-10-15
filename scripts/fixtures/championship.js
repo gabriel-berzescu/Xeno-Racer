@@ -8,7 +8,7 @@
 // is set and the page is reloaded (then the game loads the saved season, and everything works).
 //
 // window.__fxCfg (all optional)
-//   rounds  completed rounds, 0..4 (default 2)         screen  'standings' | 'champion' | 'main' | null (default 'standings')
+//   rounds  completed rounds, 0..6 (default 2)         screen  'standings' | 'champion' | 'main' | null (default 'standings')
 //   via     'results': enter the screen from the results screen, which plays the standings reveal
 //   opp     opponents 1..11 (default 7)                win     the player wins most rounds
 //   seed    season seed (default 4242)                 length  'short' | 'standard' | 'long'

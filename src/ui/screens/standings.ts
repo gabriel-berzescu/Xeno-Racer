@@ -304,6 +304,8 @@ export class StandingsScreen extends BaseScreen {
 
   private renderCalendar(v: ChampionshipView): void {
     this.calHead.textContent = v.complete ? 'Calendar' : `Calendar  ·  Next: round ${v.done + 1}`;
+    // more than four rounds only fit the panel as slimmer cards
+    this.cal.classList.toggle('compact', v.rounds.length > 4);
     v.rounds.forEach((r, i) => this.cal.appendChild(this.card(r, i, v)));
     // the season's rules, as a reminder
     const car = this.ctx.deps.cars.find((c) => c.id === v.carId);

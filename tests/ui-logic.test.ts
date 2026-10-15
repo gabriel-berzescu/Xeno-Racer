@@ -633,6 +633,7 @@ describe('championship menu text', () => {
   const tracks: TrackInfo[] = [
     { ...TRACKS[0], id: 'aurelia', name: 'Aurelia Ring', defaultLaps: 3 },
     { ...TRACKS[1], id: 'kuroyama', name: 'Kuroyama Pass', defaultLaps: 2 },
+    { ...TRACKS[1], id: 'brennwald', name: 'Brennwald Ring', defaultLaps: 3 },
   ];
   const def = championshipDef(tracks);
   const start = (): ReturnType<typeof createChampionship> =>
@@ -649,28 +650,28 @@ describe('championship menu text', () => {
 
   it('describes the championship before there is one', () => {
     const t = championshipHint(def, null);
-    expect(t).toContain('4 rounds across 2 circuits');
+    expect(t).toContain('6 rounds across 3 circuits');
     expect(t).toContain('Xeno Cup');
     expect(championshipHint(undefined, null).length).toBeGreaterThan(20);
   });
 
   it('says where a saved season stands', () => {
     let s = start();
-    expect(championshipHint(def, buildView(s))).toBe('Xeno Cup: round 1 of 4 is next. Nobody has scored yet.');
+    expect(championshipHint(def, buildView(s))).toBe('Xeno Cup: round 1 of 6 is next. Nobody has scored yet.');
     s = recordRound(s, finish([...ids(s)].reverse())); // the player (listed first) finishes last: 12 points... on 4 cars: P4 = 12
     const v = buildView(s);
-    expect(championshipHint(def, v)).toBe(`Xeno Cup, round 2 of 4. 4th with 12 points. Pick up where you left off.`);
+    expect(championshipHint(def, v)).toBe(`Xeno Cup, round 2 of 6. 4th with 12 points. Pick up where you left off.`);
     s = recordRound(s, finish([ids(s)[0], ...ids(s).slice(1)]));
-    expect(championshipHint(def, buildView(s))).toContain('round 3 of 4');
+    expect(championshipHint(def, buildView(s))).toContain('round 3 of 6');
   });
 
   it('congratulates a champion and shows a runner-up their place once the season is over', () => {
     let win = start();
-    for (let i = 0; i < 4; i++) win = recordRound(win, finish(ids(win)));
-    expect(championshipHint(def, buildView(win))).toBe('Xeno Cup won with 100 points. See the final standings.');
+    for (let i = 0; i < def.rounds.length; i++) win = recordRound(win, finish(ids(win)));
+    expect(championshipHint(def, buildView(win))).toBe('Xeno Cup won with 150 points. See the final standings.');
     let lose = start();
-    for (let i = 0; i < 4; i++) lose = recordRound(lose, finish([ids(lose)[1], ids(lose)[0], ...ids(lose).slice(2)]));
-    expect(championshipHint(def, buildView(lose))).toBe('Xeno Cup finished: 2nd with 72 points. See the final standings.');
+    for (let i = 0; i < def.rounds.length; i++) lose = recordRound(lose, finish([ids(lose)[1], ids(lose)[0], ...ids(lose).slice(2)]));
+    expect(championshipHint(def, buildView(lose))).toBe('Xeno Cup finished: 2nd with 108 points. See the final standings.');
   });
 
   it('formats conditions, laps, gaps, track codes and season titles', () => {
