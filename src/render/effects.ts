@@ -108,9 +108,9 @@ const SURF: Record<SurfaceType, SurfaceLook> = {
   curb: { r: 0.55, g: 0.5, b: 0.45, dust: 0, dustAlpha: 0, tr: 0.012, tg: 0.012, tb: 0.014, trAlpha: 0.6, chips: 0 },
   concrete: { r: 0.6, g: 0.58, b: 0.55, dust: 0, dustAlpha: 0, tr: 0.015, tg: 0.015, tb: 0.017, trAlpha: 0.7, chips: 0 },
   grass: { r: 0.34, g: 0.36, b: 0.2, dust: 0.35, dustAlpha: 0.2, tr: 0.045, tg: 0.06, tb: 0.022, trAlpha: 0.34, chips: 0.5 },
-  gravel: { r: 0.56, g: 0.53, b: 0.49, dust: 1.0, dustAlpha: 0.32, tr: 0.11, tg: 0.1, tb: 0.09, trAlpha: 0.3, chips: 1.0 },
+  gravel: { r: 0.56, g: 0.53, b: 0.49, dust: 1.0, dustAlpha: 0.26, tr: 0.11, tg: 0.1, tb: 0.09, trAlpha: 0.3, chips: 1.0 },
   sand: { r: 0.8, g: 0.68, b: 0.46, dust: 1.3, dustAlpha: 0.36, tr: 0.3, tg: 0.24, tb: 0.15, trAlpha: 0.28, chips: 0.2 },
-  dirt: { r: 0.44, g: 0.33, b: 0.22, dust: 1.0, dustAlpha: 0.34, tr: 0.055, tg: 0.04, tb: 0.028, trAlpha: 0.42, chips: 0.7 },
+  dirt: { r: 0.44, g: 0.33, b: 0.22, dust: 1.0, dustAlpha: 0.26, tr: 0.055, tg: 0.04, tb: 0.028, trAlpha: 0.42, chips: 0.7 },
 };
 
 const _q = new Vector3();
@@ -328,7 +328,7 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
 
   function emitDust(rec: CarFx, s: VehicleState, i: number, look: SurfaceLook, amt: number, dt: number): void {
     const w = s.wheels[i];
-    const rate = (3 + 46 * amt) * caps.emit;
+    const rate = (2 + 30 * amt) * caps.emit;
     let acc = rec.dustAcc[i] + rate * dt;
     let n = Math.floor(acc);
     rec.dustAcc[i] = acc - n;
@@ -344,9 +344,9 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
       sp.vy = up;
       sp.vz = -s.velocity.z * 0.1 + rg() * 1.4;
       sp.r0 = 0.32;
-      sp.r1 = rr(0.9, 1.5) + amt * 0.6;
-      sp.life = rr(0.9, 1.7);
-      sp.alpha = look.dustAlpha * rr(0.6, 1.1) * (0.5 + 0.5 * Math.min(1, amt));
+      sp.r1 = rr(0.8, 1.3) + amt * 0.5;
+      sp.life = rr(0.8, 1.5);
+      sp.alpha = look.dustAlpha * rr(0.6, 1.0) * (0.4 + 0.6 * Math.min(1, amt));
       const t = rr(0.92, 1.08);
       sp.cr = look.r * t; sp.cg = look.g * t; sp.cb = look.b * t;
       sp.rotVel = 0.4;
@@ -551,7 +551,8 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
             skid.endTrail(trail);
           }
           if (look.dust > 0 && speed > 2.5) {
-            const amt = clamp(speed / 28, 0, 1.15) * look.dust * (0.45 + 0.55 * clamp(w.skid + Math.abs(w.slipRatio) + Math.abs(w.slipAngle), 0, 1));
+            // a rolling wheel lifts a little; wheelspin and slides throw the real clouds
+            const amt = clamp(speed / 30, 0, 1) * look.dust * (0.22 + 0.78 * clamp(w.skid + 2 * Math.abs(w.slipRatio) + 2 * Math.abs(w.slipAngle), 0, 1));
             if (amt > 0.02) emitDust(rec, s, i, look, amt, dt);
             if (look.chips > 0 && amt > 0.1) emitChips(rec, s, i, look, amt, dt, gy);
           }

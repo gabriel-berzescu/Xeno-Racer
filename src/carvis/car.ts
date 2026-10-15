@@ -47,9 +47,9 @@ import { createWheelMaterial } from './wheelMaterial';
 /** Tunables the render/game side may want to adjust. */
 export const CARVIS_TUNING = {
   /** SpotLight intensity (candela) for the player's headlights at full darkness. */
-  headlightIntensity: 260,
-  headlightDistance: 85,
-  headlightAngle: 0.46,
+  headlightIntensity: 120,
+  headlightDistance: 110,
+  headlightAngle: 0.62,
   /** darkness above which the real spotlights switch on (avoids a shader recompile every frame) */
   headlightOnDarkness: 0.3,
   /** metres from camera where AI cars swap to the far LOD */
@@ -363,9 +363,11 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
   const hl = layout.headlight;
   const spots: SpotLight[] = [];
   for (const sg of [1, -1]) {
-    const sp = new SpotLight(0xfff0dc, 0, CARVIS_TUNING.headlightDistance, CARVIS_TUNING.headlightAngle, 0.7, 1.4);
+    // low beam: aimed ~45 m down the road with a gentle decay, so the pool reaches far instead of
+    // burning out the tarmac just ahead of the bumper
+    const sp = new SpotLight(0xfff0dc, 0, CARVIS_TUNING.headlightDistance, CARVIS_TUNING.headlightAngle, 1.0, 1.0);
     sp.position.set(sg * hl[0], hl[1], hl[2]);
-    sp.target.position.set(sg * hl[0] * 0.6, 0, hl[2] + 30);
+    sp.target.position.set(sg * hl[0] * 0.85, 0, hl[2] + 45);
     sp.castShadow = false;
     sp.visible = false;
     root.add(sp, sp.target);
