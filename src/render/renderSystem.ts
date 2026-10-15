@@ -37,7 +37,7 @@ import {
   Vector2,
   Vector3,
   WebGLRenderer,
-  type WebGLRenderTarget,
+  WebGLRenderTarget,
 } from 'three';
 import type {
   EnvironmentSettings,
@@ -115,6 +115,11 @@ export interface XenoRenderSystem extends RenderSystem {
    * dry and wet swaps the shadow programs of a scene that is built (so the first frame of the race does not stall).
    */
   precompile(): Promise<void>;
+  /**
+   * render() right now, whatever the frame cap. For a hidden warm-up frame behind a loading screen: precompile() can't
+   * reach the shadow-map depth programs and the post-processing chain, which are built by the first real frame.
+   */
+  renderNow(camera: PerspectiveCamera, dt: number, speed: number): void;
   /** Camera of the last render() call. */
   readonly camera: PerspectiveCamera;
   readonly solution: EnvSolution | null;
@@ -221,6 +226,8 @@ class RenderSystemImpl implements XenoRenderSystem {
   private readonly envScene = new Scene();
   private envTarget: WebGLRenderTarget | null = null;
   private envToken = 0;
+  /** Stand-in for the composer's buffers while precompiling (see precompile). */
+  private compileTarget: WebGLRenderTarget | null = null;
 
   private cssW = 1280;
   private cssH = 720;
@@ -322,12 +329,27 @@ class RenderSystemImpl implements XenoRenderSystem {
 
   async precompile(): Promise<void> {
     if (this.disposed) return;
+    const r = this.renderer;
+    const prev = r.getRenderTarget();
     try {
-      await this.renderer.compileAsync(this.scene, this.camera);
-      await this.renderer.compileAsync(this.particleScene, this.camera);
+      // The scene and particles are drawn into the composer's linear buffers, never straight to the canvas, and a
+      // program's variant depends on its target (output colour space, tone mapping): compile against a stand-in
+      // target, or every program would be compiled a second time, for the canvas, and never used. compileAsync picks
+      // the programs synchronously, so the target only has to be set around the calls.
+      this.compileTarget ??= new WebGLRenderTarget(1, 1, { depthBuffer: false });
+      r.setRenderTarget(this.compileTarget);
+      const pending = [r.compileAsync(this.scene, this.camera), r.compileAsync(this.particleScene, this.camera)];
+      r.setRenderTarget(prev);
+      await Promise.all(pending);
     } catch {
       // the first frame compiles whatever is still missing
+      r.setRenderTarget(prev);
     }
+  }
+
+  renderNow(camera: PerspectiveCamera, dt: number, speed: number): void {
+    this.lastStart = 0;
+    this.render(camera, dt, speed);
   }
 
   applyGraphics(g: GraphicsSettings): void {
@@ -481,6 +503,7 @@ class RenderSystemImpl implements XenoRenderSystem {
     this.aoPass = null;
     this.renderPass.dispose();
     this.particlePass.dispose();
+    this.compileTarget?.dispose();
     this.composer.dispose();
     this.sky.dispose();
     this.sun.dispose();
