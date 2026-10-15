@@ -1,8 +1,9 @@
 # Xeno-Racer
 
 A realistic racing game for the browser, built for a gamepad. A from-scratch vehicle simulation
-running at 1000 Hz, AI drivers that race wheel to wheel, two hand-built circuits, procedurally
-sculpted cars, synthesized engine sound, and a TV director that films the race.
+running at 1000 Hz, AI drivers that race wheel to wheel, two hand-built circuits, rain that you
+can feel through the tyres, procedurally sculpted cars, synthesized engine sound, and a TV
+director that films the race.
 
 ![Racing up Kuroyama Pass](docs/img/kuroyama.jpg)
 
@@ -10,7 +11,8 @@ sculpted cars, synthesized engine sound, and a TV director that films the race.
 
 **Windows:** double-click **`play.bat`**. It needs [Node.js](https://nodejs.org) 20+ and Google Chrome.
 On the first run it installs dependencies and builds the game, which takes about a minute. It then
-opens Xeno-Racer full-screen in its own Chrome window, on the dedicated GPU. Close the window to quit.
+opens Xeno-Racer full-screen in its own Chrome window, on the dedicated GPU. To quit, close the
+window (**Alt+F4** in full screen).
 
 - Plug in the gamepad and press any button. On a **Logitech F310**, set the switch on the back to **X** (XInput).
 - `play.bat --window` plays in a window, `play.bat --build` forces a rebuild, `play.bat --dev` runs from the dev server with hot reload, and `play.bat --serve` only serves the game (open the printed address yourself).
@@ -61,15 +63,36 @@ All four are original designs, and their figures are measured in the simulation,
 - **Aurelia Ring** (4.79 km, 14 corners) is a grand-prix circuit around a lake. It has a 940 m main straight into a hairpin, flowing esses, a banked carousel, a chicane and a downhill braking zone. Floodlit at night.
 - **Kuroyama Pass** (5.25 km) is a mountain road climbing 140 m through twelve switchback hairpins, with a ridge section, a tunnel and a fast descent. The road is narrow and guard-railed.
 
-Six times of day (dawn to night) and three weather presets, all lit by a physically based sky.
+Six times of day (dawn to night) and five weathers (clear, cloudy, overcast, rain and storm), all
+lit by a physically based sky.
 
+## Rain
+
+Rain changes how the car drives as well as how it looks:
+
+- **Grip:** measured on the skidpad, wet tarmac keeps 57-82 % of the dry grip, depending on the car
+  and how wet it is. Stopping from 100 km/h needs 18-78 % more distance. Standing water makes the
+  car aquaplane at speed. Kerbs, painted lines and grass are slippery. The water cools the tyres,
+  and their working temperature drops by about 30 °C.
+- **AI drivers:** they brake earlier, carry less speed and stay off the kerbs.
+- **Visuals:** the sky closes into a low, dark cloud deck. The track darkens and shines, and puddles
+  reflect the lights and ripple. Cars throw up spray and rooster tails. Droplets bead on the
+  paintwork and slide up the windscreen in the cockpit view.
+- **Storms:** visibility drops to a few hundred metres, and lightning lights up the clouds, with the
+  thunder rolling in a moment later.
+- **Sound:** the rain patters or roars, drums on the roof from inside the car, and the tyres hiss
+  and spray.
+- **Records:** wet best laps and ghosts are kept apart from dry ones.
+
+![Kuroyama in the rain at dusk](docs/img/rain.jpg)
+![A night storm on the Aurelia grid](docs/img/storm.jpg)
 ![Kuroyama hairpin from a TV camera](docs/img/hairpin.jpg)
 ![Aurelia at night](docs/img/night.jpg)
 
 ## Under the hood
 
 - **Vehicle physics** (`src/physics`) is written from scratch and steps at 1000 Hz:
-  - **Tires:** combined-slip tire model with relaxation length, load sensitivity, and tread and brake temperatures.
+  - **Tires:** combined-slip tire model with relaxation length, load sensitivity, and tread and brake temperatures. In the wet, grip depends on the surface and each tyre's wet compound, and the car aquaplanes in standing water.
   - **Suspension:** raycast suspension with anti-roll bars.
   - **Drivetrain:** engine torque curves with turbo lag, a clutch and gearbox solved implicitly, and a limited-slip differential.
   - **Aero:** drag, downforce and slipstream.
@@ -82,11 +105,12 @@ Six times of day (dawn to night) and three weather presets, all lit by a physica
   - A traffic planner that holds its lane alongside other cars, commits to passes, leaves room, and follows at a safe gap when it can't get by.
   - Measured over 10 benchmark races: no resets, almost no time off the track, and around 200 overtakes.
 - **Rendering** (`src/render`, `src/carvis`, `src/track`) is three.js on WebGL2:
-  - **Lighting and post:** cascaded sun shadows, ambient occlusion, bloom, sun shafts, motion blur and AgX tone mapping.
+  - **Lighting and post:** cascaded sun shadows, ambient occlusion, bloom, sun shafts, motion blur and AgX tone mapping. At night, unlit scenery shifts toward the blue-grey the eye sees in the dark.
+  - **Weather:** a rain-deck sky, rain particles, wet materials, puddles with screen-space reflections, spray, windscreen droplets and lightning.
   - **Cars:** sculpted from signed distance fields, with liveries, working lights, interiors, and a driver who turns the wheel.
   - **Tracks:** terrain, trees and props are all procedural, plus CC0 surface textures.
   - **Performance:** the high preset renders 1080p in about 8 ms on an RTX 3050 laptop GPU.
-- **Audio** (`src/audio`) synthesizes engines in AudioWorklets, with intake, exhaust, turbo whistle, backfires, tire squeal, wind, impacts and 3D positioning.
+- **Audio** (`src/audio`) synthesizes engines in AudioWorklets, with intake, exhaust, turbo whistle, backfires, tire squeal, wind, impacts and 3D positioning. It also synthesizes rain (outside and inside the car), rolling thunder, and wet-tyre hiss and spray.
 
 ![TV camera](docs/img/tv.jpg)
 ![Car select](docs/img/showroom.jpg)
@@ -105,7 +129,7 @@ npm run typecheck
 - `scripts/tour.mjs` scripts a play-through in headless Chrome. It can wait, press keys, take screenshots, evaluate code and collect perf stats. With `--init scripts/fixtures/fake-pad.js` it drives a fake F310.
 - `tests/probes/` holds diagnostics that only run on demand. For example, `PACKSET=1 npx vitest run tests/probes/pack.test.ts` runs the AI pack-racing benchmark.
 
-Dev URL flags: `?quick=race|timeTrial|freeRoam&track=aurelia|kuroyama&car=vanta-gt&opp=7&laps=3&tod=night&cam=tv&quality=low|medium|high|ultra&autopilot=1&ui=0`. `?quick=championship&car=&opp=&diff=&start=` starts a new Xeno Cup, and `&champlaps=1` makes every round that many laps (with `autopilot=1` it plays itself).
+Dev URL flags: `?quick=race|timeTrial|freeRoam&track=aurelia|kuroyama&car=vanta-gt&opp=7&laps=3&tod=night&weather=clear|cloudy|overcast|rain|storm&cam=tv&quality=low|medium|high|ultra&autopilot=1&ui=0`. `?quick=championship&car=&opp=&diff=&start=` starts a new Xeno Cup, and `&champlaps=1` makes every round that many laps (with `autopilot=1` it plays itself).
 
 ## Credits
 
