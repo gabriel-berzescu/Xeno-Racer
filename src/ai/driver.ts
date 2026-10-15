@@ -54,7 +54,7 @@ export class AIDriver {
   debug = '';
   /** Traffic planner state for probes. */
   get debugTraffic(): string {
-    return `off=${this.offset.toFixed(2)} plan=${this.planTarget.toFixed(2)}`;
+    return `off=${this.offset.toFixed(2)} plan=${this.planTarget.toFixed(2)} env=[${this.envLo.toFixed(1)},${this.envHi.toFixed(1)}] ${this.dbgPlan}`;
   }
   private readonly up = new Vector3();
 
@@ -254,6 +254,7 @@ export class AIDriver {
    * doesn't flicker. Returns a speed cap for following when there is no gap.
    */
   private planTarget = 0;
+  private dbgPlan = '';
   /** Per-car tracking of the others: projection hint, last offset, lateral rate, committed pass side. */
   private readonly others = new Map<number, { hint: number; off: number; rate: number; t: number; side: number }>();
   private readonly obLo = new Float64Array(16);
@@ -373,8 +374,9 @@ export class AIDriver {
       this.obV[nOb] = vO;
       this.obTtc[nOb] = ttc;
       this.obId[nOb] = o.id;
-      // the room we'd have for the pass, from here to a bit beyond the car
-      this.strictRoom(s, Math.min(100, gap + 2 * len + v * 0.6));
+      // the room we'd have to get alongside: from here until we overlap it (once alongside, the
+      // alongside rules make it leave room, which is how an inside pass under braking works)
+      this.strictRoom(s, Math.min(100, gap + len));
       this.obRoomLo[nOb] = this.roomLo;
       this.obRoomHi[nOb] = this.roomHi;
       nOb++;
@@ -428,6 +430,10 @@ export class AIDriver {
       tryCand(pref);
       tryCand(Math.max(lo, Math.min(hi, prev)));
       for (let k = 0; k < nOb; k++) {
+        // aim a little clear of the blocked band (it already includes a safety margin), so small
+        // drifts of the other car don't flip us back to following; fall back to the band edge
+        tryCand(Math.max(lo, this.obLo[k] - 0.35));
+        tryCand(Math.min(hi, this.obHi[k] + 0.35));
         tryCand(this.obLo[k] - 0.05);
         tryCand(this.obHi[k] + 0.05);
       }
@@ -441,9 +447,13 @@ export class AIDriver {
     }
     // follow anything still in our path (current offset or planned one)
     const target = this.planTarget;
+    let dbg = `side=[${lo.toFixed(1)},${hi.toFixed(1)}] ob=`;
+    for (let k = 0; k < nOb; k++) dbg += `(${this.obLo[k].toFixed(1)}..${this.obHi[k].toFixed(1)} g${this.obGap[k].toFixed(0)} room${this.obRoomLo[k].toFixed(1)}/${this.obRoomHi[k].toFixed(1)} side${this.others.get(this.obId[k])!.side})`;
+    this.dbgPlan = dbg;
     for (let k = 0; k < nOb; k++) {
       const tk = Math.max(this.obRoomLo[k], Math.min(this.obRoomHi[k], target));
-      const inPath = (myOff > this.obLo[k] && myOff < this.obHi[k]) || (tk > this.obLo[k] && tk < this.obHi[k]);
+      // (a quarter metre of the safety margin may be used before we count as being in its path)
+      const inPath = (myOff > this.obLo[k] + 0.25 && myOff < this.obHi[k] - 0.25) || (tk > this.obLo[k] && tk < this.obHi[k]);
       if (!inPath) continue;
       const vO = this.obV[k];
       const desired = 2.5 + 0.3 * Math.max(0, vO);
@@ -451,6 +461,7 @@ export class AIDriver {
       if (this.obTtc[k] < 0.8) c = Math.min(c, vO - 1);
       cap = Math.min(cap, Math.max(0, c));
     }
+    this.dbgPlan += ` cap=${cap === Infinity ? "-" : (cap * 3.6).toFixed(0)}`;
     return cap;
   }
 

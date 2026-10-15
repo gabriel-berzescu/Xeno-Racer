@@ -10,6 +10,7 @@ import { Matrix4, Quaternion, Vector3 } from 'three';
 import { it } from 'vitest';
 import { AIDriver } from '../../src/ai';
 import { CARS, getCar } from '../../src/cars';
+import { DEFAULT_SETTINGS } from '../../src/core/settings';
 import type { Difficulty, TrackFrame, TrackPoint } from '../../src/core/contracts';
 import { PhysicsWorld, type Vehicle } from '../../src/physics';
 import { loadTrackRuntime } from '../../src/track';
@@ -43,13 +44,14 @@ export function runPack(trackId: string, carSpec: string, diff: Difficulty, n: n
   for (let i = 0; i < n; i++) {
     const def = carSpec === 'mixed' ? CARS[i % CARS.length] : getCar(carSpec);
     const v = world.addVehicle(def);
-    v.assists = { abs: true, tcs: 'low', esc: false, autoShift: true, steeringAssist: 0, autoClutch: true };
+    v.assists = process.env.ASSISTS === 'player' ? { ...DEFAULT_SETTINGS.assists } : { abs: true, tcs: 'low', esc: false, autoShift: true, steeringAssist: 0, autoClutch: true };
     const g = track.grid[Math.min(i, track.grid.length - 1)];
     if (i < track.grid.length) v.placeOnGround(g.position, g.quaternion, 0);
     else place(v, g.s - 8 * (i - track.grid.length + 1), g.d, 0);
     v.setTemperatures(0.8);
     v.holdOnGrid = true;
-    cars.push({ v, ai: new AIDriver(track, def, { difficulty: diff, seed: v.id * 17 + i }), hint: -1, prevS: 0, crossings: 0, lapStart: 0, laps: [], carHits: 0, hardHits: 0, wallHits: 0, resets: 0, off: 0, finished: false, finishT: 0, seenImpact: 0, wasOff: false });
+    const d = i === n - 1 && process.env.LASTDIFF ? (process.env.LASTDIFF as Difficulty) : diff;
+    cars.push({ v, ai: new AIDriver(track, def, { difficulty: d, seed: v.id * 17 + i }), hint: -1, prevS: 0, crossings: 0, lapStart: 0, laps: [], carHits: 0, hardHits: 0, wallHits: 0, resets: 0, off: 0, finished: false, finishT: 0, seenImpact: 0, wasOff: false });
   }
   const tp: TrackPoint = { s: 0, d: 0, segment: 0, widthLeft: 0, widthRight: 0, wallLeft: 0, wallRight: 0, tx: 0, tz: 1, lx: 1, lz: 0, y: 0 };
   for (const c of cars) {
