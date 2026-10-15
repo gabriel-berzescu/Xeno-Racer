@@ -3,7 +3,7 @@
  *
  * Phases: boot → menu (attract-mode race or showroom behind the UI) → loading → race → results.
  * URL flags for development: ?quick=race|timeTrial|freeRoam&track=&car=&opp=&diff=&laps=&tod=
- * &cam=&autopilot=1&ui=0 start straight into a session; window.__GAME__ exposes the instance.
+ * &weather=&cam=&autopilot=1&ui=0 start straight into a session; window.__GAME__ exposes the instance.
  */
 import { Matrix4, Quaternion, Vector3 } from 'three';
 import { AIDriver } from '../ai';
@@ -23,6 +23,7 @@ import type {
   Settings,
   TimeOfDay,
   TrackFrame,
+  Weather,
   TrackRuntime,
   UIIntent,
   VehicleState,
@@ -183,7 +184,7 @@ export class Game {
       laps: +(p.get('laps') ?? 3),
       opponents: mode === 'race' ? +(p.get('opp') ?? 7) : 0,
       difficulty: (p.get('diff') as Difficulty) ?? 'pro',
-      environment: { timeOfDay: (p.get('tod') as TimeOfDay) ?? 'golden', weather: 'clear' },
+      environment: { timeOfDay: (p.get('tod') as TimeOfDay) ?? 'golden', weather: (p.get('weather') as Weather) ?? 'clear' },
       startPosition: (p.get('start') as RaceConfig['startPosition']) ?? 'middle',
     };
   }
