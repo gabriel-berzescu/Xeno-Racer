@@ -720,7 +720,10 @@ function buildBrakingBoards(ctx: Ctx, group: THREE.Group): void {
       // outside of the upcoming corner
       const sgn: 1 | -1 = c.dir > 0 ? -1 : 1;
       const S = sgn > 0 ? rt.L : rt.R;
-      const r = rowAtD(rt, sgn, k, S.wall[k] + 1.3);
+      // just behind the barrier, or on the verge 6 m off the track edge where a wide run-off would put the
+      // barrier (and the board) out of the driver's sight, as real circuits do
+      const edge = S.W[k] + S.curbW[k];
+      const r = rowAtD(rt, sgn, k, S.wall[k] - edge > 12 ? edge + 6 : S.wall[k] + 1.3);
       const tex = makeBoardTexture(String(d));
       ctx.disposables.push(tex);
       const mat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.5, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0 });
