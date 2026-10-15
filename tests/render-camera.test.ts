@@ -1233,7 +1233,7 @@ describe('hood / bumper / cockpit', () => {
     expect(rollOf(rig2)).toBeCloseTo(-10 * DEG * (1 - TUNING.rollCompensation), 2);
   });
 
-  it('look.back: cockpit turns the head round smoothly; hood/bumper cut to a rear camera', () => {
+  it('look.back: cockpit turns the head round smoothly; hood/bumper cut to a rear camera on the roof', () => {
     const car = makeCar();
     const rig = createCameraRig(null, []);
     rig.setShake(0);
@@ -1249,15 +1249,19 @@ describe('hood / bumper / cockpit', () => {
         prevQ = rig.camera.quaternion.clone();
       },
     });
-    const { F } = carAxes(car);
+    const { F, U } = carAxes(car);
     expect(forwardOf(rig).dot(F)).toBeLessThan(-0.85);
     expect(maxStep).toBeLessThan(25 * DEG);
 
     for (const mode of ['hood', 'bumper'] as const) {
       rig.setMode(mode);
+      drive(rig, car, straight(20), 60, 0.3, { t0: 1.7 });
+      const front = rig.camera.position.clone().sub(car.state.position);
       drive(rig, car, straight(20), 60, 0.3, { t0: 2, look: () => ({ x: 0, y: 0, back: true }) });
       const off = rig.camera.position.clone().sub(car.state.position);
-      expect(off.dot(F)).toBeLessThan(-2); // behind the tail
+      // just above the roof (the chase anchor): over the car, not down behind its tail under the rear deck
+      expect(off.dot(U) - front.dot(U)).toBeCloseTo(ANCHOR_LAYOUT.chase[1] + 0.14 - ANCHOR_LAYOUT[mode][1], 1);
+      expect(off.dot(F)).toBeGreaterThan(-1.5);
       expect(forwardOf(rig).dot(F)).toBeLessThan(-0.95);
       drive(rig, car, straight(20), 60, 0.3, { t0: 2.3 });
       expect(forwardOf(rig).dot(F)).toBeGreaterThan(0.95);
