@@ -9,6 +9,10 @@
  * few bigger drops run up it, leaving a thin wet trail. In the cockpit the effect is limited to the windscreen by
  * DEPTH: the dashboard and pillars are within ~1.5 m of the eye, the world is further away. The lens variant
  * (hood, bumper) covers the whole picture more sparsely and defocused.
+ *
+ * Cockpit only: a single wiper sweeps the glass (intermittent in rain, continuous in a storm). Its schedule is a
+ * pure function of time, so every point of the glass knows when the blade last passed over it: drops there are
+ * gone and come back one by one as the rain refills the glass.
  */
 import { Pass } from 'postprocessing';
 import type { Camera, PerspectiveCamera, Texture, WebGLRenderer, WebGLRenderTarget } from 'three';
@@ -34,7 +38,71 @@ uniform float uSpeed;     // m/s
 uniform float uLens;      // 0 = windscreen (depth mask), 1 = lens (everywhere)
 uniform float uStrength;  // optical strength of a drop
 uniform vec3 uSky;        // sky light colour (glints)
+uniform float uWiper;     // 1 = the wiper runs (cockpit, raining)
 varying vec2 vUv;
+
+// ---- wiper -------------------------------------------------------------------------------------
+// One blade on an arm, pivoting below the dashboard, sweeping from its park angle up across the glass and back.
+const float W_OUT = 0.42;            // seconds per stroke
+const float W_A0 = 0.21;             // park angle (rad, from +x)
+const float W_A1 = 2.45;             // far end of the sweep
+const float W_R0 = 0.16;             // blade from this far from the pivot ...
+const float W_R1 = 1.02;             // ... to this far (picture heights)
+
+vec2 wiperPivot() { return vec2(uAspect * 0.47, 0.2); }
+// pause between sweeps: a few seconds in light rain, none in a storm
+float wiperDwell() { return mix(2.4, 0.12, smoothstep(0.6, 0.95, uRain)); }
+float wiperPeriod() { return 2.0 * W_OUT + wiperDwell(); }
+
+// blade angle now
+float wiperAngle(float t) {
+  float ph = mod(t, wiperPeriod());
+  float s = ph < W_OUT ? ph / W_OUT : ph < 2.0 * W_OUT ? 2.0 - ph / W_OUT : 0.0;
+  return W_A0 + (W_A1 - W_A0) * (0.5 - 0.5 * cos(3.14159265 * s));
+}
+
+// seconds since the blade last swept the point p (large when it never reaches it)
+float sinceWiped(vec2 p, float t) {
+  if (uWiper < 0.5) return 1e4;
+  vec2 d = p - wiperPivot();
+  float r = length(d);
+  if (r < W_R0 || r > W_R1) return 1e4;
+  float a = atan(d.y, d.x);
+  if (a < W_A0 || a > W_A1) return 1e4;
+  // when in a stroke the blade is at this angle (inverse of the eased sweep)
+  float s = acos(clamp(1.0 - 2.0 * (a - W_A0) / (W_A1 - W_A0), -1.0, 1.0)) / 3.14159265;
+  float P = wiperPeriod();
+  float ph = mod(t, P);
+  float tOut = s * W_OUT;
+  float tBack = (2.0 - s) * W_OUT;
+  float last = ph >= tBack ? tBack : ph >= tOut ? tOut : tBack - P;
+  return ph - last;
+}
+
+// a drop sitting where the blade passed comes back only once the rain has had time to put it there
+float wipeKeep(vec2 c, float h) {
+  float since = sinceWiped(c, uTime);
+  if (since > 50.0) return 1.0;
+  float refill = mix(4.0, 1.4, uRain);
+  return step(refill * h, since);
+}
+
+// the blade itself: a dark rubber strip on a thin arm (only drawn on the glass, the dash hides the rest)
+vec4 wiperBlade(vec2 uv) {
+  if (uWiper < 0.5) return vec4(0.0);
+  float a = wiperAngle(uTime);
+  vec2 dir = vec2(cos(a), sin(a));
+  vec2 d = uv - wiperPivot();
+  float along = dot(d, dir);
+  float across = abs(d.x * dir.y - d.y * dir.x);
+  if (along < 0.0 || along > W_R1 + 0.01) return vec4(0.0);
+  // about 2 cm of rubber a metre from the eye, a little out of focus (the eye is on the road)
+  float w = along > W_R0 ? 0.0105 : 0.007;
+  float soft = max(2.5 * uPx, 0.0022);
+  float cov = 1.0 - smoothstep(w - soft, w + soft, across);
+  float tip = 1.0 - smoothstep(W_R1 - soft, W_R1 + soft, along);
+  return vec4(vec3(0.012, 0.012, 0.014) + uSky * 0.04 * smoothstep(0.0, w, d.x * dir.y - d.y * dir.x), cov * tip);
+}
 
 vec3 hash13(float p) {
   vec3 p3 = fract(vec3(p) * vec3(0.1031, 0.1030, 0.0973));
@@ -54,6 +122,7 @@ struct Drop {
   vec2 q;
   vec2 c;
   float R;
+  float h;     // a per-drop random number (stable for the drop's life)
 };
 
 Drop noDrop() {
@@ -62,6 +131,7 @@ Drop noDrop() {
   o.q = vec2(0.0);
   o.c = vec2(0.0);
   o.R = 1.0;
+  o.h = 0.0;
   return o;
 }
 
@@ -89,6 +159,7 @@ Drop beads(vec2 uv, float t, float cells, float live, float stretch, float slide
   o.q = d / r;
   o.c = (id + c) * vec2(1.0, tall) / cells + vec2(0.0, slide * t);
   o.R = r / cells;
+  o.h = m.z;
   float aa = clamp(uPx / o.R, 0.06, 0.7);
   o.cov = 1.0 - smoothstep(1.0 - aa, 1.0, rho);
   return o;
@@ -132,6 +203,7 @@ Runner runner(vec2 uv, vec2 sh, float t, float vel, float live, float cw, float 
     o.head.q = q;
     o.head.c = vec2(x0 + wobHead, yp) - sh;
     o.head.R = R;
+    o.head.h = n.y;
     float aa = clamp(uPx / R, 0.06, 0.7);
     o.head.cov = 1.0 - smoothstep(1.0 - aa, 1.0, rho);
   }
@@ -151,6 +223,7 @@ vec3 sceneAt(vec2 pos) {
 // One drop over the picture: a flipped, wide-angle view of the scene around the drop.
 vec3 applyDrop(vec3 col, Drop dr, float M, float mask) {
   if (dr.cov < 0.004) return col;
+  if (uWiper > 0.5 && wipeKeep(dr.c, dr.h) < 0.5) return col;
   float rho2 = dot(dr.q, dr.q);
   float rho = sqrt(rho2);
   float h = sqrt(max(1.0 - rho2, 0.0));
@@ -182,6 +255,7 @@ vec3 applyDrop(vec3 col, Drop dr, float M, float mask) {
 // The wet line behind a running drop: a thin cylindrical lens.
 vec3 applyTrail(vec3 col, vec2 uv, float cov, float qx, float w, float mask) {
   if (cov < 0.004) return col;
+  if (uWiper > 0.5 && sinceWiped(uv, uTime) < 1.2) return col;
   vec3 refr = sceneAt(uv - vec2(qx * w * 5.0 * uStrength, 0.0));
   float edge = smoothstep(0.5, 1.0, abs(qx));
   refr = refr * (1.0 - 0.25 * edge) + uSky * 0.12 * edge * step(0.0, qx);
@@ -219,8 +293,11 @@ void main() {
   col = applyTrail(col, uv, r.tc, r.tq, r.tw, mask);
   col = applyDrop(col, r.head, 6.5, mask);
 
-  // a faint veil of mist over the whole glass
-  col = mix(col, vec3(dot(col, vec3(0.3333))) * 0.92 + uSky * 0.25, (0.012 + 0.03 * uRain) * mask);
+  // a faint veil of mist over the whole glass (thinner where the blade has just been)
+  float veil = (0.012 + 0.03 * uRain) * (uWiper > 0.5 ? 0.4 + 0.6 * smoothstep(0.0, 2.0, sinceWiped(uv, t)) : 1.0);
+  col = mix(col, vec3(dot(col, vec3(0.3333))) * 0.92 + uSky * 0.25, veil * mask);
+  vec4 blade = wiperBlade(uv);
+  col = mix(col, blade.rgb, blade.a * mask);
   gl_FragColor = vec4(col, 1.0);
 }
 `;
@@ -234,6 +311,8 @@ export class DropletPass extends Pass {
   speed = 0;
   lens = false;
   strength = 1;
+  /** The cockpit's wiper runs (only drawn on the windscreen variant, never on the lens). */
+  wiper = true;
   readonly sky = { r: 0.1, g: 0.1, b: 0.1 };
 
   constructor() {
@@ -254,6 +333,7 @@ export class DropletPass extends Pass {
         uLens: { value: 0 },
         uStrength: { value: 1 },
         uSky: { value: new Vector3(0.1, 0.1, 0.1) },
+        uWiper: { value: 0 },
       },
       vertexShader: vertex,
       fragmentShader: fragment,
@@ -298,6 +378,7 @@ export class DropletPass extends Pass {
     u.uSpeed.value = this.speed;
     u.uLens.value = this.lens ? 1 : 0;
     u.uStrength.value = this.strength;
+    u.uWiper.value = this.wiper && !this.lens ? 1 : 0;
     (u.uSky.value as Vector3).set(this.sky.r, this.sky.g, this.sky.b);
     renderer.setRenderTarget(this.renderToScreen ? null : outputBuffer);
     renderer.render(this.scene, this.camera);
