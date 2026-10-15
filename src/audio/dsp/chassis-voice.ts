@@ -5,13 +5,17 @@
  *     grass swish, sand hiss, dirt), blended by how many wheels are on each surface
  *   - wind (speed^2, gusts, mirror whistle), suspension thumps, metal scrape grinding
  *   - impacts: modal metal/plastic crunch + body thump + glass tinkle (pool of 3)
+ *   - wet road (wet > 0): tire hiss, spray wash, puddle splashes and wheelspin slush (WetRoad), the dry road roar
+ *     and the tonal squeal easing off. With wet = 0 none of it runs and the output is exactly the dry sound.
  *
  * Player mode renders stereo (decorrelated noise, wheel-position panning); lite mode (opponents)
  * renders a cheap mono mix. No allocation after construction.
  */
 import { CTL, TIRE_STRIDE } from '../controls';
+import { makeWetRoadLevels, wetRoad } from '../weather-model';
 import { Resonator, SVF } from './filters';
 import { Rng, TAU, clamp, clamp01, lerp, sinCyc, smoothCoef, smoothstep, wrap1 } from './util';
+import { WetRoad } from './wet-road';
 
 export const SURF = { HARD: 0, CURB: 1, GRASS: 2, GRAVEL: 3, SAND: 4, DIRT: 5 } as const;
 
@@ -35,6 +39,10 @@ export interface ChassisInputs {
   impactPan: number;
   /** 0 off, 1 lite, 2 full. */
   quality: number;
+  /** Water on the track 0..1. */
+  wet: number;
+  /** Per wheel wheelspin / lock-up slush on a wet road. */
+  slush: Float32Array;
 }
 
 export function makeChassisInputs(): ChassisInputs {
@@ -57,6 +65,8 @@ export function makeChassisInputs(): ChassisInputs {
     impactKind: 0,
     impactPan: 0,
     quality: 2,
+    wet: 0,
+    slush: new Float32Array(4),
   };
 }
 
@@ -81,6 +91,8 @@ export function readChassisInputs(v: Float32Array, o: ChassisInputs): void {
   o.impactKind = fin(v[CTL.IMPACT_KIND], 0);
   o.impactPan = clamp(fin(v[CTL.IMPACT_PAN], 0), -1, 1);
   o.quality = fin(v[CTL.CH_QUALITY], 2);
+  o.wet = clamp01(fin(v[CTL.WET], 0));
+  for (let i = 0; i < 4; i++) o.slush[i] = clamp(fin(v[CTL.SLUSH0 + i], 0), 0, 1.5);
 }
 
 /** Map a physics impact strength (assumed closing speed in m/s) to 0..1. */
@@ -160,6 +172,14 @@ export class ChassisVoice {
   private lastImpact = 0;
   private lastGain = 0;
   private lastSpeed = 0;
+
+  // wet road
+  private wet: WetRoad;
+  private wetLv = makeWetRoadLevels();
+  private sWet = 0;
+  private sSlush = new Float64Array(4);
+  /** Cutoff the scrub band-passes are currently set to (2400 Hz = the dry setting). */
+  private scrubFc = 2400;
 
   // tires
   private tPh = new Float64Array(4);
@@ -252,6 +272,7 @@ export class ChassisVoice {
     this.svfScr3.set(3600, 5, sr);
     this.svfScrLo.set(260, 2, sr);
     for (let i = 0; i < 3; i++) this.imp.push(new ImpactVoice());
+    this.wet = new WetRoad(sr, seed + 31);
   }
 
   reset(): void {
@@ -264,6 +285,7 @@ export class ChassisVoice {
       for (const m of v.glass) m.reset();
     }
     this.gravelEnv = this.gravelEnv2 = this.thumpNoise = this.thumpIn = 0;
+    this.wet.reset();
   }
 
   /** Render n samples. outR = null -> mono (lite) mix into outL. */
@@ -381,6 +403,8 @@ export class ChassisVoice {
       this.lastImpact = I.impactCount;
       this.lastSpeed = this.sSpeed;
       this.lastGain = this.sGain;
+      this.sWet = I.wet;
+      for (let w = 0; w < 4; w++) this.sSlush[w] = I.slush[w];
     } else this.sGain += smoothCoef(0.02, dt) * (I.gain - this.sGain);
     const gainNow = this.sGain;
     if (I.quality < 0.5 || (I.gain < 1e-4 && gainNow < 1e-4)) {
@@ -423,6 +447,9 @@ export class ChassisVoice {
       this.sTire[b + 2] += kT * (I.tire[b + 2] - this.sTire[b + 2]);
       this.sTire[b + 3] += kP * (I.tire[b + 3] - this.sTire[b + 3]);
     }
+    this.sWet += smoothCoef(0.35, dt) * (I.wet - this.sWet);
+    const kSl = smoothCoef(0.03, dt);
+    for (let w = 0; w < 4; w++) this.sSlush[w] += kSl * (I.slush[w] - this.sSlush[w]);
 
     // events
     if (I.thumpCount !== this.lastThump) {
@@ -475,10 +502,32 @@ export class ChassisVoice {
     const wGravel = this.sSurf[SURF.GRAVEL];
     const wSand = this.sSurf[SURF.SAND];
     const wDirt = this.sSurf[SURF.DIRT];
-    const roadLevel = (wHard + 0.6 * wCurb) * 0.2 * Math.pow(sN, 1.35) * roadAir * gRoad;
+    // wet road: only wheels on pavement carry a film for the squeal; every surface throws some spray
+    const wetNow = this.sWet;
+    const wT = wetNow > 0.002 ? wetNow * Math.min(1, wHard + 0.9 * wCurb) : 0;
+    let wetCut = 0;
+    const wetVoice = this.wet;
+    const wetActive = wetNow > 0.002 || wetVoice.on;
+    if (wetActive) {
+      const paved = wHard + 0.8 * wCurb + 0.22 * wGrass + 0.12 * wGravel + 0.1 * wSand + 0.28 * wDirt;
+      wetRoad(wetNow > 0.002 ? wetNow : 0, paved, speed, sI, this.wetLv);
+      wetCut = this.wetLv.roarCut;
+      wetVoice.prepare(this.wetLv, this.sSlush, speed / 2.1, len);
+    }
+    const wetOn = wetActive && wetVoice.on;
+    // wet squeal: a duller tone (fewer harmonics) and a lower, softer scrub band
+    const h2w = 0.5 - 0.35 * wT;
+    const h3w = 0.26 - 0.234 * wT;
+    const h2l = 0.45 - 0.315 * wT;
+    const fcS = wT > 0.002 ? 2400 - 700 * wT : 2400;
+    if (fcS !== this.scrubFc && (fcS === 2400 || Math.abs(fcS - this.scrubFc) > 2)) {
+      for (let w = 0; w < 4; w++) this.svfScrub[w].set(fcS, 0.9, sr);
+      this.scrubFc = fcS;
+    }
+    const roadLevel = (wHard + 0.6 * wCurb) * 0.2 * Math.pow(sN, 1.35) * roadAir * gRoad * (1 - wetCut);
     const humLevel = full ? (wHard + wCurb) * 0.11 * sN * roadAir * gRoad : 0;
     const treadHz = Math.min(5200, speed / 0.026);
-    const treadLevel = full ? (wHard + wCurb * 0.5) * 0.006 * smoothstep(8, 40, speed) * roadAir * gRoad : 0;
+    const treadLevel = full ? (wHard + wCurb * 0.5) * 0.006 * smoothstep(8, 40, speed) * roadAir * gRoad * (1 - 1.5 * wetCut) : 0;
     const gravelLevel = (wGravel + 0.55 * wDirt) * 0.4 * Math.pow(sN, 0.9) * roadAir;
     const grassLevel = (wGrass + 0.4 * wDirt) * 0.3 * Math.pow(sN, 1.1) * roadAir;
     const sandLevel = wSand * 0.26 * Math.pow(sN, 1.0) * roadAir;
@@ -534,7 +583,7 @@ export class ChassisVoice {
           const c1 = sinCyc(ph >= 0.75 ? ph - 0.75 : ph + 0.25);
           const s2 = 2 * s1 * c1;
           const s3 = 3 * s1 - 4 * s1 * s1 * s1;
-          const tone = s1 + 0.5 * s2 + 0.26 * s3;
+          const tone = s1 + h2w * s2 + h3w * s3;
           this.tAm[w] += wheelRot * invSr * (1 + 0.04 * w);
           if (this.tAm[w] >= 1) this.tAm[w] -= 1;
           const am = 1 + 0.18 * sinCyc(this.tAm[w]) + 0.1 * this.tRw[w];
@@ -570,7 +619,7 @@ export class ChassisVoice {
           if (ph >= 1) ph -= 1;
           this.tPh[0] = ph;
           const s1 = sinCyc(ph);
-          const tone = s1 + 0.45 * sinCyc(wrap1(ph * 2));
+          const tone = s1 + h2l * sinCyc(wrap1(ph * 2));
           const scr = this.svfScrub[0].step(nL);
           mixL += (tone * 0.17 * (to + 0.5 * ho) + scr * 0.22 * (sc + 0.5 * ho)) * gTire;
         }
@@ -750,6 +799,8 @@ export class ChassisVoice {
         outL[o + i] = (mixL + mixR) * 0.5 * gOut;
       }
     }
+    // wet road: hiss, spray, puddle splashes, wheelspin slush (rendered per block, added with the same gain ramp)
+    if (wetOn) wetVoice.render(outL, outR, o, gOutPrev, gOutStep);
     this.lastGain = gainNow;
     this.lastSpeed = sB;
   }

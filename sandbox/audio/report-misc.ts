@@ -398,6 +398,7 @@ export interface RtReport {
   engineRmsDb: number;
   pausedRmsDb: number;
   musicRmsDb: number;
+  rainRmsDb?: number;
   baseLatencyMs: number;
   note?: string;
 }
@@ -482,6 +483,35 @@ export async function realtimeChecks(checks: Checks): Promise<RtReport> {
     out.musicRmsDb = mus;
     checks.add('realtime: music fades in', mus > -50, mus, '> -50 dBFS');
     sys.setMusic(false);
+    await new Promise((r) => setTimeout(r, 2200));
+    // weather: the same setWeather() call the game makes. Rain starts a weather node and is heard; dry removes it again
+    const tick2 = setInterval(() => sys!.update(0.016), 16);
+    const quiet = (): number => {
+      let m = -999;
+      for (let i = 0; i < 6; i++) m = Math.max(m, level());
+      return m;
+    };
+    const dryLevel = quiet();
+    checks.add('realtime: dry means no weather node and silence', !sys.weather.active && dryLevel < -70, `${dryLevel.toFixed(0)} dBFS, node ${sys.weather.active}`, 'no node, < -70 dBFS');
+    sys.setWeather(0.8, 0.8);
+    await new Promise((r) => setTimeout(r, 3200));
+    let rainLevel = -999;
+    for (let i = 0; i < 8; i++) {
+      rainLevel = Math.max(rainLevel, level());
+      await new Promise((r) => setTimeout(r, 40));
+    }
+    out.rainRmsDb = rainLevel;
+    checks.add('realtime: setWeather(rain) creates the ambience and it is audible', sys.weather.active && rainLevel > -45 && rainLevel < -15, `${rainLevel.toFixed(1)} dBFS, node ${sys.weather.active}`, 'node alive, -45..-15 dBFS');
+    sys.setPaused(true);
+    await new Promise((r) => setTimeout(r, 700));
+    const pausedRain = quiet();
+    checks.add('realtime: pause silences the rain too', pausedRain < -70, pausedRain, '< -70 dBFS');
+    sys.setPaused(false);
+    sys.setWeather(0, 0);
+    await new Promise((r) => setTimeout(r, 6200));
+    clearInterval(tick2);
+    const afterRain = quiet();
+    checks.add('realtime: back to dry the node is dropped after the fade and the rain is gone', !sys.weather.active && afterRain < -70, `${afterRain.toFixed(0)} dBFS, node ${sys.weather.active}`, 'no node, < -70 dBFS');
   } catch (e) {
     checks.add('realtime: smoke test ran without exceptions', false, String(e));
     out.note = String(e);

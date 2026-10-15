@@ -6,6 +6,10 @@
  * Web Audio graph:  per-source -> buses (engine, effects, music, ui) -> master -> gentle
  * compressor -> soft limiter -> destination.  Engines / tires / wind / impacts are synthesised in an
  * AudioWorklet (engine.worklet.ts); UI sounds and music use native nodes.
+ *
+ * Weather: setWeather(rain, wetness) drives (a) the rain / storm ambience, a stereo worklet voice that exists
+ * only while it rains (weather.ts, dsp/weather-voice.ts: bed, drops, cabin drumming, thunder) and (b) every
+ * car's wet-road sound (hiss, spray, splashes, slush; dsp/wet-road.ts) through the control vector.
  */
 import type * as THREE from 'three';
 import type { AudioSettings, EngineSoundProfile, UiSound } from '../core/contracts';
@@ -16,6 +20,8 @@ import { type MasterGraph, buildMasterGraph } from './graph';
 import { MenuMusic } from './music';
 import { type ListenerState, type Lod, assignLod, listenerFromMatrix, makeListener } from './spatial';
 import { UiSynth } from './ui-sounds';
+import { type StrikeInfo, WeatherSystem, createWeatherNode } from './weather';
+import { sanitizeWeather, type ThunderEvent } from './weather-model';
 
 export { CarSoundImpl, createCarNodes, setPannerPosition } from './carsound';
 export type { CarHost, CarNodes } from './carsound';
@@ -23,6 +29,8 @@ export { buildMasterGraph, volumeCurve } from './graph';
 export type { MasterGraph } from './graph';
 export { MenuMusic, MUSIC_INFO } from './music';
 export { UiSynth, UI_SOUND_LIST } from './ui-sounds';
+export { WeatherSystem, createWeatherNode, WEATHER_FADE_OUT_S } from './weather';
+export type { StrikeInfo, WeatherNode, WeatherNodeLike } from './weather';
 export { calibratedExhaustGain } from './dsp/engine-voice';
 
 /** URL of the bundled worklet module (differs between `vite dev` and `vite build`). */
@@ -48,6 +56,10 @@ class AudioSystemImpl implements AudioSystem, CarHost {
   readonly listener: ListenerState = makeListener();
   workletReady = false;
   paused = false;
+  /** Water on the track 0..1 (setWeather): every car's wet-road sound follows it. */
+  wetness = 0;
+  /** Rain / storm ambience; the worklet node only exists while it rains. */
+  readonly weather: WeatherSystem;
   /** Resolves when the worklet module is loaded (cars create their voices then). */
   readonly ready: Promise<void>;
 
@@ -55,6 +67,8 @@ class AudioSystemImpl implements AudioSystem, CarHost {
   private music: MenuMusic | null = null;
   private musicWanted = false;
   private cars = new Set<CarSoundImpl>();
+  /** The player's car (for the cabin / speed the rain ambience follows). */
+  private player: CarSoundImpl | null = null;
   private seed = 1;
   private owned: boolean;
   private lastResumeTry = -10;
@@ -82,6 +96,15 @@ class AudioSystemImpl implements AudioSystem, CarHost {
     }
     this.graph = buildMasterGraph(this.ctx, v);
     this.ui_ = new UiSynth(this.ctx, this.graph.uiBus);
+    // a live session gets a fresh seed (different thunder timing and rain texture every race); offline / test
+    // contexts stay deterministic
+    this.weather = new WeatherSystem(
+      {
+        ready: () => this.workletReady,
+        makeNode: (seed) => createWeatherNode(this.ctx, this.graph, { seed }),
+      },
+      this.owned ? 1 + Math.floor(Math.random() * 0x3fffffff) : 1,
+    );
     this.ready = this.ctx.audioWorklet
       .addModule(workletUrl)
       .then(() => {
@@ -197,6 +220,7 @@ class AudioSystemImpl implements AudioSystem, CarHost {
       this.stale = true;
       this.graph.setPaused(true);
       for (const c of this.cars) c.sleep();
+      this.weather.sleep();
     }
   }
 
@@ -228,6 +252,9 @@ class AudioSystemImpl implements AudioSystem, CarHost {
       assignLod(this.lodDist, n, this.lodOut, this.lodOrder);
       for (let i = 0; i < n; i++) this.aiList[i].lod = this.lodOut[i];
     }
+    // rain ambience: open or cabin mix and the windscreen follow the player's camera / speed
+    const pl = this.player;
+    this.weather.update(dt, pl ? pl.interior : 0, pl ? pl.speed : 0, this.paused || this.stale);
     this.music?.tick();
   }
 
@@ -236,11 +263,13 @@ class AudioSystemImpl implements AudioSystem, CarHost {
   createCarSound(profile: EngineSoundProfile, isPlayer: boolean): CarSound {
     const c = new CarSoundImpl(this, profile, isPlayer);
     this.cars.add(c);
+    if (isPlayer) this.player = c;
     return c;
   }
 
   onDispose(car: CarSoundImpl): void {
     this.cars.delete(car);
+    if (car === this.player) this.player = null;
   }
 
   // ── ui, volumes, pause, music ──────────────────────────────────────────────
@@ -264,7 +293,10 @@ class AudioSystemImpl implements AudioSystem, CarHost {
     if (p === this.paused) return;
     this.paused = p;
     this.graph.setPaused(p || this.stale);
-    if (p) for (const c of this.cars) c.sleep();
+    if (p) {
+      for (const c of this.cars) c.sleep();
+      this.weather.sleep();
+    }
   }
 
   private startMusic(): void {
@@ -278,9 +310,21 @@ class AudioSystemImpl implements AudioSystem, CarHost {
     this.graph.setMusicGate(1, 1.8);
   }
 
-  /** Rain ambience and wet-tire sound (provisional: filled in by the wet-weather audio pass). */
-  setWeather(_rain: number, _wetness: number): void {
-    // no-op for now
+  /**
+   * Rain intensity and water on the track, both 0..1 (presets: rain 0.55 / 0.75, storm 1 / 1, dry 0 / 0). The
+   * ambience fades in / out over a few seconds; the tires follow the wetness smoothly. Call it whenever the
+   * weather changes: at a session start, and with 0 / 0 for dry weather and the menus' attract mode.
+   */
+  setWeather(rain: number, wetness: number): void {
+    const w = sanitizeWeather(rain, wetness);
+    this.wetness = w.wetness;
+    this.weather.set(w.rain);
+  }
+
+  /** Bench / debugging: a clap of thunder right now (needs rain > 0). */
+  triggerThunder(distanceKm = 5, level = 1): void {
+    const ev: ThunderEvent = { distanceKm, level, pan: (Math.random() * 2 - 1) * 0.6, seed: 1 + Math.floor(Math.random() * 1e9) };
+    this.weather.trigger(ev);
   }
 
   setMusic(on: boolean): void {
@@ -305,6 +349,7 @@ class AudioSystemImpl implements AudioSystem, CarHost {
     if (this.watchdog) clearInterval(this.watchdog);
     if (this.musicStopTimer) clearTimeout(this.musicStopTimer);
     for (const c of [...this.cars]) c.dispose();
+    this.weather.dispose();
     this.music?.dispose();
     this.ui_.dispose();
     this.graph.dispose();
@@ -340,6 +385,18 @@ export function createAudioSystem(v: AudioSettings): AudioSystem {
     console.warn('[audio] Web Audio is not available; running without sound:', e);
     return createSilentAudioSystem();
   }
+}
+
+/**
+ * Optional: be told when lightning strikes in a storm, so the renderer can flash the sky. `cb` is called at the flash;
+ * the thunder reaches the listener `delaySeconds` later (distance / 343 m/s). Returns false when this audio system has
+ * no weather (the silent fallback). The audio never needs it: thunder plays on its own every ~20-60 s in a storm.
+ */
+export function onLightning(audio: AudioSystem, cb: ((s: StrikeInfo) => void) | null): boolean {
+  const w = (audio as Partial<AudioSystemImpl>).weather;
+  if (!w) return false;
+  w.onStrike = cb;
+  return true;
 }
 
 // Compile-time proof that the factory matches the contract (breaks the build if either side drifts).

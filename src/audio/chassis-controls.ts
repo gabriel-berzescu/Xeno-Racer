@@ -42,8 +42,11 @@ export class ChassisMapper {
   private impactCount = 0;
   private bottomOut = new Uint8Array(4);
 
-  /** Fill the chassis fields of `v` from the physics state. dt in seconds. */
-  update(st: VehicleState, dt: number, v: Float32Array): void {
+  /**
+   * Fill the chassis fields of `v` from the physics state. dt in seconds; `wet` = water on the track (0..1,
+   * 0 = exactly the dry mapping).
+   */
+  update(st: VehicleState, dt: number, v: Float32Array, wet = 0): void {
     this.t += dt;
     const w = st.wheels;
 
@@ -91,13 +94,15 @@ export class ChassisMapper {
     // tire squeal
     const speed = st.speed;
     for (let i = 0; i < 4; i++) {
-      tireSqueal(w[i], i, speed, this.lev);
+      tireSqueal(w[i], i, speed, this.lev, wet);
       const b = CTL.TIRE0 + i * TIRE_STRIDE;
       v[b] = this.lev.scrub;
       v[b + 1] = this.lev.tone;
       v[b + 2] = this.lev.howl;
       v[b + 3] = this.lev.pitch;
+      v[CTL.SLUSH0 + i] = this.lev.slush;
     }
+    v[CTL.WET] = wet;
 
     // suspension thumps: hard compression, bump-stop, and landing
     let thump = 0;

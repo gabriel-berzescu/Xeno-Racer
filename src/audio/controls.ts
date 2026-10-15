@@ -46,6 +46,11 @@ export const CTL = {
   IMPACT_PAN: 53,
   CH_INTERIOR: 54,
   CH_QUALITY: 55,
+  // weather
+  /** Water on the track 0..1 (the same for every car). */
+  WET: 56,
+  /** Per wheel: wheelspin / lock-up slush level on a wet road (FL, FR, RL, RR) -> 57..60. */
+  SLUSH0: 57,
 } as const;
 
 export const CTL_LEN = 64;

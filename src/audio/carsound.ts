@@ -131,10 +131,10 @@ export class CarFrame {
 
   constructor(readonly isPlayer: boolean) {}
 
-  compute(st: VehicleState, dt: number, listener: ListenerState, interior: number, lod: Lod, paused: boolean): void {
+  compute(st: VehicleState, dt: number, listener: ListenerState, interior: number, lod: Lod, paused: boolean, wet = 0): void {
     const v = this.vec;
     writeEngineControls(v, st);
-    this.mapper.update(st, dt, v);
+    this.mapper.update(st, dt, v, wet);
     const sp = this.sp;
     computeSpatial(listener, st.position.x, st.position.y, st.position.z, st.velocity.x, st.velocity.y, st.velocity.z, this.isPlayer, sp);
     v[CTL.TIMESCALE] = sp.timeScale;
@@ -180,6 +180,8 @@ export interface CarHost {
   /** True once the worklet module has loaded (nodes can be created). */
   readonly workletReady: boolean;
   readonly paused: boolean;
+  /** Water on the track, 0..1 (from setWeather); every car's tires and spray follow it. */
+  readonly wetness: number;
   nextSeed(): number;
   onDispose(car: CarSoundImpl): void;
 }
@@ -188,9 +190,12 @@ export class CarSoundImpl implements CarSound {
   /** Set by the system each frame (opponent LOD). The player is always 2. */
   lod: Lod = 2;
   distance = 0;
+  /** Last speed (m/s) and interior flag, read by the system for the rain ambience. */
+  speed = 0;
   private frame: CarFrame;
   private nodes: CarNodes | null = null;
-  private interior = 0;
+  /** 1 while the camera is in the cabin (player only; set through setInterior). */
+  interior = 0;
   private seed: number;
   private disposed = false;
   private failed = false;
@@ -222,8 +227,9 @@ export class CarSoundImpl implements CarSound {
   update(st: VehicleState, dt: number): void {
     if (this.disposed) return;
     const f = this.frame;
-    f.compute(st, dt, this.host.listener, this.interior, this.isPlayer ? 2 : this.lod, this.host.paused);
+    f.compute(st, dt, this.host.listener, this.interior, this.isPlayer ? 2 : this.lod, this.host.paused, this.host.wetness);
     this.distance = f.sp.distance;
+    this.speed = Number.isFinite(st.speed) ? st.speed : 0;
     if (!this.ensureNodes()) return;
     const n = this.nodes!;
     const v = f.vec;

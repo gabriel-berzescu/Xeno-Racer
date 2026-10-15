@@ -4,11 +4,12 @@
  * result is deterministic. Used by the ?test=1 report and the preview WAV renderer.
  */
 import type { AudioSettings, EngineSoundProfile, VehicleState } from '../../src/core/contracts';
-import { AUDIO_WORKLET_URL, MenuMusic, UiSynth, createCarNodes, buildMasterGraph, type MasterGraph } from '../../src/audio';
+import { AUDIO_WORKLET_URL, MenuMusic, UiSynth, createCarNodes, createWeatherNode, buildMasterGraph, type MasterGraph } from '../../src/audio';
 import { CarFrame, applySpatial } from '../../src/audio/carsound';
 import { CTL_LEN } from '../../src/audio/controls';
 import { type ListenerState, type Lod, type SpatialOut, makeListener, makeSpatialOut } from '../../src/audio/spatial';
 import type { UiSound } from '../../src/core/contracts';
+import { WCTL, WCTL_LEN, type ThunderEvent } from '../../src/audio/weather-model';
 
 export const DEFAULT_VOLUMES: AudioSettings = { master: 1, engine: 1, effects: 1, music: 1, ui: 1 };
 export const SR = 48000;
@@ -24,11 +25,29 @@ export interface SceneCar {
   seed?: number;
 }
 
+/** Rain / storm ambience for an offline scene (the real worklet voice, driven by a recorded control script). */
+export interface WeatherScene {
+  /** 0..1 precipitation (a function of scene time, or constant). */
+  rain: number | ((t: number) => number);
+  /** 0 = exterior, 1 = cockpit view. */
+  interior?: number | ((t: number) => number);
+  /** The player's speed (m/s) for the windscreen. */
+  speed?: number | ((t: number) => number);
+  /** Claps of thunder at fixed times. */
+  thunders?: { t: number; ev: ThunderEvent }[];
+}
+
+const val = (x: number | ((t: number) => number) | undefined, t: number, d = 0): number => (typeof x === 'function' ? x(t) : x ?? d);
+
 export interface SceneOptions {
   seconds: number;
   sr?: number;
   fps?: number;
   cars: SceneCar[];
+  /** Rain / storm ambience (omit for a dry scene: no weather node is created at all). */
+  weather?: WeatherScene;
+  /** Water on the track 0..1 for every car's wet-road sound (default 0 = dry, exactly the old sound). */
+  wetness?: number | ((t: number) => number);
   listener?: (t: number, L: ListenerState) => void;
   volumes?: AudioSettings;
   /** Bypass compressor + limiter (pure DSP measurements). */
@@ -89,7 +108,7 @@ export async function renderScene(o: SceneOptions): Promise<SceneResult> {
     for (const r of recs) {
       r.car.step(t, dt, r.car.state);
       const interior = typeof r.car.interior === 'function' ? r.car.interior(t) : r.car.interior ?? 0;
-      r.frame.compute(r.car.state, dt, listener, interior, r.car.lod ?? 2, false);
+      r.frame.compute(r.car.state, dt, listener, interior, r.car.lod ?? 2, false, val(o.wetness, t));
       r.script.set(r.frame.vec, k * CTL_LEN);
       const sp = r.frame.sp;
       const p = r.car.state.position;
@@ -116,6 +135,18 @@ export async function renderScene(o: SceneOptions): Promise<SceneResult> {
       tmp.distance = r.sp[b + 4];
       applySpatial(nodes, tmp, r.sp[b + 5], r.sp[b + 6], r.sp[b + 7], o.staticSpatial ? undefined : k / fps);
     }
+  }
+  if (o.weather) {
+    const W = o.weather;
+    const data = new Float32Array(frames * WCTL_LEN);
+    for (let k = 0; k < frames; k++) {
+      const t = k / fps;
+      data[k * WCTL_LEN + WCTL.RAIN] = val(W.rain, t);
+      data[k * WCTL_LEN + WCTL.INTERIOR] = val(W.interior, t);
+      data[k * WCTL_LEN + WCTL.SPEED] = val(W.speed, t);
+      data[k * WCTL_LEN + WCTL.GAIN] = 1;
+    }
+    createWeatherNode(ctx, graph, { seed: 1, script: { step, data }, thunders: W.thunders });
   }
   const L = ctx.listener;
   for (let k = 0; k < (o.staticSpatial ? 0 : frames); k++) {

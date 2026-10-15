@@ -29,6 +29,17 @@ export function gainToDb(g: number): number {
 export function smoothCoef(tau: number, dt: number): number {
   return 1 - Math.exp(-dt / Math.max(tau, 1e-6));
 }
+/** `x` if it is a finite number, else the fallback. */
+export function fin(x: number, fallback: number): number {
+  return Number.isFinite(x) ? x : fallback;
+}
+/**
+ * One Ornstein-Uhlenbeck step: `x` relaxes towards 0 with coefficient `k` (see smoothCoef) while random kicks keep its
+ * stationary deviation at `sigma`. `u` is a uniform random number in [-1, 1). Used for slow wandering (gusts, flutter, drift).
+ */
+export function ouStep(x: number, k: number, sigma: number, u: number): number {
+  return x - k * x + sigma * Math.sqrt(2 * k) * 1.732 * u;
+}
 
 /** xorshift32 — tiny, fast, deterministic (seeded for reproducible tests). */
 export class Rng {

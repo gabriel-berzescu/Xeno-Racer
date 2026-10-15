@@ -3,7 +3,8 @@
  * mock vehicle so every sound can be auditioned and tweaked without the game:
  *   - engines: pick a car or edit a custom profile live (cylinders / layout / crank / turbo / exhaust...),
  *     sliders or a simulated drivetrain ("rev through the gears"), keyboard W/S + gamepad triggers
- *   - tires / road: surface, speed, front / rear skid, squeal sweep, curb, scrape, thumps, airborne
+ *   - tires / road: surface, speed, front / rear skid, rear wheelspin, squeal sweep, curb, scrape, thumps, airborne
+ *   - weather: rain + wetness sliders, dry / rain / storm presets, thunder on demand (cabin view for the roof drumming)
  *   - impacts: wall / car / ground x light / medium / heavy
  *   - opponents: up to 11 cars overtaking around you (LOD, Doppler, panning), trackside camera
  *   - UI sounds, music, faders, live spectrum + scope + meters, self-test and preview download
@@ -181,6 +182,7 @@ export function startBench(): void {
   const skidF = slider('front axle skid', 0, 1, 0.01, 0);
   const skidR = slider('rear axle skid', 0, 1, 0.01, 0);
   const slip = slider('slip angle', 0, 0.4, 0.005, 0.02);
+  const spinS = slider('rear wheelspin (slip ratio)', 0, 0.8, 0.01, 0);
   const scrape = slider('scrape (metal grinding)', 0, 1, 0.01, 0);
   const curb = toggle('left wheels on the curb', false);
   const air = toggle('airborne', false);
@@ -266,6 +268,22 @@ export function startBench(): void {
     }
   }
 
+  // weather: the same call the game makes (rain + water on the track), presets match the game's weather presets
+  const applyWeather = (): void => sys.setWeather(rainS.get(), wetS.get());
+  const rainS = slider('rain (ambience)', 0, 1, 0.01, 0, applyWeather);
+  const wetS = slider('wetness (tires, spray)', 0, 1, 0.01, 0, applyWeather);
+  const preset = (r: number, w: number): void => {
+    rainS.set(r);
+    wetS.set(w);
+    applyWeather();
+  };
+  const weatherBtns = [
+    button('dry (0 / 0)', () => preset(0, 0)),
+    button('rain (0.55 / 0.75)', () => preset(0.55, 0.75)),
+    button('storm (1 / 1)', () => preset(1, 1)),
+  ];
+  const thunderBtns = [button('thunder: near (3 km)', () => sys.triggerThunder(3)), button('thunder: far (9 km)', () => sys.triggerThunder(9, 0.8))];
+
   const oppCount = slider('opponents around you', 0, 11, 1, 0, (n) => setOpponents(n));
   const passBtn = button('Doppler pass-by (trackside camera)', () => {
     cam = 'trackside';
@@ -336,7 +354,15 @@ export function startBench(): void {
       { class: 'grid' },
       panel('Engine', carSel.el, modeSel.el, camSel.el, interiorChk.el, rpm.el, thr.el, boost.el, limiter.el, speedS.el, h('div', { class: 'btns' }, shiftBtn, popBtn), h('p', { class: 'hint' }, 'W / up = throttle, S / down = brake, E = shift, B = pop. Gamepad: RT throttle, LT brake, RB shift.')),
       panel('Custom engine profile (live)', cylSel.el, layoutSel.el, crankSel.el, dispS.el, turboChk.el, openS.el, brightS.el, whineS.el, crackS.el, h('p', { class: 'hint' }, 'Any change switches to "custom" and rebuilds the voice. Try V8 + crossplane for the burble, 4 + flat + boxer for the rumble.')),
-      panel('Tires, road, chassis', surface.el, skidF.el, skidR.el, slip.el, scrape.el, curb.el, air.el, h('div', { class: 'btns' }, sweepBtn, thumpBtn)),
+      panel('Tires, road, chassis', surface.el, skidF.el, skidR.el, slip.el, spinS.el, scrape.el, curb.el, air.el, h('div', { class: 'btns' }, sweepBtn, thumpBtn)),
+      panel(
+        'Weather',
+        rainS.el,
+        wetS.el,
+        h('div', { class: 'btns' }, ...weatherBtns),
+        h('div', { class: 'btns' }, ...thunderBtns),
+        h('p', { class: 'hint' }, 'Rain follows the camera: chase / trackside = open air, cockpit = muffled with drumming on the roof and ticks on the windscreen. Wetness drives the tire hiss, spray and the softer squeal / wheelspin slush of every car. Thunder needs rain; a storm brings it every 20-60 s by itself.'),
+      ),
       panel('Impacts', h('div', { class: 'btns' }, ...impactBtns)),
       panel('Opponents / spatial', oppCount.el, passBtn, h('p', { class: 'hint' }, 'Opponents overtake and fall back around the player: nearest 4 get the full model, the rest the lite one, beyond 150 m they are silent. Chase / cockpit / trackside cameras change the spatialisation.')),
       panel('Sounds', h('div', { class: 'btns' }, ...uiBtns), musicChk.el, pauseChk.el, ...volSliders.map((s) => s.el)),
@@ -398,6 +424,8 @@ export function startBench(): void {
       w.skid = s;
       w.slipAngle = sa;
       w.load = 4500;
+      w.slipRatio = front ? 0 : spinS.get();
+      if (!front && w.slipRatio > 0.01) w.omega = (st.speed * (1 + 3 * w.slipRatio)) / w.radius;
       w.suspensionVelocity = thumpFrames > 0 && i === 0 ? 1.4 : 0;
     }
     st.airborne = inAir;
@@ -584,7 +612,7 @@ export function startBench(): void {
     startBtn.style.display = sys.unlocked ? 'none' : '';
     readout.textContent =
       `rpm ${st.rpm.toFixed(0).padStart(5)}  gear ${String(st.gear).padStart(2)}  speed ${(st.speed * 3.6).toFixed(0).padStart(3)} km/h  load ${st.engineLoad.toFixed(2)}  throttle ${st.throttle.toFixed(2)}  boost ${st.boost.toFixed(2)}  limiter ${st.revLimiter ? 'CUT' : '-'}  ` +
-      `shifts ${st.shiftCount}  pops ${st.backfireCount}  hits ${st.impactCount}  opponents ${opponents.length}`;
+      `shifts ${st.shiftCount}  pops ${st.backfireCount}  hits ${st.impactCount}  opponents ${opponents.length}  rain ${rainS.get().toFixed(2)}  wet ${wetS.get().toFixed(2)}`;
   }
 
   const loop = (): void => {

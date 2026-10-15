@@ -191,5 +191,130 @@ export async function renderPreviews(log: (m: string) => void): Promise<Record<s
     out['passby-lmp-x'] = pack(r, 2, 'LMP-X passes a trackside microphone at 62 m/s (223 km/h): Doppler glide, left-to-right pan, distance roll-off');
   }
 
+  // 8) weather: rain ambience, cabin, thunder, wet tires, wheelspin slush, pass-by spray
+  await renderWeatherPreviews(out, log);
   return out;
+}
+
+async function renderWeatherPreviews(out: Record<string, PreviewWav>, log: (m: string) => void): Promise<void> {
+  const ramp = (t: number, a: number, b: number): number => Math.min(1, Math.max(0, (t - a) / (b - a)));
+  // rain alone, outside: dry -> drizzle -> the "rain" preset -> storm
+  {
+    log('rain exterior');
+    const r = await renderScene({
+      seconds: 28,
+      cars: [],
+      weather: { rain: (t) => (t < 1 ? 0 : t < 8 ? 0.15 + 0.4 * ramp(t, 1.5, 7) : t < 16 ? 0.55 : 0.55 + 0.45 * ramp(t, 16, 21)) },
+      volumes: DEFAULT_VOLUMES,
+    });
+    out['rain-exterior'] = pack(r, 2, 'open air: dry for a second, drizzle building to the "rain" preset (0.55) by 8 s, held, then swelling to the full storm by 21 s (no engines)');
+  }
+  // the same rain from the cockpit: muffled, drumming on the roof, ticks on the windscreen; cut from outside at 10 s
+  {
+    log('rain interior');
+    const r = await renderScene({
+      seconds: 20,
+      cars: [],
+      weather: { rain: 0.8, interior: (t) => (t < 10 ? 0 : 1), speed: (t) => (t < 10 ? 0 : 20 + 3 * (t - 10)) },
+      volumes: DEFAULT_VOLUMES,
+    });
+    out['rain-cockpit'] = pack(r, 2, 'heavy rain: open air for 10 s, then the cockpit view: muffled bed, roof drumming and windscreen ticks (more of them as the car speeds up from 20 to 50 m/s)');
+  }
+  // a storm with thunder (near, then far)
+  {
+    log('thunder');
+    const r = await renderScene({
+      seconds: 40,
+      cars: [],
+      weather: {
+        rain: 1,
+        thunders: [
+          { t: 4, ev: { distanceKm: 3, level: 1, pan: -0.4, seed: 11 } },
+          { t: 24, ev: { distanceKm: 8.5, level: 0.75, pan: 0.5, seed: 22 } },
+        ],
+      },
+      volumes: DEFAULT_VOLUMES,
+    });
+    out['storm-thunder'] = pack(r, 2, 'full storm with two claps of distant thunder: 3 km (4 s) and 8.5 km (24 s), slow rolling rumble with a long decay');
+  }
+  // driving in the storm: engine + wet tires + rain; chase camera, then the cockpit
+  {
+    log('storm drive');
+    const car = getCar('vanta-gt');
+    const c = run3Car(car);
+    const r = await renderScene({
+      seconds: 14,
+      cars: [{ ...c, interior: (t: number) => (t < 7 ? 0 : 1) }],
+      listener: followListener(c, 5, 1.6),
+      weather: { rain: 1, interior: (t) => (t < 7 ? 0 : 1), speed: () => 30 },
+      wetness: 1,
+      volumes: DEFAULT_VOLUMES,
+    });
+    out['storm-drive'] = pack(r, 2, 'Vanta GT at full throttle in a storm: chase camera for 7 s (rain, tire hiss and spray under the engine), then the cockpit view');
+  }
+  // tires: dry road, then wet; a cornering squeal on each; coasting so the tires are audible
+  {
+    log('wet tires');
+    const car = getCar('vanta-gt');
+    const slideAt = (t: number): number => ramp((t % 6) - 0, 1.2, 2.6) * (1 - ramp(t % 6, 3.4, 4.2));
+    const sc = tireCar(car, () => 38, (t, w) => {
+      const k = w < 2 ? slideAt(t) : 0;
+      return { skid: Math.min(1, Math.max(0, (k - 0.35) / 0.5)), slipAngle: 0.02 + 0.3 * k, load: 4800 };
+    });
+    const stepper = sc.step;
+    sc.step = (t, dt, st) => {
+      stepper(t, dt, st);
+      st.rpm = 3800;
+      st.throttle = 0.12;
+      st.engineLoad = 0.15;
+    };
+    const r = await renderScene({ seconds: 12, cars: [{ ...sc, interior: 1 }], wetness: (t) => (t < 6 ? 0 : 0.75), volumes: DEFAULT_VOLUMES });
+    out['wet-tires-squeal'] = pack(r, 2, 'cockpit, 38 m/s, coasting: a front-axle slide on the DRY road (0-6 s: tonal squeal) and the same slide on the WET road (6-12 s: duller, softer squeal over the hiss of the tires)');
+  }
+  // wheelspin: dry screech, then wet slush
+  {
+    log('wheelspin');
+    const car = getCar('vanta-gt');
+    const sc = tireCar(car, (t) => 2 + 4.5 * (t % 6), (t, w) => {
+      const k = Math.max(0, 1 - (t % 6) / 4.2);
+      return w >= 2 ? { skid: 0.55 * k + 0.01, slipAngle: 0.01, slipRatio: 0.6 * k, load: 5000 } : { skid: 0, slipAngle: 0.01, load: 3500 };
+    });
+    const stepper = sc.step;
+    sc.step = (t, dt, st) => {
+      stepper(t, dt, st);
+      const k = Math.max(0, 1 - (t % 6) / 4.2);
+      for (let i = 2; i < 4; i++) st.wheels[i].omega = (st.speed * (1 + 2.5 * k)) / 0.34;
+      st.rpm = 5200;
+      st.throttle = 1;
+      st.engineLoad = 0.9;
+    };
+    const r = await renderScene({ seconds: 12, cars: [{ ...sc, interior: 0 }], listener: followListener(sc, 5, 1.6), wetness: (t) => (t < 6 ? 0 : 0.75), volumes: DEFAULT_VOLUMES });
+    out['wet-wheelspin'] = pack(r, 2, 'standing start with the rear wheels spinning: DRY (0-6 s: screeching tonal squeal) and WET (6-12 s: no screech, a sloshing spray of slush)');
+  }
+  // an opponent passes the microphone on a wet road
+  {
+    log('wet pass-by');
+    const car = getCar('lmp-x');
+    const pass = passByCar(car, -170, -9, 62, 0, 8200);
+    const r = await renderScene({
+      seconds: 5.6,
+      cars: [pass],
+      wetness: 0.85,
+      weather: { rain: 0.55 },
+      volumes: DEFAULT_VOLUMES,
+      listener: (_t, L) => {
+        L.px = 0;
+        L.py = 1;
+        L.pz = 0;
+        L.fx = 0;
+        L.fy = 0;
+        L.fz = -1;
+        L.ux = 0;
+        L.uy = 1;
+        L.uz = 0;
+        L.vx = L.vy = L.vz = 0;
+      },
+    });
+    out['passby-lmp-x-wet'] = pack(r, 2, 'the LMP-X passes a trackside microphone at 62 m/s in the rain: Doppler engine plus a whoosh of spray, rain in the background');
+  }
 }

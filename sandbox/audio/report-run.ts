@@ -3,8 +3,9 @@ import { type Check, Checks } from './report-util';
 import { allEngines } from './report-engines';
 import { impactChecks, roadChecks, spatialChecks, tireChecks } from './report-chassis';
 import { cpuChecks, masterChecks, musicChecks, realtimeChecks, uiChecks } from './report-misc';
+import { weatherChecks } from './report-weather';
 
-export const GROUPS = ['engines', 'tires', 'road', 'impacts', 'spatial', 'ui', 'music', 'master', 'cpu', 'realtime'] as const;
+export const GROUPS = ['engines', 'tires', 'road', 'impacts', 'spatial', 'ui', 'music', 'master', 'cpu', 'realtime', 'weather'] as const;
 export type Group = (typeof GROUPS)[number];
 
 export interface Saved {
@@ -24,6 +25,7 @@ const RUNNERS: Record<Group, (c: Checks) => Promise<unknown>> = {
   master: masterChecks,
   cpu: cpuChecks,
   realtime: realtimeChecks,
+  weather: weatherChecks,
 };
 
 export interface FinalReport {

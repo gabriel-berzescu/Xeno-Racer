@@ -56,6 +56,23 @@ await lvl('cockpit camera');
 await page.locator('select').nth(2).selectOption('trackside');
 await page.waitForTimeout(800);
 await lvl('trackside camera');
+// weather: presets, thunder, back to dry (rain follows the camera: trackside = open air)
+await page.locator('select').nth(2).selectOption('cockpit');
+await page.getByRole('button', { name: 'rain (0.55 / 0.75)' }).click();
+await page.waitForTimeout(4000);
+await lvl('rain preset (cockpit)');
+await page.getByRole('button', { name: 'storm (1 / 1)' }).click();
+await page.waitForTimeout(4000);
+await lvl('storm preset (cockpit)');
+await page.getByRole('button', { name: 'thunder: near (3 km)' }).click();
+await page.waitForTimeout(2500);
+await lvl('thunder near');
+await page.locator('select').nth(2).selectOption('chase');
+await page.waitForTimeout(1200);
+await lvl('storm (chase)');
+await page.getByRole('button', { name: 'dry (0 / 0)' }).click();
+await page.waitForTimeout(6500);
+await lvl('dry again');
 // custom profile: crossplane V8
 await page.locator('label.row', { hasText: 'crank' }).locator('select').selectOption('crossplane');
 await page.waitForTimeout(1200);

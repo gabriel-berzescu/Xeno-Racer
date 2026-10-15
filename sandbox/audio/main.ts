@@ -3,7 +3,7 @@
  *
  *   sandbox/audio.html            interactive test bench for humans (default)
  *   sandbox/audio.html?test=1     offline self-test report  -> window.__AUDIO_REPORT__
- *                                 (&only=engines,tires,road,impacts,spatial,ui,music,master,cpu,realtime)
+ *                                 (&only=engines,tires,road,impacts,spatial,ui,music,master,cpu,realtime,weather)
  *   sandbox/audio.html?render=1   renders the preview WAVs  -> window.__AUDIO_WAVS__ (used by render-previews.mjs)
  *
  * window.__READY__ is set when the page is ready (bench) or the run has finished (test / render).
