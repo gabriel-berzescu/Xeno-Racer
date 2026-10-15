@@ -1,7 +1,12 @@
 /**
- * AI racing driver: follows the racing line with pure pursuit + slide correction, tracks the speed
- * profile with anticipation, overtakes by shifting its line, avoids running into cars it cannot
- * pass, and asks for a reset when stuck. Uses the same CarControls as the player.
+ * AI racing driver. Uses the same CarControls as the player.
+ *
+ * - Steering: path tracking on the racing line (curvature feedforward + lateral / heading feedback
+ *   over a speed-dependent preview), with yaw-rate damping and countersteer for real slides.
+ * - Speed: the line's speed profile with anticipation, corrected for driving off the line.
+ * - Traffic: plans a lateral offset from the racing line around nearby cars — gives room to cars
+ *   alongside, commits to a passing side, follows at a time gap when there's no way by.
+ * - Asks for a reset when stuck or facing the wrong way.
  */
 import { Vector3 } from 'three';
 import type { CarControls, CarDefinition, Difficulty, TrackPoint, TrackRuntime, VehicleState } from '../core/contracts';
@@ -466,31 +471,6 @@ export class AIDriver {
   }
 
   // ── line sampling helpers ──────────────────────────────────────────────────
-  private lineZ = 0;
-  /** X of the line point at s (with the current overtaking offset when `withOffset`); Z → this.lineZ. */
-  private lineXAt(s: number, withOffset: boolean): number {
-    const line = this.line;
-    const f = this.track.wrapS(s) / line.step;
-    const i = Math.floor(f) % line.n;
-    const b = (i + 1) % line.n;
-    const t = f - Math.floor(f);
-    let x = line.x[i] * (1 - t) + line.x[b] * t;
-    let z = line.z[i] * (1 - t) + line.z[b] * t;
-    if (withOffset && this.offset !== 0) {
-      const tr = this.track;
-      const j = Math.min(tr.count - 1, Math.round(this.track.wrapS(s) / tr.spacing));
-      // keep the offset line within the asphalt
-      const d0 = line.d[i] * (1 - t) + line.d[b] * t;
-      const hi = tr.widthLeft[j] - this.halfWidth + 0.2;
-      const lo = -(tr.widthRight[j] - this.halfWidth + 0.2);
-      const dd = Math.max(lo, Math.min(hi, d0 + this.offset)) - d0;
-      x += tr.lx[j] * dd;
-      z += tr.lz[j] * dd;
-    }
-    this.lineZ = z;
-    return x;
-  }
-
   private lineOffsetAt(s: number): number {
     const line = this.line;
     const f = this.track.wrapS(s) / line.step;
