@@ -32,6 +32,10 @@ export interface EntrantProgress {
   finishTime: number | null;
   position: number;
   wrongWayTime: number;
+  /** Classified at the end without crossing the line: finish time projected from race pace. */
+  projected: boolean;
+  /** Laps behind the winner at the flag (classified cars only). */
+  lapsDown: number;
 }
 
 export type SessionEvent =
@@ -92,6 +96,8 @@ export class RaceSession {
       finishTime: null,
       position: 1,
       wrongWayTime: 0,
+      projected: false,
+      lapsDown: 0,
     }));
     this.goAt = 5 + 0.5 + rand * 1.8;
     this.curTrace = new Float32Array(Math.ceil(track.length / TRACE_STEP) + 2).fill(-1);
@@ -247,9 +253,13 @@ export class RaceSession {
         if (i >= 0 && i < this.curTrace.length && this.curTrace[i] < 0) this.curTrace[i] = now - p.lapStart;
       }
     }
-    // positions: finished first by finish order, then by distance
+    this.rank();
+  }
+
+  /** Positions: finished cars by laps down then finish time, then the rest by distance. */
+  private rank(): void {
     const order = this.progress.slice().sort((a, b) => {
-      if (a.finished && b.finished) return (a.finishTime ?? 0) - (b.finishTime ?? 0);
+      if (a.finished && b.finished) return a.lapsDown - b.lapsDown || (a.finishTime ?? 0) - (b.finishTime ?? 0);
       if (a.finished) return -1;
       if (b.finished) return 1;
       return b.distance - a.distance;
@@ -305,21 +315,31 @@ export class RaceSession {
       isPlayer: p.entrant.isPlayer,
       totalTime: p.finishTime,
       bestLap: p.bestLap,
-      gap: p === leader ? 'WINNER' : p.finished ? this.gapString(p, leader) : 'DNF',
-      laps: Math.max(0, p.crossings - 1),
+      gap: p === leader ? 'WINNER' : p.lapsDown > 0 ? `+${p.lapsDown} LAP${p.lapsDown > 1 ? 'S' : ''}` : p.finished ? this.gapString(p, leader) : 'DNF',
+      laps: p.projected ? this.config.laps - p.lapsDown : Math.max(0, p.crossings - 1),
     }));
     const pl = this.player;
     return { config: this.config, entries, playerLapTimes: pl ? pl.lapTimes.slice() : [], personalBest };
   }
 
-  /** Mark everyone still running as finished at their current order (race end timeout). */
+  /**
+   * End of the race for cars still running: classify them the way a timing system would — a car
+   * on its final lap gets the finish time its race pace projects to the line, a car further back
+   * is classified laps down.
+   */
   closeRace(): void {
-    for (const p of this.ordered()) {
-      if (!p.finished) {
-        p.finished = true;
-        p.finishTime = null;
-      }
+    const L = this.track.length;
+    const elapsed = Math.max(1, this.now - this.startTime);
+    for (const p of this.progress) {
+      if (p.finished) continue;
+      p.finished = true;
+      p.projected = true;
+      p.lapsDown = this.unlimited ? 0 : Math.max(0, this.config.laps - p.crossings);
+      const avg = Math.max(5, p.distance / elapsed);
+      const toLine = Math.max(0, p.crossings * L - p.distance);
+      p.finishTime = elapsed + toLine / avg;
     }
     this.phase = 'finished';
+    this.rank();
   }
 }

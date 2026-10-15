@@ -72,7 +72,7 @@ export class LoadingScreen extends BaseScreen {
     this.name.classList.toggle('long', nm.length > 14 && nm.length <= 22);
     this.name.classList.toggle('xlong', nm.length > 22);
     this.place.textContent = track?.location ?? '';
-    this.facts.textContent = track ? `${formatLength(track.lengthHint, this.ctx.settings.units)}  ·  ${cfg?.mode === 'race' ? cfg.laps + ' laps' : cfg?.mode === 'timeTrial' ? 'Time trial' : 'Free roam'}` : '';
+    this.facts.textContent = track ? `${formatLength(track.lengthHint, this.ctx.settings.units)}  ·  ${cfg?.mode === 'race' ? cfg.laps + (cfg.laps === 1 ? ' lap' : ' laps') : cfg?.mode === 'timeTrial' ? 'Time trial' : 'Free roam'}` : '';
     this.glow.style.setProperty('--accent', track?.color ?? '#16e0bd');
     this.tipIndex = Math.floor(Math.random() * LOADING_TIPS.length);
     this.tip.textContent = LOADING_TIPS[this.tipIndex % LOADING_TIPS.length];

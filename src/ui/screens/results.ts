@@ -90,7 +90,7 @@ export class ResultsScreen extends BaseScreen {
     const cfg = r.config;
     const track = this.ctx.deps.tracks.find((t) => t.id === cfg.trackId);
     const info = MODE_INFO[cfg.mode];
-    this.kicker.textContent = `${track ? track.name + '  ·  ' : ''}${info.label}${cfg.mode === 'race' ? `  ·  ${cfg.laps} laps` : ''}`;
+    this.kicker.textContent = `${track ? track.name + '  ·  ' : ''}${info.label}${cfg.mode === 'race' ? `  ·  ${cfg.laps} ${cfg.laps === 1 ? 'lap' : 'laps'}` : ''}`;
     const me = r.entries.find((e) => e.isPlayer);
     if (cfg.mode !== 'race' || !me) this.title.textContent = 'Session complete';
     else if (me.totalTime === null) this.title.textContent = 'Did not finish';
