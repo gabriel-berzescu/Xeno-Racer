@@ -394,8 +394,10 @@ export class Game {
     this.clearPreview();
     visual.setPlayer(true);
     this.render.scene.add(visual.root);
-    // hide the attract field while the showroom car is up
+    // hide the attract field while the showroom car is up (and its smoke and dust, which would
+    // otherwise hang frozen in the air: effects don't update while the showroom runs)
     for (const c of this.cars) c.visual.root.visible = false;
+    this.effects?.clear();
     const car: RaceCar = { entrant: { id: vehicle.id, name: '', color: livery.primary, carId, isPlayer: true, state: vehicle.state }, def, vehicle, visual, sound: null, ai: null, livery };
     this.preview = { world, car, carId, liveryKey: key };
     this.camera.setMode('orbit');

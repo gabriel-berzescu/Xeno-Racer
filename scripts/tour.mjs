@@ -12,6 +12,7 @@
  *   eval:<js>            evaluate in the page and print the JSON result
  *   until:<js>[:<ms>]    poll until the expression is truthy (max ms, default 60000)
  *   perf:<label>         print the game's frame-time stats since the last perf step
+ *   tap:<button>         tap a fake-pad button (needs --init scripts/fixtures/fake-pad.js)
  *
  * The game must expose window.__READY__ (always waited for first).
  */
@@ -20,7 +21,7 @@ import { mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const argv = process.argv.slice(2);
-const valued = new Set(['out', 'w', 'h', 'steps', 'port', 'dpr']);
+const valued = new Set(['out', 'w', 'h', 'steps', 'port', 'dpr', 'init']);
 const opts = {};
 const positional = [];
 for (let i = 0; i < argv.length; i++) {
@@ -47,6 +48,7 @@ const browser = await chromium.launch({
   args: ['--use-angle=d3d11', '--enable-gpu', '--ignore-gpu-blocklist', '--force_high_performance_gpu', '--autoplay-policy=no-user-gesture-required'],
 });
 const page = await browser.newPage({ viewport: { width: +(opts.w ?? 1600), height: +(opts.h ?? 900) }, deviceScaleFactor: +(opts.dpr ?? 1) });
+if (opts.init) await page.addInitScript({ path: resolve(opts.init) });
 let threw = false;
 page.on('console', (m) => {
   const t = m.type();
@@ -97,6 +99,11 @@ for (const raw of opts.steps.split(';').map((s) => s.trim()).filter(Boolean)) {
     } catch {
       console.log(`[${stamp()}] until TIMEOUT: ${expr}`);
     }
+  } else if (op === 'tap') {
+    await page.evaluate((i) => window.__pad.btn(i, 1), +arg);
+    await page.waitForTimeout(90);
+    await page.evaluate((i) => window.__pad.btn(i, 0), +arg);
+    await page.waitForTimeout(250);
   } else if (op === 'perf') {
     const r = await page.evaluate(() => window.__GAME__?.perfStats?.(true));
     console.log(`[${stamp()}] perf ${arg}: ${JSON.stringify(r)}`);
