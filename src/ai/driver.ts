@@ -19,13 +19,18 @@ export interface Skill {
   pace: number;
   /** Amplitude (m) of slow line wander. */
   wander: number;
+  /** Reaction to the start lights going out (s): min..max. */
+  reaction: [number, number];
+  /** Mean time between small mistakes (s; 0 = never) and their size (fraction over the target speed). */
+  mistakeEvery: number;
+  mistakeSize: number;
 }
 
 export const SKILL: Record<Difficulty, Skill> = {
-  rookie: { gripUse: 0.8, brakeUse: 0.72, pace: 0.95, wander: 0.55 },
-  amateur: { gripUse: 0.86, brakeUse: 0.8, pace: 0.97, wander: 0.35 },
-  pro: { gripUse: 0.92, brakeUse: 0.88, pace: 0.99, wander: 0.18 },
-  alien: { gripUse: 0.965, brakeUse: 0.94, pace: 1, wander: 0.06 },
+  rookie: { gripUse: 0.8, brakeUse: 0.72, pace: 0.95, wander: 0.55, reaction: [0.3, 0.55], mistakeEvery: 45, mistakeSize: 0.07 },
+  amateur: { gripUse: 0.86, brakeUse: 0.8, pace: 0.97, wander: 0.35, reaction: [0.24, 0.42], mistakeEvery: 80, mistakeSize: 0.05 },
+  pro: { gripUse: 0.92, brakeUse: 0.88, pace: 0.99, wander: 0.18, reaction: [0.18, 0.3], mistakeEvery: 200, mistakeSize: 0.035 },
+  alien: { gripUse: 0.965, brakeUse: 0.94, pace: 1, wander: 0.06, reaction: [0.14, 0.22], mistakeEvery: 0, mistakeSize: 0 },
 };
 
 const _tp: TrackPoint = { s: 0, d: 0, segment: 0, widthLeft: 0, widthRight: 0, wallLeft: 0, wallRight: 0, tx: 0, tz: 1, lx: 1, lz: 0, y: 0 };
@@ -77,6 +82,7 @@ export class AIDriver {
     const r = fract(Math.sin(opts.seed * 12.9898) * 43758.5453);
     this.paceJitter = 1 - 0.018 * r;
     this.wanderPhase = r * 100;
+    this.rng = ((opts.seed * 2654435761) ^ 0x9e3779b9) >>> 0 || 1;
     this.skill = base;
     this.halfWidth = def.visual.width / 2;
     const wet = opts.wetness ?? 0;
@@ -85,6 +91,7 @@ export class AIDriver {
     this.profile = computeSpeedProfile(track, this.line, def, { gripUse: base.gripUse, brakeUse: base.brakeUse, wetness: wet });
     const tireWet = Math.min(def.physics.tireFront.wetGrip ?? 0.72, def.physics.tireRear.wetGrip ?? 0.72);
     this.wetMu = wetGripFactor(wet, tireWet, SURFACES.asphalt, 0);
+    this.mistakeIn = this.nextMistake();
   }
 
   /** Target speed at track position s (m/s), with this driver's pace. */
@@ -94,7 +101,42 @@ export class AIDriver {
     const i = Math.floor(f) % line.n;
     const b = (i + 1) % line.n;
     const t = f - Math.floor(f);
-    return (this.profile.v[i] * (1 - t) + this.profile.v[b] * t) * this.skill.pace * this.paceJitter;
+    return (this.profile.v[i] * (1 - t) + this.profile.v[b] * t) * this.skill.pace * this.paceJitter * this.mistakeMul;
+  }
+
+  // ── human touches: start reaction, the odd mistake ─────────────────────────
+  private rng: number;
+  private wasRacing = false;
+  private reactLeft = 0;
+  private mistakeIn = 0;
+  private mistakeLeft = 0;
+  private mistakeMul = 1;
+  private rand(): number {
+    // xorshift32, seeded per driver: deterministic races for tests and replays
+    let x = this.rng;
+    x ^= x << 13;
+    x ^= x >>> 17;
+    x ^= x << 5;
+    this.rng = x >>> 0;
+    return this.rng / 4294967296;
+  }
+  private nextMistake(): number {
+    const m = this.skill.mistakeEvery;
+    return m > 0 ? m * (0.4 + 1.2 * this.rand()) : Infinity;
+  }
+  /** Mistake window: carries a little too much speed into whatever comes next for ~2.5 s. */
+  private updateMistakes(dt: number, v: number): void {
+    if (this.mistakeLeft > 0) {
+      this.mistakeLeft -= dt;
+      if (this.mistakeLeft <= 0) this.mistakeMul = 1;
+      return;
+    }
+    this.mistakeIn -= dt;
+    if (this.mistakeIn <= 0 && v > 20) {
+      this.mistakeMul = 1 + this.skill.mistakeSize * (0.6 + 0.8 * this.rand());
+      this.mistakeLeft = 2 + this.rand();
+      this.mistakeIn = this.nextMistake();
+    }
   }
 
   update(dt: number, me: VehicleState, others: readonly VehicleState[], c: CarControls, racing: boolean): void {
@@ -111,14 +153,19 @@ export class AIDriver {
     _l.set(1, 0, 0).applyQuaternion(me.quaternion);
     this.up.set(0, 1, 0).applyQuaternion(me.quaternion);
 
-    if (!racing) {
-      // on the grid: hold revs, wheels straight
+    // lights out: a human-ish reaction before the launch
+    if (racing && !this.wasRacing) this.reactLeft = this.skill.reaction[0] + (this.skill.reaction[1] - this.skill.reaction[0]) * this.rand();
+    this.wasRacing = racing;
+    if (this.reactLeft > 0) this.reactLeft -= dt;
+    if (!racing || this.reactLeft > 0) {
+      // on the grid: hold revs, wheels straight, foot on the brake until we react
       c.steer = 0;
       c.throttle = 0.35 + 0.15 * Math.sin(this.time * 3 + this.wanderPhase);
-      c.brake = 0;
+      c.brake = racing ? 1 : 0;
       c.handbrake = 0;
       return;
     }
+    this.updateMistakes(dt, Math.max(0, me.forwardSpeed));
 
     // ── traffic: plan a lateral offset (relative to the racing line) around the cars nearby ──
     const lineD = this.lineOffsetAt(s);
@@ -243,6 +290,8 @@ export class AIDriver {
     this.offset = 0;
     this.prevOffset = null;
     this.planTarget = 0;
+    this.mistakeMul = 1;
+    this.mistakeLeft = 0;
     this.hint = -1;
   }
 
