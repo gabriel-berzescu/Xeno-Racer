@@ -445,9 +445,9 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
       _v2.set(t.x, t.y, t.z).applyQuaternion(s.quaternion);
       _v3.set(t.dx, t.dy, t.dz).applyQuaternion(s.quaternion);
       const px = ox + _v2.x, py = oy + _v2.y, pz = oz + _v2.z;
-      flames.spawn(px, py, pz, _v3.x, _v3.y, _v3.z, rr(0.7, 1.3), rr(0.085, 0.14), rr(0.09, 0.16), rr(6, 10), 1, s.velocity.x, s.velocity.y, s.velocity.z);
+      flames.spawn(px, py, pz, _v3.x, _v3.y, _v3.z, rr(0.45, 0.9), rr(0.07, 0.11), rr(0.09, 0.16), rr(3.5, 6), 1, s.velocity.x, s.velocity.y, s.velocity.z);
       // a short round flash at the tip (reads from any angle, feeds bloom)
-      glows.spawn(px, py, pz, s.velocity.x, s.velocity.y, s.velocity.z, rr(0.28, 0.4), 0.09, 1.0, 0.7, 0.32, rr(5, 8));
+      glows.spawn(px, py, pz, s.velocity.x, s.velocity.y, s.velocity.z, rr(0.2, 0.3), 0.08, 1.0, 0.62, 0.26, rr(3, 5));
       for (let k = 0; k < 4; k++) {
         sparks.spawn(
           px, py, pz,

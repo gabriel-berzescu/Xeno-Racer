@@ -218,7 +218,10 @@ void main() {
   float u = vUv.y;               // 0 at the tip, 1 at the far end
   float taper = mix(1.0, 0.18, u);
   float x = vUv.x / taper;
-  float body = exp(-x * x * 2.2) * smoothstep(1.0, 0.0, u);
+  // window to exactly zero at the quad's edges: in HDR even a small tail would clip to white and
+  // show the quad's rectangle
+  float win = (1.0 - smoothstep(0.55, 1.0, abs(vUv.x))) * (1.0 - smoothstep(0.75, 1.0, u));
+  float body = exp(-x * x * 3.0) * smoothstep(1.0, 0.0, u) * win;
   vec2 nuv = vec2(vUv.x * 0.35 + vD.z * 3.1, u * 0.9 - age * 1.4 + vD.z * 7.0);
   float flick = texture2D(uAtlas, fract(nuv) * 0.5).b;
   body *= 0.65 + 0.7 * flick;
@@ -231,7 +234,7 @@ void main() {
   vec3 col = mix(blue, white, smoothstep(0.0, 0.18, u));
   col = mix(col, orange, smoothstep(0.12, 0.45, u));
   col = mix(col, red, smoothstep(0.5, 1.0, u));
-  float flash = vD.w * exp(-(u * u * 4.0 + vUv.x * vUv.x * 1.2)) * (1.0 - smoothstep(0.0, 0.35, age));
+  float flash = vD.w * exp(-(u * u * 6.0 + vUv.x * vUv.x * 3.0)) * (1.0 - smoothstep(0.0, 0.35, age)) * win;
   float depthV = -vView.z;
   float vis = smoothstep(-0.05, 0.12, sceneViewDepth() - depthV);
   float a = (body * fade + flash) * vis;
