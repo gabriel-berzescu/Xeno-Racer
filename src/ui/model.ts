@@ -25,7 +25,7 @@ import { clamp, clamp01 } from './hudlogic';
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const TIMES: readonly TimeOfDay[] = ['dawn', 'morning', 'noon', 'golden', 'dusk', 'night'];
-export const WEATHERS: readonly Weather[] = ['clear', 'cloudy', 'overcast'];
+export const WEATHERS: readonly Weather[] = ['clear', 'cloudy', 'overcast', 'rain', 'storm'];
 export const DIFFICULTIES: readonly Difficulty[] = ['rookie', 'amateur', 'pro', 'alien'];
 export const STARTS: readonly RaceConfig['startPosition'][] = ['back', 'middle', 'pole'];
 export const CAMERA_MODES: readonly CameraMode[] = ['chase', 'chase-far', 'hood', 'bumper', 'cockpit', 'tv', 'orbit'];

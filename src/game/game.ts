@@ -330,7 +330,7 @@ export class Game {
       vehicle,
       visual,
       sound,
-      ai: ai ? new AIDriver(world.track, def, { difficulty: ai, seed: vehicle.id * 17 + slot }) : null,
+      ai: ai ? new AIDriver(world.track, def, { difficulty: ai, seed: vehicle.id * 17 + slot, wetness: world.wetness }) : null,
       livery,
     };
     this.cars.push(car);
@@ -348,6 +348,7 @@ export class Game {
     if (!(await this.ensureTrack(trackId, { timeOfDay: tod, weather: 'clear' }, token))) return;
     this.clearCars();
     this.world = new PhysicsWorld(this.track!);
+    this.audio.setWeather(0, 0);
     const n = Math.min(8, this.track!.grid.length);
     for (let i = 0; i < n; i++) {
       if (token !== this.loadToken) return;
@@ -451,6 +452,9 @@ export class Game {
     this.clearCars();
     const track = this.track!;
     this.world = new PhysicsWorld(track);
+    // rain: water on the track for the tires and the AI, the rain bed and wet tires for the audio
+    this.world.wetness = this.render.env.wetness;
+    this.audio.setWeather(this.render.env.rain, this.render.env.wetness);
     const def = getCar(config.carId);
     const opponents = config.mode === 'race' ? Math.max(0, Math.min(11, config.opponents)) : 0;
     const total = opponents + 1;
@@ -488,7 +492,7 @@ export class Game {
       if (lap) await this.makeGhost(lap, def, playerLivery);
     }
     this.ghostRec.reset();
-    if (this.params.get('autopilot') === '1') this.autopilot = new AIDriver(track, def, { difficulty: 'alien', seed: 99 });
+    if (this.params.get('autopilot') === '1') this.autopilot = new AIDriver(track, def, { difficulty: 'alien', seed: 99, wetness: this.world.wetness });
 
     this.steering.reset();
     this.replay = null;

@@ -70,7 +70,7 @@ export const pct = (v: number): string => Math.round(v * 100) + '%';
 export const TIME_OF_DAY_LABEL: Record<string, string> = {
   dawn: 'Dawn', morning: 'Morning', noon: 'Noon', golden: 'Golden hour', dusk: 'Dusk', night: 'Night',
 };
-export const WEATHER_LABEL: Record<string, string> = { clear: 'Clear', cloudy: 'Cloudy', overcast: 'Overcast' };
+export const WEATHER_LABEL: Record<string, string> = { clear: 'Clear', cloudy: 'Cloudy', overcast: 'Overcast', rain: 'Rain', storm: 'Storm' };
 export const DIFFICULTY_LABEL: Record<string, string> = { rookie: 'Rookie', amateur: 'Amateur', pro: 'Pro', alien: 'Alien' };
 export const START_LABEL: Record<string, string> = { back: 'Back of the grid', middle: 'Mid grid', pole: 'Pole position' };
 export const CAMERA_LABEL: Record<string, string> = {
