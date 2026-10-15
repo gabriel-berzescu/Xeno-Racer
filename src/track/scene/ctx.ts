@@ -64,6 +64,8 @@ export interface Ctx {
   envListeners: Array<(env: EnvironmentState) => void>;
   /** Tiles / cells / etc. that already occupy ground (for scenery placement): returns true if (x,z) is reserved. */
   reserved: Array<(x: number, z: number, margin: number) => boolean>;
+  /** Like `reserved`, but only for tall scenery (trees): TV camera sightlines to the road. */
+  viewReserved: Array<(x: number, z: number, margin: number) => boolean>;
   /** Samples where a rock cut face replaces the barrier (per side). */
   rockFlags?: { L: Uint8Array; R: Uint8Array };
   progress: (f: number, label: string) => void;
@@ -83,6 +85,7 @@ export function newCtx(rt: TrackRuntimeImpl, opts: TrackSceneOptions, tex: Track
     nightGlow: [],
     envListeners: [],
     reserved: [],
+    viewReserved: [],
     progress: (f, label) => opts.onProgress?.(f, label),
   };
 }

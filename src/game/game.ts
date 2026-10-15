@@ -90,7 +90,7 @@ export class Game {
   private resultsShown = false;
   private tvTimer = 0;
   private tvTarget = 0;
-  private ghost: { lap: GhostLap; visual: CarVisual; state: VehicleState } | null = null;
+  private ghost: { lap: GhostLap; visual: CarVisual; state: VehicleState; mats: { opacity: number }[] } | null = null;
   private ghostRec = new GhostRecorder();
   private preview: { world: PhysicsWorld; car: RaceCar; carId: string; liveryKey: string } | null = null;
   private previewOrbit = 0;
@@ -345,7 +345,10 @@ export class Game {
     // spread them around the lap so the TV cameras always have action
     const L = this.track!.length;
     this.cars.forEach((c, i) => {
-      this.placeOnTrack(c.vehicle, (i * L) / n + 50, 0, 30);
+      // rolling start at a speed the car can actually carry there (not 108 km/h into a hairpin)
+      const s = (i * L) / n + 50;
+      const v = Math.min(30, c.ai ? 0.8 * Math.min(c.ai.targetSpeed(s), c.ai.targetSpeed(s + 40)) : 20);
+      this.placeOnTrack(c.vehicle, s, 0, v);
       c.vehicle.setTemperatures(1);
     });
     this.session = new RaceSession(this.track!, { ...this.quickConfig('freeRoam'), trackId }, this.cars.map((c) => c.entrant), null, 0.5);
@@ -484,6 +487,7 @@ export class Game {
 
   private async makeGhost(lap: GhostLap, def: CarDefinition, livery: Livery): Promise<void> {
     const visual = await createCarVisual(def, { ...livery, primary: '#9fe9ff', secondary: '#9fe9ff', accent: '#ffffff' }, 'low');
+    const ghostMats: { opacity: number }[] = [];
     visual.root.traverse((o) => {
       const m = (o as { material?: { transparent: boolean; opacity: number; depthWrite: boolean } | { transparent: boolean; opacity: number; depthWrite: boolean }[] }).material;
       const mats = Array.isArray(m) ? m : m ? [m] : [];
@@ -491,6 +495,7 @@ export class Game {
         mm.transparent = true;
         mm.opacity = 0.28;
         mm.depthWrite = false;
+        ghostMats.push(mm);
       }
       o.castShadow = false;
     });
@@ -499,7 +504,7 @@ export class Game {
     const tmpWorld = new PhysicsWorld(this.track!);
     const v = tmpWorld.addVehicle(def);
     v.placeOnGround(this.track!.grid[0].position, this.track!.grid[0].quaternion, 0);
-    this.ghost = { lap, visual, state: v.state };
+    this.ghost = { lap, visual, state: v.state, mats: ghostMats };
   }
 
   private resetCar(c: RaceCar): void {
@@ -768,6 +773,11 @@ export class Game {
             st.wheels[i].spin += (pv.state.speed / r) * dt;
           }
           this.ghost.visual.update(st, dt, this.render.env);
+          // fade out when it overlaps the player's car (a double image reads as a glitch)
+          const near = st.position.distanceTo(pv.state.position);
+          const op = 0.28 * Math.min(1, Math.max(0, (near - 2.5) / 6));
+          for (const m of this.ghost.mats) m.opacity = op;
+          this.ghost.visual.root.visible = op > 0.01;
         }
       }
     }

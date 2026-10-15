@@ -500,6 +500,14 @@ function scatter(ctx: Ctx, veg: VegetationDef): Record<SpeciesId, Inst[]> {
           break;
         }
       }
+      if (!blocked) {
+        for (const r of ctx.viewReserved) {
+          if (r(px, pz, 4.5)) {
+            blocked = true;
+            break;
+          }
+        }
+      }
       if (blocked) continue;
       let sp = pick();
       // poplars like the water

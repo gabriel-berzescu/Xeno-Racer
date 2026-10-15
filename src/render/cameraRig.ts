@@ -542,6 +542,10 @@ class CameraRigImpl implements CameraRig {
   private tvIdx = -1;
   private tvDwell = 0;
   private tvChoiceOk = false;
+  /** Seconds the current TV camera's view of the car has been blocked by terrain. */
+  private tvBlocked = 0;
+  private tvLosTimer = 0;
+  private readonly losGs: GroundSample = { height: 0, normal: new Vector3(0, 1, 0), surface: 'asphalt' };
   private readonly tvYaw: Lag = lag(); // unwrapped
   private readonly tvPitch: Lag = lag();
   private readonly tvFov: Lag = lag();
@@ -1306,17 +1310,41 @@ class CameraRigImpl implements CameraRig {
    * Best camera for car position s: nearest by track distance, preferring cameras ahead. When no camera
    * qualifies (enter thresholds), returns the nearest in 3D and sets tvChoiceOk = false.
    */
+  /** True when the terrain doesn't block the line from camera C to the car at P. */
+  private tvLineOfSight(C: Vector3, P: Vector3): boolean {
+    const tr = this.track;
+    if (!tr) return true;
+    const tx = P.x;
+    const ty = P.y + 0.6;
+    const tz = P.z;
+    const len = Math.hypot(tx - C.x, ty - C.y, tz - C.z);
+    const n = Math.min(24, Math.max(6, Math.ceil(len / 12)));
+    let hint = -1;
+    // skip the ends: the camera sits on its mast, the car on the road
+    for (let k = 1; k < n; k++) {
+      const f = 0.04 + (0.9 * k) / n;
+      const x = C.x + (tx - C.x) * f;
+      const y = C.y + (ty - C.y) * f;
+      const z = C.z + (tz - C.z) * f;
+      hint = tr.groundAt(x, z, this.losGs, hint);
+      if (this.losGs.height > y - 0.25) return false;
+    }
+    return true;
+  }
+
   private tvChoose(carS: number, P: Vector3, L: number): number {
     const T = TUNING;
     const cams = this.tvCams;
     let best = -1;
     let bestCost = Infinity;
-    let near = 0;
+    let near = -1;
     let nearD = Infinity;
     for (let i = 0; i < cams.length; i++) {
       const c = cams[i];
       const ds = wrapSigned(c.s - carS, L);
       const d3 = c.position.distanceTo(P);
+      // a camera that can't see the car (a hill in the way) is never a choice
+      if (d3 > T.tvLeaveDistance || !this.tvLineOfSight(c.position, P)) continue;
       if (d3 < nearD) {
         nearD = d3;
         near = i;
@@ -1332,6 +1360,16 @@ class CameraRigImpl implements CameraRig {
     return best >= 0 ? best : near;
   }
 
+  /** Current camera lost sight of the car for a moment: cut to another one (or the fallback). */
+  private tvCheckBlocked(h: number, P: Vector3): boolean {
+    this.tvLosTimer -= h;
+    if (this.tvLosTimer > 0) return this.tvBlocked > 0.5;
+    this.tvLosTimer = 0.2;
+    const ok = this.tvLineOfSight(this.tvCams[this.tvIdx].position, P);
+    this.tvBlocked = ok ? 0 : this.tvBlocked + 0.2;
+    return this.tvBlocked > 0.5;
+  }
+
   private tvMode(h: number, cut: boolean, st: VehicleState): void {
     const T = TUNING;
     const cams = this.tvCams;
@@ -1345,22 +1383,38 @@ class CameraRigImpl implements CameraRig {
     const L = tr.length;
     const carS = this.tpCar.s;
     this.tvDwell += h;
-    let camCut = cut || this.tvFbActive || this.tvIdx < 0 || this.tvIdx >= n;
-    this.tvFbActive = false;
-    if (camCut) this.tvIdx = this.tvChoose(carS, P, L);
-    else {
+    let camCut = cut || this.tvIdx < 0 || this.tvIdx >= n;
+    const wasFallback = this.tvFbActive;
+    if (camCut || wasFallback) {
+      const best = this.tvChoose(carS, P, L);
+      if (best < 0 || (wasFallback && !camCut && !this.tvChoiceOk)) {
+        // no TV camera can see the car: the trackside follow shot until one can
+        this.tvFallback(h, camCut && !wasFallback, st);
+        return;
+      }
+      this.tvIdx = best;
+      camCut = true;
+      this.tvBlocked = 0;
+    } else {
       const c = cams[this.tvIdx];
       const ds = wrapSigned(c.s - carS, L);
       const d3 = c.position.distanceTo(P);
-      if (this.tvDwell >= T.tvMinDwell && (ds < -T.tvLeaveBehind || d3 > T.tvLeaveDistance)) {
+      const blocked = this.tvCheckBlocked(h, P);
+      if (blocked || (this.tvDwell >= T.tvMinDwell && (ds < -T.tvLeaveBehind || d3 > T.tvLeaveDistance))) {
         const best = this.tvChoose(carS, P, L);
+        if (best < 0) {
+          this.tvFallback(h, true, st);
+          return;
+        }
         // nothing qualifies: stay unless the fallback is clearly closer (no A-B-A ping-pong)
-        if (best !== this.tvIdx && (this.tvChoiceOk || cams[best].position.distanceTo(P) < T.tvSwitchCloser * d3)) {
+        if (best !== this.tvIdx && (blocked || this.tvChoiceOk || cams[best].position.distanceTo(P) < T.tvSwitchCloser * d3)) {
           this.tvIdx = best;
           camCut = true;
+          this.tvBlocked = 0;
         }
       }
     }
+    this.tvFbActive = false;
     if (camCut) this.tvDwell = 0;
     const cp = cams[this.tvIdx].position;
     if (!finiteVec(cp)) {

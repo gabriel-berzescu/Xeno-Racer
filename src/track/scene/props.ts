@@ -904,6 +904,37 @@ function buildTvCameras(ctx: Ctx): { position: THREE.Vector3; s: number }[] {
   add(160, rt.L.wall[k0] + 6, 3.5);
   add(rt.length * 0.5, rt.R.wall[Math.floor(rt.count / 2)] * -1 - 5, 3);
   out.sort((a, b) => a.s - b.s);
+  // keep each camera's view of its stretch of road clear of trees: corridors from the camera to
+  // road points from ~220 m before it to just past it (the stretch the TV director uses it for:
+  // cars approaching, see tvEnterDistance / tvLeaveBehind in the camera rig)
+  for (const cam of out) {
+    const seg: number[] = [];
+    let minX = cam.position.x, maxX = minX, minZ = cam.position.z, maxZ = minZ;
+    const q = new THREE.Vector3();
+    for (let ds = -225; ds <= 45; ds += 15) {
+      rt.pointAt(rt.wrapS(cam.s + ds), 0, q);
+      seg.push(q.x, q.z);
+      minX = Math.min(minX, q.x);
+      maxX = Math.max(maxX, q.x);
+      minZ = Math.min(minZ, q.z);
+      maxZ = Math.max(maxZ, q.z);
+    }
+    const cx = cam.position.x;
+    const cz = cam.position.z;
+    ctx.viewReserved.push((x, z, m) => {
+      const r = 2.5 + m;
+      if (x < minX - r || x > maxX + r || z < minZ - r || z > maxZ + r) return false;
+      for (let i = 0; i < seg.length; i += 2) {
+        const ex = seg[i] - cx;
+        const ez = seg[i + 1] - cz;
+        const t = Math.max(0, Math.min(1, ((x - cx) * ex + (z - cz) * ez) / (ex * ex + ez * ez || 1)));
+        const dx = x - (cx + ex * t);
+        const dz = z - (cz + ez * t);
+        if (dx * dx + dz * dz < r * r) return true;
+      }
+      return false;
+    });
+  }
   return out;
 }
 

@@ -3,7 +3,7 @@
  * Scripted play-through: opens the game in the system Chrome (GPU), then runs a list of steps,
  * taking screenshots along the way. Used for visual QA of whole game flows.
  *
- *   node scripts/tour.mjs "<path?query>" --steps "<steps>" [--out shots/tour] [--w 1600] [--h 900] [--log]
+ *   node scripts/tour.mjs "<path?query>" --steps "<steps>" [--out shots/tour] [--w 1600] [--h 900] [--dpr 1] [--log]
  *
  * Steps are separated by ';':
  *   wait:<ms>            let the game run
@@ -20,7 +20,7 @@ import { mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const argv = process.argv.slice(2);
-const valued = new Set(['out', 'w', 'h', 'steps', 'port']);
+const valued = new Set(['out', 'w', 'h', 'steps', 'port', 'dpr']);
 const opts = {};
 const positional = [];
 for (let i = 0; i < argv.length; i++) {
@@ -46,7 +46,7 @@ const browser = await chromium.launch({
   headless: true,
   args: ['--use-angle=d3d11', '--enable-gpu', '--ignore-gpu-blocklist', '--force_high_performance_gpu', '--autoplay-policy=no-user-gesture-required'],
 });
-const page = await browser.newPage({ viewport: { width: +(opts.w ?? 1600), height: +(opts.h ?? 900) } });
+const page = await browser.newPage({ viewport: { width: +(opts.w ?? 1600), height: +(opts.h ?? 900) }, deviceScaleFactor: +(opts.dpr ?? 1) });
 let threw = false;
 page.on('console', (m) => {
   const t = m.type();
