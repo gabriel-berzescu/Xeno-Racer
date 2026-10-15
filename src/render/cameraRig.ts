@@ -200,6 +200,9 @@ export const TUNING = {
   /** but only pick cameras the car has passed by less than this (m) and that are closer than this (m). */
   tvEnterBehind: 15,
   tvEnterDistance: 220,
+  /** Never keep (or fall back to) a camera the car passed by more than this (m): the track scene keeps
+   *  trees out of each camera's view only this far past it. */
+  tvMaxBehind: 200,
   /** A camera only covers the road up to this far before it (m along the track): on switchbacks a
    *  camera can be close in 3D to a different leg of the road, seen through the forest between. */
   tvTrackAhead: 225,
@@ -1348,7 +1351,7 @@ class CameraRigImpl implements CameraRig {
       const d3 = c.position.distanceTo(P);
       // a camera that can't see the car (a hill in the way), or that covers another stretch of road
       // (closer in 3D across a switchback), is never a choice
-      if (ds > T.tvTrackAhead || !this.tvLineOfSight(c.position, P)) continue;
+      if (ds > T.tvTrackAhead || ds < -T.tvMaxBehind || !this.tvLineOfSight(c.position, P)) continue;
       if (d3 < nearD) {
         nearD = d3;
         near = i;
@@ -1404,14 +1407,15 @@ class CameraRigImpl implements CameraRig {
       const ds = wrapSigned(c.s - carS, L);
       const d3 = c.position.distanceTo(P);
       const blocked = this.tvCheckBlocked(h, P);
-      if (blocked || ds > T.tvTrackAhead || (this.tvDwell >= T.tvMinDwell && (ds < -T.tvLeaveBehind || d3 > T.tvLeaveDistance))) {
+      const passed = ds < -T.tvMaxBehind;
+      if (blocked || passed || ds > T.tvTrackAhead || (this.tvDwell >= T.tvMinDwell && (ds < -T.tvLeaveBehind || d3 > T.tvLeaveDistance))) {
         const best = this.tvChoose(carS, P, L);
         if (best < 0) {
           this.tvFallback(h, true, st);
           return;
         }
         // nothing qualifies: stay unless the fallback is clearly closer (no A-B-A ping-pong)
-        if (best !== this.tvIdx && (blocked || this.tvChoiceOk || cams[best].position.distanceTo(P) < T.tvSwitchCloser * d3)) {
+        if (best !== this.tvIdx && (blocked || passed || this.tvChoiceOk || cams[best].position.distanceTo(P) < T.tvSwitchCloser * d3)) {
           this.tvIdx = best;
           camCut = true;
           this.tvBlocked = 0;

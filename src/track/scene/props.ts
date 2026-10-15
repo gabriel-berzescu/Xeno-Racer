@@ -922,14 +922,30 @@ function buildTvCameras(ctx: Ctx): { position: THREE.Vector3; s: number }[] {
   add(160, rt.L.wall[k0] + 6, 3.5);
   add(rt.length * 0.5, rt.R.wall[Math.floor(rt.count / 2)] * -1 - 5, 3);
   out.sort((a, b) => a.s - b.s);
+  // long straights and fast sweepers between corner cameras: a camera covers ~220 m of road coming
+  // toward it, so a gap much longer than that gets evenly spaced trackside cameras, on the side with more room
+  const fill: number[] = [];
+  for (let i = 0; i < out.length; i++) {
+    const a = out[i].s;
+    const gap = rt.wrapS(out[(i + 1) % out.length].s - a) || rt.length;
+    if (gap < 320) continue;
+    const n = Math.ceil(gap / 260) - 1;
+    for (let j = 1; j <= n; j++) fill.push(a + (gap * j) / (n + 1));
+  }
+  for (const sF of fill.slice(0, 24)) {
+    const k = Math.round(rt.wrapS(sF) / rt.spacing) % rt.count;
+    const left = rt.L.wall[k] >= rt.R.wall[k];
+    add(sF, left ? rt.L.wall[k] + 6 : -(rt.R.wall[k] + 6), 3.4);
+  }
+  out.sort((a, b) => a.s - b.s);
   // keep each camera's view of its stretch of road clear of trees: corridors from the camera to
-  // road points from ~220 m before it to just past it (the stretch the TV director uses it for:
-  // cars approaching, see tvEnterDistance / tvLeaveBehind in the camera rig)
+  // road points from ~240 m before it to 210 m past it (the stretch the TV director may use it for:
+  // cars approaching, then leaving, see tvEnterDistance / tvMaxBehind in the camera rig)
   for (const cam of out) {
     const seg: number[] = [];
     let minX = cam.position.x, maxX = minX, minZ = cam.position.z, maxZ = minZ;
     const q = new THREE.Vector3();
-    for (let ds = -225; ds <= 45; ds += 15) {
+    for (let ds = -240; ds <= 210; ds += 15) {
       rt.pointAt(rt.wrapS(cam.s + ds), 0, q);
       seg.push(q.x, q.z);
       minX = Math.min(minX, q.x);

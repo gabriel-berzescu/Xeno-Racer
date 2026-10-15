@@ -1038,13 +1038,14 @@ describe('tv camera', () => {
       expect(dense[c.to].s - c.carZ).toBeLessThanOrEqual(20);
     }
 
-    // between two far-apart cameras (neither within reach): no A-B-A ping-pong
+    // between two far-apart cameras (neither within reach; B too far ahead, A passed but within
+    // tvMaxBehind): no A-B-A ping-pong
     const far = [
       { position: new Vector3(15, 6, 0), s: 0 },
-      { position: new Vector3(-15, 6, 500), s: 500 },
+      { position: new Vector3(-15, 6, 420), s: 420 },
     ];
     const between: Scenario = (t, o) => {
-      o.p.set(0, CG_H, 250 + 20 * Math.sin(1.1 * t));
+      o.p.set(0, CG_H, 160 + 20 * Math.sin(1.1 * t));
       o.v.set(0, 0, 22 * Math.cos(1.1 * t));
       o.a.set(0, 0, 0);
       o.yaw = 0;
@@ -1082,6 +1083,28 @@ describe('tv camera', () => {
     // parked next to a camera: stays on it
     const parked = tvRun(tvCams(0, 3000, 100), straight(0, 120), 15);
     expect(parked.cuts.length).toBe(1);
+  });
+
+  it('lets go of a camera the car passed by more than tvMaxBehind, even with no other camera to cut to', () => {
+    const cams = [{ position: new Vector3(15, 6, 100), s: 100 }];
+    const rig = createCameraRig(fakeTrack(5000).track, cams);
+    rig.setShake(0);
+    rig.setMode('tv');
+    const car = makeCar();
+    let onCam = 0;
+    let lateOnCam = 0;
+    drive(rig, car, straight(30, 20), 60, 14, {
+      after: () => {
+        expect(camOk(rig)).toBe(true);
+        const on = rig.camera.position.equals(cams[0].position);
+        if (on) onCam++;
+        if (on && car.state.position.z - 100 > TUNING.tvMaxBehind + 1) lateOnCam++;
+      },
+    });
+    expect(onCam).toBeGreaterThan(60);
+    expect(lateOnCam).toBe(0);
+    // the track scene keeps trees out of each camera's view up to 210 m past it (props.ts buildTvCameras)
+    expect(TUNING.tvMaxBehind).toBeLessThanOrEqual(210);
   });
 
   it('falls back to a camera behind the car without a track or without TV cameras', () => {
