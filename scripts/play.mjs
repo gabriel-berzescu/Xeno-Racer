@@ -8,6 +8,7 @@
  *   node scripts/play.mjs --build    force a fresh build
  *   node scripts/play.mjs --dev      play from the dev server (hot reload)
  *   node scripts/play.mjs --window   windowed instead of fullscreen
+ *   node scripts/play.mjs --serve    only build + serve (open the printed URL in any browser)
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, statSync } from 'node:fs';
@@ -29,14 +30,15 @@ function newestMtime(dir) {
   return t;
 }
 
-const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+// run Vite's CLI with this Node directly (no shell, no npx)
+const vite = join(root, 'node_modules', 'vite', 'bin', 'vite.js');
 
 if (!dev) {
   const distIndex = join(root, 'dist', 'index.html');
   const stale = !existsSync(distIndex) || newestMtime(join(root, 'src')) > statSync(distIndex).mtimeMs || newestMtime(join(root, 'public')) > statSync(distIndex).mtimeMs;
   if (stale || args.has('--build')) {
     console.log('Building Xeno-Racer…');
-    const r = spawnSync(npx, ['vite', 'build'], { cwd: root, stdio: 'inherit', shell: true });
+    const r = spawnSync(process.execPath, [vite, 'build'], { cwd: root, stdio: 'inherit' });
     if (r.status !== 0) process.exit(r.status ?? 1);
   }
 }
@@ -52,8 +54,13 @@ async function up() {
 
 let server = null;
 if (!(await up())) {
-  server = spawn(npx, ['vite', dev ? '' : 'preview', '--port', String(port), '--strictPort', '--host', '127.0.0.1'].filter(Boolean), { cwd: root, stdio: 'ignore', shell: true });
+  server = spawn(process.execPath, [vite, dev ? '' : 'preview', '--port', String(port), '--strictPort', '--host', '127.0.0.1'].filter(Boolean), { cwd: root, stdio: 'ignore' });
   for (let i = 0; i < 100 && !(await up()); i++) await new Promise((r) => setTimeout(r, 150));
+}
+
+if (args.has('--serve')) {
+  console.log(`Xeno-Racer is being served at ${url} — press Ctrl+C to stop.`);
+  await new Promise(() => {});
 }
 
 const candidates = [

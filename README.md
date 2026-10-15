@@ -13,7 +13,7 @@ On the first run it installs dependencies and builds the game, which takes about
 opens Xeno-Racer full-screen in its own Chrome window, on the dedicated GPU. Close the window to quit.
 
 - Plug in the gamepad and press any button. On a **Logitech F310**, set the switch on the back to **X** (XInput).
-- `play.bat --window` plays in a window, `play.bat --build` forces a rebuild, and `play.bat --dev` runs from the dev server with hot reload.
+- `play.bat --window` plays in a window, `play.bat --build` forces a rebuild, `play.bat --dev` runs from the dev server with hot reload, and `play.bat --serve` only serves the game (open the printed address yourself).
 
 **Any platform:** run `npm install`, then `npm run dev`, and open http://localhost:5199 in Chrome.
 
