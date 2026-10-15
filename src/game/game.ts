@@ -103,6 +103,8 @@ export class Game {
   private lastRender = 0;
   private replayRec: ReplayRecorder | null = null;
   private replay: { player: ReplayPlayer; t: number; target: number } | null = null;
+  /** Frame-time samples for perfStats(): [frame interval ms, CPU ms spent in frame()]. */
+  private perfSamples: number[] = [];
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -594,6 +596,7 @@ export class Game {
     this.fpsAvg += (1 / dt - this.fpsAvg) * 0.05;
     this.frameCount++;
 
+    const cpu0 = performance.now();
     const input = this.input.poll(dt);
     if (input.anyPressed) void this.audio.unlock();
     this.ui.setDevice(input.device === 'gamepad' ? input.gamepadId : null);
@@ -607,6 +610,7 @@ export class Game {
       if (this.world && this.camera) this.updateAttract(dt);
     }
     this.audio.update(dt);
+    if (this.perfSamples.length < 20000) this.perfSamples.push(dt * 1000, performance.now() - cpu0);
   }
 
   private updateAttract(dt: number): void {
@@ -1016,6 +1020,39 @@ export class Game {
   /** Debug helper: average frames per second. */
   get fps(): number {
     return this.fpsAvg;
+  }
+
+  /** Debug helper: frame-time statistics since the last reset (used by scripts/tour.mjs). */
+  perfStats(reset = false): Record<string, number> {
+    const n = this.perfSamples.length / 2;
+    const frames: number[] = [];
+    const cpu: number[] = [];
+    for (let i = 0; i < n; i++) {
+      frames.push(this.perfSamples[i * 2]);
+      cpu.push(this.perfSamples[i * 2 + 1]);
+    }
+    const pct = (a: number[], q: number) => {
+      const b = a.slice().sort((x, y) => x - y);
+      return b.length ? +b[Math.min(b.length - 1, Math.floor(q * b.length))].toFixed(2) : 0;
+    };
+    const mean = (a: number[]) => (a.length ? +(a.reduce((x, y) => x + y, 0) / a.length).toFixed(2) : 0);
+    const info = this.render.renderer.info;
+    const out = {
+      frames: n,
+      fps: mean(frames) > 0 ? +(1000 / mean(frames)).toFixed(1) : 0,
+      frameP50: pct(frames, 0.5),
+      frameP95: pct(frames, 0.95),
+      frameMax: pct(frames, 1),
+      cpuMean: mean(cpu),
+      cpuP95: pct(cpu, 0.95),
+      calls: info.render.calls,
+      tris: info.render.triangles,
+      geometries: info.memory.geometries,
+      textures: info.memory.textures,
+      heapMB: +((performance as unknown as { memory?: { usedJSHeapSize: number } }).memory?.usedJSHeapSize ?? 0) / 1048576,
+    };
+    if (reset) this.perfSamples.length = 0;
+    return out;
   }
 }
 
