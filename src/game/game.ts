@@ -611,6 +611,10 @@ export class Game {
       case 'quitToMenu':
         this.setPaused(false);
         this.ui.setHudVisible(false);
+        // the attract field takes a moment to roll out: show the loading screen, not a frozen race frame
+        this.ui.setRaceConfig(null);
+        this.ui.show('loading');
+        this.ui.setLoading(0.05, 'Back to the paddock');
         void this.loadAttract(this.track?.info.id ?? 'aurelia').then(() => {
           this.ui.show('main');
           this.audio.setMusic(true);
