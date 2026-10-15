@@ -1,7 +1,7 @@
 # Xeno-Racer
 
 A realistic racing game for the browser, built for a gamepad. A from-scratch vehicle simulation
-running at 1000 Hz, AI drivers that race wheel to wheel, two hand-built circuits, rain that you
+running at 1000 Hz, AI drivers that race wheel to wheel, three hand-built circuits, rain that you
 can feel through the tyres, procedurally sculpted cars, synthesized engine sound, and a TV
 director that films the race.
 
@@ -42,7 +42,7 @@ window loses focus.
 
 - **Race:** up to 11 AI opponents in four skill levels (rookie, amateur, pro, alien). Start-light countdown, pole/middle/back grid slot, 1–50 laps, time of day and weather. Results come with a full replay.
 - **Time trial:** a rolling start, sector splits, and a live delta to your best lap, raced against the ghost of your personal best. Best laps and ghosts are saved per track and car.
-- **Championship:** the Xeno Cup, four rounds over both circuits in four very different conditions (golden hour, a cloudy morning, night, dusk rain). Every race scores 25-18-15-12-10-8-6-4-2-1, plus a point for the fastest lap, with the standings and a calendar of winners after each round. Pick your car, difficulty, field (up to 11 opponents who keep their names and liveries all season), race length and how the grid is set. The season is saved after every round, so you can quit to the menu and carry on later, and it ends with a podium and your season summary.
+- **Championship:** the Xeno Cup, six rounds over the three circuits, each in different conditions (golden hour, a cloudy morning, a forest morning, night, dusk rain and a thunderstorm finale). Every race scores 25-18-15-12-10-8-6-4-2-1, plus a point for the fastest lap, with the standings and a calendar of winners after each round. Pick your car, difficulty, field (up to 11 opponents who keep their names and liveries all season), race length and how the grid is set. The season is saved after every round, so you can quit to the menu and carry on later, and it ends with a podium and your season summary.
 - **Free roam:** the track to yourself.
 
 Opponents drive the same car as you, so the racing is about driving, not horsepower.
@@ -62,6 +62,9 @@ All four are original designs, and their figures are measured in the simulation,
 
 - **Aurelia Ring** (4.79 km, 14 corners) is a grand-prix circuit around a lake. It has a 940 m main straight into a hairpin, flowing esses, a banked carousel, a chicane and a downhill braking zone. Floodlit at night.
 - **Kuroyama Pass** (5.25 km) is a mountain road climbing 140 m through twelve switchback hairpins, with a ridge section, a tunnel and a fast descent. The road is narrow and guard-railed.
+- **Brennwald Ring** (6.84 km) is a fast, old-school circuit cut through pine and beech forest. It plunges 650 m downhill into the Kessel compression, climbs the steep Kesselwand and a kilometre-long uphill straight to a hairpin, then goes over a blind crest, through a fast double apex and a chicane before the line. 90 m of elevation change.
+
+![The pack in the Brennwald forest](docs/img/brennwald.jpg)
 
 Six times of day (dawn to night) and five weathers (clear, cloudy, overcast, rain and storm), all
 lit by a physically based sky.
@@ -129,7 +132,7 @@ npm run typecheck
 - `scripts/tour.mjs` scripts a play-through in headless Chrome. It can wait, press keys, take screenshots, evaluate code and collect perf stats. With `--init scripts/fixtures/fake-pad.js` it drives a fake F310.
 - `tests/probes/` holds diagnostics that only run on demand. For example, `PACKSET=1 npx vitest run tests/probes/pack.test.ts` runs the AI pack-racing benchmark.
 
-Dev URL flags: `?quick=race|timeTrial|freeRoam&track=aurelia|kuroyama&car=vanta-gt&opp=7&laps=3&tod=night&weather=clear|cloudy|overcast|rain|storm&cam=tv&quality=low|medium|high|ultra&autopilot=1&ui=0`. `?quick=championship&car=&opp=&diff=&start=` starts a new Xeno Cup, and `&champlaps=1` makes every round that many laps (with `autopilot=1` it plays itself).
+Dev URL flags: `?quick=race|timeTrial|freeRoam&track=aurelia|kuroyama|brennwald&car=vanta-gt&opp=7&laps=3&tod=night&weather=clear|cloudy|overcast|rain|storm&cam=tv&quality=low|medium|high|ultra&autopilot=1&ui=0`. `?quick=championship&car=&opp=&diff=&start=` starts a new Xeno Cup, and `&champlaps=1` makes every round that many laps (with `autopilot=1` it plays itself).
 
 ## Credits
 
