@@ -277,6 +277,9 @@ class RenderSystemImpl implements XenoRenderSystem {
       preserveDrawingBuffer: false,
     });
     const r = this.renderer;
+    // Reading back every shader's info logs on its first use is a synchronous round trip to the GPU process per program:
+    // the error reports are for development, a shipped build skips them
+    r.debug.checkShaderErrors = !import.meta.env.PROD;
     r.outputColorSpace = SRGBColorSpace;
     r.toneMapping = NoToneMapping;
     r.shadowMap.enabled = true;
@@ -355,6 +358,13 @@ class RenderSystemImpl implements XenoRenderSystem {
       const pending = [r.compileAsync(this.scene, this.camera), r.compileAsync(this.particleScene, this.camera)];
       r.setRenderTarget(prev);
       await Promise.all(pending);
+      // A program looks up its uniform and attribute locations the first time something is drawn with it: one synchronous
+      // call per uniform, tens of ms for the big lit shaders. The warm-up frame only reaches what it sees, so smoke, skid
+      // marks or a car coming into view would pay in the race: do it for every program now, behind the loading screen.
+      for (const p of r.info.programs ?? []) {
+        p.getUniforms();
+        p.getAttributes();
+      }
     } catch {
       // the first frame compiles whatever is still missing
       r.setRenderTarget(prev);

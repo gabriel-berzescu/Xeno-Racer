@@ -255,6 +255,11 @@ class AudioSystemImpl implements AudioSystem, CarHost {
    * Seconds to shift the wiper's sound for the delays between the audio clock and the picture: a rendered frame reaches the eye
    * about two refreshes later, a sound scheduled now is heard outputLatency from now. (Offline contexts have neither: 0.)
    */
+  /** Every car's engine voice built now (see primeCarVoices). */
+  primeVoices(): void {
+    for (const c of this.cars) c.prime();
+  }
+
   private wiperLead(): number {
     if (!this.owned) return 0;
     const c = this.ctx as AudioContext;
@@ -438,6 +443,14 @@ export function onLightning(audio: AudioSystem, cb: ((s: StrikeInfo) => void) | 
   if (!w) return false;
   w.onStrike = cb;
   return true;
+}
+
+/**
+ * Behind a loading screen: build every car's engine voice now, and with it the one-off calibration of each engine (50-200 ms
+ * on the main thread the first time a car model is heard), instead of in the first frame of the race.
+ */
+export function primeCarVoices(audio: AudioSystem): void {
+  (audio as Partial<AudioSystemImpl>).primeVoices?.();
 }
 
 /**

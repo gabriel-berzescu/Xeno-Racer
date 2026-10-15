@@ -13,7 +13,7 @@
 import { Matrix4, Quaternion, Vector3 } from 'three';
 import { AIDriver } from '../ai';
 import { CARS, getCar } from '../cars';
-import { createAudioSystem, onLightning, setWiper } from '../audio';
+import { createAudioSystem, onLightning, primeCarVoices, setWiper } from '../audio';
 import { createCarVisual } from '../carvis';
 import type {
   CameraMode,
@@ -607,6 +607,7 @@ export class Game {
     this.render.setFocus(st.position);
     this.trackScene?.update(1 / 60, this.camera.camera);
     xr.renderNow(this.camera.camera, 1 / 60, 0);
+    primeCarVoices(this.audio);
     this.camera.snap();
     return true;
   }

@@ -211,6 +211,11 @@ export class CarSoundImpl implements CarSound {
     this.frame = new CarFrame(isPlayer);
   }
 
+  /** Build the voice now, behind a loading screen, not on the first update (or at least cache its calibration). */
+  prime(): void {
+    if (!this.ensureNodes() && !this.failed) calibratedExhaustGain(this.profile, this.host.ctx.sampleRate);
+  }
+
   private ensureNodes(): boolean {
     if (this.nodes) return true;
     if (this.failed || !this.host.workletReady) return false;
