@@ -424,6 +424,8 @@ export class Game {
     this.camera.setMode('tv');
     this.camera.snap();
     this.tvTarget = 0;
+    this.ui.setLoading(0.99, 'Warming up');
+    if (!(await this.warmUp(this.cars[0], token))) return;
     this.ui.setHudVisible(false);
     this.phase = 'menu';
   }
@@ -566,21 +568,29 @@ export class Game {
     this.ui.setMinimap(this.minimapFor(config.trackId));
     // compile every shader the grid needs behind the loading screen, not in the first frames of the countdown
     this.ui.setLoading(0.99, 'Warming up');
-    const xr = this.render as XenoRenderSystem;
-    await xr.precompile();
-    if (token !== this.loadToken) return;
-    // one hidden frame of the grid builds what precompile can't reach (shadow-map depth and post-processing programs):
-    // a moment's freeze here, under the loading screen, instead of in the first second of the countdown
-    const pv = this.player!.vehicle;
-    for (const car of this.cars) car.visual.update(car.vehicle.state, 1 / 60, this.render.env);
-    this.camera.update(1 / 60, { state: pv.state, anchors: this.player!.visual.anchors }, { x: 0, y: 0, back: false });
-    this.render.setFocus(pv.state.position);
-    this.trackScene?.update(1 / 60, this.camera.camera);
-    xr.renderNow(this.camera.camera, 1 / 60, 0);
-    this.camera.snap();
+    if (!(await this.warmUp(this.player!, token))) return;
     this.ui.show('none');
     this.ui.setHudVisible(this.hudVisible);
     this.phase = 'race';
+  }
+
+  /**
+   * Builds every shader program the first frames will need while the loading screen is still up: the scene's through
+   * precompile, then one hidden frame looking at `focus` for the rest (shadow-map depth and post-processing programs).
+   * A moment's freeze here instead of in the first second on screen. False when a newer load took over.
+   */
+  private async warmUp(focus: RaceCar, token: number): Promise<boolean> {
+    const xr = this.render as XenoRenderSystem;
+    await xr.precompile();
+    if (token !== this.loadToken) return false;
+    const st = focus.vehicle.state;
+    for (const car of this.cars) car.visual.update(car.vehicle.state, 1 / 60, this.render.env);
+    this.camera.update(1 / 60, { state: st, anchors: focus.visual.anchors }, { x: 0, y: 0, back: false });
+    this.render.setFocus(st.position);
+    this.trackScene?.update(1 / 60, this.camera.camera);
+    xr.renderNow(this.camera.camera, 1 / 60, 0);
+    this.camera.snap();
+    return true;
   }
 
   /** Records and ghosts are kept apart for wet sessions (a wet lap can't chase a dry one). */
