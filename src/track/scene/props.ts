@@ -905,6 +905,9 @@ function buildTvCameras(ctx: Ctx): { position: THREE.Vector3; s: number }[] {
     p.y += h;
     out.push({ position: p, s: rt.wrapS(s) });
   };
+  // behind a wide run-off a camera at head height sees mostly gravel, with the road a thin strip at a grazing
+  // angle: like a real circuit's camera platforms, the farther from the road, the higher it stands
+  const lift = (base: number, S: typeof rt.L, k: number) => Math.min(9, base + 0.18 * Math.max(0, S.wall[k] - S.W[k] - 8));
   // outside of the larger corners, looking at the apex
   const cs = rt.corners.filter((c) => c.angle > 0.35);
   const nCorner = Math.min(12, cs.length);
@@ -914,7 +917,7 @@ function buildTvCameras(ctx: Ctx): { position: THREE.Vector3; s: number }[] {
     const k = Math.round(rt.wrapS(sA) / rt.spacing) % rt.count;
     const sgn = c.dir > 0 ? -1 : 1;
     const S = sgn > 0 ? rt.L : rt.R;
-    add(sA, sgn * (S.wall[k] + 6), 3.2);
+    add(sA, sgn * (S.wall[k] + 6), lift(3.2, S, k));
   }
   // start straight cameras
   const k0 = 0;
@@ -935,7 +938,7 @@ function buildTvCameras(ctx: Ctx): { position: THREE.Vector3; s: number }[] {
   for (const sF of fill.slice(0, 24)) {
     const k = Math.round(rt.wrapS(sF) / rt.spacing) % rt.count;
     const left = rt.L.wall[k] >= rt.R.wall[k];
-    add(sF, left ? rt.L.wall[k] + 6 : -(rt.R.wall[k] + 6), 3.4);
+    add(sF, left ? rt.L.wall[k] + 6 : -(rt.R.wall[k] + 6), lift(3.4, left ? rt.L : rt.R, k));
   }
   out.sort((a, b) => a.s - b.s);
   // keep each camera's view of its stretch of road clear of trees: corridors from the camera to
