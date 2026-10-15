@@ -479,7 +479,7 @@ export class Game {
       this.placeOnTrack(this.player!.vehicle, track.length - 250, 0, 25);
       this.player!.vehicle.setTemperatures(1);
     }
-    const stored = this.bestLaps[recordKey(config.trackId, config.carId)] ?? null;
+    const stored = this.bestLaps[recordKey(this.recordTrack(config), config.carId)] ?? null;
     this.session = new RaceSession(track, config, this.cars.map((c) => c.entrant), stored, Math.random());
     if (config.mode === 'race') {
       for (const c of this.cars) c.vehicle.holdOnGrid = true;
@@ -488,7 +488,7 @@ export class Game {
 
     // ghost of the personal best (time trial)
     if (config.mode === 'timeTrial' && this.settings.hud.ghost) {
-      const lap = loadGhost(config.trackId, config.carId);
+      const lap = loadGhost(this.recordTrack(config), config.carId);
       if (lap) await this.makeGhost(lap, def, playerLivery);
     }
     this.ghostRec.reset();
@@ -504,6 +504,11 @@ export class Game {
     this.ui.show('none');
     this.ui.setHudVisible(this.hudVisible);
     this.phase = 'race';
+  }
+
+  /** Records and ghosts are kept apart for wet sessions (a wet lap can't chase a dry one). */
+  private recordTrack(cfg: RaceConfig): string {
+    return this.world && this.world.wetness > 0 ? `${cfg.trackId}~wet` : cfg.trackId;
   }
 
   private async makeGhost(lap: GhostLap, def: CarDefinition, livery: Livery): Promise<void> {
@@ -866,9 +871,9 @@ export class Game {
             this.ghostRec.reset();
             const cfg = this.config!;
             if (e.personalBest) {
-              this.bestLaps = saveBestLap(cfg.trackId, cfg.carId, e.time);
+              this.bestLaps = saveBestLap(this.recordTrack(cfg), cfg.carId, e.time);
               this.ui.setBestLaps(this.bestLaps);
-              saveGhost(cfg.trackId, cfg.carId, lapLap);
+              saveGhost(this.recordTrack(cfg), cfg.carId, lapLap);
               if (cfg.mode === 'timeTrial' && this.settings.hud.ghost) {
                 if (this.ghost) {
                   this.ghost.lap = lapLap;
