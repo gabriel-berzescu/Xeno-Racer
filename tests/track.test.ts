@@ -23,6 +23,8 @@ interface Limits {
 const LIMITS: Record<string, Limits> = {
   aurelia: { minRadius: 29, maxGrade: 0.09, minCrestR: 450, minSagR: 200, maxBankDeg: 12, elev: [22, 38], length: [4400, 5100], maxFieldStep: 0.75 },
   kuroyama: { minRadius: 11, maxGrade: 0.11, minCrestR: 250, minSagR: 120, maxBankDeg: 9, elev: [60, 400], length: [5000, 6200], maxFieldStep: 1.6 },
+  // forest GP circuit: 6.6 km, ~90 m of relief, a 450 m radius valley compression, ~1.4 km radius crests
+  brennwald: { minRadius: 29, maxGrade: 0.105, minCrestR: 1000, minSagR: 380, maxBankDeg: 6, elev: [80, 110], length: [6300, 7100], maxFieldStep: 0.8 },
 };
 
 function newGround(): GroundSample {
@@ -490,5 +492,157 @@ describe('TRACKS', () => {
       expect(t.info.color).toMatch(/^#[0-9a-f]{6}$/i);
     }
     expect(() => loadTrackRuntime('nope')).toThrow();
+  });
+});
+
+// ── Brennwald Ring: the layout brief, as numbers ─────────────────────────────────────────────────────────────
+describe('Brennwald Ring layout', () => {
+  const rt = loadTrackRuntime('brennwald') as TrackRuntimeImpl;
+  const info = TRACKS.find((t) => t.info.id === 'brennwald')!.info;
+  const N = rt.count;
+  const h = rt.spacing;
+  const L = rt.length;
+  const yAt = (s: number) => rt.py[Math.round((((s % L) + L) % L) / h) % N];
+  const gradeBetween = (a: number, b: number) => (yAt(b) - yAt(a)) / (b - a);
+  const corner = (name: string) => {
+    const c = rt.corners.find((k) => k.name === name);
+    expect(c, `corner ${name} exists`).toBeDefined();
+    return c!;
+  };
+  /** Farthest distance from which a 1.0 m high object (a stopped car) at s is still hidden behind the crest, seen from a 1.1 m eye. */
+  const blindFrom = (so: number) => {
+    const yo = yAt(so) + 1.0;
+    for (let D = 5; D <= 600; D++) {
+      const ye = yAt(so - D) + 1.1;
+      for (let e = 1; e < D; e++) if ((yAt(so - D + e) - ye) / e > (yo - ye) / D) return D;
+    }
+    return 600;
+  };
+
+  it('is a closed clockwise loop of 6.3-7.1 km made of the named corners, in order', () => {
+    expect(rt.plan.closureError).toBeLessThan(0.01);
+    expect((rt.plan.totalTurn * 180) / Math.PI).toBeCloseTo(-360, 1);
+    const order = ['Tor', 'Birke', 'Hirsch', 'Hang', 'Wald', 'KesselL', 'KesselR', 'Jaeger', 'Ausfahrt', 'Mutprobe', 'Wacht', 'ZwillingA', 'ZwillingB', 'KoehlerR', 'KoehlerL'];
+    const names = rt.corners.map((c) => c.name).filter((n) => order.includes(n));
+    expect(names).toEqual(order);
+    for (let i = 1; i < rt.corners.length; i++) expect(rt.corners[i].sStart).toBeGreaterThan(rt.corners[i - 1].sEnd - 1e-6);
+    expect(info.lengthHint).toBeGreaterThan(L - 5);
+    expect(info.lengthHint).toBeLessThan(L + 5);
+  });
+
+  it('has the signature corners of the brief', () => {
+    const deg = (c: { angle: number }) => (c.angle * 180) / Math.PI;
+    // fast double-apex: two right-handers back to back, the second apex tighter
+    const za = corner('ZwillingA');
+    const zb = corner('ZwillingB');
+    expect(za.dir).toBe(-1);
+    expect(zb.dir).toBe(-1);
+    expect(zb.radius).toBeLessThan(za.radius);
+    expect(zb.sStart - za.sEnd).toBeLessThan(80);
+    expect(deg(za) + deg(zb)).toBeGreaterThan(60);
+    expect(Math.min(za.radius, zb.radius)).toBeGreaterThan(120); // fast
+    // hairpin for overtaking, taken from a long straight
+    const j = corner('Jaeger');
+    expect(j.dir).toBe(-1);
+    expect(deg(j)).toBeGreaterThan(110);
+    expect(j.radius).toBeLessThan(40);
+    expect(j.sStart - corner('Rampe2').sEnd).toBeGreaterThan(300);
+    // slow chicane (right-left) as the last corners before the line
+    const kr = corner('KoehlerR');
+    const kl = corner('KoehlerL');
+    expect(kr.dir).toBe(-1);
+    expect(kl.dir).toBe(1);
+    expect(Math.max(kr.radius, kl.radius)).toBeLessThan(60);
+    expect(L - kl.sEnd).toBeLessThan(250);
+    expect(kl.sStart - kr.sEnd).toBeLessThan(80);
+    // compression kicks into a left-right
+    const kL = corner('KesselL');
+    const kR = corner('KesselR');
+    expect(kL.dir).toBe(1);
+    expect(kR.dir).toBe(-1);
+    expect(kR.sStart - kL.sEnd).toBeLessThan(30);
+    // the start/finish straight (across the line) is the longest one
+    expect(rt.corners.find((c) => c.name === 'Tor')!.sStart + (L - kl.sEnd)).toBeGreaterThan(780);
+    // the medium sweepers in between
+    for (const n of ['Birke', 'Hang', 'Ausfahrt', 'Wacht']) {
+      const c = corner(n);
+      expect(c.radius).toBeGreaterThan(200);
+      expect(c.radius).toBeLessThan(900);
+    }
+  });
+
+  it('plunges into the Kessel compression, then climbs steeply and for a long time', () => {
+    // the lowest point of the lap is the bottom of the valley, a few metres before KesselL's entry
+    let iMin = 0;
+    for (let i = 0; i < N; i++) if (rt.py[i] < rt.py[iMin]) iMin = i;
+    const sMin = iMin * h;
+    const kL = corner('KesselL');
+    expect(Math.abs(sMin - kL.sStart)).toBeLessThan(40);
+    // fast downhill into it (>= 4.5 % over 250 m), a steep wall out of it
+    expect(gradeBetween(sMin - 270, sMin - 20)).toBeLessThan(-0.045);
+    expect(gradeBetween(sMin + 20, sMin + 170)).toBeGreaterThan(0.07);
+    // the long uphill straight that follows (Rampe): ~0.9 km of slipstream climbing (3 % on average, 7.5 % at the foot) before the hairpin
+    const sEnd = corner('KesselR').sEnd;
+    const sHairpin = corner('Jaeger').sStart;
+    expect(sHairpin - sEnd).toBeGreaterThan(850);
+    expect(gradeBetween(sEnd, sHairpin)).toBeGreaterThan(0.025);
+    // ... and the kinks on it are flat-out (R >= 1000 m) so that it really is a straight
+    for (const n of ['Rampe1', 'Rampe2']) expect(corner(n).radius).toBeGreaterThanOrEqual(1000);
+  });
+
+  it('has a genuinely blind crest at the top of the circuit (Mutprobe)', () => {
+    let iMax = 0;
+    for (let i = 0; i < N; i++) if (rt.py[i] > rt.py[iMax]) iMax = i;
+    const mut = corner('Mutprobe');
+    expect(iMax * h).toBeGreaterThan(mut.sStart);
+    expect(iMax * h).toBeLessThan(mut.sEnd);
+    // not a cliff: a stopped car 40 m past the top is hidden until ~100 m away, but never closer than 60 m
+    const d = blindFrom(iMax * h + 40);
+    expect(d).toBeGreaterThan(60);
+    expect(d).toBeLessThan(140);
+    // vertical curvature stays a real crest (not flattened) yet gentle enough to be taken flat in the GT
+    let crest = 0;
+    for (let i = Math.floor(mut.sStart / h); i < Math.ceil(mut.sEnd / h); i++) crest = Math.min(crest, (rt.py[i + 1] - 2 * rt.py[i] + rt.py[i - 1]) / (h * h));
+    expect(1 / -crest).toBeGreaterThan(1000);
+    expect(1 / -crest).toBeLessThan(1600);
+  });
+
+  it('keeps 90 m of relief with believable gradients', () => {
+    let minY = Infinity;
+    let maxY = -Infinity;
+    let up = 0;
+    let down = 0;
+    for (let i = 0; i < N; i++) {
+      minY = Math.min(minY, rt.py[i]);
+      maxY = Math.max(maxY, rt.py[i]);
+      const g = rt.ty[i] / Math.hypot(rt.tx[i], rt.tz[i]);
+      up = Math.max(up, g);
+      down = Math.min(down, g);
+    }
+    expect(maxY - minY).toBeGreaterThan(85);
+    expect(up).toBeGreaterThan(0.08); // the Kesselwand is steep
+    expect(up).toBeLessThan(0.1);
+    expect(down).toBeLessThan(-0.05); // the Abfahrt is fast and steep
+    expect(down).toBeGreaterThan(-0.07);
+  });
+
+  it('has 11-13 m of asphalt everywhere and a banked, curbed corner set', () => {
+    for (let i = 0; i < N; i++) {
+      const w = rt.widthLeft[i] + rt.widthRight[i];
+      expect(w).toBeGreaterThanOrEqual(11.9);
+      expect(w).toBeLessThanOrEqual(13.1);
+    }
+    let curbed = 0;
+    for (let i = 0; i < N; i++) if (rt.L.curbW[i] > 0.02 || rt.R.curbW[i] > 0.02) curbed++;
+    expect(curbed * h).toBeGreaterThan(1200); // GP curbs on the inside of the corners
+  });
+
+  it('is distinguishable from the other circuits and fully described', () => {
+    expect(info.color.toLowerCase()).not.toBe('#16e0bd'); // Aurelia
+    expect(info.color.toLowerCase()).not.toBe('#ff2e63'); // Kuroyama
+    expect(info.location.length).toBeGreaterThan(10);
+    expect(info.difficulty).toBeGreaterThanOrEqual(1);
+    expect(info.difficulty).toBeLessThanOrEqual(5);
+    expect(['dawn', 'morning', 'noon', 'golden', 'dusk', 'night']).toContain(info.defaultTimeOfDay);
   });
 });
