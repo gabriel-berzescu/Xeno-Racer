@@ -112,7 +112,7 @@ Rain changes how the car drives as well as how it looks:
   - **Weather:** a rain-deck sky, rain particles, wet materials, puddles with screen-space reflections, spray, windscreen droplets and lightning.
   - **Cars:** sculpted from signed distance fields, with liveries, working lights, interiors, and a driver who turns the wheel.
   - **Tracks:** terrain, trees and props are all procedural, plus CC0 surface textures.
-  - **Performance:** the high preset renders 1080p in about 8 ms on an RTX 3050 laptop GPU.
+  - **Performance:** the high preset renders 1080p in 7.5 to 10 ms on an RTX 3050 laptop GPU, depending on the track and the weather. Shaders are compiled behind the loading screen, not in the first frames of the race.
 - **Audio** (`src/audio`) synthesizes engines in AudioWorklets, with intake, exhaust, turbo whistle, backfires, tire squeal, wind, impacts and 3D positioning. It also synthesizes rain (outside and inside the car), rolling thunder, and wet-tyre hiss and spray.
 
 ![TV camera](docs/img/tv.jpg)
