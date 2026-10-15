@@ -346,6 +346,7 @@
   align-items: center;
   font: 800 italic 31px/1 var(--f-display);
   letter-spacing: 0.06em;
+  white-space: nowrap;
   text-transform: uppercase;
   color: rgba(238, 240, 243, 0.78);
   background: rgba(4, 5, 8, 0.66);
@@ -450,6 +451,8 @@
 .modal { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(2, 3, 6, 0.66); opacity: 0; visibility: hidden; transition: opacity 0.25s var(--ease), visibility 0s linear 0.25s; z-index: 20; }
 .modal.on { opacity: 1; visibility: visible; transition: opacity 0.25s var(--ease), visibility 0s; }
 .modal .box { width: 860px; padding: 44px 56px 48px; transform: translateY(16px) scale(0.98); transition: transform 0.35s var(--ease-out); }
+/* a dialog is read on its own: solid, not the see-through panel glass (the settings text behind it showed through) */
+.modal .box { background: linear-gradient(180deg, rgb(24, 27, 36), rgb(10, 12, 17)); }
 .modal.on .box { transform: none; }
 .modal h3 { margin: 0 0 12px; font: 900 italic 62px/1 var(--f-display); text-transform: uppercase; }
 .modal p { margin: 0 0 34px; font: 500 27px/1.35 var(--f-body); color: var(--muted); }

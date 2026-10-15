@@ -71,6 +71,7 @@ describe('format', () => {
   });
   it('formatRaceTime switches to h:mm:ss past an hour', () => {
     expect(formatRaceTime(723.456)).toBe('12:03.456');
+    expect(formatRaceTime(124.144)).toBe('2:04.144');
     expect(formatRaceTime(3723.456)).toBe('1:02:03.456');
     expect(formatRaceTime(null)).toBe('--:--.---');
   });

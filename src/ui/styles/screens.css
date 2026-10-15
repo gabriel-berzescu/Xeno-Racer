@@ -442,6 +442,9 @@
 .ch-row.ch-head .c-pos, .ch-row.ch-head .c-s, .ch-row.ch-head .c-pts { font: 600 18px / 1 var(--f-display); color: var(--dim); }
 
 /* narrow stages */
+/* 4:3 and 5:4 get a stage only 1500 wide: the setup title and the step tabs still share one line */
+.xr-stage[data-narrow] .scr-setup .topbar .h1 { font-size: 78px; white-space: nowrap; }
+.xr-stage[data-narrow] .scr-setup .tab { padding: 0 28px; font-size: 28px; }
 .xr-stage[data-narrow] .st-table-panel { right: 620px; }
 .xr-stage[data-narrow] .st-cal-panel { width: 520px; }
 .xr-stage[data-narrow] .st-row { grid-template-columns: 50px 52px minmax(0, 1fr) repeat(var(--rounds), 54px) 80px 70px; padding: 0 16px 0 14px; font-size: 24px; }
@@ -511,9 +514,13 @@
 .cs-round .cs-main { min-width: 0; }
 .cs-round b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 800 italic 31px / 1 var(--f-display); text-transform: uppercase; color: var(--text); }
 .cs-round em { display: block; margin-top: 7px; font: 600 18px / 1 var(--f-display); font-style: normal; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); }
+.cs-rounds.compact .cs-round { padding: 7px 0; }
+.cs-rounds.compact .cs-round .n { font-size: 25px; }
+.cs-rounds.compact .cs-round b { font-size: 26px; }
+.cs-rounds.compact .cs-round em { margin-top: 4px; font-size: 15px; }
 .cs-laps { font-size: 22px; color: var(--muted); }
 .cs-points { font-size: 22px; line-height: 1.4; letter-spacing: 0.02em; color: var(--text); }
-.cs-help { min-height: 88px; margin: 0; padding: 14px 0 0 18px; border-left: 4px solid var(--teal); font: 500 24px / 1.35 var(--f-body); color: var(--muted); }
+.cs-help { min-height: 88px; margin: 26px 36px 0; padding: 4px 0 4px 18px; border-left: 4px solid var(--teal); font: 500 24px / 1.35 var(--f-body); color: var(--muted); }
 
 /* ── championship: the standings table re-sorting itself after a round ─────── */
 

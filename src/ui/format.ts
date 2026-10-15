@@ -15,7 +15,7 @@ export function formatLapTime(sec: number | null | undefined): string {
   return m + ':' + pad2(s) + '.' + pad3(ms);
 }
 
-/** Race total: "12:03.456", or "1:02:03.456" past an hour. */
+/** Race total: "2:04.144" or "12:03.456" (like a lap time beside it), or "1:02:03.456" past an hour. */
 export function formatRaceTime(sec: number | null | undefined): string {
   if (sec === null || sec === undefined || !Number.isFinite(sec) || sec < 0) return '--:--.---';
   const total = Math.round(sec * 1000);
@@ -23,7 +23,7 @@ export function formatRaceTime(sec: number | null | undefined): string {
   const s = Math.floor(total / 1000) % 60;
   const m = Math.floor(total / 60000) % 60;
   const hr = Math.floor(total / 3600000);
-  return hr > 0 ? hr + ':' + pad2(m) + ':' + pad2(s) + '.' + pad3(ms) : pad2(m) + ':' + pad2(s) + '.' + pad3(ms);
+  return hr > 0 ? hr + ':' + pad2(m) + ':' + pad2(s) + '.' + pad3(ms) : m + ':' + pad2(s) + '.' + pad3(ms);
 }
 
 /** Signed delta "+0.482" / "-1.117"; null -> "-.---". Magnitudes >= 100 s are clamped for layout. */

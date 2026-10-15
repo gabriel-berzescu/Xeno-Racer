@@ -122,9 +122,11 @@ export class MainScreen extends BaseScreen {
     clearEl(this.pb);
     const rows: { track: string; car: string; time: number }[] = [];
     for (const t of tracks) {
-      for (const c of cars) {
-        const time = this.ctx.bestLaps[`${t.id}/${c.id}`];
-        if (time !== undefined && Number.isFinite(time)) rows.push({ track: t.name, car: c.name, time });
+      for (const [rec, note] of [[t.id, ''], [`${t.id}~wet`, '  ·  wet']]) {
+        for (const c of cars) {
+          const time = this.ctx.bestLaps[`${rec}/${c.id}`];
+          if (time !== undefined && Number.isFinite(time)) rows.push({ track: t.name, car: c.name + note, time });
+        }
       }
     }
     this.pb.style.display = rows.length ? '' : 'none';

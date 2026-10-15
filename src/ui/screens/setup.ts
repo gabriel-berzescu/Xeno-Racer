@@ -1,4 +1,4 @@
-import type { ChampionshipRoundDef, InputFrame, MinimapTrack, RaceMode, TrackInfo } from '../../core/contracts';
+import { WEATHER_WATER, type ChampionshipRoundDef, type InputFrame, type MinimapTrack, type RaceMode, type TrackInfo } from '../../core/contracts';
 import type { ScreenId } from '../../core/systems';
 import type { UiCtx } from '../ctx';
 import { clearEl, h } from '../dom';
@@ -318,7 +318,7 @@ export class SetupScreen extends BaseScreen {
     this.tLength.textContent = formatLength(t.lengthHint, this.units());
     clearEl(this.tDiff);
     // a calendar round shows its own facts in the same four cells: length, laps, time of day, weather
-    this.kLabels.forEach((k, i) => (k.textContent = (round ? ['Length', 'Laps', 'Time', 'Weather'] : ['Length', 'Difficulty', 'Default laps', 'Best lap'])[i]));
+    this.kLabels.forEach((k, i) => (k.textContent = (round ? ['Length', 'Laps', 'Time', 'Weather'] : ['Length', 'Difficulty', 'Default laps', this.wet() ? 'Wet best lap' : 'Best lap'])[i]));
     if (round) {
       this.tDiff.textContent = String(round.laps[this.state.champ.length]);
       this.tLaps.textContent = TIME_OF_DAY_LABEL[round.environment.timeOfDay] ?? round.environment.timeOfDay;
@@ -328,7 +328,7 @@ export class SetupScreen extends BaseScreen {
     } else {
       this.tDiff.appendChild(pips(t.difficulty, 5, t.difficulty >= 4));
       this.tLaps.textContent = String(t.defaultLaps);
-      const best = bestLapFor(this.ctx.bestLaps, t.id);
+      const best = bestLapFor(this.ctx.bestLaps, this.recordTrack(t.id));
       const carName = best ? this.ctx.deps.cars.find((c) => c.id === best.carId)?.name : undefined;
       this.tBest.textContent = best ? formatLapTime(best.time) : 'No lap yet';
       this.tBest.classList.toggle('dim', !best);
@@ -431,9 +431,9 @@ export class SetupScreen extends BaseScreen {
     // a championship runs on several tracks: no single best lap to show
     this.cBest.style.display = this.champMode() ? 'none' : '';
     this.nextLabel.textContent = this.champMode() ? 'Season options' : 'Race options';
-    const best = bestLapFor(this.ctx.bestLaps, this.track().id, c.id);
+    const best = bestLapFor(this.ctx.bestLaps, this.recordTrack(this.track().id), c.id);
     this.cBest.textContent = '';
-    this.cBest.append(h('span', 'k', `Best lap at ${this.track().name}`), h('span', 'v t-num', best ? formatLapTime(best.time) : 'No lap yet'));
+    this.cBest.append(h('span', 'k', `${this.wet() ? 'Wet best lap' : 'Best lap'} at ${this.track().name}`), h('span', 'v t-num', best ? formatLapTime(best.time) : 'No lap yet'));
     clearEl(this.cPager);
     cars.forEach((_, i) => this.cPager.appendChild(h('i', i === this.state.carIndex ? 'on' : null)));
     this.renderLivery();
@@ -471,9 +471,9 @@ export class SetupScreen extends BaseScreen {
       h('div', 'kv', h('span', 'k', 'Car'), this.csCar),
       h('div', 'kv', h('span', 'k', 'Field'), this.csField),
       h('div', 'kv', h('span', 'k', 'Points for 1st to 10th'), this.csPoints),
-      this.csHelp,
     );
-    return h('div', 'setup-view view-race', h('div', { cls: 'panel chamfer edge race-panel in', style: { '--d': '120', '--tx': '-60px' } }, this.raceList), this.raceSummary, this.champSummary);
+    // the help for the focused season option sits under the options themselves (a six-round calendar fills the summary)
+    return h('div', 'setup-view view-race', h('div', { cls: 'panel chamfer edge race-panel in', style: { '--d': '120', '--tx': '-60px' } }, this.raceList, this.csHelp), this.raceSummary, this.champSummary);
   }
 
   private rebuildRaceRows(): void {
@@ -563,10 +563,20 @@ export class SetupScreen extends BaseScreen {
     this.ctx.startRace(buildRaceConfig(this.state, this.ctx.deps.tracks, this.ctx.deps.cars, this.ctx.settings.playerName));
   }
 
+  /** Rain or storm chosen: laps are kept apart from the dry ones (game.ts recordTrack), and so are the bests shown. */
+  private wet(): boolean {
+    return WEATHER_WATER[this.state.weather].wetness > 0;
+  }
+
+  private recordTrack(trackId: string): string {
+    return this.wet() ? `${trackId}~wet` : trackId;
+  }
+
   private renderSummary(): void {
     const champ = this.champMode();
     this.raceSummary.style.display = champ ? 'none' : '';
     this.champSummary.style.display = champ ? '' : 'none';
+    this.csHelp.style.display = champ ? '' : 'none';
     if (champ) {
       this.renderChampSummary();
       return;
@@ -576,8 +586,8 @@ export class SetupScreen extends BaseScreen {
     this.sumTrack.textContent = t.name;
     this.sumCar.textContent = `${c.name}  ·  ${LIVERY_PRESETS[this.state.liveryIndex].name}`;
     this.sumMode.textContent = MODE_INFO[this.state.mode as RaceMode].label;
-    const best = bestLapFor(this.ctx.bestLaps, t.id, c.id);
-    this.sumBest.textContent = best ? formatLapTime(best.time) : 'No lap yet';
+    const best = bestLapFor(this.ctx.bestLaps, this.recordTrack(t.id), c.id);
+    this.sumBest.textContent = best ? formatLapTime(best.time) + (this.wet() ? '  (wet)' : '') : 'No lap yet';
     this.drawMaps();
   }
 
@@ -587,6 +597,7 @@ export class SetupScreen extends BaseScreen {
     if (!def) return;
     const c = this.state.champ;
     clearEl(this.csRounds);
+    this.csRounds.classList.toggle('compact', def.rounds.length > 4);
     def.rounds.forEach((r, i) => {
       const t = this.ctx.deps.tracks.find((x) => x.id === r.trackId);
       this.csRounds.appendChild(
