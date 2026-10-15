@@ -13,7 +13,7 @@
 import { Matrix4, Quaternion, Vector3 } from 'three';
 import { AIDriver } from '../ai';
 import { CARS, getCar } from '../cars';
-import { createAudioSystem } from '../audio';
+import { createAudioSystem, onLightning } from '../audio';
 import { createCarVisual } from '../carvis';
 import type {
   CameraMode,
@@ -40,7 +40,7 @@ import { DEFAULT_SETTINGS, loadSettings, saveSettings } from '../core/settings';
 import type { AudioSystem, CameraRig, CarSound, CarVisual, EffectsSystem, InputSystem, RenderSystem, TrackScene, UISystem } from '../core/systems';
 import { createInputSystem } from '../input';
 import { PhysicsWorld, SteeringFilter, type Vehicle } from '../physics';
-import { createCameraRig, createEffects, createRenderSystem } from '../render';
+import { createCameraRig, createEffects, createRenderSystem, lightningStrength, type XenoRenderSystem } from '../render';
 import { TRACKS, buildTrackScene, loadTrackRuntime } from '../track';
 import { createUI } from '../ui';
 import { GhostRecorder, ghostPose, loadBestLaps, loadGhost, recordKey, saveBestLap, saveGhost, type GhostLap } from './records';
@@ -144,6 +144,8 @@ export class Game {
     this.render = await createRenderSystem(this.canvas, this.settings.graphics);
     this.input = createInputSystem(this.settings.controls);
     this.audio = createAudioSystem(this.settings.audio);
+    // storms: the sky flashes at each strike, and its thunder follows from the audio after the flash-to-bang delay
+    onLightning(this.audio, (s) => (this.render as XenoRenderSystem).lightning(lightningStrength(s.distanceKm)));
     this.ui = createUI(this.uiRoot, {
       cars: CARS,
       tracks: TRACKS.map((t) => t.info),
@@ -194,7 +196,9 @@ export class Game {
         grid: 'standings',
       });
     } else {
-      await this.loadAttract(this.params.get('track') ?? 'aurelia');
+      // a different circuit, light and sky behind the title screen each time the game starts
+      const attractTrack = this.params.get('track') ?? TRACKS[Math.floor(Math.random() * TRACKS.length)].info.id;
+      await this.loadAttract(attractTrack, this.attractConditions(attractTrack));
       this.ui.show('title');
       this.audio.setMusic(true);
       this.phase = 'menu';
@@ -373,11 +377,27 @@ export class Game {
   // Attract mode (behind the menus)
   // ───────────────────────────────────────────────────────────────────────────
 
-  private async loadAttract(trackId: string): Promise<void> {
+  /** Random conditions for the attract race at start-up (?tod= and ?weather= pin them). Mostly golden hour; night only under floodlights. */
+  private attractConditions(trackId: string): RaceConfig['environment'] {
+    const pick = <T>(w: [T, number][]): T => {
+      let r = Math.random() * w.reduce((a, [, n]) => a + n, 0);
+      for (const [v, n] of w) if ((r -= n) < 0) return v;
+      return w[0][0];
+    };
+    const tod = this.params.get('tod') as TimeOfDay | null;
+    const weather = this.params.get('weather') as Weather | null;
+    return {
+      timeOfDay: tod ?? pick<TimeOfDay>([['golden', 4], ['morning', 2], ['dusk', 2], ['night', TRACKS.find((t) => t.info.id === trackId)?.info.floodlit ? 2 : 0], ['dawn', 1]]),
+      weather: weather ?? pick<Weather>([['clear', 6], ['cloudy', 3], ['overcast', 1]]),
+    };
+  }
+
+  /** The menus' attract race. Without `env` it keeps the light of the session it follows (in dry weather). */
+  private async loadAttract(trackId: string, env?: RaceConfig['environment']): Promise<void> {
     const token = ++this.loadToken;
     this.phase = 'loading';
     const tod = this.track?.info.id === trackId ? this.render.env.settings.timeOfDay : 'golden';
-    if (!(await this.ensureTrack(trackId, { timeOfDay: tod, weather: 'clear' }, token))) return;
+    if (!(await this.ensureTrack(trackId, env ?? { timeOfDay: tod, weather: 'clear' }, token))) return;
     this.clearCars();
     this.world = new PhysicsWorld(this.track!);
     this.audio.setWeather(0, 0);
@@ -544,6 +564,10 @@ export class Game {
     this.camera.setMode(cam);
     this.camera.snap();
     this.ui.setMinimap(this.minimapFor(config.trackId));
+    // compile every shader the grid needs behind the loading screen, not in the first frames of the countdown
+    this.ui.setLoading(0.99, 'Warming up');
+    await (this.render as XenoRenderSystem).precompile();
+    if (token !== this.loadToken) return;
     this.ui.show('none');
     this.ui.setHudVisible(this.hudVisible);
     this.phase = 'race';

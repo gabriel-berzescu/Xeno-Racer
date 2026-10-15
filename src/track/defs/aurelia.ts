@@ -119,6 +119,7 @@ export const aurelia: TrackDef = {
     defaultTimeOfDay: 'golden',
     lengthHint: 4795,
     color: '#16e0bd',
+    floodlit: true,
   },
   seed: 20251,
   dir: 1,

@@ -107,6 +107,8 @@ export interface TrackInfo {
   lengthHint: number;
   /** Accent color for menus. */
   color: string;
+  /** Lit for racing after dark (the menus only pick a night attract race on these). */
+  floodlit?: boolean;
 }
 
 /**
