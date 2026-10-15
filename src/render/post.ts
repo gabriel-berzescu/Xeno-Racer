@@ -107,6 +107,19 @@ void main() {
 }
 `;
 
+/** 5-tap separable blur (binomial weights) that hides the march jitter of the shafts. */
+const shaftsBlurFragment = /* glsl */ `
+uniform sampler2D tInput;
+uniform vec2 dir;
+varying vec2 vUv;
+void main() {
+  vec3 c = textureLod(tInput, vUv, 0.0).rgb * 0.375;
+  c += (textureLod(tInput, vUv + dir, 0.0).rgb + textureLod(tInput, vUv - dir, 0.0).rgb) * 0.25;
+  c += (textureLod(tInput, vUv + 2.0 * dir, 0.0).rgb + textureLod(tInput, vUv - 2.0 * dir, 0.0).rgb) * 0.0625;
+  gl_FragColor = vec4(c, 1.0);
+}
+`;
+
 /**
  * Sun shafts (crepuscular rays): a radial march from every half-resolution pixel toward the sun's
  * screen position, accumulating bright sky glow so trees, hills and cars in front of a low sun cut
@@ -119,6 +132,8 @@ export class ShaftsPass extends Pass {
   readonly tint = new Vector3(1, 0.8, 0.55);
   strength = 0;
   private readonly material: ShaderMaterial;
+  private readonly blurMaterial: ShaderMaterial;
+  private readonly tmp: WebGLRenderTarget;
 
   constructor(taps = 24) {
     super('ShaftsPass');
@@ -131,6 +146,18 @@ export class ShaftsPass extends Pass {
       depthBuffer: false,
     });
     this.target.texture.name = 'xr.shafts';
+    this.tmp = this.target.clone();
+    this.tmp.texture.name = 'xr.shafts.tmp';
+    this.blurMaterial = new ShaderMaterial({
+      name: 'xr.shafts.blur',
+      uniforms: { tInput: { value: null }, dir: { value: new Vector2() } },
+      vertexShader: shaftsVertex,
+      fragmentShader: shaftsBlurFragment,
+      depthTest: false,
+      depthWrite: false,
+      toneMapped: false,
+      fog: false,
+    });
     this.material = new ShaderMaterial({
       name: 'xr.shafts',
       defines: { SHAFT_TAPS: taps },
@@ -165,18 +192,36 @@ export class ShaftsPass extends Pass {
 
   override setSize(width: number, height: number): void {
     this.target.setSize(Math.max(1, width >> 1), Math.max(1, height >> 1));
+    this.tmp.setSize(Math.max(1, width >> 1), Math.max(1, height >> 1));
   }
 
   override render(renderer: WebGLRenderer, inputBuffer: WebGLRenderTarget): void {
     this.material.uniforms.strength.value = this.strength;
     this.material.uniforms.tInput.value = inputBuffer.texture;
+    this.fullscreenMaterial = this.material;
     renderer.setRenderTarget(this.target);
     renderer.render(this.scene, this.camera);
+    // blur: target -> tmp (horizontal) -> target (vertical)
+    const bu = this.blurMaterial.uniforms;
+    const w = this.target.width;
+    const h = this.target.height;
+    this.fullscreenMaterial = this.blurMaterial;
+    bu.tInput.value = this.target.texture;
+    (bu.dir.value as Vector2).set(1.25 / w, 0);
+    renderer.setRenderTarget(this.tmp);
+    renderer.render(this.scene, this.camera);
+    bu.tInput.value = this.tmp.texture;
+    (bu.dir.value as Vector2).set(0, 1.25 / h);
+    renderer.setRenderTarget(this.target);
+    renderer.render(this.scene, this.camera);
+    this.fullscreenMaterial = this.material;
   }
 
   override dispose(): void {
     this.target.dispose();
+    this.tmp.dispose();
     this.material.dispose();
+    this.blurMaterial.dispose();
     super.dispose();
   }
 }

@@ -127,7 +127,9 @@ vec2 planarUV(vec3 p, vec3 n) {
   return p.xy;
 }
 // carbon-fibre 2x2 twill shading: returns (albedo scale, roughness offset)
-vec2 carbon(vec2 uv) {
+vec2 carbon(vec2 uv, float px) {
+  // px = weave cells per pixel; past ~half a cell the weave can only alias, so fade to its mean
+  float aa = smoothstep(0.3, 0.7, px);
   uv *= 135.0;
   vec2 cell = floor(uv);
   vec2 f = fract(uv);
@@ -137,7 +139,7 @@ vec2 carbon(vec2 uv) {
   float glint = dir > 0.5 ? 1.0 : 0.0;
   float line = smoothstep(0.82, 1.0, tow);
   float base = mix(0.05, 0.11, glint);
-  return vec2(base * (1.0 - 0.5 * line), 0.05 + 0.25 * line);
+  return mix(vec2(base * (1.0 - 0.5 * line), 0.05 + 0.25 * line), vec2(0.076, 0.075), aa);
 }
 vec3 perturbNormalH(vec3 surf_pos, vec3 surf_norm, vec2 dHdxy, float faceDirection) {
   vec3 vSigmaX = normalize(dFdx(surf_pos.xyz));
@@ -172,6 +174,8 @@ float zLine = 0.0;
 float zFlake = 0.0;
 float zAO = vZ3.x;
 float zIsPaint = 1.0;
+// object-space metres per pixel (taken here, in uniform control flow, for the pattern anti-aliasing)
+float zPx = length(fwidth(vObjPos));
 
 #ifdef GLASS_PASS
   // dark tinted glass with a ceramic-frit border
@@ -197,7 +201,7 @@ float zIsPaint = 1.0;
   if (zPart != 0) {
     vec2 puv = planarUV(vObjPos, vObjNrm);
     if (zPart == 1) {            // carbon
-      vec2 c = carbon(puv);
+      vec2 c = carbon(puv, zPx * 135.0);
       zCol = vec3(c.x);
       zRough = c.y;
       zMetal = 0.0;
@@ -282,7 +286,7 @@ float zIsPaint = 1.0;
     vec2 puv = planarUV(vObjPos, vObjNrm);
     // carbon
     if (mCarbon > 0.0) {
-      vec2 c = carbon(puv);
+      vec2 c = carbon(puv, zPx * 135.0);
       zCol = mix(zCol, vec3(c.x), mCarbon);
       zRough = mix(zRough, c.y, mCarbon);
       zMetal = mix(zMetal, 0.0, mCarbon);
@@ -345,6 +349,7 @@ float zIsPaint = 1.0;
     // taillight
     if (mTail > 0.0) {
       float seg = 0.55 + 0.45 * smoothstep(0.35, 0.65, abs(fract(vObjPos.x * 90.0) - 0.5) * 2.0);
+      seg = mix(seg, 0.775, smoothstep(0.25, 0.6, zPx * 90.0)); // LED segments: fade before they alias
       vec3 lens = vec3(0.32, 0.0, 0.004);
       zCol = mix(zCol, lens, mTail);
       zRough = mix(zRough, 0.08, mTail);
@@ -383,7 +388,7 @@ float zIsPaint = 1.0;
 if (zBack) {
   // cabin interior seen through the glass: dark headliner / door cards (carbon tub on the prototype)
   vec2 cuv = planarUV(vObjPos, vObjNrm);
-  vec2 cb = carbon(cuv);
+  vec2 cb = carbon(cuv, zPx * 135.0);
   zCol = mix(vec3(0.018, 0.018, 0.021), vec3(cb.x * 0.9), uInteriorCarbon);
   zRough = mix(0.9, cb.y + 0.2, uInteriorCarbon);
   zMetal = 0.0;
