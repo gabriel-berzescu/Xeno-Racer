@@ -2,6 +2,7 @@
  * Race session: start lights, lap counting, sectors, standings, live delta to the best lap,
  * finish order and results. Headless — it only reads vehicle states and the track.
  */
+import { Vector3 } from 'three';
 import type { RaceConfig, RaceResultEntry, RaceResults, TrackPoint, TrackRuntime, VehicleState } from '../core/contracts';
 
 export interface Entrant {
@@ -51,6 +52,7 @@ export type SessionEvent =
   | { type: 'finish'; entrant: Entrant; position: number }
   | { type: 'sector'; entrant: Entrant; sector: number; time: number; delta: number | null };
 
+const _fwd = new Vector3();
 const _tp: TrackPoint = { s: 0, d: 0, segment: 0, widthLeft: 0, widthRight: 0, wallLeft: 0, wallRight: 0, tx: 0, tz: 1, lx: 1, lz: 0, y: 0 };
 
 /** Reference lap for the live delta: elapsed time at every TRACE_STEP meters. */
@@ -162,9 +164,11 @@ export class RaceSession {
       ds -= L;
       this.onCross(p, -1);
     }
-    // wrong way: moving against the tangent
+    // wrong way: driving against the track, moving and facing that way (reversing out of a gravel trap is not)
     const vt = st.velocity.x * _tp.tx + st.velocity.z * _tp.tz;
-    p.wrongWayTime = vt < -2 ? p.wrongWayTime + 1 / 60 : 0;
+    _fwd.set(0, 0, 1).applyQuaternion(st.quaternion);
+    const facing = _fwd.x * _tp.tx + _fwd.z * _tp.tz;
+    p.wrongWayTime = vt < -2 && facing < 0 ? p.wrongWayTime + 1 / 60 : 0;
     p.distance = (p.crossings - 1) * L + p.s;
   }
 

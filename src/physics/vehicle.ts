@@ -467,7 +467,11 @@ export class Vehicle {
       }
     } else if (c.shift !== 0 && !this.shifting) {
       if (c.shift > 0) this.requestShift(this.gear === -1 ? 0 : this.gear + 1);
-      else if (this.gear > 1) this.requestShift(this.gear - 1);
+      else if (this.gear > 1) {
+        // like a real sequential box, it refuses a downshift that would throw the engine past its limiter
+        const rpmLower = (this.rpm() * d.gears[this.gear - 2]) / d.gears[this.gear - 1];
+        if (rpmLower < this.spec.engine.redlineRpm * 1.02) this.requestShift(this.gear - 1);
+      }
       else if (this.gear === 1) this.requestShift(0);
       else if (this.gear === 0 && Math.abs(fwd) < 2) this.requestShift(-1);
     }

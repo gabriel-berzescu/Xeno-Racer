@@ -242,3 +242,24 @@ describe('vehicle physics', () => {
     expect(perFrame).toBeLessThan(6);
   });
 });
+
+describe('manual gearbox', () => {
+  it('refuses a downshift that would over-rev the engine', () => {
+    // hammering LB at 160 km/h used to step 3-2-1 and spin the engine to 11 000 rpm against an 8000 limiter
+    const world = new PhysicsWorld(createFlatTrack());
+    const car = world.addVehicle(getCar('vanta-gt'));
+    car.assists = { abs: true, tcs: 'low', esc: true, autoShift: false, steeringAssist: 0, autoClutch: true };
+    car.placeOnGround(new Vector3(0, 0, 0), new Quaternion(), 160 / 3.6);
+    car.setTemperatures(1);
+    car.gear = 3;
+    world.simulate(0.4);
+    let peak = 0;
+    for (let i = 0; i < 120; i++) {
+      if (i % 10 === 0) car.controls.shift = -1;
+      world.step(DT);
+      peak = Math.max(peak, car.state.rpm);
+    }
+    expect(car.gear).toBeGreaterThanOrEqual(2);
+    expect(peak).toBeLessThan(car.state.redlineRpm * 1.08);
+  });
+});

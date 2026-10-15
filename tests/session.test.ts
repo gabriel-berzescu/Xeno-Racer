@@ -2,7 +2,7 @@
  * Race session logic: lap timing from lights-out, finishing order, and the classification of cars
  * still running when the results are shown. Cars are moved along the real track by hand.
  */
-import { Vector3 } from 'three';
+import { Quaternion, Vector3 } from 'three';
 import { describe, expect, it } from 'vitest';
 import type { RaceConfig, TrackFrame, VehicleState } from '../src/core/contracts';
 import { RaceSession, type Entrant } from '../src/game/session';
@@ -13,15 +13,16 @@ const L = track.length;
 const frame: TrackFrame = { position: new Vector3(), tangent: new Vector3(), normal: new Vector3(), left: new Vector3(), widthLeft: 0, widthRight: 0, wallLeft: 0, wallRight: 0, curvature: 0, bank: 0 };
 
 function fakeState(id: number): VehicleState {
-  return { id, position: new Vector3(), velocity: new Vector3() } as unknown as VehicleState;
+  return { id, position: new Vector3(), velocity: new Vector3(), quaternion: new Quaternion() } as unknown as VehicleState;
 }
 
-/** Put a car at race distance `dist` (m from the line; negative = on the grid behind it). */
+/** Put a car at race distance `dist` (m from the line; negative = on the grid behind it), facing along the track. */
 function place(st: VehicleState, dist: number, speed = 50): void {
   const s = ((dist % L) + L) % L;
   track.pointAt(s, 0, st.position);
   track.frameAt(s, frame);
   st.velocity.copy(frame.tangent).multiplyScalar(speed);
+  st.quaternion.setFromUnitVectors(new Vector3(0, 0, 1), frame.tangent);
 }
 
 function setup(n: number, laps: number) {
@@ -88,6 +89,27 @@ describe('race session', () => {
     expect(p.lapTimes[1]).toBeGreaterThan(17 + L / 60 - 1);
     // (it ends 6 m past the line)
     expect(p.lapTimes[1]).toBeCloseTo(t - 6 / 60 - lapBegan, 1);
+  });
+
+  it('warns of the wrong way when a car drives against the track, not when it reverses', () => {
+    const { entrants, session } = setup(1, 3);
+    session.startCountdown(0, false);
+    const st = entrants[0].state;
+    const p = session.progress[0];
+    let t = 0;
+    // reversing: facing along the track, moving backwards
+    for (let k = 0; k < 120; k++) {
+      place(st, 300 - k * 0.1, -6);
+      session.update(1 / 60, (t += 1 / 60));
+    }
+    expect(p.wrongWayTime).toBe(0);
+    // turned round and driving the wrong way
+    for (let k = 0; k < 120; k++) {
+      place(st, 290 - k * 0.1, -6);
+      st.quaternion.premultiply(new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), Math.PI));
+      session.update(1 / 60, (t += 1 / 60));
+    }
+    expect(p.wrongWayTime).toBeGreaterThan(1.5);
   });
 
   it('classifies cars still running at the end: projected time on the final lap, laps down otherwise', () => {
