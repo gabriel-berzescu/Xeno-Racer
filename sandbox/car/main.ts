@@ -98,6 +98,8 @@ const env: EnvironmentState = {
   sunIntensity: 3,
   darkness: night ? 0.95 : 0,
   fogColor: '#0d0f13',
+  rain: 0,
+  wetness: 0,
 };
 
 function makeState(d: CarDefinition): VehicleState {

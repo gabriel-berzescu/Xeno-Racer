@@ -278,6 +278,11 @@ class AudioSystemImpl implements AudioSystem, CarHost {
     this.graph.setMusicGate(1, 1.8);
   }
 
+  /** Rain ambience and wet-tire sound (provisional: filled in by the wet-weather audio pass). */
+  setWeather(_rain: number, _wetness: number): void {
+    // no-op for now
+  }
+
   setMusic(on: boolean): void {
     this.musicWanted = on;
     if (on) {
@@ -321,6 +326,7 @@ function createSilentAudioSystem(): AudioSystem {
     setVolumes: () => undefined,
     setPaused: () => undefined,
     setMusic: () => undefined,
+    setWeather: () => undefined,
     update: () => undefined,
     dispose: () => undefined,
   };

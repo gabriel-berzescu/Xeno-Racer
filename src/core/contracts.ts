@@ -331,7 +331,7 @@ export interface CarDefinition {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type TimeOfDay = 'dawn' | 'morning' | 'noon' | 'golden' | 'dusk' | 'night';
-export type Weather = 'clear' | 'cloudy' | 'overcast';
+export type Weather = 'clear' | 'cloudy' | 'overcast' | 'rain' | 'storm';
 
 export interface EnvironmentSettings {
   timeOfDay: TimeOfDay;
@@ -346,7 +346,20 @@ export interface EnvironmentState {
   /** 0 = full day .. 1 = full night: drives headlights, emissive boosts, street lights. */
   darkness: number;
   fogColor: string;
+  /** 0..1 precipitation intensity: rain particles, rain sound, wet glass. 0 when dry. */
+  rain: number;
+  /** 0..1 standing water on the track: tire grip, spray, the wet look of road and cars. */
+  wetness: number;
 }
+
+/** Rain and track water per weather preset (shared by render, physics, AI and audio). */
+export const WEATHER_WATER: Record<Weather, { rain: number; wetness: number }> = {
+  clear: { rain: 0, wetness: 0 },
+  cloudy: { rain: 0, wetness: 0 },
+  overcast: { rain: 0, wetness: 0 },
+  rain: { rain: 0.55, wetness: 0.75 },
+  storm: { rain: 1, wetness: 1 },
+};
 
 export type QualityLevel = 'low' | 'medium' | 'high' | 'ultra';
 

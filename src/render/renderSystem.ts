@@ -45,6 +45,7 @@ import type {
   GraphicsSettings,
   QualityLevel,
 } from '../core/contracts';
+import { WEATHER_WATER } from '../core/contracts';
 import type { RenderSystem } from '../core/systems';
 import { FOG_TABLE_SIZE } from './atmosphere';
 import { solveEnvironment, type EnvSolution } from './environment';
@@ -154,6 +155,8 @@ class RenderSystemImpl implements XenoRenderSystem {
     sunIntensity: 1,
     darkness: 0,
     fogColor: '#9fb4c8',
+    rain: 0,
+    wetness: 0,
   };
   readonly stats: RenderStats = { fps: 0, frameMs: 16.7, drawCalls: 0, triangles: 0, cpuMs: 0, gpuMs: 0, gpuMsRaw: 0, width: 0, height: 0, cascades: 0, gpuMemMB: 0, passMs: {} };
   readonly sky: SkyDome;
@@ -676,6 +679,8 @@ class RenderSystemImpl implements XenoRenderSystem {
     env.sunDirection.set(sol.sunDir[0], sol.sunDir[1], sol.sunDir[2]);
     env.sunIntensity = sol.lightIntensity;
     env.darkness = sol.darkness;
+    env.rain = WEATHER_WATER[sol.settings.weather].rain;
+    env.wetness = WEATHER_WATER[sol.settings.weather].wetness;
     const e = sol.exposure;
     const toDisplay = (x: number) => 1 - Math.exp(-x * e * 1.1);
     env.fogColor = '#' + new Color().setRGB(toDisplay(sol.fogColor[0]), toDisplay(sol.fogColor[1]), toDisplay(sol.fogColor[2])).getHexString();

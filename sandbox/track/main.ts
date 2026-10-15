@@ -136,6 +136,8 @@ async function main(): Promise<void> {
     sunIntensity: T.sunI,
     darkness: T.darkness,
     fogColor: '#' + new THREE.Color(T.fog).getHexString(),
+    rain: 0,
+    wetness: 0,
   };
 
   // ── track ─────────────────────────────────────────────────────────────────────

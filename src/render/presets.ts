@@ -76,6 +76,9 @@ export const WEATHER: Record<Weather, WeatherPreset> = {
   clear: { coverage: 0.3, soft: 0.1, cirrus: 0.24, sun: 1.0, sky: 1.0, mie: 1.0, overcast: 0.0, fog: 1.0, shadow: 1.0, exposure: 1.0, dark: 0.35 },
   cloudy: { coverage: 0.62, soft: 0.16, cirrus: 0.25, sun: 0.7, sky: 0.95, mie: 1.8, overcast: 0.3, fog: 1.35, shadow: 0.82, exposure: 1.05, dark: 0.55 },
   overcast: { coverage: 1.0, soft: 0.4, cirrus: 0.0, sun: 0.1, sky: 0.9, mie: 3.0, overcast: 0.92, fog: 2.0, shadow: 0.22, exposure: 1.4, dark: 0.8 },
+  // provisional: rain and storm skies (refined with the wet-weather visuals)
+  rain: { coverage: 1.0, soft: 0.5, cirrus: 0.0, sun: 0.06, sky: 0.75, mie: 3.6, overcast: 0.96, fog: 2.8, shadow: 0.12, exposure: 1.5, dark: 0.9 },
+  storm: { coverage: 1.0, soft: 0.6, cirrus: 0.0, sun: 0.03, sky: 0.6, mie: 4.2, overcast: 1.0, fog: 3.6, shadow: 0.06, exposure: 1.65, dark: 1.0 },
 };
 
 const DEG = Math.PI / 180;
