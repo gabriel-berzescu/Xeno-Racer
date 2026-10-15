@@ -1230,7 +1230,8 @@ class CameraRigImpl implements CameraRig {
     const T = TUNING;
     const mode = this._mode;
     const cockpit = mode === 'cockpit';
-    // hood / bumper: look.back cuts to a rear-facing camera behind the tail (mirrored bumper anchor)
+    // hood / bumper: look.back cuts to a rear-facing camera on the roof, the tail in the bottom of the picture (the bumper
+    // anchor mirrored to the tail sat under the rear deck, behind the diffuser: most of the frame was the car's own body)
     const rear = !cockpit && back;
     let mcut = cut;
     if (rear !== this.rearActive) {
@@ -1238,10 +1239,10 @@ class CameraRigImpl implements CameraRig {
       mcut = true;
     }
     const anchor = mode === 'hood' ? anchors.hood : mode === 'bumper' ? anchors.bumper : anchors.cockpit;
-    this.anchorPose(rear ? anchors.bumper : anchor, st, _aPos, _aQuat);
+    this.anchorPose(rear ? anchors.chase : anchor, st, _aPos, _aQuat);
     if (rear) {
       _v1.copy(_aPos).sub(st.position).applyQuaternion(this.qInv);
-      _v1.z = 2 * this.szMidZ - _v1.z;
+      _v1.y += 0.14;
       _aPos.copy(_v1).applyQuaternion(this.qCar).add(st.position);
       _q1.setFromAxisAngle(AX_Y, Math.PI);
       _aQuat.multiply(_q1);

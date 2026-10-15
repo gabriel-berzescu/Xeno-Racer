@@ -379,7 +379,7 @@ export const SETTINGS_TABS: TabDef[] = [
       },
       {
         kind: 'slider', id: 'vegetation', label: 'Vegetation density', min: 0, max: 1, step: 0.05,
-        desc: 'How many trees, bushes and grass tufts line the circuit.',
+        desc: 'How many trees, bushes and grass tufts line the circuit. Takes effect when the next race starts or restarts.',
         get: (s) => s.graphics.vegetation, set: (s, v) => { s.graphics.vegetation = v; }, fmt: pct,
       },
       {

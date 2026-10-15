@@ -118,7 +118,12 @@ export class Game {
   private frameCount = 0;
   private fpsAvg = 60;
   private minFrameMs = 0;
-  private lastRender = 0;
+  /** The track, quality and vegetation the current track scene was built with. */
+  private trackBuilt = '';
+  /** Frame cap: when the next frame is due, and the display's refresh interval (smoothed). */
+  private nextFrameAt = 0;
+  private lastTick = 0;
+  private tickMs = 1000 / 60;
   private replayRec: ReplayRecorder | null = null;
   private replay: { player: ReplayPlayer; t: number; target: number } | null = null;
   /** Frame-time samples for perfStats(): [frame interval ms, CPU ms spent in frame()]. */
@@ -234,7 +239,7 @@ export class Game {
 
   private applyMaxFps(): void {
     const m = this.settings.graphics.maxFps;
-    this.minFrameMs = m > 0 ? 1000 / m - 0.5 : 0;
+    this.minFrameMs = m > 0 ? 1000 / m : 0;
   }
 
   // ───────────────────────────────────────────────────────────────────────────
@@ -270,7 +275,9 @@ export class Game {
   private async ensureTrack(trackId: string, env: RaceConfig['environment'], token: number): Promise<boolean> {
     await this.render.setEnvironment(env);
     if (token !== this.loadToken) return false;
-    if (this.track?.info.id === trackId && this.trackScene) {
+    // the scene is reused for the same track, unless the quality or vegetation it was built with has changed since
+    const built = `${trackId}|${this.settings.graphics.quality}|${this.settings.graphics.vegetation}`;
+    if (this.track?.info.id === trackId && this.trackScene && this.trackBuilt === built) {
       this.trackScene.setEnvironment(this.render.env);
       return true;
     }
@@ -290,6 +297,7 @@ export class Game {
     }
     this.track = rt;
     this.trackScene = scene;
+    this.trackBuilt = built;
     this.render.scene.add(scene.root);
     scene.setEnvironment(this.render.env);
     this.camera = createCameraRig(rt, scene.tvCameras);
@@ -542,8 +550,13 @@ export class Game {
     }
     if (token !== this.loadToken) return;
     if (config.mode !== 'race') {
-      // time trial / free roam: a rolling start 250 m before the line
-      this.placeOnTrack(this.player!.vehicle, track.length - 250, 0, 25);
+      // time trial / free roam: a rolling start 250 m before the line, at a speed the car can carry through what lies
+      // ahead (Kuroyama and Brennwald have a tight bend there, not a straight): what a fast driver aims for, with a margin
+      const s0 = track.length - 250;
+      const guide = new AIDriver(track, def, { difficulty: 'alien', seed: 1, wetness: this.world.wetness });
+      let v = 25;
+      for (let ds = 0; ds <= 120; ds += 10) v = Math.min(v, 0.8 * guide.targetSpeed(track.wrapS(s0 + ds)));
+      this.placeOnTrack(this.player!.vehicle, s0, 0, v);
       this.player!.vehicle.setTemperatures(1);
     }
     const stored = this.bestLaps[recordKey(this.recordTrack(config), config.carId)] ?? null;
@@ -801,8 +814,16 @@ export class Game {
 
   private frame(now: number): void {
     requestAnimationFrame((t) => this.frame(t));
-    if (this.minFrameMs > 0 && now - this.lastRender < this.minFrameMs) return;
-    this.lastRender = now;
+    const tick = now - this.lastTick;
+    this.lastTick = now;
+    if (tick > 0 && tick < 100) this.tickMs += (tick - this.tickMs) * 0.05;
+    if (this.minFrameMs > 0) {
+      // a frame is drawn on the refresh nearest each slot of the capped rate, and the slots advance by the cap's interval:
+      // on a 144 Hz screen a 60 cap draws on every second or third refresh and averages 60 (waiting a whole interval after
+      // each frame instead fell to about 47)
+      if (now < this.nextFrameAt - this.tickMs / 2) return;
+      this.nextFrameAt = now - this.nextFrameAt > this.minFrameMs ? now + this.minFrameMs : this.nextFrameAt + this.minFrameMs;
+    }
     const dt = Math.min(0.05, Math.max(0.0005, (now - this.last) / 1000));
     this.last = now;
     this.fpsAvg += (1 / dt - this.fpsAvg) * 0.05;
