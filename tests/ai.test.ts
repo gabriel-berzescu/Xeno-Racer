@@ -73,7 +73,7 @@ describe('AI driver', () => {
     for (const t of TRACKS) {
       for (const c of CARS) {
         const r = lapTest(t.info.id, c.id, 'alien', 2, wetness);
-        const fmt = (x: number) => `${Math.floor(x / 60)}:${(x % 60).toFixed(2).padStart(5, '0')}`;
+        const fmt = (x: number) => { const c = Math.round(x * 100); return `${Math.floor(c / 6000)}:${((c % 6000) / 100).toFixed(2).padStart(5, '0')}`; };
         rows.push(
           `${t.info.id.padEnd(9)} ${c.id.padEnd(10)} len ${r.length.toFixed(0)} m  est ${fmt(r.est)}  laps ${r.lapTimes.map(fmt).join(' ')}  vmax ${r.maxSpeed.toFixed(0)}  resets ${r.resets}  impacts ${r.impacts}  off ${r.offTrack.toFixed(1)}s  tires ${r.temps}C  brakes ${r.brakes}C`,
         );

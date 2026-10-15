@@ -150,7 +150,7 @@ export function runPack(trackId: string, carSpec: string, diff: Difficulty, n: n
       order = next;
     }
   }
-  const fmt = (x: number) => `${Math.floor(x / 60)}:${(x % 60).toFixed(2).padStart(5, '0')}`;
+  const fmt = (x: number) => { const c = Math.round(x * 100); return `${Math.floor(c / 6000)}:${((c % 6000) / 100).toFixed(2).padStart(5, '0')}`; };
   const rows = [`${trackId} ${carSpec} ${diff} N=${n} laps=${laps}  winner ${fmt(winnerTime)}  finished ${finishedCount}/${n}  overtakes ${overtakes}`];
   let contacts = 0, hard = 0, walls = 0, resets = 0, offTrack = 0;
   order.forEach((i, pos) => {
