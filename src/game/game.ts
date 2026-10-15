@@ -994,6 +994,7 @@ export class Game {
       }
     }
     player.visual.setCockpitView(this.camera.mode === 'cockpit');
+    (this.render as XenoRenderSystem).setCockpitView(this.camera.mode === 'cockpit');
     this.effects?.update(dt, world.states, this.camera.camera);
     this.camera.update(dt, { state: pv.state, anchors: player.visual.anchors }, { x: input.lookX, y: input.lookY, back: input.lookBack });
     this.render.setFocus(pv.state.position);

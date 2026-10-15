@@ -129,6 +129,12 @@ export interface XenoRenderSystem extends RenderSystem {
    * follows it, so the swish and the thunks land on the picture's blade.
    */
   readonly wiper: WiperFeed;
+  /**
+   * Which rain-on-glass look the camera gets while it rides on the focus car: true = from the driver's seat (windscreen
+   * and wiper), false = a camera on the bodywork (hood, bumper: drops on its lens), null = guess from the camera's
+   * distance to the focus (the default; a hood camera can sit as close to the car's centre as a cockpit eye).
+   */
+  setCockpitView(on: boolean | null): void;
 }
 
 interface Tier {
@@ -211,6 +217,7 @@ class RenderSystemImpl implements XenoRenderSystem {
   private ssrPass: SSRPass | null = null;
   private dropletPass: DropletPass | null = null;
   private readonly wiperOut: WiperFeed = makeWiperFeed();
+  private cockpitView: boolean | null = null;
   private aaEffect: SMAAEffect | FXAAEffect | null = null;
   private pipelineKey = '';
   private flashAmp = 0;
@@ -366,6 +373,10 @@ class RenderSystemImpl implements XenoRenderSystem {
 
   setFocus(p: Vector3): void {
     this.focus.copy(p);
+  }
+
+  setCockpitView(on: boolean | null): void {
+    this.cockpitView = on;
   }
 
   resize(width: number, height: number): void {
@@ -848,8 +859,9 @@ class RenderSystemImpl implements XenoRenderSystem {
     if (!p.enabled) return;
     p.rain = rain;
     p.speed = speed;
-    p.lens = d >= 1.4;
-    p.strength = d < 1.4 ? 1 : 0.7;
+    const cockpit = this.cockpitView ?? d < 1.4;
+    p.lens = !cockpit;
+    p.strength = cockpit ? 1 : 0.7;
     const sol = this.solution;
     if (sol) {
       const k = sol.exposure > 0 ? 1.0 : 1.0;
