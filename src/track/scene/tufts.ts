@@ -113,6 +113,15 @@ ${GRASS_MACRO_GLSL}`,
   };
   mat.customProgramCacheKey = () => 'tuft-2';
   ctx.disposables.push(tex, geo, mat);
+  // a hidden stand-in set up like the real cells: they are only generated around the camera once frames run, after
+  // the loading screen, so without it the renderer's precompile never reaches the tuft program
+  const warm = new THREE.InstancedMesh(geo, mat, 1);
+  warm.setColorAt(0, new THREE.Color(1, 1, 1));
+  warm.castShadow = false;
+  warm.receiveShadow = true;
+  warm.visible = false;
+  warm.name = 'tufts_warmup';
+  group.add(warm);
 
   interface Cell {
     key: number;
