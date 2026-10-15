@@ -708,6 +708,9 @@ class RenderSystemImpl implements XenoRenderSystem {
     if (f) {
       f.exposure = sol.exposure;
       f.setWarmth(sol.warmth);
+      // full strength only after dark (dusk and a daytime storm stay in colour)
+      const d = Math.min(1, Math.max(0, (sol.darkness - 0.6) / 0.4));
+      f.night = 0.8 * d * d * (3 - 2 * d);
     }
     this.baseExposure = sol.exposure;
     if (this.bloomEffect) {

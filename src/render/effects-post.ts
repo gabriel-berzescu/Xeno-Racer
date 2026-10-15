@@ -89,6 +89,7 @@ uniform float lookPower;
 uniform float lookSat;
 uniform float contrast;
 uniform vec3 tint;
+uniform float night;
 uniform float vignette;
 uniform float dither;
 uniform float seed;
@@ -154,6 +155,13 @@ vec3 srgbEncode(vec3 c) {
 
 void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor) {
   vec3 c = max(inputColor.rgb, vec3(0.0)) * exposure;
+  // mesopic vision at night: the dim parts of the scene lose their colour and drift blue (the rods take over),
+  // while whatever the floodlights and headlights reach keeps it. Without this, moonlit grass reads bright green.
+  if (night > 0.001) {
+    float L = dot(c, vec3(0.2126, 0.7152, 0.0722));
+    float m = night * (1.0 - smoothstep(0.015, 0.3, L));
+    c = mix(c, L * vec3(0.7, 0.82, 1.2), m);
+  }
   c = (tmMode < 0.5) ? agxTonemap(c) : acesTonemap(c);
 
   // grade (display-linear)
@@ -195,6 +203,7 @@ export class FinalEffect extends Effect {
         ['lookSat', new Uniform(1.32)],
         ['contrast', new Uniform(0.12)],
         ['tint', new Uniform(new Vector3(1, 1, 1))],
+        ['night', new Uniform(0)],
         ['vignette', new Uniform(0.28)],
         ['dither', new Uniform(1)],
         ['seed', new Uniform(0)],
@@ -230,6 +239,10 @@ export class FinalEffect extends Effect {
   }
   set seed(v: number) {
     this.u('seed').value = v;
+  }
+  /** Night (mesopic) colour shift of the dim parts of the scene, 0..1. */
+  set night(v: number) {
+    this.u('night').value = v;
   }
   /** Warm (+1) / cool (-1) grade. */
   setWarmth(w: number): void {
