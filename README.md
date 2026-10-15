@@ -32,8 +32,9 @@ opens Xeno-Racer full-screen in its own Chrome window, on the dedicated GPU. Clo
 | HUD / telemetry | D-pad up / D-pad down | H / T |
 
 Menus use the D-pad or left stick: A confirms, B goes back, and LB/RB step between setup pages.
-During a replay, LB/RB switch cars, Y changes the camera and B exits. Rumble responds to
-kerbs, wheelspin and impacts.
+During a replay, LB/RB switch cars, Y changes the camera and B exits. On a pad with rumble
+motors (the F310 has none), kerbs, wheelspin and impacts rumble. The race pauses itself when the
+window loses focus.
 
 ## Modes
 

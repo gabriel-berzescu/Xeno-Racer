@@ -141,6 +141,20 @@ export class Game {
     window.addEventListener('keydown', unlock);
     window.addEventListener('resize', () => this.onResize());
     this.onResize();
+    // alt-tab / minimise: pause the race (the pause menu is waiting on return) and go silent
+    const autoPause = () => {
+      if (this.phase === 'race' && !this.paused && !this.resultsShown && !this.replay) this.setPaused(true);
+    };
+    window.addEventListener('blur', autoPause);
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        autoPause();
+        this.audio.setVolumes({ ...this.settings.audio, master: 0 });
+      } else {
+        this.audio.setVolumes(this.settings.audio);
+        this.last = performance.now();
+      }
+    });
     (window as unknown as { __GAME__: Game }).__GAME__ = this;
 
     const quick = this.params.get('quick');
