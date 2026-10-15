@@ -10,6 +10,7 @@
  *   shot:<name>          screenshot to <out>/<name>.png
  *   key:<Key>[:<ms>]     press (or hold for ms) a key
  *   eval:<js>            evaluate in the page and print the JSON result
+ *   evalfile:<path>      evaluate a JS file in the page (for scripts with ';')
  *   until:<js>[:<ms>]    poll until the expression is truthy (max ms, default 60000)
  *   perf:<label>         print the game's frame-time stats since the last perf step
  *   tap:<button>         tap a fake-pad button (needs --init scripts/fixtures/fake-pad.js)
@@ -17,7 +18,7 @@
  * The game must expose window.__READY__ (always waited for first).
  */
 import { chromium } from 'playwright-core';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const argv = process.argv.slice(2);
@@ -75,8 +76,10 @@ for (const raw of opts.steps.split(';').map((s) => s.trim()).filter(Boolean)) {
   const arg = i < 0 ? '' : raw.slice(i + 1);
   if (op === 'wait') await page.waitForTimeout(+arg);
   else if (op === 'shot') {
-    const file = resolve(outDir, `${arg}.png`);
-    await page.screenshot({ path: file });
+    // shot:name -> PNG; shot:name.jpg -> JPEG (quality 88), for docs
+    const jpg = arg.endsWith('.jpg');
+    const file = resolve(outDir, jpg ? arg : `${arg}.png`);
+    await page.screenshot(jpg ? { path: file, type: 'jpeg', quality: 88 } : { path: file });
     console.log(`[${stamp()}] shot ${file}`);
   } else if (op === 'key') {
     const [k, ms] = arg.split(':');
@@ -99,6 +102,9 @@ for (const raw of opts.steps.split(';').map((s) => s.trim()).filter(Boolean)) {
     } catch {
       console.log(`[${stamp()}] until TIMEOUT: ${expr}`);
     }
+  } else if (op === 'evalfile') {
+    const r = await page.evaluate(readFileSync(resolve(arg), 'utf8'));
+    console.log(`[${stamp()}] eval ${JSON.stringify(r)}`);
   } else if (op === 'tap') {
     await page.evaluate((i) => window.__pad.btn(i, 1), +arg);
     await page.waitForTimeout(90);

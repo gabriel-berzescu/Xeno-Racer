@@ -200,6 +200,9 @@ export const TUNING = {
   /** but only pick cameras the car has passed by less than this (m) and that are closer than this (m). */
   tvEnterBehind: 15,
   tvEnterDistance: 220,
+  /** A camera only covers the road up to this far before it (m along the track): on switchbacks a
+   *  camera can be close in 3D to a different leg of the road, seen through the forest between. */
+  tvTrackAhead: 225,
   /** Choice cost: a camera ahead costs its distance ahead (m); one the car already passed costs
    *  tvBehindBias + tvBehindPenalty × distance behind, so a camera ahead within ~tvBehindBias m wins. */
   tvBehindBias: 60,
@@ -1343,8 +1346,9 @@ class CameraRigImpl implements CameraRig {
       const c = cams[i];
       const ds = wrapSigned(c.s - carS, L);
       const d3 = c.position.distanceTo(P);
-      // a camera that can't see the car (a hill in the way) is never a choice
-      if (d3 > T.tvLeaveDistance || !this.tvLineOfSight(c.position, P)) continue;
+      // a camera that can't see the car (a hill in the way), or that covers another stretch of road
+      // (closer in 3D across a switchback), is never a choice
+      if (ds > T.tvTrackAhead || !this.tvLineOfSight(c.position, P)) continue;
       if (d3 < nearD) {
         nearD = d3;
         near = i;
@@ -1400,7 +1404,7 @@ class CameraRigImpl implements CameraRig {
       const ds = wrapSigned(c.s - carS, L);
       const d3 = c.position.distanceTo(P);
       const blocked = this.tvCheckBlocked(h, P);
-      if (blocked || (this.tvDwell >= T.tvMinDwell && (ds < -T.tvLeaveBehind || d3 > T.tvLeaveDistance))) {
+      if (blocked || ds > T.tvTrackAhead || (this.tvDwell >= T.tvMinDwell && (ds < -T.tvLeaveBehind || d3 > T.tvLeaveDistance))) {
         const best = this.tvChoose(carS, P, L);
         if (best < 0) {
           this.tvFallback(h, true, st);
@@ -1491,8 +1495,26 @@ class CameraRigImpl implements CameraRig {
     const sizeF = 1 + T.sizeInfluence * (this.szScale - 1);
     const d = T.tvFallbackDistance * sizeF;
     const C = this.outPos;
-    C.set(P.x - Math.sin(a) * d, P.y + T.tvFallbackHeight, P.z - Math.cos(a) * d);
-    this.constrain(C, h, first);
+    const tr = this.track;
+    const tc = this.tpCar;
+    let onRoad = false;
+    if (tr && this.carSOk && Number.isFinite(tc.s) && Number.isFinite(tc.wallLeft) && Number.isFinite(tc.wallRight)) {
+      // over the road itself, a car-length or three back along the track: it follows the bends and
+      // can't end up inside the trees or behind a hillside the way a heading-based offset can
+      const lat = clamp(tc.d * 0.5, -(tc.wallRight - 1.5), tc.wallLeft - 1.5);
+      tr.pointAt(tr.wrapS(tc.s - d), lat, _v1);
+      _v1.y += T.tvFallbackHeight;
+      // (a road point implausibly far from the car means the track doesn't loop there: use the heading)
+      onRoad = Number.isFinite(_v1.x) && _v1.distanceTo(P) < 3 * d + 10;
+    }
+    if (onRoad) {
+      // (a smooth function of the car's track position already: no extra lag, which would make
+      // the shot depend on the frame rate)
+      C.copy(_v1);
+    } else {
+      C.set(P.x - Math.sin(a) * d, P.y + T.tvFallbackHeight, P.z - Math.cos(a) * d);
+      this.constrain(C, h, first);
+    }
     if (!lookQuat(P.x - C.x, P.y + 0.3 - C.y, P.z - C.z, WORLD_UP, this.outQuat)) this.outQuat.copy(this.camera.quaternion);
     this.outFov = T.tvFallbackFovDeg;
     this.outNear = T.near;
