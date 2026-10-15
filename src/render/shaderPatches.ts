@@ -19,7 +19,9 @@
  * 3. Street lamps. After dark, the lamps nearest to the camera light every lit material (cars, barriers, stands,
  *    verges) through the material's own BRDF, so a car's clearcoat catches the floodlights as it passes under
  *    them. Materials that light themselves from the lamps (the road, with its painted pools and wet reflections)
- *    opt out with the define XR_NO_LAMPS. Off (one uniform test) while xrLampCol.w is 0.
+ *    opt out with the define XR_NO_LAMPS; XR_LAMP_SCALE (a GLSL expression) dims them for a material, e.g. a car's
+ *    cabin, which only gets what comes in through the glass (there are no lamp shadows). Off (one uniform test)
+ *    while xrLampCol.w is 0.
  *
  * Both degrade to stock behaviour when their uniforms are never set (e.g. a custom ShaderMaterial).
  */
@@ -67,6 +69,9 @@ const LAMP_LIGHTS = /* glsl */ `
 			float att = 1.0 / ( 1.0 + d2 / ( lp.w * lp.w * 0.08 ) ) * ( 1.0 - smoothstep( 0.55 * lp.w, lp.w, d ) );
 			float cone = smoothstep( 0.2, 0.65, dot( xrLight.direction, xrLampUp ) );
 			xrLight.color = xrLampCol.rgb * ( att * cone );
+			#ifdef XR_LAMP_SCALE
+				xrLight.color *= XR_LAMP_SCALE;
+			#endif
 			RE_Direct( xrLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight );
 		}
 	}

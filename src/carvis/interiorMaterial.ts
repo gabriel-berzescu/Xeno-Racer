@@ -174,6 +174,8 @@ diffuseColor.rgb = iCol;
 
 export function createInteriorMaterial(uniforms: InteriorUniforms = createInteriorUniforms()): { material: MeshPhysicalMaterial; uniforms: InteriorUniforms } {
   const mat = new MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.7, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.06, side: DoubleSide });
+  // street lamps at night (render's global lamp lighting has no shadows): only the light through the glass gets in
+  mat.defines = { ...(mat.defines ?? {}), XR_LAMP_SCALE: '0.15' };
   mat.onBeforeCompile = (shader: WebGLProgramParametersWithUniforms) => {
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>\n' + VERT_PARS).replace('#include <begin_vertex>', VERT_BEGIN);
