@@ -1,6 +1,6 @@
 {
   "name": "xeno-racer",
-  "version": "0.1.0",
+  "version": "0.9.0",
   "private": true,
   "type": "module",
   "description": "Xeno-Racer — a realistic racing game for the browser, built for a gamepad.",
