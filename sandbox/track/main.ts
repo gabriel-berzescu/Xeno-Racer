@@ -8,6 +8,7 @@
  *   x,y,z,tx,ty,tz           free camera (position, target)     fov=62
  *   cs,cd,ch & ts,td,th      camera / target in track coordinates (s, lateral d, height above ground)
  *   lights=0..6              start lights state      anim=0 freezes update dt      tm=agx|aces
+ *   wet=0..1 rain=0..1       env.wetness / env.rain (wet asphalt, puddles, ripples, darker verge)
  * Sets W.__READY__ and W.__STATS__ = { drawCalls, triangles, loadMs }.
  */
 import * as THREE from 'three';
@@ -130,14 +131,16 @@ async function main(): Promise<void> {
   const hemi = new THREE.HemisphereLight(0xbfd8ff, 0x4a5a38, tod === 'night' ? 0.02 : 0.18);
   scene.add(hemi);
 
+  const wetQ = Math.min(1, Math.max(0, parseFloat(q.get('wet') ?? '0') || 0));
+  const rainQ = Math.min(1, Math.max(0, parseFloat(q.get('rain') ?? '0') || 0));
   const env: EnvironmentState = {
-    settings: { timeOfDay: tod, weather: 'clear' },
+    settings: { timeOfDay: tod, weather: rainQ > 0.7 ? 'storm' : rainQ > 0 || wetQ > 0 ? 'rain' : 'clear' },
     sunDirection: sunDir.clone(),
     sunIntensity: T.sunI,
     darkness: T.darkness,
     fogColor: '#' + new THREE.Color(T.fog).getHexString(),
-    rain: 0,
-    wetness: 0,
+    rain: rainQ,
+    wetness: wetQ,
   };
 
   // ── track ─────────────────────────────────────────────────────────────────────

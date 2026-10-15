@@ -17,6 +17,7 @@ export interface WheelUniforms {
   uTireText: IUniform<Texture | null>;
   uAccent: IUniform<Color>;
   uTread: IUniform<number>;
+  uWet: IUniform<number>;
 }
 
 export function createWheelUniforms(): WheelUniforms {
@@ -31,6 +32,7 @@ export function createWheelUniforms(): WheelUniforms {
     uTireText: { value: null },
     uAccent: { value: new Color(1, 1, 1) },
     uTread: { value: 1 },
+    uWet: { value: 0 },
   };
 }
 
@@ -71,6 +73,7 @@ uniform float uSlick;
 uniform sampler2D uTireText;
 uniform vec3 uAccent;
 uniform float uTread;
+uniform float uWet;
 varying vec4 vZ0;
 varying vec4 vZ3;
 varying vec3 vObjPos;
@@ -244,7 +247,7 @@ export function createWheelMaterial(uniforms: WheelUniforms = createWheelUniform
     let f = shader.fragmentShader;
     f = f.replace('#include <common>', '#include <common>\n' + FRAG_PARS);
     f = f.replace('#include <color_fragment>', '#include <color_fragment>\n' + FRAG_ZONES);
-    f = f.replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = wRough;');
+    f = f.replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = wRough * (1.0 - 0.45 * uWet);');
     f = f.replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\nmetalnessFactor = wMetal;');
     f = f.replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\n' + FRAG_NORMAL);
     f = f.replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += wEmis;');
@@ -269,7 +272,7 @@ export function createWheelMaterial(uniforms: WheelUniforms = createWheelUniform
     );
     shader.fragmentShader = f;
   };
-  mat.customProgramCacheKey = () => 'xr-wheel-v1';
+  mat.customProgramCacheKey = () => 'xr-wheel-v2';
   return { material: mat, uniforms };
 }
 

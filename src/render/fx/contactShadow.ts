@@ -5,16 +5,22 @@
  * One instanced draw for all cars.
  */
 import {
+  AddEquation,
+  CustomBlending,
   DataTexture,
   DoubleSide,
   InstancedBufferAttribute,
   InstancedMesh,
   LinearFilter,
   Matrix4,
+  OneMinusSrcAlphaFactor,
   PlaneGeometry,
   RGBAFormat,
   ShaderMaterial,
+  SrcAlphaFactor,
   UnsignedByteType,
+  ZeroFactor,
+  OneFactor,
 } from 'three';
 
 const BLOBS_PER_CAR = 5; // body + 4 tyres
@@ -79,6 +85,13 @@ export class ContactShadows {
           gl_FragColor = vec4(0.0, 0.0, 0.0, a);
         }`,
       transparent: true,
+      // normal alpha blending for the colour; the destination alpha (the wet-road reflection flag) is left alone
+      blending: CustomBlending,
+      blendEquation: AddEquation,
+      blendSrc: SrcAlphaFactor,
+      blendDst: OneMinusSrcAlphaFactor,
+      blendSrcAlpha: ZeroFactor,
+      blendDstAlpha: OneFactor,
       depthWrite: false,
       side: DoubleSide,
       polygonOffset: true,

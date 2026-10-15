@@ -5,7 +5,7 @@
  *
  * Query parameters
  *   tod       dawn | morning | noon | golden | dusk | night          (default golden)
- *   weather   clear | cloudy | overcast                              (default clear)
+ *   weather   clear | cloudy | overcast | rain | storm              (default clear; rain/storm: wet road, spray, rain)
  *   quality   low | medium | high | ultra                            (default high)
  *   cam       free | chase | chase-far | hood | bumper | cockpit | tv | orbit
  *             free = fixed photo cameras (see view), the others use the real camera rig
@@ -27,6 +27,10 @@
  *   profile=1 per-pass GPU timing into stats.passMs
  *   cycle=low,high,...&every=40   apply quality presets live (exercises applyGraphics)
  * Keys (rig modes): C next camera, arrows look, B hold = look back.
+ *
+ * Dev tools next to this file: matrix.mjs (screenshot matrix of any parameters), probe.mjs (black-frame / NaN
+ * detector via window.__PROBE__), perfwet.mjs (real-game GPU cost of dry vs rain vs storm), parity.mjs (picture
+ * diff against a second dev server, used to prove the dry looks did not change).
  *
  * window.__READY__ is set after the first frames; window.__STATS__ exposes frame statistics.
  */

@@ -604,6 +604,15 @@ function buildLamps(ctx: Ctx, group: THREE.Group): void {
   poles.frustumCulled = false;
   heads.frustumCulled = false;
   group.add(poles, heads);
+  // lamp-head positions for the render module's lit rain / spray (read from the scene graph, no import needed)
+  const lampHeads = new Float32Array(list.length * 3);
+  list.forEach((l, i) => {
+    lampHeads[i * 3] = l.x - l.ox * 1.1;
+    lampHeads[i * 3 + 1] = l.y + 12.95;
+    lampHeads[i * 3 + 2] = l.z - l.oz * 1.1;
+  });
+  group.userData.xrLamps = lampHeads;
+  ctx.lamps = lampHeads;
   ctx.disposables.push(poleG, headG, poleM, headM);
   ctx.nightGlow.push({ mat: headM, day: 0, night: 6 });
   // light pools on the road (additive, night only)
@@ -620,7 +629,14 @@ function buildLamps(ctx: Ctx, group: THREE.Group): void {
   g.fillRect(0, 0, 128, 128);
   const poolT = new THREE.CanvasTexture(c);
   poolT.colorSpace = THREE.SRGBColorSpace;
-  const poolM = new THREE.MeshBasicMaterial({ map: poolT, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4, fog: true });
+  const poolM = new THREE.MeshBasicMaterial({ map: poolT, transparent: true, depthWrite: false, opacity: 0, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4, fog: true });
+  // additive colour, but keep the destination alpha: the wet-road shader stores its reflection flag there
+  poolM.blending = THREE.CustomBlending;
+  poolM.blendEquation = THREE.AddEquation;
+  poolM.blendSrc = THREE.SrcAlphaFactor;
+  poolM.blendDst = THREE.OneFactor;
+  poolM.blendSrcAlpha = THREE.ZeroFactor;
+  poolM.blendDstAlpha = THREE.OneFactor;
   const pools = new THREE.InstancedMesh(poolG, poolM, list.length);
   list.forEach((l, i) => {
     const px = l.x - l.ox * 7.5;
@@ -634,7 +650,9 @@ function buildLamps(ctx: Ctx, group: THREE.Group): void {
   group.add(pools);
   ctx.disposables.push(poolG, poolT, poolM);
   ctx.envListeners.push((env: EnvironmentState) => {
-    poolM.opacity = 0.75 * Math.max(0, env.darkness - 0.25) / 0.75;
+    // in the rain the lamps stay quiet until it is really dark (a storm at noon only switches them on)
+    // (a wet road is lit by the lamps themselves in its shader, with reflections: no painted pools there)
+    poolM.opacity = env.wetness > 0 ? 0 : (0.75 * Math.max(0, env.darkness - 0.25)) / 0.75;
     pools.visible = poolM.opacity > 0.01;
   });
 }

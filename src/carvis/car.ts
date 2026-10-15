@@ -8,7 +8,11 @@
  *   LOD2  AI, far           : ~5k-triangle baked-colour body + 4 dark tyres
  */
 import {
-  AdditiveBlending,
+  AddEquation,
+  CustomBlending,
+  OneFactor,
+  SrcAlphaFactor,
+  ZeroFactor,
   Box3,
   BufferAttribute,
   BufferGeometry,
@@ -236,6 +240,8 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
   }
 
   const farMat = createFarMaterial(U);
+  let farBaseRough = farMat.roughness;
+  let lastWet = 0;
 
   const interiorMat = createInteriorMaterial();
   const IU = interiorMat.uniforms;
@@ -249,7 +255,8 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
     U.uFinish.value = l.finish;
     curLivery = l;
     textures = paintLivery(l, layout.livery, tier, textures);
-    farMat.roughness = 0.3 + 0.5 * l.finish;
+    farBaseRough = 0.3 + 0.5 * l.finish;
+    farMat.roughness = farBaseRough * (1 - 0.5 * lastWet);
     IU.uAccent.value.set(l.accent);
     IU.uPrimary.value.set(l.primary);
   };
@@ -373,10 +380,15 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
     root.add(sp, sp.target);
     spots.push(sp);
   }
-  const glow = new Mesh(
-    new PlaneGeometry(1, 1),
-    new MeshBasicMaterial({ map: groundGlowTexture(), color: 0xfff0d6, transparent: true, blending: AdditiveBlending, depthWrite: false, opacity: 0 }),
-  );
+  // additive colour, but keep the destination alpha: the wet-road shader stores its reflection flag there
+  const glowMat = new MeshBasicMaterial({ map: groundGlowTexture(), color: 0xfff0d6, transparent: true, depthWrite: false, opacity: 0 });
+  glowMat.blending = CustomBlending;
+  glowMat.blendEquation = AddEquation;
+  glowMat.blendSrc = SrcAlphaFactor;
+  glowMat.blendDst = OneFactor;
+  glowMat.blendSrcAlpha = ZeroFactor;
+  glowMat.blendDstAlpha = OneFactor;
+  const glow = new Mesh(new PlaneGeometry(1, 1), glowMat);
   glow.rotation.x = -Math.PI / 2;
   glow.scale.set(6.5, 15, 1);
   glow.position.set(0, 0.05, layout.zNose + 7.2);
@@ -496,6 +508,19 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
         cl.set(Math.min(1, Math.max(0, state.rpm / span)), state.gear, state.speed * 3.6, state.revLimiter ? 1 : 0);
       }
 
+      // rain: wet paint (shader), a glossier and darker far LOD, shinier tyres
+      // (and a soft window light in the cabin: under a rain deck there is no sun on the dash and wheel, and the
+      // interior would fall to pure black)
+      IU.uFill.value = 0.05 * Math.min(1, env.rain * 1.5) * (1 - env.darkness);
+      U.uWet.value = env.wetness;
+      U.uSpd.value = state.speed;
+      if (env.wetness !== lastWet) {
+        lastWet = env.wetness;
+        farMat.roughness = farBaseRough * (1 - 0.5 * lastWet);
+        farMat.color.setScalar(1 - 0.14 * lastWet);
+        WU.uWet.value = lastWet;
+      }
+
       // lights
       const dark = env.darkness;
       const head = Math.min(1, Math.max(0, (dark - 0.25) / 0.35));
@@ -512,7 +537,8 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
       if (spotsOn) for (const s of spots) s.intensity = CARVIS_TUNING.headlightIntensity * head;
       const showGlow = !playerMode && head > 0.02;
       glow.visible = showGlow;
-      if (showGlow) (glow.material as MeshBasicMaterial).opacity = head * 0.8;
+      // (on a wet road the lamps' light skids away as reflection instead of pooling: a much fainter decal)
+      if (showGlow) (glow.material as MeshBasicMaterial).opacity = head * 0.8 * (1 - 0.7 * env.wetness);
       root.updateMatrixWorld(true);
     },
     setLivery(l: Livery): void {

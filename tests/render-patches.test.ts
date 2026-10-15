@@ -44,7 +44,7 @@ describe('three.js shader patches', () => {
     }
     expect(lib.basic.uniforms.xrFog).toBe(xrFogUniform);
     expect(xrCsmUniform.value.length).toBe(MAX_CASCADES * 4);
-    expect(xrFogUniform.value.length).toBe(9 * 4);
+    expect(xrFogUniform.value.length).toBe(10 * 4);
   });
 
   it('keeps braces out of the unrolled directional loop body (three unrolls it with a regex)', () => {
@@ -55,5 +55,22 @@ describe('three.js shader patches', () => {
     const body = src.slice(start, end);
     const inner = body.slice(body.indexOf('{') + 1, body.lastIndexOf('}'));
     expect(inner.includes('{') || inner.includes('}')).toBe(false);
+  });
+});
+
+describe('rain haze in the fog patch', () => {
+  it('adds the Beer-Lambert term through xrFog[0].z, which is 0 when dry', () => {
+    installShaderPatches();
+    expect(chunks().fog_fragment).toContain('xrFog[ 0 ].z * vFogDepth');
+    // the exp2 term is untouched: with the new term at 0 the factor is exactly the stock one
+    expect(chunks().fog_fragment).toContain('fogDensity * fogDensity * vFogDepth * vFogDepth');
+  });
+
+  it('fades far scenery into the rain deck by elevation, only when the deck mode (xrFog[0].w = 2) is on', () => {
+    installShaderPatches();
+    const pars = chunks().fog_pars_fragment;
+    expect(pars).toContain('uniform vec4 xrFog[ 10 ]');
+    expect(pars).toContain('xrFog[ 0 ].w > 1.5');
+    expect(pars).toContain('xrFog[ 9 ].rgb');
   });
 });

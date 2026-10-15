@@ -9,3 +9,6 @@
 export { createCameraRig } from './cameraRig';
 export { createEffects } from './effects';
 export { createRenderSystem } from './renderSystem';
+export { lightningStrength } from './environment';
+// the render system with the extras the base contract does not list: lightning(), precompile(), stats, debug hooks
+export type { XenoRenderSystem } from './renderSystem';

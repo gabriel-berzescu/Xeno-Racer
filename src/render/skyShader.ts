@@ -44,6 +44,16 @@ uniform float uMoonVis;
 uniform vec3 uTrueSunDir;
 uniform vec3 uMoonLight;
 uniform float uQuality;
+uniform float uDeck;      // 1 under a rain-bearing deck (replaces cumulus, sun, stars), 0 for the dry skies
+uniform float uDeckDark;
+uniform float uScud;
+uniform vec3 uDeckLo;     // pale haze toward the horizon
+uniform vec3 uDeckHi;     // the thick, darker underside overhead
+uniform vec3 uGlow;       // warm chroma of a low sun / the moon, under the deck
+uniform vec3 uFogTab[8];  // horizon haze by azimuth relative to the sun (the table the fog uses)
+uniform float uFlash;     // storm sheet lightning, 0..1 (see RenderSystem.lightning)
+uniform vec3 uFlashAdd;   // radiance the flash adds to the deck (scaled so it reads the same at noon and at night)
+uniform vec2 uFlashDir;   // horizontal direction of the strike
 varying vec3 vDir;
 
 const float PI = 3.14159265359;
@@ -134,6 +144,71 @@ vec4 cirrus(vec3 d, float mu) {
   return vec4(col, a);
 }
 
+// ---- rain deck -------------------------------------------------------------------------------
+// A solid nimbostratus ceiling: pale milky haze at the horizon (exactly the fog that distant scenery dissolves
+// into, so hills melt into the sky), growing thick and dark overhead, with soft low-contrast mottling, ragged
+// scud underneath and a faint warm band where a low sun sits behind it.
+vec3 deckHaze(vec3 d) {
+  float hl = length(d.xz);
+  vec2 hn = hl > 1e-4 ? d.xz / hl : vec2(1.0, 0.0);
+  float cr = abs(hn.x * uSunAz.y - hn.y * uSunAz.x);
+  float phi = atan(cr, dot(hn, uSunAz));
+  float t = sqrt(phi / PI) * 7.0;
+  int i = clamp(int(floor(t)), 0, 6);
+  return mix(uFogTab[i], uFogTab[i + 1], clamp(t - float(i), 0.0, 1.0));
+}
+
+vec3 rainSky(vec3 d, float mu) {
+  float y = max(d.y, 0.0);
+  // the deck hangs low: it is projected onto a plane close to the observer so the horizon compresses it
+  vec2 uv = d.xz / (y + 0.17);
+  vec2 w = uWind * uTime * 1.5;
+  float a = texture2D(uNoise, uv * 0.06 + w * 0.4).r;
+  float b = texture2D(uNoise, uv * 0.21 + w * 0.7 + vec2(0.37, 0.11)).g;
+  float c = texture2D(uNoise, uv * 0.85 - w * 0.5 + vec2(0.71, 0.53)).a;
+  float dens = a * 0.5 + b * 0.32 + c * 0.18;
+
+  vec3 haze = deckHaze(d);
+  // the haze keeps the warmth of a low sun right at the horizon only; higher up it turns a neutral cool grey
+  float hzl = dot(haze, vec3(0.299, 0.587, 0.114));
+  haze = mix(haze, hzl * vec3(0.96, 1.0, 1.05), 0.8 * smoothstep(0.02, 0.35, y));
+  // vertical gradient haze -> thick deck; the darkening starts a few degrees up so the hills dissolve first and
+  // stays slow enough that far mountain tops (10-20 degrees up) still melt into the sky instead of cutting out
+  float grad = smoothstep(0.015, 0.8, y);
+  vec3 col = mix(haze, uDeckHi, grad);
+  // mottling: lighter where the deck thins, darker in the thick patches (fades out toward the haze)
+  float mott = (dens - 0.46) * (0.9 + 0.7 * uDeckDark) * smoothstep(0.03, 0.32, y);
+  col *= 1.0 + mott;
+  col = mix(col, max(col, uDeckLo * 0.8), smoothstep(0.55, 0.9, b) * 0.35 * smoothstep(0.06, 0.4, y));
+
+  // ragged scud under the deck: dark torn fragments that make the ceiling feel low
+  if (uScud > 0.01) {
+    vec2 uv2 = d.xz / (y + 0.055);
+    vec2 w2 = uWind * uTime * 3.0;
+    float s1 = texture2D(uNoise, uv2 * 0.32 + w2 * 0.5 + vec2(0.2, 0.6)).b;
+    float s2 = texture2D(uNoise, uv2 * 1.05 - w2 * 0.9 + vec2(0.9, 0.1)).g;
+    float sd = s1 * 0.65 + s2 * 0.35;
+    float m = smoothstep(0.56 - 0.12 * uScud, 0.88, sd) * smoothstep(0.02, 0.12, y) * (1.0 - smoothstep(0.3, 0.62, y));
+    col = mix(col, uDeckHi * (0.85 - 0.25 * uDeckDark), m * (0.3 + 0.45 * uScud));
+  }
+
+  // faint warm band beside a low sun
+  if (dot(uGlow, uGlow) > 1e-10 && d.y > -0.05) {
+    float hl = length(d.xz);
+    float az = hl > 1e-4 ? dot(d.xz / hl, uSunAz) : 1.0;
+    col += uGlow * exp(-y * 9.0) * (0.25 + 0.75 * pow(max(az, 0.0), 3.0));
+  }
+  return max(col, vec3(0.0));
+}
+
+// the moon glowing through the deck (no disc, no stars)
+vec3 moonThroughDeck(vec3 d) {
+  float sinT = length(cross(d, uMoonDir));
+  float mu = dot(d, uMoonDir);
+  float k = step(0.0, mu);
+  return uMoonLight * (0.05 * exp(-sinT / 0.045) + 0.02 * exp(-sinT / 0.3)) * k * uMoonVis;
+}
+
 // ---- night sky -------------------------------------------------------------------------------
 vec3 stars(vec3 d) {
   vec3 p = d * 190.0;
@@ -192,6 +267,21 @@ vec3 moon(vec3 d, float vis) {
 void main() {
   vec3 d = normalize(vDir);
   float mu = dot(d, uSunDir);
+
+  if (uDeck > 0.5) {
+    vec3 sky = rainSky(d, mu);
+    if (uMoonVis > 0.01) sky += moonThroughDeck(d);
+    // storm lightning lights the cloud from within: a lobe toward the strike, plus a general brightening
+    if (uFlash > 0.001) {
+      float hl = length(d.xz);
+      float lobe = 0.4 + 0.6 * pow(clamp(hl > 1e-4 ? dot(d.xz / hl, uFlashDir) : 1.0, 0.0, 1.0), 3.0);
+      sky *= 1.0 + uFlash * (1.0 + 1.6 * smoothstep(0.1, 0.8, d.y)) * lobe;
+      sky += uFlashAdd * lobe * (0.3 + 0.7 * smoothstep(0.0, 0.5, d.y));
+    }
+    sky = mix(sky, uGround, smoothstep(0.012, -0.045, d.y));
+    gl_FragColor = vec4(sky, 1.0);
+    return;
+  }
 
   vec3 col = atmosphere(d);
 

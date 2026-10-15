@@ -23,7 +23,7 @@ import {
   type Camera,
   type Scene,
 } from 'three';
-import type { CarDefinition, QualityLevel, SurfaceType, TrackRuntime, VehicleState } from '../core/contracts';
+import type { CarDefinition, EnvironmentState, QualityLevel, SurfaceType, TrackPoint, TrackRuntime, VehicleState } from '../core/contracts';
 import type { EffectsSystem, RenderSystem } from '../core/systems';
 import { makeSmokeAtlas } from './noise';
 import { particleUniforms } from './post';
@@ -37,6 +37,7 @@ import {
   glowFragment,
   glowVertex,
   particleCommon,
+  mistFragment,
   puffFragment,
   puffVertex,
   sparkFragment,
@@ -44,6 +45,9 @@ import {
 } from './fx/particleShaders';
 import { ChipPool, FlamePool, GlowPool, makePuffSpec, PuffPool, rg, rnd, rr, SparkPool } from './fx/pools';
 import { makeTrail, SkidMarks, type SkidTrail } from './fx/skidmarks';
+import { BeamField, HaloField } from './wet/beams';
+import { LightCollector, lightUniforms } from './wet/lights';
+import { RainField } from './wet/rain';
 
 interface QualityCaps {
   puffs: number;
@@ -54,13 +58,19 @@ interface QualityCaps {
   skid: number;
   emit: number;
   sort: boolean;
+  /** Rain streak instances at full intensity. */
+  rain: number;
+  /** Spray (mist puffs, water droplet streaks) pool sizes and emission scale. */
+  mist: number;
+  drops: number;
+  spray: number;
 }
 
 const CAPS: Record<QualityLevel, QualityCaps> = {
-  low: { puffs: 420, sparks: 140, chips: 60, flames: 24, glows: 24, skid: 6000, emit: 0.55, sort: false },
-  medium: { puffs: 800, sparks: 300, chips: 120, flames: 32, glows: 32, skid: 10000, emit: 0.78, sort: true },
-  high: { puffs: 1500, sparks: 600, chips: 240, flames: 48, glows: 48, skid: 15000, emit: 1.0, sort: true },
-  ultra: { puffs: 2400, sparks: 900, chips: 360, flames: 64, glows: 64, skid: 20000, emit: 1.2, sort: true },
+  low: { puffs: 420, sparks: 140, chips: 60, flames: 24, glows: 24, skid: 6000, emit: 0.55, sort: false, rain: 5000, mist: 350, drops: 120, spray: 0.5 },
+  medium: { puffs: 800, sparks: 300, chips: 120, flames: 32, glows: 32, skid: 10000, emit: 0.78, sort: true, rain: 12000, mist: 700, drops: 260, spray: 0.75 },
+  high: { puffs: 1500, sparks: 600, chips: 240, flames: 48, glows: 48, skid: 15000, emit: 1.0, sort: true, rain: 22000, mist: 1300, drops: 520, spray: 1.0 },
+  ultra: { puffs: 2400, sparks: 900, chips: 360, flames: 64, glows: 64, skid: 20000, emit: 1.2, sort: true, rain: 34000, mist: 2000, drops: 800, spray: 1.25 },
 };
 
 const MAX_CARS = 16;
@@ -78,6 +88,12 @@ interface CarFx {
   smokeAcc: number[];
   dustAcc: number[];
   chipAcc: number[];
+  mistAcc: number[];
+  dropAcc: number[];
+  /** 0..1: how much of a tunnel is over the car this frame (the road there is dry). */
+  dry: number;
+  /** Track projection hint for the tunnel test. */
+  hint: number;
   sparkAcc: number;
   prev: Float32Array; // previous contact points (4 x 3)
   hasPrev: boolean[];
@@ -154,7 +170,7 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
     fog: false,
   };
   const U = particleUniforms;
-  const shared = { uDepth: U.uDepth, uHasDepth: U.uHasDepth, uResolution: U.uResolution, uNearFar: U.uNearFar, uSunDir: U.uSunDir, uSunLight: U.uSunLight, uSkyAmb: U.uSkyAmb, uGroundAmb: U.uGroundAmb, uFogColor: U.uFogColor, uFogDensity: U.uFogDensity };
+  const shared = { uDepth: U.uDepth, uHasDepth: U.uHasDepth, uResolution: U.uResolution, uNearFar: U.uNearFar, uSunDir: U.uSunDir, uSunLight: U.uSunLight, uSkyAmb: U.uSkyAmb, uGroundAmb: U.uGroundAmb, uFogColor: U.uFogColor, uFogDensity: U.uFogDensity, uFogLin: U.uFogLin };
 
   const puffMat = new ShaderMaterial({
     ...baseMat,
@@ -217,12 +233,66 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
     blending: NormalBlending,
   });
 
+  // spray: soft white mist (lit by the light list) and flying water droplets, both blended "over"
+  const sprayBlend = {
+    blending: CustomBlending,
+    blendEquation: AddEquation,
+    blendSrc: OneFactor,
+    blendDst: OneMinusSrcAlphaFactor,
+    blendSrcAlpha: OneFactor,
+    blendDstAlpha: OneMinusSrcAlphaFactor,
+  };
+  const mistMat = new ShaderMaterial({
+    ...baseMat,
+    ...sprayBlend,
+    name: 'xr.fx.mist',
+    defines: { LIT: '' },
+    uniforms: { ...shared, ...lightUniforms, uAtlas: { value: atlas }, uSoftness: { value: 1.1 } },
+    vertexShader: puffVertex,
+    fragmentShader: particleCommon + mistFragment,
+  });
+  const dropMat = new ShaderMaterial({
+    ...baseMat,
+    ...sprayBlend,
+    name: 'xr.fx.drops',
+    defines: { DROP: '' },
+    uniforms: { ...shared, ...lightUniforms },
+    vertexShader: sparkVertex,
+    fragmentShader: particleCommon + sparkFragment,
+  });
+
   const puffs = new PuffPool(caps.puffs, puffMat, caps.sort);
+  const mist = new PuffPool(caps.mist, mistMat, caps.sort);
+  const drops = new SparkPool(caps.drops, dropMat);
   const sparks = new SparkPool(caps.sparks, sparkMat);
   const flames = new FlamePool(caps.flames, flameMat);
   const chips = new ChipPool(caps.chips, chipMat);
   const glows = new GlowPool(caps.glows, glowMat);
-  parent.add(puffs.mesh, chips.mesh, flames.mesh, sparks.mesh, glows.mesh);
+  parent.add(puffs.mesh, chips.mesh, flames.mesh, sparks.mesh, glows.mesh, mist.mesh, drops.mesh);
+  mist.mesh.renderOrder = 1;
+  mist.mesh.name = 'xr.fx.mist';
+  drops.mesh.renderOrder = 4;
+  drops.mesh.name = 'xr.fx.drops';
+
+  // ── weather ──
+  const rain = new RainField(caps.rain);
+  parent.add(rain.mesh);
+  const lights = new LightCollector();
+  // headlight beams and lamp halos in the rain (the lowest tier skips them)
+  const beams = quality === 'low' ? null : new BeamField();
+  const halos = quality === 'low' ? null : new HaloField();
+  if (beams) parent.add(beams.mesh);
+  if (halos) parent.add(halos.mesh);
+  const envState = (): EnvironmentState | undefined => (xr as { env?: EnvironmentState }).env;
+  const tunnelSpans = ((track as unknown as { tunnelSpans?: [number, number][] }).tunnelSpans ?? []).slice();
+  const tp: TrackPoint = { s: 0, d: 0, segment: 0, widthLeft: 0, widthRight: 0, wallLeft: 0, wallRight: 0, tx: 0, tz: 1, lx: 1, lz: 0, y: 0 };
+  let tpHint = -1;
+  const camPrev = new Vector3();
+  const camVel = new Vector3();
+  let camHave = false;
+  /** Lamp-head positions published by the track scene (userData.xrLamps), found lazily. */
+  let lamps: Float32Array | null = null;
+  let lampsSearched = false;
 
   const skid = new SkidMarks(caps.skid);
   mainScene.add(skid.mesh);
@@ -346,8 +416,8 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
       sp.r0 = 0.32;
       sp.r1 = rr(0.8, 1.3) + amt * 0.5;
       sp.life = rr(0.8, 1.5);
-      sp.alpha = look.dustAlpha * rr(0.6, 1.0) * (0.4 + 0.6 * Math.min(1, amt));
-      const t = rr(0.92, 1.08);
+      sp.alpha = look.dustAlpha * rr(0.6, 1.0) * (0.4 + 0.6 * Math.min(1, amt)) * (1 - 0.85 * wetNow);
+      const t = rr(0.92, 1.08) * (1 - 0.3 * wetNow);
       sp.cr = look.r * t; sp.cg = look.g * t; sp.cb = look.b * t;
       sp.rotVel = 0.4;
       sp.drag = 1.7;
@@ -515,6 +585,113 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
     );
   }
 
+  // ── spray ──
+
+  /** Weather as seen by this frame's emitters. */
+  let wetNow = 0;
+
+  /**
+   * Water thrown by a wheel on a wet surface. `k` 0..1 = wetness x how hard the tyre works the water.
+   * Three layers: a lingering white mist (the plume you drive into when following a car), a denser, shorter
+   * rooster tail from the rear wheels, and flying droplet streaks (rear tails, front side splash).
+   */
+  function emitSpray(rec: CarFx, s: VehicleState, i: number, k: number, dt: number): void {
+    const vx = s.velocity.x, vz = s.velocity.z;
+    const v = Math.hypot(vx, vz);
+    if (v < 4) return;
+    const dcam = Math.hypot(s.position.x - _posCam.x, s.position.z - _posCam.z);
+    if (dcam > 240) return;
+    const amt = Math.min(1.2, k) * Math.pow(smooth(5, 75, v), 1.1);
+    if (amt < 0.02) return;
+    // far cars get fewer, bigger puffs
+    const lod = clamp(1.25 - dcam / 150, 0.2, 1);
+    const w = s.wheels[i];
+    const rear = i >= 2;
+    const cp = w.contactPoint;
+    const ox = rec.prev[i * 3], oy = rec.prev[i * 3 + 1], oz = rec.prev[i * 3 + 2];
+    const havePrev = rec.hasPrev[i];
+    _v1.set(1, 0, 0).applyQuaternion(s.quaternion);
+    const lx = _v1.x, lz = _v1.z;
+    const side = i % 2 === 0 ? 1 : -1;
+    const gy = cp.y;
+
+    // lingering mist
+    let acc = rec.mistAcc[i] + (rear ? 170 : 46) * amt * caps.spray * lod * dt;
+    let n = Math.floor(acc);
+    rec.mistAcc[i] = acc - n;
+    if (n > 10) n = 10;
+    for (let j = 0; j < n; j++) {
+      const f = (j + rnd()) / n;
+      const px = havePrev ? ox + (cp.x - ox) * f : cp.x;
+      const py = havePrev ? oy + (cp.y - oy) * f : cp.y;
+      const pz = havePrev ? oz + (cp.z - oz) * f : cp.z;
+      const sp = _spec;
+      sp.x = px + rg() * 0.3 + lx * side * (rear ? 0 : 0.25);
+      sp.y = py + 0.12 + rnd() * 0.3;
+      sp.z = pz + rg() * 0.3 + lz * side * (rear ? 0 : 0.25);
+      sp.vx = vx * 0.5 + rg() * 1.5 + lx * side * (rear ? 0.6 : 2.2) * amt;
+      sp.vy = rr(0.7, 1.9) + 2.4 * amt;
+      sp.vz = vz * 0.5 + rg() * 1.5 + lz * side * (rear ? 0.6 : 2.2) * amt;
+      sp.r0 = rr(0.18, 0.3);
+      sp.r1 = rr(1.0, 1.9) * (0.7 + 0.5 * amt) * (1.15 - 0.3 * lod);
+      sp.life = rr(1.0, 2.2) * (0.7 + 0.5 * amt);
+      sp.alpha = (0.11 + 0.13 * amt) * rr(0.8, 1.2);
+      const g = rr(0.9, 0.97);
+      sp.cr = g; sp.cg = g * 1.01; sp.cb = g * 1.03;
+      sp.rotVel = 0.22;
+      sp.drag = 1.5;
+      sp.buoy = 0.85;
+      sp.wind = 1;
+      mist.spawn(sp);
+    }
+
+    // the rooster tail: denser and whiter close to the wheel, gone within a second
+    if (rear && amt > 0.3) {
+      acc = rec.dropAcc[i] + 75 * amt * caps.spray * lod * dt;
+      n = Math.floor(acc);
+      rec.dropAcc[i] = acc - n;
+      if (n > 4) n = 4;
+      for (let j = 0; j < n; j++) {
+        const f = (j + rnd()) / n;
+        const px = havePrev ? ox + (cp.x - ox) * f : cp.x;
+        const py = havePrev ? oy + (cp.y - oy) * f : cp.y;
+        const pz = havePrev ? oz + (cp.z - oz) * f : cp.z;
+        const sp = _spec;
+        sp.x = px + rg() * 0.15; sp.y = py + 0.18 + rnd() * 0.25; sp.z = pz + rg() * 0.15;
+        sp.vx = vx * 0.82 + rg() * 1.0;
+        sp.vy = rr(2.0, 4.2) * (0.5 + amt);
+        sp.vz = vz * 0.82 + rg() * 1.0;
+        sp.r0 = rr(0.2, 0.32);
+        sp.r1 = rr(0.7, 1.2);
+        sp.life = rr(0.45, 0.85);
+        sp.alpha = (0.12 + 0.1 * amt) * rr(0.8, 1.15);
+        sp.cr = 0.96; sp.cg = 0.97; sp.cb = 0.99;
+        sp.rotVel = 0.3;
+        sp.drag = 1.3;
+        sp.buoy = 0.2;
+        sp.wind = 0.8;
+        mist.spawn(sp);
+      }
+    }
+
+    // droplet streaks
+    const dr = (rear ? 85 : 38) * amt * caps.spray * lod;
+    let dn = Math.floor(dr * dt + rnd());
+    if (dn > 5) dn = 5;
+    for (let j = 0; j < dn; j++) {
+      const f = rnd();
+      const px = havePrev ? ox + (cp.x - ox) * f : cp.x;
+      const py = havePrev ? oy + (cp.y - oy) * f : cp.y;
+      const pz = havePrev ? oz + (cp.z - oz) * f : cp.z;
+      const lat = rear ? rg() * 1.6 : side * rr(2.0, 5.5) * (0.4 + 0.6 * amt);
+      drops.spawn(
+        px + rg() * 0.2, py + 0.1 + rnd() * 0.15, pz + rg() * 0.2,
+        vx * (rear ? 0.3 : 0.45) + rg() * 2.2 + lx * lat, rr(1.4, 4.2) + 3.0 * amt, vz * (rear ? 0.3 : 0.45) + rg() * 2.2 + lz * lat,
+        rr(0.25, 0.55), rr(0.012, 0.02), rr(0.7, 1.1), gy,
+      );
+    }
+  }
+
   function updateCar(rec: CarFx, s: VehicleState, dt: number): void {
     const gy = groundYOf(s);
     if (rec.first) {
@@ -533,15 +710,19 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
 
       if (w.contact) {
         if (hard) {
-          const amt = smooth(0.17, 0.95, w.skid) * (0.55 + 0.45 * smooth(50, 100, w.tempC));
-          if (w.skid > 0.2) {
-            const a = smooth(0.2, 0.9, w.skid) * look.trAlpha;
+          // a wet road: water cools the tyre and rinses the rubber off, so no smoke and no marks; spray instead
+          const wetK = wetNow * (1 - rec.dry);
+          const noSmoke = smooth(0.04, 0.3, wetK);
+          const amt = smooth(0.17, 0.95, w.skid) * (0.55 + 0.45 * smooth(50, 100, w.tempC)) * (1 - noSmoke);
+          if (w.skid > 0.2 && noSmoke < 0.5) {
+            const a = smooth(0.2, 0.9, w.skid) * look.trAlpha * (1 - noSmoke);
             skid.addPoint(trail, cp.x, cp.y, cp.z, w.contactNormal.x, w.contactNormal.y, w.contactNormal.z, w.width * 0.9, look.tr, look.tg, look.tb, a);
           } else if (trail.active) {
             if (trail.hasEdges) skid.addPoint(trail, cp.x, cp.y, cp.z, w.contactNormal.x, w.contactNormal.y, w.contactNormal.z, w.width * 0.9, look.tr, look.tg, look.tb, 0);
             skid.endTrail(trail);
           }
           if (amt > 0.02) emitSmoke(rec, s, i, amt, dt);
+          if (wetK > 0.04) emitSpray(rec, s, i, wetK + 0.5 * wetK * smooth(0.2, 0.9, w.skid), dt);
         } else {
           // soft surfaces: faint tracks whenever the car is moving, dust + chips by speed
           if (speed > 3 && (w.skid > 0.12 || speed > 9)) {
@@ -555,6 +736,8 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
             const amt = clamp(speed / 30, 0, 1) * look.dust * (0.22 + 0.78 * clamp(w.skid + 2 * Math.abs(w.slipRatio) + 2 * Math.abs(w.slipAngle), 0, 1));
             if (amt > 0.02) emitDust(rec, s, i, look, amt, dt);
             if (look.chips > 0 && amt > 0.1) emitChips(rec, s, i, look, amt, dt, gy);
+            // soaked grass and earth throw a little muddy water at speed
+            if (wetNow > 0.1 && w.surface !== 'gravel') emitSpray(rec, s, i, wetNow * 0.32 * clamp(speed / 35, 0, 1), dt);
           }
         }
         rec.prev[i * 3] = cp.x; rec.prev[i * 3 + 1] = cp.y; rec.prev[i * 3 + 2] = cp.z;
@@ -579,6 +762,113 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
     updateBlob(rec, s);
   }
 
+  /** 0..1: how much roof (a tunnel) is over a point; the rain stops under it. */
+  function shelterAt(x: number, y: number, z: number): number {
+    if (tunnelSpans.length === 0) return 0;
+    tpHint = track.project(x, z, tp, tpHint);
+    if (Math.abs(tp.d) > Math.max(tp.wallLeft, tp.wallRight) + 1 || y - tp.y > 7) return 0;
+    let k = 0;
+    for (const [s0, s1] of tunnelSpans) {
+      const inside = smooth(s0 - 2, s0 + 5, tp.s) * (1 - smooth(s1 - 5, s1 + 2, tp.s));
+      if (inside > k) k = inside;
+    }
+    return k;
+  }
+
+  /** Like shelterAt, with the car's own track-projection hint. */
+  function shelterOf(rec: CarFx, x: number, y: number, z: number): number {
+    rec.hint = track.project(x, z, tp, rec.hint);
+    if (Math.abs(tp.d) > Math.max(tp.wallLeft, tp.wallRight) + 1 || y - tp.y > 7) return 0;
+    let k = 0;
+    for (const [s0, s1] of tunnelSpans) {
+      const inside = smooth(s0 - 2, s0 + 5, tp.s) * (1 - smooth(s1 - 5, s1 + 2, tp.s));
+      if (inside > k) k = inside;
+    }
+    return k;
+  }
+
+  /** Camera velocity (smoothed, hard cuts ignored), rain streaks and the light list. */
+  function updateWeather(dt: number, cars: readonly VehicleState[], camera: Camera): void {
+    const env = envState();
+    camera.getWorldPosition(_posCam);
+    camera.getWorldDirection(_fwdCam);
+    if (camHave) {
+      const dx = _posCam.x - camPrev.x, dy = _posCam.y - camPrev.y, dz = _posCam.z - camPrev.z;
+      const jump = Math.hypot(dx, dy, dz);
+      // a TV camera cut or a car reset teleports the camera: keep the old velocity for that frame
+      if (jump < 40 * dt + 1.5) {
+        const k = 1 - Math.exp(-dt / 0.035);
+        camVel.x += (dx / dt - camVel.x) * k;
+        camVel.y += (dy / dt - camVel.y) * k;
+        camVel.z += (dz / dt - camVel.z) * k;
+      }
+    }
+    camPrev.copy(_posCam);
+    camHave = true;
+    const rainK = env ? env.rain : 0;
+    if (rainK <= 0) {
+      rain.update(dt, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0);
+      if (beams) beams.mesh.visible = false;
+      if (halos) halos.mesh.visible = false;
+      return;
+    }
+    const windK = 1 + 1.6 * rainK * rainK;
+    const shelter = shelterAt(_posCam.x, _posCam.y, _posCam.z);
+    rain.update(dt, _posCam.x, _posCam.y, _posCam.z, _fwdCam.x, _fwdCam.z, camVel.x, camVel.y, camVel.z, rainK, windX * windK, windZ * windK, shelter, env ? env.darkness : 0);
+    collectLights(cars, env ? env.darkness : 0, rainK * (1 - shelter));
+  }
+
+  /** Headlight cones and tail / brake lights of every car, nearest to the camera first (see wet/lights.ts). */
+  function collectLights(cars: readonly VehicleState[], darkness: number, rainK: number): void {
+    lights.begin();
+    if (beams) beams.begin();
+    if (halos) halos.begin();
+    const head = clamp((darkness - 0.25) / 0.35, 0, 1);
+    for (let i = 0; i < cars.length; i++) {
+      const s = cars[i];
+      const rec = records.get(s.id);
+      if (!rec) continue;
+      const v = rec.def.visual;
+      const q = s.quaternion;
+      _v1.set(0, v.cgHeight, v.cgToFrontAxle - v.wheelbase / 2).applyQuaternion(q);
+      const ox = s.position.x - _v1.x, oy = s.position.y - _v1.y, oz = s.position.z - _v1.z;
+      _v3.set(0, 0, 1).applyQuaternion(q);
+      const fx = _v3.x, fy = _v3.y, fz = _v3.z;
+      const zNose = v.wheelbase / 2 + v.frontOverhang;
+      const zTail = -(v.wheelbase / 2 + (v.length - v.wheelbase - v.frontOverhang));
+      if (head > 0.02) {
+        _v2.set(0, 0.62, zNose - 0.3).applyQuaternion(q);
+        const k = 1.1 * head;
+        lights.add(ox + _v2.x, oy + _v2.y, oz + _v2.z, 48, k, k * 0.93, k * 0.8, fx, fy, fz, 0.82, 0.14);
+        // the beam itself: rain makes it a hazy cone
+        if (beams && rainK > 0.02) beams.add(ox + _v2.x, oy + _v2.y, oz + _v2.z, fx, fy - 0.05, fz, 30, head * (0.006 + 0.02 * rainK));
+      }
+      // tail lights: a dim red glow while the lamps are on, flaring on the brakes
+      const tail = 0.1 * head + (s.brake > 0.05 ? 0.55 : 0);
+      _v2.set(0, 0.8, zTail + 0.05).applyQuaternion(q);
+      if (tail > 0.01) lights.add(ox + _v2.x, oy + _v2.y, oz + _v2.z, s.brake > 0.05 ? 13 : 9, tail, tail * 0.06, tail * 0.04, -fx, -fy, -fz, 0.25, 0.4);
+    }
+    // street lamps (the track scene publishes their heads in userData.xrLamps)
+    if (!lampsSearched) {
+      lampsSearched = true;
+      mainScene.traverse((o) => {
+        if (!lamps && o.userData && o.userData.xrLamps) lamps = o.userData.xrLamps as Float32Array;
+      });
+    }
+    if (lamps && darkness > 0.45) {
+      const k = clamp((darkness - 0.45) / 0.4, 0, 1);
+      for (let i = 0; i < lamps.length; i += 3) {
+        const dx = lamps[i] - _posCam.x, dz = lamps[i + 2] - _posCam.z;
+        if (dx * dx + dz * dz > 90 * 90) continue;
+        lights.add(lamps[i], lamps[i + 1], lamps[i + 2], 30, 1.9 * k, 1.6 * k, 1.2 * k, 0, -1, 0, -0.35, 0.6);
+        if (halos && rainK > 0.02) halos.add(lamps[i], lamps[i + 1], lamps[i + 2], 1.7 + 0.8 * rainK, k * (0.2 + 0.5 * rainK));
+      }
+    }
+    if (beams) beams.end();
+    if (halos) halos.end();
+    lights.commit(_posCam.x, _posCam.y, _posCam.z);
+  }
+
   // ── public API ──
 
   const api: EffectsSystem = {
@@ -592,6 +882,10 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
         smokeAcc: [0, 0, 0, 0],
         dustAcc: [0, 0, 0, 0],
         chipAcc: [0, 0, 0, 0],
+        mistAcc: [0, 0, 0, 0],
+        dropAcc: [0, 0, 0, 0],
+        dry: 0,
+        hint: -1,
         sparkAcc: 0,
         prev: new Float32Array(12),
         hasPrev: [false, false, false, false],
@@ -617,22 +911,33 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
       windX = 1.2 + Math.sin(clock * 0.13) * 0.5;
       windZ = 0.55 + Math.cos(clock * 0.11) * 0.4;
 
+      camera.getWorldPosition(_posCam);
+      camera.getWorldDirection(_fwdCam);
+      const env = envState();
+      wetNow = env ? env.wetness : 0;
       skid.beginFrame();
       for (let i = 0; i < cars.length; i++) {
         const rec = records.get(cars[i].id);
-        if (rec) updateCar(rec, cars[i], dt);
+        if (!rec) continue;
+        // the road inside a tunnel is dry: no spray there
+        rec.dry = wetNow > 0 && tunnelSpans.length ? shelterOf(rec, cars[i].position.x, cars[i].position.y, cars[i].position.z) : 0;
+        updateCar(rec, cars[i], dt);
       }
       skid.endFrame();
 
+      updateWeather(dt, cars, camera);
+
       puffs.update(dt, windX, windZ);
+      mist.update(dt, windX, windZ);
+      drops.update(dt);
       sparks.update(dt);
       flames.update(dt);
       chips.update(dt);
       glows.update(dt);
 
-      camera.getWorldPosition(_posCam);
-      camera.getWorldDirection(_fwdCam);
       puffs.fill(_posCam.x, _posCam.y, _posCam.z, _fwdCam.x, _fwdCam.y, _fwdCam.z);
+      mist.fill(_posCam.x, _posCam.y, _posCam.z, _fwdCam.x, _fwdCam.y, _fwdCam.z);
+      drops.fill();
       sparks.fill();
       flames.fill();
       chips.fill();
@@ -642,12 +947,15 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
 
     clear(): void {
       puffs.clear();
+      mist.clear();
+      drops.clear();
       sparks.clear();
       flames.clear();
       chips.clear();
       glows.clear();
       skid.clear();
       blobs.clear();
+      camHave = false;
       for (const rec of records.values()) {
         for (const t of rec.trails) skid.endTrail(t);
         rec.hasPrev.fill(false);
@@ -656,7 +964,20 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
     },
 
     dispose(): void {
-      parent.remove(puffs.mesh, chips.mesh, flames.mesh, sparks.mesh, glows.mesh);
+      parent.remove(puffs.mesh, chips.mesh, flames.mesh, sparks.mesh, glows.mesh, rain.mesh, mist.mesh, drops.mesh);
+      if (beams) {
+        parent.remove(beams.mesh);
+        beams.dispose();
+      }
+      if (halos) {
+        parent.remove(halos.mesh);
+        halos.dispose();
+      }
+      rain.dispose();
+      mist.dispose();
+      drops.dispose();
+      mistMat.dispose();
+      dropMat.dispose();
       mainScene.remove(skid.mesh, blobs.mesh);
       puffs.dispose();
       sparks.dispose();
@@ -677,5 +998,14 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
 
   void track;
   void _q;
+  // live particle counts for the sandbox / diagnostics (not part of the EffectsSystem contract)
+  (api as EffectsSystem & { debug?: () => Record<string, number> }).debug = () => ({
+    puffs: puffs.liveCount,
+    mist: mist.liveCount,
+    drops: drops.liveCount,
+    sparks: sparks.liveCount,
+    rain: rain.mesh.visible ? (rain.mesh.geometry as unknown as { instanceCount: number }).instanceCount : 0,
+    wet: wetNow,
+  });
   return api;
 }

@@ -1,6 +1,7 @@
 /**
  * Car showroom. Query: ?car=vanta-gt|kestrel-r|ronin-86|lmp-x &view=front34|side|rear34|top|front|rear|chase|cockpit|low|sheet
  *   &anim=0|1 &night=0|1 &q=low|medium|high &primary=%23hex &pattern=… &number=7 &metallic=0|1 &finish=0..1 &player=0|1
+ *   &wet=0..1 (wet paint, beading, glass drops: env.wetness)  &rain=0..1 (env.rain; > 0 also marks the weather as rain)
  */
 import * as THREE from 'three';
 import { getCar } from '../../src/cars';
@@ -92,14 +93,16 @@ if (q.get('number')) livery.number = parseInt(q.get('number')!, 10);
 if (q.get('metallic')) livery.metallic = q.get('metallic') === '1';
 if (q.get('finish')) livery.finish = parseFloat(q.get('finish')!);
 
+const wetQ = Math.min(1, Math.max(0, parseFloat(q.get('wet') ?? '0') || 0));
+const rainQ = Math.min(1, Math.max(0, parseFloat(q.get('rain') ?? '0') || 0));
 const env: EnvironmentState = {
-  settings: { timeOfDay: night ? 'night' : 'golden', weather: 'clear' },
+  settings: { timeOfDay: night ? 'night' : 'golden', weather: rainQ > 0.7 ? 'storm' : rainQ > 0 || wetQ > 0 ? 'rain' : 'clear' },
   sunDirection: new THREE.Vector3(-0.4, 0.6, 0.5).normalize(),
   sunIntensity: 3,
   darkness: night ? 0.95 : 0,
   fogColor: '#0d0f13',
-  rain: 0,
-  wetness: 0,
+  rain: rainQ,
+  wetness: wetQ,
 };
 
 function makeState(d: CarDefinition): VehicleState {

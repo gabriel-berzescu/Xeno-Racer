@@ -79,6 +79,16 @@ export class SkyDome {
         uTrueSunDir: { value: new Vector3(0, -1, 0) },
         uMoonLight: { value: new Vector3() },
         uQuality: { value: 1 },
+        uDeck: { value: 0 },
+        uDeckDark: { value: 0 },
+        uScud: { value: 0 },
+        uDeckLo: { value: new Vector3() },
+        uDeckHi: { value: new Vector3() },
+        uGlow: { value: new Vector3() },
+        uFlash: { value: 0 },
+        uFlashAdd: { value: new Vector3() },
+        uFlashDir: { value: new Vector2(0, 1) },
+        uFogTab: { value: Array.from({ length: 8 }, () => new Vector3()) },
       },
       vertexShader: skyVertexShader,
       fragmentShader: skyFragmentShader,
@@ -102,6 +112,14 @@ export class SkyDome {
 
   setQuality(high: boolean): void {
     this.material.uniforms.uQuality.value = high ? 1 : 0;
+  }
+
+  /** Storm lightning: 0..1 brightening of the cloud deck, the radiance it adds, and the direction of the strike. */
+  setFlash(v: number, addR = 0, addG = 0, addB = 0, dirX = 0, dirZ = 1): void {
+    const u = this.material.uniforms;
+    u.uFlash.value = v;
+    (u.uFlashAdd.value as Vector3).set(addR, addG, addB);
+    (u.uFlashDir.value as Vector2).set(dirX, dirZ);
   }
 
   setShowSun(on: boolean): void {
@@ -142,7 +160,14 @@ export class SkyDome {
     u.uCloudDark.value = sol.weather.dark;
     u.uCirrus.value = sol.weather.cirrus;
     u.uStars.value = sol.stars;
-    u.uMoonVis.value = sol.tod.moon ? 1 - sol.weather.overcast * 0.85 : 0;
+    u.uMoonVis.value = sol.tod.moon ? (sol.deck > 0 ? 0.6 : 1 - sol.weather.overcast * 0.85) : 0;
+    u.uDeck.value = sol.deck;
+    u.uDeckDark.value = sol.deckDark;
+    u.uScud.value = sol.scud;
+    (u.uDeckLo.value as Vector3).set(sol.deckLo[0], sol.deckLo[1], sol.deckLo[2]);
+    (u.uDeckHi.value as Vector3).set(sol.deckHi[0], sol.deckHi[1], sol.deckHi[2]);
+    (u.uGlow.value as Vector3).set(sol.glow[0], sol.glow[1], sol.glow[2]);
+    for (let k = 0; k < 8; k++) (u.uFogTab.value as Vector3[])[k].set(sol.fogTable[k * 3], sol.fogTable[k * 3 + 1], sol.fogTable[k * 3 + 2]);
     (u.uMoonDir.value as Vector3).set(sd[0], sd[1], sd[2]);
     const ts = sol.trueSunDir;
     (u.uTrueSunDir.value as Vector3).set(ts[0], ts[1], ts[2]);

@@ -8,12 +8,18 @@
  * allocation, partial GPU uploads, persists for the session (oldest segments are recycled).
  */
 import {
+  AddEquation,
   BufferAttribute,
+  CustomBlending,
   BufferGeometry,
   DoubleSide,
   DynamicDrawUsage,
   Mesh,
   MeshBasicMaterial,
+  OneFactor,
+  OneMinusSrcAlphaFactor,
+  SrcAlphaFactor,
+  ZeroFactor,
 } from 'three';
 
 export interface SkidTrail {
@@ -65,6 +71,13 @@ export class SkidMarks {
     const mat = new MeshBasicMaterial({
       vertexColors: true,
       transparent: true,
+      // normal alpha blending for the colour; the destination alpha (the wet-road reflection flag) is left alone
+      blending: CustomBlending,
+      blendEquation: AddEquation,
+      blendSrc: SrcAlphaFactor,
+      blendDst: OneMinusSrcAlphaFactor,
+      blendSrcAlpha: ZeroFactor,
+      blendDstAlpha: OneFactor,
       depthWrite: false,
       side: DoubleSide,
       polygonOffset: true,

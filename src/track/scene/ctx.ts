@@ -7,6 +7,7 @@ import type { TrackSceneOptions } from '../../core/systems';
 import { mulberry32 } from '../math';
 import type { TrackRuntimeImpl } from '../runtime';
 import type { TrackTextures } from './textures';
+import { createWetUniforms, type WetTint, type WetUniforms } from './wet';
 
 export interface QualityParams {
   level: QualityLevel;
@@ -62,6 +63,12 @@ export interface Ctx {
   nightGlow: Array<{ mat: THREE.MeshStandardMaterial; day: number; night: number }>;
   /** Called when the environment changes. */
   envListeners: Array<(env: EnvironmentState) => void>;
+  /** Shared wet-weather uniforms (film wetness, rain, ripple clock, tunnel span). */
+  wet: WetUniforms;
+  /** Plain materials that get darker and glossier when it rains. */
+  wetTints: WetTint[];
+  /** Lamp-head positions (x, y, z per lamp) once the lamps are built; lights the wet road at night. */
+  lamps?: Float32Array;
   /** Tiles / cells / etc. that already occupy ground (for scenery placement): returns true if (x,z) is reserved. */
   reserved: Array<(x: number, z: number, margin: number) => boolean>;
   /** Like `reserved`, but only for tall scenery (trees): TV camera sightlines to the road. */
@@ -84,6 +91,8 @@ export function newCtx(rt: TrackRuntimeImpl, opts: TrackSceneOptions, tex: Track
     disposables: [],
     nightGlow: [],
     envListeners: [],
+    wet: createWetUniforms(),
+    wetTints: [],
     reserved: [],
     viewReserved: [],
     progress: (f, label) => opts.onProgress?.(f, label),

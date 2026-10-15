@@ -19,6 +19,7 @@ import {
 } from 'three';
 import {
   BODY_FRAG_AO,
+  BODY_FRAG_BEADS,
   BODY_FRAG_EMISSIVE,
   BODY_FRAG_METAL,
   BODY_FRAG_NORMAL,
@@ -55,6 +56,8 @@ export interface BodyUniforms {
   uProj: IUniform<Vector4>;
   uTrimTint: IUniform<Color>;
   uDbg: IUniform<number>;
+  uWet: IUniform<number>;
+  uSpd: IUniform<number>;
 }
 
 export function createBodyUniforms(): BodyUniforms {
@@ -80,6 +83,8 @@ export function createBodyUniforms(): BodyUniforms {
     uProj: { value: new Vector4(0.6, 0.6, 2.2, 0.03) },
     uTrimTint: { value: new Color(0.012, 0.012, 0.014) },
     uDbg: { value: 0 },
+    uWet: { value: 0 },
+    uSpd: { value: 0 },
   };
 }
 
@@ -92,14 +97,14 @@ function patchBody(mat: MeshPhysicalMaterial, uniforms: BodyUniforms, glass: boo
     f = f.replace('#include <color_fragment>', '#include <color_fragment>\n' + BODY_FRAG_ZONES);
     f = f.replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n' + BODY_FRAG_ROUGH);
     f = f.replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\n' + BODY_FRAG_METAL);
-    f = f.replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\n' + BODY_FRAG_NORMAL);
+    f = f.replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\n' + BODY_FRAG_NORMAL + BODY_FRAG_BEADS);
     f = f.replace('#include <emissivemap_fragment>', BODY_FRAG_EMISSIVE);
     f = f.replace('#include <lights_physical_fragment>', BODY_FRAG_PHYS);
     f = f.replace('#include <aomap_fragment>', BODY_FRAG_AO);
     if (glass) f = f.replace('#include <opaque_fragment>', GLASS_OPAQUE);
     shader.fragmentShader = f;
   };
-  mat.customProgramCacheKey = () => (glass ? 'xr-carbody-glass-v1' : 'xr-carbody-paint-v1');
+  mat.customProgramCacheKey = () => (glass ? 'xr-carbody-glass-v2' : 'xr-carbody-paint-v2');
 }
 
 export interface BodyMaterials {

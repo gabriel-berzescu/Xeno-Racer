@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import type { Ctx } from './ctx';
 import { makeTerrainMaterial } from './terrainMat';
 import type { PbrSet } from './textures';
+import { WET_HELPERS_GLSL, WET_UNIFORMS_GLSL } from './wet';
 
 export interface TrackMaterials {
   road: THREE.MeshStandardMaterial;
@@ -68,6 +69,12 @@ varying vec3 vWPos;
 float gPaint;
 float gRubber;
 float gPatch;
+// wet weather: water film, standing water and the 1 - gloss flag written to alpha for the screen-space reflections
+float gWet = 0.0;
+float gPuddle = 0.0;
+float gGloss = 0.0;
+${WET_UNIFORMS_GLSL}
+${WET_HELPERS_GLSL}
 vec3 flattenTex(sampler2D t, vec2 uv, vec3 avg, float lod) {
   vec3 c = texture2D(t, uv).rgb;
   vec3 low = textureLod(t, uv, lod).rgb;
@@ -75,12 +82,22 @@ vec3 flattenTex(sampler2D t, vec2 uv, vec3 avg, float lod) {
 }
 `;
 
-// high-pass the normal map too: its low-frequency undulation would repeat as visible bands in the sun glare
+// high-pass the normal map too: its low-frequency undulation would repeat as visible bands in the sun glare.
+// Wet: standing water is flat and a film keeps only part of the asphalt grain; rain rings run over the puddles.
 const ROAD_NORMAL = /* glsl */ `
 #if defined( USE_NORMALMAP_TANGENTSPACE )
   vec3 nA = texture2D(normalMap, vNormalMapUv).xyz * 2.0 - 1.0;
   vec3 nL = textureLod(normalMap, vNormalMapUv, 5.0).xyz * 2.0 - 1.0;
-  vec3 mapN = normalize(vec3((nA.xy - nL.xy) * normalScale, 1.0));
+  vec2 nxy = (nA.xy - nL.xy) * normalScale;
+  if (gWet > 0.001) {
+    nxy *= 1.0 - 0.95 * gPuddle - 0.4 * (1.0 - gPuddle) * gWet;
+    float ripAmt = uRain * (1.0 - smoothstep(6.0, 22.0, length(vViewPosition)));
+    if (ripAmt > 0.01) {
+      vec3 rp = wRipple(vWPos.xz, uWTime, uRain);
+      nxy += rp.xy * (0.5 * gPuddle + 0.03 * gWet * (1.0 - gPuddle)) * ripAmt;
+    }
+  }
+  vec3 mapN = normalize(vec3(nxy, 1.0));
   normal = normalize( tbn * mapN );
 #endif
 `;
@@ -168,10 +185,66 @@ function roadFragment(markings: boolean): string {
       : ''
   }
   gPaint = clamp(gPaint, 0.0, 1.0);
+  gWet = 0.0;
+  gPuddle = 0.0;
+  gGloss = 0.0;
+  if (uWet > 0.001) {
+    gWet = uWet * (1.0 - 0.92 * wTunnelDry(tS));
+    if (gWet > 0.001) {
+      // standing water: a low-frequency depth field (blobs of 3-14 m), stretched along the road, with a bias toward
+      // the gutters (the crown drains there), the wheel ruts and the repaired patches
+      float pf = n1.r * 0.34 + n1.g * 0.30 + n2.r * 0.20 + n1.b * 0.16;
+      vec4 nl = texture2D(uNoise, vec2(tS * 0.0125, tD * 0.065) + 0.37);
+      pf = mix(pf, nl.g * 0.55 + n1.g * 0.45, 0.2);
+      float bias = 0.12 * (1.0 - smoothstep(0.0, 2.2, edgeDist)) * (0.4 + 0.6 * n2.g) + 0.08 * gRubber + 0.08 * gPatch;
+      float fine = (n2.b - 0.5) * 0.06 + (n2.a - 0.5) * 0.04;
+      float thr = mix(0.8, 0.52, gWet);
+      gPuddle = smoothstep(thr, thr + 0.014, pf + bias + fine);
+      albedo *= mix(1.0, 0.6, gWet);
+      albedo = mix(albedo, albedo * 0.62, gPuddle);
+      paintCol *= mix(1.0, 0.86, gWet);
+      gGloss = clamp(0.5 * gWet + 0.55 * gPuddle, 0.0, 1.0);
+    }
+  }
   diffuseColor.rgb = mix(albedo, paintCol, gPaint);
   diffuseColor.a = 1.0;
 `;
 }
+
+const WET_ROUGHNESS = /* glsl */ `
+#include <roughnessmap_fragment>
+roughnessFactor = clamp(mix(roughnessFactor, 0.6, gPaint) - 0.1 * gRubber + 0.05 * gPatch, 0.22, 1.0);
+if (gWet > 0.001) {
+  // the film fills the asphalt texture (glossy but not a mirror), standing water is a mirror
+  roughnessFactor = mix(mix(roughnessFactor, 0.16 + 0.3 * roughnessFactor, gWet), 0.02, gPuddle);
+}
+`;
+
+// street lamps lighting the wet road (diffuse + the long specular streak); radiance is added like an emissive
+const WET_LAMPS_FRAGMENT = /* glsl */ `
+#include <emissivemap_fragment>
+if (gWet > 0.001) {
+  vec3 Nw = inverseTransformDirection(normal, viewMatrix);
+  vec3 Vw = normalize(cameraPosition - vWPos);
+  totalEmissiveRadiance += roadLamps(Nw, Vw, diffuseColor.rgb, roughnessFactor, gPuddle) * gWet;
+}
+`;
+
+// The environment map holds only the sky, but a wet road mirrors the whole horizon: trees, stands and hills hide much
+// of the bright haze just above it. Dim the sky reflection toward the horizon so standing water is no brighter than
+// the picture's real sky (instead of a white sheet when the camera looks along the road).
+const WET_ENV_OCCLUSION = /* glsl */ `
+#include <aomap_fragment>
+if (gWet > 0.001) {
+  vec3 Rw = inverseTransformDirection(reflect(-geometryViewDir, geometryNormal), viewMatrix);
+  float horizonOcc = mix(0.32, 1.0, smoothstep(0.02, 0.35, Rw.y));
+  reflectedLight.indirectSpecular *= mix(1.0, horizonOcc, gWet);
+  // Wet asphalt throws a headlight beam away from the driver instead of scattering it back: the pool in front of a
+  // car is far dimmer than on a dry road (and standing water, over dark asphalt, hardly scatters at all). Under a
+  // rain deck the only direct light left on the road is the cars' headlights.
+  reflectedLight.directDiffuse *= 1.0 - gWet * (0.25 + 0.27 * gPuddle) * (1.0 - 0.75 * gPaint);
+}
+`;
 
 export function makeRoadMaterial(ctx: Ctx, tile: number, markings: boolean): THREE.MeshStandardMaterial {
   const mat = pbr(ctx, ctx.tex.asphalt, tile, { color: 0xffffff, envMapIntensity: 0.9 });
@@ -186,6 +259,12 @@ export function makeRoadMaterial(ctx: Ctx, tile: number, markings: boolean): THR
     shader.uniforms.uRich = { value: ctx.q.rich ? 1 : 0 };
     shader.uniforms.uCenter = { value: rt.def.centerLine ? 1 : 0 };
     shader.uniforms.uGrid = { value: new THREE.Vector4(8, 4, 3.2, rt.grid.length) };
+    shader.uniforms.uWet = ctx.wet.uWet;
+    shader.uniforms.uRain = ctx.wet.uRain;
+    shader.uniforms.uWTime = ctx.wet.uWTime;
+    shader.uniforms.uTunnel = ctx.wet.uTunnel;
+    shader.uniforms.uLamp = ctx.wet.uLamp;
+    shader.uniforms.uLampCol = ctx.wet.uLampCol;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\n' + ROAD_VERT_DECL)
       .replace('#include <begin_vertex>', '#include <begin_vertex>\n vTrack = aTrack; vLine = aLine; vWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;');
@@ -193,9 +272,18 @@ export function makeRoadMaterial(ctx: Ctx, tile: number, markings: boolean): THR
       .replace('#include <common>', '#include <common>\n' + ROAD_FRAG_DECL)
       .replace('#include <map_fragment>', roadFragment(markings))
       .replace('#include <normal_fragment_maps>', ROAD_NORMAL)
-      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n roughnessFactor = clamp(mix(roughnessFactor, 0.6, gPaint) - 0.1 * gRubber + 0.05 * gPatch, 0.22, 1.0);');
+      .replace('#include <roughnessmap_fragment>', WET_ROUGHNESS)
+      .replace('#include <emissivemap_fragment>', WET_LAMPS_FRAGMENT)
+      .replace('#include <aomap_fragment>', WET_ENV_OCCLUSION)
+      .replace('#include <opaque_fragment>', '#include <opaque_fragment>\n gl_FragColor.a = 1.0 - gGloss;');
   };
-  mat.customProgramCacheKey = () => (markings ? 'road-marked-v2' : 'road-plain-v2');
+  mat.customProgramCacheKey = () => (markings ? 'road-marked-v4' : 'road-plain-v4');
+  // the shader handles wetness itself (puddles, ripples, gloss flag); only the reflection strength follows here
+  mat.userData.wetShader = true;
+  const envBase = mat.envMapIntensity;
+  ctx.envListeners.push((env) => {
+    mat.envMapIntensity = envBase * (1 + 0.45 * env.wetness);
+  });
   return mat;
 }
 

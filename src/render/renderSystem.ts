@@ -51,8 +51,10 @@ import { FOG_TABLE_SIZE } from './atmosphere';
 import { solveEnvironment, type EnvSolution } from './environment';
 import { FinalEffect, SpeedEffect } from './effects-post';
 import { ParticlePass, particleUniforms, ShaftsPass } from './post';
+import { DropletPass } from './wet/droplets';
+import { SSRPass } from './wet/ssr';
 import { installShaderPatches, xrFogUniform } from './shaderPatches';
-import { shadowConfigFor, SunShadows } from './shadows';
+import { SHADOW_OFF, shadowConfigFor, SunShadows } from './shadows';
 import { SkyDome } from './sky';
 
 export interface RenderStats {
@@ -98,12 +100,29 @@ export interface XenoRenderSystem extends RenderSystem {
   };
   /** Pin the cloud animation clock (deterministic screenshots). */
   setCloudTime(t: number): void;
+  /**
+   * Lightning: a brief flash of the cloud deck, the ambient light, the haze and the rain (one or two flickers over
+   * ~0.35 s). `strength` 0..1 (a close, big strike = 1; the caller scales it down with distance); `bearing` is the
+   * azimuth of the strike in radians (0 = +Z, increasing toward +X, like the time-of-day azimuth) and defaults to
+   * a random direction. Stronger at night (the same strike is brighter against a dark scene). Costs only a few
+   * uniform writes while it lasts.
+   */
+  lightning(strength: number, bearing?: number): void;
+  /**
+   * Compile every shader program the scene and the particle scene need right now. A program is built the first time
+   * an object is drawn, which stalls that frame (seconds for a whole track). Call it while a loading screen is up,
+   * once the track and the cars are in the scene. setEnvironment() already calls it by itself when a change between
+   * dry and wet swaps the shadow programs of a scene that is built (so the first frame of the race does not stall).
+   */
+  precompile(): Promise<void>;
   /** Camera of the last render() call. */
   readonly camera: PerspectiveCamera;
   readonly solution: EnvSolution | null;
 }
 
 interface Tier {
+  /** Screen-space reflections on wet roads: march steps and pixels per step (null = off). */
+  ssr: { steps: number; stride: number } | null;
   pmrem: number;
   skyHigh: boolean;
   bloomLevels: number;
@@ -116,19 +135,21 @@ interface Tier {
 function tierFor(q: QualityLevel): Tier {
   switch (q) {
     case 'low':
-      return { pmrem: 128, skyHigh: false, bloomLevels: 5, bloomScale: 0.3, ao: 'Performance', speedTaps: 6, smaa: SMAAPreset.LOW };
+      return { ssr: null, pmrem: 128, skyHigh: false, bloomLevels: 5, bloomScale: 0.3, ao: 'Performance', speedTaps: 6, smaa: SMAAPreset.LOW };
     case 'medium':
-      return { pmrem: 128, skyHigh: true, bloomLevels: 6, bloomScale: 0.4, ao: 'Performance', speedTaps: 8, smaa: SMAAPreset.MEDIUM };
+      return { ssr: { steps: 28, stride: 7 }, pmrem: 128, skyHigh: true, bloomLevels: 6, bloomScale: 0.4, ao: 'Performance', speedTaps: 8, smaa: SMAAPreset.MEDIUM };
     case 'high':
-      return { pmrem: 256, skyHigh: true, bloomLevels: 8, bloomScale: 0.5, ao: 'Low', speedTaps: 10, smaa: SMAAPreset.HIGH };
+      return { ssr: { steps: 40, stride: 5 }, pmrem: 256, skyHigh: true, bloomLevels: 8, bloomScale: 0.5, ao: 'Low', speedTaps: 10, smaa: SMAAPreset.HIGH };
     default:
-      return { pmrem: 256, skyHigh: true, bloomLevels: 8, bloomScale: 0.5, ao: 'Medium', speedTaps: 12, smaa: SMAAPreset.ULTRA };
+      return { ssr: { steps: 56, stride: 4 }, pmrem: 256, skyHigh: true, bloomLevels: 8, bloomScale: 0.5, ao: 'Medium', speedTaps: 12, smaa: SMAAPreset.ULTRA };
   }
 }
 
 /** Hard cap on drawing-buffer pixels: keeps every render target well inside a 6 GB laptop GPU's budget. */
 const MAX_PIXELS = 5.4e6;
 const MIN_SCALE = 0.4;
+/** Weather shadow strength below which the sun's cascaded shadow maps are not rendered at all. */
+const SHADOWLESS_BELOW = 0.06;
 
 function smoothstep(a: number, b: number, x: number): number {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
@@ -176,8 +197,17 @@ class RenderSystemImpl implements XenoRenderSystem {
   private speedEffect: SpeedEffect | null = null;
   private shaftsPass: ShaftsPass | null = null;
   private shaftsBlend: TextureEffect | null = null;
+  private ssrPass: SSRPass | null = null;
+  private dropletPass: DropletPass | null = null;
   private aaEffect: SMAAEffect | FXAAEffect | null = null;
   private pipelineKey = '';
+  private flashAmp = 0;
+  private flashT = 0;
+  private flashDirX = 0;
+  private flashDirZ = 1;
+  private flashApplied = false;
+  /** Set when an environment change swapped the shadow configuration (every shadow-receiving program differs). */
+  private shadowProgramsChanged = false;
 
   private readonly hemi = new HemisphereLight(0xffffff, 0x444444, 1);
   private readonly fog = new FogExp2(0x9fb4c8, 0.0002);
@@ -276,6 +306,22 @@ class RenderSystemImpl implements XenoRenderSystem {
     const sol = await solveEnvironment(e, yieldToBrowser);
     if (token !== this.envToken || this.disposed) return;
     this.applySolution(sol);
+    // Dry <-> wet swaps the shadow programs of everything that receives shadows. With a track already in the scene
+    // that is a multi-second compile: take it now, under the caller's loading screen, not in the first frame.
+    if (this.shadowProgramsChanged) {
+      this.shadowProgramsChanged = false;
+      if (this.scene.children.length > 0) await this.precompile();
+    }
+  }
+
+  async precompile(): Promise<void> {
+    if (this.disposed) return;
+    try {
+      await this.renderer.compileAsync(this.scene, this.camera);
+      await this.renderer.compileAsync(this.particleScene, this.camera);
+    } catch {
+      // the first frame compiles whatever is still missing
+    }
   }
 
   applyGraphics(g: GraphicsSettings): void {
@@ -295,6 +341,62 @@ class RenderSystemImpl implements XenoRenderSystem {
 
   setCloudTime(t: number): void {
     this.sky.setTime(t);
+  }
+
+  lightning(strength: number, bearing?: number): void {
+    if (!(strength > 0.01)) return;
+    this.flashAmp = Math.min(1, strength);
+    this.flashT = 0;
+    const az = bearing !== undefined && Number.isFinite(bearing) ? bearing : Math.random() * Math.PI * 2;
+    this.flashDirX = Math.sin(az);
+    this.flashDirZ = Math.cos(az);
+  }
+
+  /** Flash envelope: a sharp strike, a fast fall-off and a weaker second flicker. */
+  private flashLevel(t: number): number {
+    const u = (t - 0.16) / 0.045;
+    return Math.exp(-t / 0.05) * Math.min(1, t / 0.012) + 0.6 * Math.exp(-u * u);
+  }
+
+  /** Apply the flash (or restore the baseline once it is over). */
+  private updateFlash(dt: number): void {
+    const sol = this.solution;
+    if (!sol) return;
+    const active = this.flashAmp > 0;
+    if (!active && !this.flashApplied) return;
+    let f = 0;
+    if (active) {
+      this.flashT += dt;
+      f = this.flashLevel(this.flashT) * this.flashAmp;
+      if (this.flashT > 0.5) {
+        this.flashAmp = 0;
+        f = 0;
+      }
+    }
+    const dark = sol.darkness;
+    // dark scenes lift far more (the exposure is high and the ambient light tiny)
+    const gain = f * (2.2 + 5 * dark);
+    const add = f * 0.55 / Math.max(sol.exposure, 0.5);
+    this.sky.setFlash(f, add * 0.92, add * 0.96, add * 1.06, this.flashDirX, this.flashDirZ);
+    this.hemi.intensity = 1 + gain;
+    this.scene.environmentIntensity = sol.envIntensity * (1 + gain);
+    const haze = 1 + f * (1.5 + 2 * dark);
+    const fa = xrFogUniform.value;
+    for (let k = 0; k < FOG_TABLE_SIZE; k++) {
+      fa[(k + 1) * 4] = sol.fogTable[k * 3] * haze;
+      fa[(k + 1) * 4 + 1] = sol.fogTable[k * 3 + 1] * haze;
+      fa[(k + 1) * 4 + 2] = sol.fogTable[k * 3 + 2] * haze;
+    }
+    const dk = (FOG_TABLE_SIZE + 1) * 4;
+    fa[dk] = sol.deckHi[0] * haze;
+    fa[dk + 1] = sol.deckHi[1] * haze;
+    fa[dk + 2] = sol.deckHi[2] * haze;
+    this.fog.color.setRGB(sol.fogColor[0] * haze, sol.fogColor[1] * haze, sol.fogColor[2] * haze);
+    const pu = particleUniforms;
+    const rainLift = 1 + f * (3 + 6 * dark);
+    pu.uSkyAmb.value.set(sol.skyAmbient[0] * rainLift, sol.skyAmbient[1] * rainLift, sol.skyAmbient[2] * rainLift);
+    pu.uFogColor.value.set(sol.fogColor[0] * haze, sol.fogColor[1] * haze, sol.fogColor[2] * haze);
+    this.flashApplied = f > 0.001;
   }
 
   get debug(): XenoRenderSystem['debug'] {
@@ -338,6 +440,9 @@ class RenderSystemImpl implements XenoRenderSystem {
     if (!Number.isFinite(speed)) speed = 0;
 
     this.sky.update(dt);
+    this.updateFlash(dt);
+    if (this.ssrPass) this.ssrPass.enabled = this.env.wetness > 0.02;
+    this.updateDroplets(camera, dt, speed);
     this.frameIndex++;
     this.renderer.shadowMap.needsUpdate = this.sun.update(this.focus, this.frameIndex);
     this.updateSpeedEffects(camera, dt, speed);
@@ -419,6 +524,7 @@ class RenderSystemImpl implements XenoRenderSystem {
     if (g.ambientOcclusion) bytes += px * 0.25 * 8 * 3 + px * 0.25 * 4;
     if (g.bloom) bytes += px * this.tier.bloomScale * this.tier.bloomScale * 8 * 1.34;
     if (g.antialias === 'smaa') bytes += px * 6;
+    if (this.tier.ssr) bytes += px * 8 + px * 0.25 * 8 * 1.34; // wet-road reflections: the reflection buffer + the half-res mip chain
     const cfg = this.sun.config;
     bytes += cfg.count * cfg.mapSize * cfg.mapSize * 4;
     bytes += 6 * this.tier.pmrem * this.tier.pmrem * 8 * 1.6; // PMREM cubeUV target
@@ -431,16 +537,22 @@ class RenderSystemImpl implements XenoRenderSystem {
     this.tier = tierFor(g.quality);
     this.sky.setQuality(this.tier.skyHigh);
 
-    const cfg = shadowConfigFor(g.shadows, g.quality);
-    this.sun.configure(cfg);
-    this.stats.cascades = this.sun.cascadeCount;
-
-    // The shadow-receiving programs differ with the cascade count, so this may recompile materials.
-    this.renderer.shadowMap.enabled = cfg.count > 0;
+    this.configureShadows();
 
     this.updateSize();
     this.rebuildPipeline(first);
     if (this.solution) this.applyExposure();
+  }
+
+  /** Cascades follow the graphics setting, unless the weather has no sun to cast them (rain, storm). */
+  private configureShadows(): void {
+    const g = this.graphics;
+    const shadowless = this.solution !== null && this.solution.shadowIntensity < SHADOWLESS_BELOW;
+    const cfg = shadowless ? SHADOW_OFF : shadowConfigFor(g.shadows, g.quality);
+    this.sun.configure(cfg);
+    this.stats.cascades = this.sun.cascadeCount;
+    // The shadow-receiving programs differ with the cascade count, so this may recompile materials.
+    this.renderer.shadowMap.enabled = cfg.count > 0;
   }
 
   private pipelineSignature(): string {
@@ -459,6 +571,8 @@ class RenderSystemImpl implements XenoRenderSystem {
     this.speedEffect = null;
     this.shaftsPass = null;
     this.shaftsBlend = null;
+    this.ssrPass = null;
+    this.dropletPass = null;
     this.aaEffect = null;
   }
 
@@ -474,6 +588,13 @@ class RenderSystemImpl implements XenoRenderSystem {
     this.disposePipeline();
 
     const passes: Pass[] = [this.renderPass];
+
+    // wet-road reflections: right after the scene, before AO and the particles (it reads the road's gloss flag)
+    if (tier.ssr) {
+      this.ssrPass = new SSRPass(tier.ssr.steps, tier.ssr.stride);
+      this.ssrPass.enabled = this.env.wetness > 0.02;
+      passes.push(this.ssrPass);
+    }
 
     if (g.ambientOcclusion) {
       if (!this.aoPass) {
@@ -501,6 +622,10 @@ class RenderSystemImpl implements XenoRenderSystem {
     }
 
     passes.push(this.particlePass);
+
+    // rain on the windscreen / lens: only while the camera is in or on the car and it rains
+    this.dropletPass = new DropletPass();
+    passes.push(this.dropletPass);
 
     // Sun shafts: a half-resolution pass of its own (skipped while no low sun is in front of the
     // camera); its texture is added inside effect pass A below
@@ -561,8 +686,10 @@ class RenderSystemImpl implements XenoRenderSystem {
     }
 
     this.instrument(this.renderPass, 'scene+shadows');
+    if (this.ssrPass) this.instrument(this.ssrPass, 'ssr');
     if (this.aoPass) this.instrument(this.aoPass, 'ao');
     this.instrument(this.particlePass, 'particles');
+    if (this.dropletPass) this.instrument(this.dropletPass, 'droplets');
     if (this.shaftsPass) this.instrument(this.shaftsPass, 'shafts (half-res)');
     this.instrument(passA, 'post');
     if (passes.length > 0 && this.aaEffect) this.instrument(passes[passes.length - 1], 'aa');
@@ -596,6 +723,32 @@ class RenderSystemImpl implements XenoRenderSystem {
       const w = sol.lightColor;
       this.shaftsPass.tint.set(w[0], w[1] * 0.92 + 0.08, w[2] * 0.8 + 0.12);
     }
+  }
+
+  private readonly _camPos = new Vector3();
+
+  /** Windscreen drops (cockpit) or lens drops (hood, bumper): the camera is within a few metres of the focus car. */
+  private updateDroplets(camera: PerspectiveCamera, dt: number, speed: number): void {
+    const p = this.dropletPass;
+    if (!p) return;
+    const rain = this.env.rain;
+    camera.getWorldPosition(this._camPos);
+    const d = this._camPos.distanceTo(this.focus);
+    const interior = d < 3.4;
+    p.enabled = rain > 0.02 && interior;
+    if (!p.enabled) return;
+    p.rain = rain;
+    p.speed = speed;
+    p.lens = d >= 1.4;
+    p.strength = d < 1.4 ? 1 : 0.7;
+    const sol = this.solution;
+    if (sol) {
+      const k = sol.exposure > 0 ? 1.0 : 1.0;
+      p.sky.r = sol.skyAmbient[0] * k;
+      p.sky.g = sol.skyAmbient[1] * k;
+      p.sky.b = sol.skyAmbient[2] * k;
+    }
+    p.tick(dt);
   }
 
   private readonly _sunWorld = new Vector3();
@@ -634,8 +787,13 @@ class RenderSystemImpl implements XenoRenderSystem {
   }
 
   private applySolution(sol: EnvSolution): void {
+    const hadShadows = this.sun.cascadeCount > 0;
     this.solution = sol;
     this.sky.apply(sol);
+    if (this.graphics.shadows !== 'off' && hadShadows !== sol.shadowIntensity >= SHADOWLESS_BELOW) {
+      this.configureShadows();
+      this.shadowProgramsChanged = true;
+    }
 
     // fog
     this.fog.density = sol.fogDensity;
@@ -644,14 +802,19 @@ class RenderSystemImpl implements XenoRenderSystem {
     const hl = Math.hypot(sol.sunDir[0], sol.sunDir[2]);
     fa[0] = hl > 1e-5 ? sol.sunDir[0] / hl : 1;
     fa[1] = hl > 1e-5 ? sol.sunDir[2] / hl : 0;
-    fa[2] = 0;
-    fa[3] = 1;
+    fa[2] = sol.rainFog;
+    fa[3] = sol.deck > 0 ? 2 : 1;
     for (let k = 0; k < FOG_TABLE_SIZE; k++) {
       fa[(k + 1) * 4] = sol.fogTable[k * 3];
       fa[(k + 1) * 4 + 1] = sol.fogTable[k * 3 + 1];
       fa[(k + 1) * 4 + 2] = sol.fogTable[k * 3 + 2];
       fa[(k + 1) * 4 + 3] = 0;
     }
+    const dk = (FOG_TABLE_SIZE + 1) * 4;
+    fa[dk] = sol.deckHi[0];
+    fa[dk + 1] = sol.deckHi[1];
+    fa[dk + 2] = sol.deckHi[2];
+    fa[dk + 3] = 0;
 
     // lights
     this.sun.setDirection(new Vector3(sol.sunDir[0], sol.sunDir[1], sol.sunDir[2]));
@@ -669,6 +832,7 @@ class RenderSystemImpl implements XenoRenderSystem {
     pu.uGroundAmb.value.set(sol.ground[0], sol.ground[1], sol.ground[2]);
     pu.uFogColor.value.set(sol.fogColor[0], sol.fogColor[1], sol.fogColor[2]);
     pu.uFogDensity.value = sol.fogDensity;
+    pu.uFogLin.value = sol.rainFog;
 
     this.captureEnvironment(sol);
     this.applyExposure();

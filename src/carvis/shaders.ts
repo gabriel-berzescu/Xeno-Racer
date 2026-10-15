@@ -75,6 +75,8 @@ uniform vec3 uGlassTint;
 uniform vec4 uProj;       // headlight projector: |x|, y, z, radius
 uniform vec3 uTrimTint;
 uniform float uDbg;
+uniform float uWet;       // rain on the car: 0 dry .. 1 soaked (EnvironmentState.wetness)
+uniform float uSpd;       // speed (m/s): water beads are blown into streaks along the airflow
 
 varying vec4 vZ0;
 varying vec4 vZ1;
@@ -120,6 +122,35 @@ vec3 liveryColor() {
   vec3 ce = texture2D(uEnd, vec2(clamp(ue, 0.001, 0.999), clamp(vObjPos.y / uRange.z, 0.002, 0.998))).rgb;
   return cs * w.x + ct * w.y + ce * w.z;
 }
+// ---- water on the paint and glass: a jittered grid of small domes, stretched along the airflow ----------------
+vec2 wHash22(vec2 p) {
+  vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.xx + p3.yz) * p3.zy);
+}
+// returns (slope.xy, mask) of one dome per grid cell; dens is the share of cells that hold a drop
+vec3 wetBead(vec2 p, float dens) {
+  vec2 id = floor(p);
+  vec2 f = fract(p);
+  vec2 h = wHash22(id);
+  float on = step(h.x, dens);
+  vec2 c = 0.28 + 0.44 * wHash22(id + 7.3);
+  float r = 0.16 + 0.17 * h.y;
+  vec2 d = f - c;
+  float dd = length(d);
+  float m = smoothstep(r, r * 0.55, dd) * on;
+  vec2 s = (dd > 1e-4 ? d / dd : vec2(0.0)) * smoothstep(0.0, r, dd) * m;
+  return vec3(s, m);
+}
+// object-space coordinates on the surface plane (flow runs along the car's z), in ~1.8 cm cells
+vec2 beadUV(vec3 p, vec3 n, float stretch) {
+  vec3 an = abs(n);
+  vec2 uv = p.xy;
+  if (an.y > an.x && an.y > an.z) uv = vec2(p.x, p.z / stretch);
+  else if (an.x > an.z) uv = vec2(p.z / stretch, p.y);
+  return uv * 55.0;
+}
+vec3 gBead = vec3(0.0);
 vec2 planarUV(vec3 p, vec3 n) {
   vec3 a = abs(n);
   if (a.y > a.x && a.y > a.z) return p.xz;
@@ -426,6 +457,26 @@ if (uDbg > 1.5) {
   zFlake = 0.0;
 }
 #endif
+// ---------- rain ----------
+gBead = vec3(0.0);
+if (uWet > 0.001) {
+  float pxW = length(fwidth(vObjPos));
+  float beadFade = 1.0 - smoothstep(0.003, 0.009, pxW);
+#ifdef GLASS_PASS
+  // droplets on the glass: more of them, bigger, a little milky
+  gBead = wetBead(beadUV(vObjPos, vObjNrm, 1.0 + uSpd * 0.06), 0.8 * uWet);
+  float bm = gBead.z * beadFade;
+  diffuseColor.a = mix(diffuseColor.a, 1.0, bm * 0.45 * uWet);
+  zCol += bm * 0.012 * uWet;
+#else
+  float wp = uWet * zIsPaint;
+  // a water film: darker, glossier, and (close up) beaded
+  zCol *= 1.0 - 0.14 * wp;
+  zRough = mix(zRough, 0.1 + 0.2 * zRough, wp);
+  zCCRough = mix(zCCRough, 0.03, wp * 0.6);
+  gBead = wetBead(beadUV(vObjPos, vObjNrm, 1.0 + uSpd * 0.05), 0.55 * uWet) * vec3(1.0, 1.0, beadFade * zIsPaint);
+#endif
+}
 diffuseColor.rgb = zCol;
 `;
 
@@ -453,6 +504,16 @@ export const BODY_FRAG_NORMAL = /* glsl */ `
   normal = normalize(normal + ft * 0.24 * zFlake * fade);
 }
 #endif
+`;
+
+/** after BODY_FRAG_NORMAL: water beads tilt the shading normal (they scatter the reflection into sparkle) */
+export const BODY_FRAG_BEADS = /* glsl */ `
+if (uWet > 0.001 && gBead.z > 0.01) {
+  vec3 tV = normalize(dFdx(-vViewPosition));
+  vec3 bV = normalize(dFdy(-vViewPosition));
+  float tilt = 0.55 * gBead.z;
+  normal = normalize(normal - (tV * gBead.x + bV * gBead.y) * tilt);
+}
 `;
 
 export const BODY_FRAG_EMISSIVE = /* glsl */ `

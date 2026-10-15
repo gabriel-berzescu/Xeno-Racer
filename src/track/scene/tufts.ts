@@ -107,11 +107,11 @@ ${GRASS_MACRO_GLSL}`,
   vec4 n5 = texture2D(uNoise, ruv * 0.113 + 0.7);
   vec3 ground = uAvgGrass * xrGrassMacro(n0, n1, n2, n3, uTint);
   float shade = 0.34 + tx.r * 0.95;
-  diffuseColor.rgb = ground * shade * (0.88 + 0.24 * n5.g) * vec3(1.0, 1.0, 0.92);
+  diffuseColor.rgb = ground * shade * (0.88 + 0.24 * n5.g) * vec3(1.0, 1.0, 0.92) * diffuse; // diffuse = the (wet-tinted) material colour
 }`,
       );
   };
-  mat.customProgramCacheKey = () => 'tuft-1';
+  mat.customProgramCacheKey = () => 'tuft-2';
   ctx.disposables.push(tex, geo, mat);
 
   interface Cell {

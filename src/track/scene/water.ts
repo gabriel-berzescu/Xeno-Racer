@@ -111,6 +111,7 @@ export function buildWater(ctx: Ctx): THREE.Object3D | null {
     envMapIntensity: 1.25,
   });
   mat.name = 'water';
+  mat.userData.wetShader = true; // the listener below handles the rain itself
   const mesh = new THREE.Mesh(geo, mat);
   mesh.renderOrder = 5;
   mesh.name = 'lake';
@@ -125,6 +126,10 @@ export function buildWater(ctx: Ctx): THREE.Object3D | null {
   ctx.envListeners.push((env) => {
     mat.opacity = 1;
     mat.envMapIntensity = 1.25 * (1 - 0.8 * env.darkness) + 0.15;
+    // rain pocks the surface: more chop, a rougher sheen, a greyer body
+    mat.normalScale.set(0.55 + 0.7 * env.rain, 0.55 + 0.7 * env.rain);
+    mat.clearcoatNormalScale.set(0.4 + 0.6 * env.rain, 0.4 + 0.6 * env.rain);
+    mat.roughness = 0.045 + 0.1 * env.rain;
   });
   return mesh;
 }

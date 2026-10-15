@@ -34,6 +34,7 @@ uniform vec3 uAvgGrass;
 uniform vec3 uAvgDry;
 uniform vec3 uAvgDirt;
 uniform vec3 uAvgRock;
+uniform float uWet;
 varying vec3 vWPos;
 varying vec3 vWNormal;
 varying float vSurf;
@@ -123,6 +124,8 @@ const FRAG_MAP = /* glsl */ `
     cCan *= mix(1.0, 0.55 + 0.9 * mix(gN4.r, gN5.g, 0.5), smoothstep(150.0, 650.0, camDist));
     col = mix(col, cCan, cw);
   }
+  // wet ground is darker: grass a little, bare earth and rock a lot
+  col *= mix(1.0, 0.74 * gWGrass + 0.6 * gWRock + 0.5 * gWDirt + 0.68 * gWMoss, uWet);
   diffuseColor.rgb *= col;
 `;
 
@@ -184,15 +187,17 @@ export function makeTerrainMaterial(ctx: Ctx): THREE.MeshStandardMaterial {
     shader.uniforms.uAvgDry = { value: t.grass.avg.clone() };
     shader.uniforms.uAvgDirt = { value: t.dirt.avg.clone() };
     shader.uniforms.uAvgRock = { value: t.rock.avg.clone() };
+    shader.uniforms.uWet = ctx.wet.uWet;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\n' + VERT_DECL)
       .replace('#include <begin_vertex>', '#include <begin_vertex>\n vWPos = (modelMatrix * vec4(transformed, 1.0)).xyz; vWNormal = normalize(mat3(modelMatrix) * objectNormal); vSurf = aSurf; vEdge = aEdge;');
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', '#include <common>\n' + FRAG_DECL + GRASS_MACRO_GLSL)
       .replace('#include <map_fragment>', FRAG_MAP)
-      .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = mix(0.95, 0.8, gWRock);')
+      .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = mix(0.95, 0.8, gWRock) * (1.0 - 0.16 * uWet);')
       .replace('#include <normal_fragment_maps>', FRAG_NORMAL);
   };
-  mat.customProgramCacheKey = () => 'terrain-splat-v8-' + ctx.q.splatLayers;
+  mat.customProgramCacheKey = () => 'terrain-splat-v9-' + ctx.q.splatLayers;
+  mat.userData.wetShader = true;
   return mat;
 }

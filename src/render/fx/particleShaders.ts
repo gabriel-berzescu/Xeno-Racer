@@ -1,3 +1,5 @@
+import { LIGHTS_GLSL } from '../wet/lights';
+
 /**
  * Particle shaders (owner: render). All run in the particle pass (post.ts) after the scene has been
  * shaded: they read the composer's stable depth copy (uDepth) for soft intersections, light
@@ -16,6 +18,7 @@ uniform vec3 uSkyAmb;
 uniform vec3 uGroundAmb;
 uniform vec3 uFogColor;
 uniform float uFogDensity;
+uniform float uFogLin;
 
 const float PI = 3.14159265359;
 
@@ -28,7 +31,7 @@ float sceneViewDepth() {
 }
 
 vec3 applyFog(vec3 col, float dist) {
-  float k = 1.0 - exp(-uFogDensity * uFogDensity * dist * dist);
+  float k = 1.0 - exp(-uFogDensity * uFogDensity * dist * dist - uFogLin * dist);
   return mix(col, uFogColor, k);
 }
 `;
@@ -45,6 +48,10 @@ varying vec3 vCol;
 varying float vSeed;
 varying vec3 vView;
 varying float vR;
+#ifdef LIT
+${LIGHTS_GLSL}
+varying vec3 vLit;
+#endif
 
 void main() {
   vec4 mv = viewMatrix * vec4(aA.xyz, 1.0);
@@ -54,6 +61,9 @@ void main() {
   vB = aB;
   vCol = aC.rgb;
   vSeed = aC.a;
+#ifdef LIT
+  vLit = xrLights(aA.xyz);
+#endif
   mv.xy += vP * aA.w;
   gl_Position = projectionMatrix * mv;
 }
@@ -68,6 +78,9 @@ varying vec3 vCol;
 varying float vSeed;
 varying vec3 vView;
 varying float vR;
+#ifdef LIT
+varying vec3 vLit;
+#endif
 
 void main() {
   float r2 = dot(vP, vP);
@@ -112,8 +125,55 @@ void main() {
   float variation = 0.9 + 0.2 * n.b;
   vec3 lit = vCol * variation * (uSunLight * (wrap / PI) * (1.0 - 0.3 * core) + amb * (1.0 - 0.18 * core));
   lit += uSunLight * (fwd * 0.09 * (1.0 - core * 0.6)) * vCol;
+#ifdef LIT
+  // water mist is brighter than smoke: its droplets scatter the whole sky toward the eye; headlights, brake
+  // lights and lamps scatter in it too (softly, from every side)
+  lit = lit * 1.9 + vCol * vLit * (0.55 + 0.45 * wrap) * (1.0 - 0.4 * core);
+#endif
   lit = applyFog(lit, depthV);
 
+  gl_FragColor = vec4(lit * a, a);
+}
+`;
+
+// ───────────────────────────── water mist (spray) ─────────────────────────────
+// Same billboards as the puffs (puffVertex with LIT), but a fine, flat haze instead of a billowing cloud: a smooth
+// radial falloff with a little turbulence, lit by the whole sky and by nearby lights.
+
+export const mistFragment = /* glsl */ `
+uniform sampler2D uAtlas;
+uniform float uSoftness;
+varying vec2 vP;
+varying vec4 vB;
+varying vec3 vCol;
+varying float vSeed;
+varying vec3 vView;
+varying float vR;
+varying vec3 vLit;
+
+void main() {
+  float r2 = dot(vP, vP);
+  if (r2 >= 1.0) discard;
+  float rad = sqrt(r2);
+  float c = cos(vB.x), s = sin(vB.x);
+  vec2 q = vec2(c * vP.x - s * vP.y, s * vP.x + c * vP.y) * 0.5 + 0.5;
+  float tile = floor(vB.w + 0.5);
+  vec2 off = vec2(mod(tile, 2.0), floor(tile * 0.5)) * 0.5;
+  vec4 n = texture2D(uAtlas, off + clamp(q, 0.01, 0.99) * 0.5);
+  // smooth body, thinning with age; the noise only roughens it
+  float body = pow(1.0 - rad, 1.5) * (0.7 + 0.6 * n.g);
+  float a = body * vB.y * (1.0 - 0.5 * vB.z);
+
+  float z = sqrt(max(1.0 - r2, 0.0));
+  float depthV = -vView.z;
+  float fragZ = depthV - vR * z * 0.9;
+  a *= smoothstep(0.0, vR * uSoftness, sceneViewDepth() - fragZ);
+  a *= smoothstep(0.3, 3.6, depthV);
+  if (a < 0.002) discard;
+
+  vec3 amb = mix(uGroundAmb, uSkyAmb, 0.7);
+  vec3 lit = vCol * (amb * 2.1 + uSunLight * (0.14 / PI)) + vCol * vLit * 0.7;
+  lit = applyFog(lit, depthV);
   gl_FragColor = vec4(lit * a, a);
 }
 `;
@@ -128,8 +188,15 @@ varying vec2 vUv;
 varying vec4 vD;
 varying vec3 vView;
 varying float vLen;
+#ifdef DROP
+${LIGHTS_GLSL}
+varying vec3 vLit;
+#endif
 
 void main() {
+#ifdef DROP
+  vLit = xrLights(aP.xyz);
+#endif
   vec3 p0 = (viewMatrix * vec4(aP.xyz, 1.0)).xyz;
   vec3 dirW = aV.xyz;
   float sp = length(dirW);
@@ -158,6 +225,9 @@ varying vec2 vUv;
 varying vec4 vD;
 varying vec3 vView;
 varying float vLen;
+#ifdef DROP
+varying vec3 vLit;
+#endif
 
 void main() {
   float across = exp(-vUv.x * vUv.x * 3.2);
@@ -173,7 +243,15 @@ void main() {
   float vis = smoothstep(-0.04, 0.1, sceneZ - depthV);
   float a = across * along * vis;
   if (a < 0.004) discard;
+#ifdef DROP
+  // flying water: a pale streak that catches the sky light (and any lamp or headlight), blended over the scene
+  float da = a * vD.y * (1.0 - vD.x * 0.7);
+  vec3 dc = uSkyAmb * 2.4 + vLit * 0.9;
+  dc = applyFog(dc, depthV);
+  gl_FragColor = vec4(dc * da, da);
+#else
   gl_FragColor = vec4(col * vD.y * a * (0.4 + 1.6 * heat), a);
+#endif
 }
 `;
 

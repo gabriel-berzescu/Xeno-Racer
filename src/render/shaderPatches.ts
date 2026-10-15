@@ -20,8 +20,11 @@
  */
 import { ShaderChunk, ShaderLib, UniformsLib } from 'three';
 
-/** vec4 xrFog[9]: [0] = (sunAz.x, sunAz.z, 0, enabled), [1..8] = horizon table rgb. */
-export const xrFogUniform = { value: new Float32Array(4 * 9) };
+/**
+ * vec4 xrFog[10]: [0] = (sunAz.x, sunAz.z, rain-haze extinction 1/m, mode: 0 off / 1 horizon table / 2 table + rain
+ * deck), [1..8] = horizon table rgb, [9] = rgb of the thick rain deck overhead.
+ */
+export const xrFogUniform = { value: new Float32Array(4 * 10) };
 /** vec4 xrCsm[4]: per cascade (planeGradientClamp, zBias, filterRadiusTexels, tapCount (cascade 0)). */
 export const xrCsmUniform = { value: new Float32Array(4 * 4) };
 
@@ -65,7 +68,7 @@ const FOG_PARS_FRAGMENT = /* glsl */ `
 
 	#endif
 
-	uniform vec4 xrFog[ 9 ];
+	uniform vec4 xrFog[ 10 ];
 
 	vec3 xrFogColor( vec3 dirN ) {
 
@@ -77,7 +80,21 @@ const FOG_PARS_FRAGMENT = /* glsl */ `
 		float phi = atan( cr, dot( hn, xrFog[ 0 ].xy ) );
 		float t = sqrt( phi / 3.14159265 ) * 7.0;
 		int i = clamp( int( floor( t ) ), 0, 6 );
-		return mix( xrFog[ i + 1 ].rgb, xrFog[ i + 2 ].rgb, clamp( t - float( i ), 0.0, 1.0 ) );
+		vec3 c = mix( xrFog[ i + 1 ].rgb, xrFog[ i + 2 ].rgb, clamp( t - float( i ), 0.0, 1.0 ) );
+
+		if ( xrFog[ 0 ].w > 1.5 ) {
+
+			// Under a rain deck the sky above the horizon haze is cooler and darker. Scenery that rises into it
+			// (far mountain tops, tall trees) must fade into the sky behind it, not into the bright haze: the same
+			// blend as the sky shader's, by the elevation of the view ray.
+			float y = max( dirN.y, 0.0 );
+			float l = dot( c, vec3( 0.299, 0.587, 0.114 ) );
+			c = mix( c, l * vec3( 0.96, 1.0, 1.05 ), 0.8 * smoothstep( 0.02, 0.35, y ) );
+			c = mix( c, xrFog[ 9 ].rgb, smoothstep( 0.015, 0.8, y ) );
+
+		}
+
+		return c;
 
 	}
 
@@ -89,7 +106,8 @@ const FOG_FRAGMENT = /* glsl */ `
 
 	#ifdef FOG_EXP2
 
-		float fogFactor = 1.0 - exp( - fogDensity * fogDensity * vFogDepth * vFogDepth );
+		// exp2 haze plus the Beer-Lambert rain haze xrFog[0].z (0 when dry: identical to stock)
+		float fogFactor = 1.0 - exp( - fogDensity * fogDensity * vFogDepth * vFogDepth - xrFog[ 0 ].z * vFogDepth );
 
 	#else
 

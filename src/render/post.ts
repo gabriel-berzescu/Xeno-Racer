@@ -23,6 +23,8 @@ export const particleUniforms = {
   uGroundAmb: { value: new Vector3(0.05, 0.05, 0.04) },
   uFogColor: { value: new Vector3(0.5, 0.6, 0.7) },
   uFogDensity: { value: 0.0002 },
+  /** Rain-haze extinction (1/m), the Beer-Lambert part of the fog; 0 when dry. */
+  uFogLin: { value: 0 },
   /** Exposure-aware flare: how much night glow to add to emissive particles. */
   uExposure: { value: 1 },
 };

@@ -10,6 +10,8 @@ export interface InteriorUniforms {
   uPrimary: IUniform<Color>;
   uSeat: IUniform<Color>;
   uLight: IUniform<number>;
+  /** soft window light on the cabin under a rain deck (0 in the dry): a Fresnel-weighted lift that outlines the dark glossy parts */
+  uFill: IUniform<number>;
   uScreen: IUniform<number>;
   /** rpm 0..1, gear (-1 R, 0 N, 1..), speed km/h, over-rev flash 0/1 */
   uCluster: IUniform<Vector4>;
@@ -22,6 +24,7 @@ export function createInteriorUniforms(): InteriorUniforms {
     uPrimary: { value: new Color('#1c2c5a') },
     uSeat: { value: new Color(0.03, 0.03, 0.035) },
     uLight: { value: 0.2 },
+    uFill: { value: 0 },
     uScreen: { value: 1 },
     uCluster: { value: new Vector4(0, 0, 0, 0) },
     uScreenC: { value: new Vector3(0.36, 0.8, 0.5) },
@@ -48,6 +51,7 @@ uniform vec3 uAccent;
 uniform vec3 uPrimary;
 uniform vec3 uSeat;
 uniform float uLight;
+uniform float uFill;
 uniform float uScreen;
 uniform vec4 uCluster;
 uniform vec3 uScreenC;
@@ -178,7 +182,15 @@ export function createInteriorMaterial(uniforms: InteriorUniforms = createInteri
     f = f.replace('#include <color_fragment>', '#include <color_fragment>\n' + FRAG_ZONES);
     f = f.replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = iRough;');
     f = f.replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\nmetalnessFactor = iMetal;');
-    f = f.replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += iEmis;');
+    f = f.replace(
+      '#include <emissivemap_fragment>',
+      `#include <emissivemap_fragment>
+totalEmissiveRadiance += iEmis;
+if (uFill > 0.0) {
+  float fillFr = 1.0 - abs(dot(normal, normalize(vViewPosition)));
+  totalEmissiveRadiance += vec3(0.8, 0.86, 0.95) * uFill * (0.2 + 0.8 * fillFr * fillFr) * (0.25 + 0.75 * iAO);
+}`,
+    );
     f = f.replace(
       '#include <lights_physical_fragment>',
       `#include <lights_physical_fragment>
@@ -202,6 +214,6 @@ export function createInteriorMaterial(uniforms: InteriorUniforms = createInteri
     );
     shader.fragmentShader = f;
   };
-  mat.customProgramCacheKey = () => 'xr-interior-v1';
+  mat.customProgramCacheKey = () => 'xr-interior-v2';
   return { material: mat, uniforms };
 }

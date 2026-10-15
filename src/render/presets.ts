@@ -70,15 +70,31 @@ export interface WeatherPreset {
   exposure: number;
   /** Cloud darkness (thick bases). */
   dark: number;
+  /**
+   * Rain-bearing cloud deck (0 = the ordinary cumulus layer, 1 = a solid, low, heavy deck that replaces it).
+   * Everything below only matters when this is > 0, so the dry presets render exactly as before.
+   */
+  deck: number;
+  /** How dark the thick parts of the deck are against the pale horizon haze (0..1). */
+  deckDark: number;
+  /** Ragged low scud under the deck (0..1). */
+  scud: number;
+  /** Rain-haze extinction (1/m, Beer-Lambert): far scenery dissolves into the mist as exp(-k d). */
+  rainFog: number;
+  /** Added to the time-of-day darkness: lamps and headlights come on under a black storm sky. */
+  darken: number;
+  /** Share of the low sun's warm horizon colour that survives under the deck (dawn / dusk glow). */
+  glow: number;
 }
 
 export const WEATHER: Record<Weather, WeatherPreset> = {
-  clear: { coverage: 0.3, soft: 0.1, cirrus: 0.24, sun: 1.0, sky: 1.0, mie: 1.0, overcast: 0.0, fog: 1.0, shadow: 1.0, exposure: 1.0, dark: 0.35 },
-  cloudy: { coverage: 0.62, soft: 0.16, cirrus: 0.25, sun: 0.7, sky: 0.95, mie: 1.8, overcast: 0.3, fog: 1.35, shadow: 0.82, exposure: 1.05, dark: 0.55 },
-  overcast: { coverage: 1.0, soft: 0.4, cirrus: 0.0, sun: 0.1, sky: 0.9, mie: 3.0, overcast: 0.92, fog: 2.0, shadow: 0.22, exposure: 1.4, dark: 0.8 },
-  // provisional: rain and storm skies (refined with the wet-weather visuals)
-  rain: { coverage: 1.0, soft: 0.5, cirrus: 0.0, sun: 0.06, sky: 0.75, mie: 3.6, overcast: 0.96, fog: 2.8, shadow: 0.12, exposure: 1.5, dark: 0.9 },
-  storm: { coverage: 1.0, soft: 0.6, cirrus: 0.0, sun: 0.03, sky: 0.6, mie: 4.2, overcast: 1.0, fog: 3.6, shadow: 0.06, exposure: 1.65, dark: 1.0 },
+  clear: { coverage: 0.3, soft: 0.1, cirrus: 0.24, sun: 1.0, sky: 1.0, mie: 1.0, overcast: 0.0, fog: 1.0, shadow: 1.0, exposure: 1.0, dark: 0.35, deck: 0, deckDark: 0, scud: 0, rainFog: 0, darken: 0, glow: 0 },
+  cloudy: { coverage: 0.62, soft: 0.16, cirrus: 0.25, sun: 0.7, sky: 0.95, mie: 1.8, overcast: 0.3, fog: 1.35, shadow: 0.82, exposure: 1.05, dark: 0.55, deck: 0, deckDark: 0, scud: 0, rainFog: 0, darken: 0, glow: 0 },
+  overcast: { coverage: 1.0, soft: 0.4, cirrus: 0.0, sun: 0.1, sky: 0.9, mie: 3.0, overcast: 0.92, fog: 2.0, shadow: 0.22, exposure: 1.4, dark: 0.8, deck: 0, deckDark: 0, scud: 0, rainFog: 0, darken: 0, glow: 0 },
+  // Rain: a low grey ceiling, soft shadowless light, milky haze that thickens with distance.
+  rain: { coverage: 1.0, soft: 0.5, cirrus: 0.0, sun: 0.04, sky: 0.52, mie: 3.6, overcast: 0.97, fog: 1.5, shadow: 0.0, exposure: 1.45, dark: 0.9, deck: 1, deckDark: 0.6, scud: 0.4, rainFog: 0.0007, darken: 0.14, glow: 0.13 },
+  // Storm: the same ceiling, much darker and lower, hard rain, a few hundred metres of visibility.
+  storm: { coverage: 1.0, soft: 0.6, cirrus: 0.0, sun: 0.02, sky: 0.36, mie: 4.2, overcast: 1.0, fog: 2.0, shadow: 0.0, exposure: 1.4, dark: 1.0, deck: 1, deckDark: 0.9, scud: 0.8, rainFog: 0.0016, darken: 0.4, glow: 0.08 },
 };
 
 const DEG = Math.PI / 180;

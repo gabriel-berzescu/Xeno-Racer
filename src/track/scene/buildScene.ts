@@ -16,6 +16,7 @@ import { buildTrees } from './trees';
 import { buildTufts } from './tufts';
 import { buildWater } from './water';
 import { loadTextures } from './textures';
+import { setupWet, tintScene } from './wet';
 
 export async function buildTrackScene(rt: TrackRuntimeImpl, opts: TrackSceneOptions): Promise<TrackScene> {
   const maxAniso = opts.renderer.capabilities.getMaxAnisotropy();
@@ -23,6 +24,7 @@ export async function buildTrackScene(rt: TrackRuntimeImpl, opts: TrackSceneOpti
   opts.onProgress?.(0.01, 'textures');
   const tex = await loadTextures(q.aniso, (f) => opts.onProgress?.(0.01 + 0.09 * f, 'textures'));
   const ctx = newCtx(rt, opts, tex, q);
+  setupWet(ctx);
   const mats = makeMaterials(ctx);
   const root = ctx.root;
   root.name = `track:${rt.info.id}`;
@@ -66,6 +68,8 @@ export async function buildTrackScene(rt: TrackRuntimeImpl, opts: TrackSceneOpti
   const tufts = buildTufts(ctx);
   if (tufts) root.add(tufts);
 
+  // every plain material below the root gets a wetness-aware tint (the road and terrain shaders do their own)
+  tintScene(ctx, root);
   ctx.progress(1, 'done');
 
   const scene: TrackScene = {
