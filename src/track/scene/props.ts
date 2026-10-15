@@ -622,9 +622,9 @@ function buildLamps(ctx: Ctx, group: THREE.Group): void {
   c.width = c.height = 128;
   const g = c.getContext('2d')!;
   const gr = g.createRadialGradient(64, 64, 2, 64, 64, 64);
-  gr.addColorStop(0, 'rgba(255,236,190,1)');
-  gr.addColorStop(0.45, 'rgba(255,220,160,0.45)');
-  gr.addColorStop(1, 'rgba(255,200,140,0)');
+  gr.addColorStop(0, 'rgba(255,240,212,1)');
+  gr.addColorStop(0.45, 'rgba(255,230,192,0.45)');
+  gr.addColorStop(1, 'rgba(255,220,180,0)');
   g.fillStyle = gr;
   g.fillRect(0, 0, 128, 128);
   const poolT = new THREE.CanvasTexture(c);
@@ -652,7 +652,7 @@ function buildLamps(ctx: Ctx, group: THREE.Group): void {
   ctx.envListeners.push((env: EnvironmentState) => {
     // in the rain the lamps stay quiet until it is really dark (a storm at noon only switches them on)
     // (a wet road is lit by the lamps themselves in its shader, with reflections: no painted pools there)
-    poolM.opacity = env.wetness > 0 ? 0 : (0.75 * Math.max(0, env.darkness - 0.25)) / 0.75;
+    poolM.opacity = env.wetness > 0 ? 0 : (0.55 * Math.max(0, env.darkness - 0.25)) / 0.75;
     pools.visible = poolM.opacity > 0.01;
   });
 }

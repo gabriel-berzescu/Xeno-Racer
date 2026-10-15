@@ -16,9 +16,14 @@
  *    horizon table (azimuth relative to the sun), so distant geometry fades into the actual sky colour
  *    (warm glow toward the sun, cool haze away from it) instead of one flat colour.
  *
+ * 3. Street lamps. After dark, the lamps nearest to the camera light every lit material (cars, barriers, stands,
+ *    verges) through the material's own BRDF, so a car's clearcoat catches the floodlights as it passes under
+ *    them. Materials that light themselves from the lamps (the road, with its painted pools and wet reflections)
+ *    opt out with the define XR_NO_LAMPS. Off (one uniform test) while xrLampCol.w is 0.
+ *
  * Both degrade to stock behaviour when their uniforms are never set (e.g. a custom ShaderMaterial).
  */
-import { ShaderChunk, ShaderLib, UniformsLib } from 'three';
+import { ShaderChunk, ShaderLib, UniformsLib, Vector3, Vector4 } from 'three';
 
 /**
  * vec4 xrFog[10]: [0] = (sunAz.x, sunAz.z, rain-haze extinction 1/m, mode: 0 off / 1 horizon table / 2 table + rain
@@ -29,6 +34,44 @@ export const xrFogUniform = { value: new Float32Array(4 * 10) };
 export const xrCsmUniform = { value: new Float32Array(4 * 4) };
 
 export const MAX_CASCADES = 4;
+
+/** Street lamps that light every lit material (see installShaderPatches, 3.). */
+export const XR_LAMPS = 8;
+/** vec4 xrLamp[XR_LAMPS]: lamp head in VIEW space (xyz) and reach in m (w; 0 = unused slot). */
+export const xrLampUniform = { value: Array.from({ length: XR_LAMPS }, () => new Vector4()) };
+/** vec4 xrLampCol: radiance of a lamp (rgb), w = 1 while any lamp is lit. */
+export const xrLampColUniform = { value: new Vector4() };
+/** vec3 xrLampUp: world up in view space (the lamps shine down in a wide cone). */
+export const xrLampUpUniform = { value: new Vector3(0, 1, 0) };
+
+const LAMP_PARS = /* glsl */ `
+uniform vec4 xrLamp[ ${XR_LAMPS} ];
+uniform vec4 xrLampCol;
+uniform vec3 xrLampUp;
+`;
+
+const LAMP_LIGHTS = /* glsl */ `
+#if defined( RE_Direct ) && ! defined( XR_NO_LAMPS )
+	if ( xrLampCol.w > 0.5 ) {
+		IncidentLight xrLight;
+		xrLight.visible = true;
+		for ( int i = 0; i < ${XR_LAMPS}; i ++ ) {
+			vec4 lp = xrLamp[ i ];
+			if ( lp.w <= 0.0 ) continue;
+			vec3 lv = lp.xyz - geometryPosition;
+			float d2 = dot( lv, lv );
+			if ( d2 > lp.w * lp.w ) continue;
+			float d = sqrt( d2 );
+			xrLight.direction = lv / d;
+			// same fall-off and cone as the wet road's lamps (track/scene/wet.ts roadLamps)
+			float att = 1.0 / ( 1.0 + d2 / ( lp.w * lp.w * 0.08 ) ) * ( 1.0 - smoothstep( 0.55 * lp.w, lp.w, d ) );
+			float cone = smoothstep( 0.2, 0.65, dot( xrLight.direction, xrLampUp ) );
+			xrLight.color = xrLampCol.rgb * ( att * cone );
+			RE_Direct( xrLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight );
+		}
+	}
+#endif
+`;
 
 const MARK = '__xrPatched';
 
@@ -312,6 +355,16 @@ export function installShaderPatches(): PatchResult {
     console.warn('[render] fog patch skipped: unexpected fog chunks');
   }
 
+  // ---- street lamps -------------------------------------------------------------------------
+  let lamps = false;
+  if (typeof chunks.lights_pars_begin === 'string' && typeof chunks.lights_fragment_maps === 'string' && chunks.lights_fragment_begin.includes('geometryClearcoatNormal')) {
+    chunks.lights_pars_begin = chunks.lights_pars_begin + '\n' + LAMP_PARS;
+    chunks.lights_fragment_maps = LAMP_LIGHTS + '\n' + chunks.lights_fragment_maps;
+    lamps = true;
+  } else {
+    console.warn('[render] street-lamp patch skipped: unexpected light chunks');
+  }
+
   // ---- uniforms: make them part of every built-in material's uniform table -----------------
   const lib = ShaderLib as unknown as Record<string, { uniforms?: Record<string, unknown> }>;
   for (const key of Object.keys(lib)) {
@@ -319,10 +372,20 @@ export function installShaderPatches(): PatchResult {
     if (!u) continue;
     if (fog && 'fogColor' in u) u.xrFog = xrFogUniform;
     if (csm && 'directionalShadowMatrix' in u) u.xrCsm = xrCsmUniform;
+    if (lamps && 'directionalLights' in u) {
+      u.xrLamp = xrLampUniform;
+      u.xrLampCol = xrLampColUniform;
+      u.xrLampUp = xrLampUpUniform;
+    }
   }
   const libU = UniformsLib as unknown as Record<string, Record<string, unknown>>;
   if (fog && libU.fog) libU.fog.xrFog = xrFogUniform;
   if (csm && libU.lights) libU.lights.xrCsm = xrCsmUniform;
+  if (lamps && libU.lights) {
+    libU.lights.xrLamp = xrLampUniform;
+    libU.lights.xrLampCol = xrLampColUniform;
+    libU.lights.xrLampUp = xrLampUpUniform;
+  }
 
   chunks[MARK] = '1';
   result = { csm, fog };

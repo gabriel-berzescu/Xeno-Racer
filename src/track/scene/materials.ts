@@ -250,6 +250,8 @@ export function makeRoadMaterial(ctx: Ctx, tile: number, markings: boolean): THR
   const mat = pbr(ctx, ctx.tex.asphalt, tile, { color: 0xffffff, envMapIntensity: 0.9 });
   mat.name = markings ? 'road' : 'runoffAsphalt';
   mat.normalScale.set(1.15, 1.15);
+  // the road lights itself from the lamps (painted pools when dry, roadLamps when wet): no global lamp light
+  mat.defines = { ...(mat.defines ?? {}), XR_NO_LAMPS: '' };
   const rt = ctx.rt;
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uNoise = { value: ctx.tex.noise };

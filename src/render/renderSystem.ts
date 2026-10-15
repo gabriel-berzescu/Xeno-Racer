@@ -53,7 +53,7 @@ import { FinalEffect, SpeedEffect } from './effects-post';
 import { ParticlePass, particleUniforms, ShaftsPass } from './post';
 import { DropletPass } from './wet/droplets';
 import { SSRPass } from './wet/ssr';
-import { installShaderPatches, xrFogUniform } from './shaderPatches';
+import { installShaderPatches, XR_LAMPS, xrFogUniform, xrLampColUniform, xrLampUniform, xrLampUpUniform } from './shaderPatches';
 import { SHADOW_OFF, shadowConfigFor, SunShadows } from './shadows';
 import { SkyDome } from './sky';
 
@@ -206,6 +206,12 @@ class RenderSystemImpl implements XenoRenderSystem {
   private flashDirX = 0;
   private flashDirZ = 1;
   private flashApplied = false;
+  /** Street-lamp heads from the track scene (see updateLamps). */
+  private lampHeads: Float32Array | null = null;
+  private lampScanT = 0;
+  private readonly lampD2 = new Float64Array(XR_LAMPS);
+  private readonly lampIx = new Int32Array(XR_LAMPS);
+  private readonly lampV = new Vector3();
   /** Set when an environment change swapped the shadow configuration (every shadow-receiving program differs). */
   private shadowProgramsChanged = false;
 
@@ -443,6 +449,7 @@ class RenderSystemImpl implements XenoRenderSystem {
     this.updateFlash(dt);
     if (this.ssrPass) this.ssrPass.enabled = this.env.wetness > 0.02;
     this.updateDroplets(camera, dt, speed);
+    this.updateLamps(camera, dt);
     this.frameIndex++;
     this.renderer.shadowMap.needsUpdate = this.sun.update(this.focus, this.frameIndex);
     this.updateSpeedEffects(camera, dt, speed);
@@ -731,6 +738,65 @@ class RenderSystemImpl implements XenoRenderSystem {
   private readonly _camPos = new Vector3();
 
   /** Windscreen drops (cockpit) or lens drops (hood, bumper): the camera is within a few metres of the focus car. */
+  /**
+   * After dark the street lamps nearest to the focus car light every lit material (shaderPatches, 3.). The track scene
+   * publishes the lamp heads in userData.xrLamps; the lookup is repeated every couple of seconds (track changes).
+   */
+  private updateLamps(camera: PerspectiveCamera, dt: number): void {
+    const col = xrLampColUniform.value;
+    const slots = xrLampUniform.value;
+    this.lampScanT -= dt;
+    if (this.lampScanT <= 0) {
+      this.lampScanT = 2;
+      let found: Float32Array | null = null;
+      this.scene.traverse((o) => {
+        if (!found && o.userData && o.userData.xrLamps) found = o.userData.xrLamps as Float32Array;
+      });
+      this.lampHeads = found;
+    }
+    const lamps = this.lampHeads;
+    const dark = this.solution ? this.solution.darkness : 0;
+    if (!lamps || dark <= 0.45) {
+      if (col.w !== 0) {
+        col.set(0, 0, 0, 0);
+        for (const sl of slots) sl.w = 0;
+      }
+      return;
+    }
+    // same switch-on and colour as the wet road's own lamp lighting (track/scene/wet.ts)
+    const k = Math.min(1, (dark - 0.45) / 0.4);
+    col.set(7.5 * k, 6.1 * k, 4.4 * k, 1);
+    // around the car being filmed (the subject of a TV shot can be far from the camera; in the chase and cockpit
+    // views it is right there anyway)
+    const cx = this.focus.x;
+    const cz = this.focus.z;
+    const dist = this.lampD2;
+    const idx = this.lampIx;
+    let n = 0;
+    for (let i = 0; i < lamps.length; i += 3) {
+      const dx = lamps[i] - cx;
+      const dz = lamps[i + 2] - cz;
+      const d2 = dx * dx + dz * dz;
+      if (d2 > 95 * 95 || (n === XR_LAMPS && d2 >= dist[XR_LAMPS - 1])) continue;
+      let j = n < XR_LAMPS ? n++ : XR_LAMPS - 1;
+      while (j > 0 && dist[j - 1] > d2) {
+        dist[j] = dist[j - 1];
+        idx[j] = idx[j - 1];
+        j--;
+      }
+      dist[j] = d2;
+      idx[j] = i;
+    }
+    const v = this.lampV;
+    for (let j = 0; j < XR_LAMPS; j++) {
+      if (j < n) {
+        v.set(lamps[idx[j]], lamps[idx[j] + 1], lamps[idx[j] + 2]).applyMatrix4(camera.matrixWorldInverse);
+        slots[j].set(v.x, v.y, v.z, 46);
+      } else slots[j].w = 0;
+    }
+    xrLampUpUniform.value.set(0, 1, 0).transformDirection(camera.matrixWorldInverse);
+  }
+
   private updateDroplets(camera: PerspectiveCamera, dt: number, speed: number): void {
     const p = this.dropletPass;
     if (!p) return;
