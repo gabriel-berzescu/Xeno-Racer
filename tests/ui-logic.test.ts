@@ -327,12 +327,13 @@ describe('setup -> RaceConfig', () => {
     expect(c.laps).toBe(1);
     expect(c.opponents).toBe(0);
   });
-  it('time trial is alone on track with unlimited laps; free roam keeps optional traffic', () => {
+  it('time trial and free roam are alone on track with unlimited laps', () => {
     const tt = buildRaceConfig({ ...defaultSetup('timeTrial', TRACKS, CARS), opponents: 9, laps: 4 }, TRACKS, CARS, 'X');
     expect(tt).toMatchObject({ mode: 'timeTrial', laps: 0, opponents: 0, startPosition: 'pole' });
     const fr = buildRaceConfig({ ...defaultSetup('freeRoam', TRACKS, CARS), opponents: 3 }, TRACKS, CARS, 'X');
-    expect(fr).toMatchObject({ mode: 'freeRoam', laps: 0, opponents: 3, startPosition: 'pole' });
+    expect(fr).toMatchObject({ mode: 'freeRoam', laps: 0, opponents: 0, startPosition: 'pole' });
     expect(MODE_INFO.timeTrial.usesOpponents).toBe(false);
+    expect(MODE_INFO.freeRoam.usesOpponents || MODE_INFO.freeRoam.usesDifficulty).toBe(false);
   });
   it('the factory livery only carries the driver name', () => {
     expect(liveryFor(LIVERY_PRESETS[0], 'Ana')).toEqual({ driver: 'Ana' });

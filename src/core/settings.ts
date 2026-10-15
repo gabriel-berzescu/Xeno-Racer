@@ -34,10 +34,37 @@ function merge<T>(base: T, over: unknown): T {
   return out as T;
 }
 
+/** Settings that must be one of a few words. A value this build doesn't know (a hand-edited or newer save) would
+ * reach code that indexes tables by it: it falls back to the default. */
+const CHOICES: [string, readonly string[]][] = [
+  ['graphics.quality', ['low', 'medium', 'high', 'ultra']],
+  ['graphics.shadows', ['off', 'low', 'high']],
+  ['graphics.antialias', ['off', 'fxaa', 'smaa']],
+  ['assists.tcs', ['off', 'low', 'high']],
+  ['units', ['kmh', 'mph']],
+  ['camera.defaultMode', ['chase', 'chase-far', 'hood', 'bumper', 'cockpit', 'tv', 'orbit']],
+];
+
+function keepKnownChoices(s: Settings): Settings {
+  for (const [path, ok] of CHOICES) {
+    const keys = path.split('.');
+    const last = keys.pop()!;
+    let o = s as unknown as Record<string, unknown>;
+    let d = DEFAULT_SETTINGS as unknown as Record<string, unknown>;
+    for (const k of keys) {
+      o = o[k] as Record<string, unknown>;
+      d = d[k] as Record<string, unknown>;
+    }
+    if (!ok.includes(o[last] as string)) o[last] = d[last];
+  }
+  s.graphics.renderScale = Math.min(1.5, Math.max(0.5, s.graphics.renderScale));
+  return s;
+}
+
 export function loadSettings(): Settings {
   try {
     const raw = localStorage.getItem(KEY);
-    if (raw) return merge(structuredClone(DEFAULT_SETTINGS), JSON.parse(raw));
+    if (raw) return keepKnownChoices(merge(structuredClone(DEFAULT_SETTINGS), JSON.parse(raw)));
   } catch {
     /* private mode / corrupted — fall through */
   }

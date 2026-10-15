@@ -181,7 +181,7 @@ export interface ModeInfo {
 export const MODE_INFO: Record<RaceMode, ModeInfo> = {
   race: { label: 'Race', blurb: 'A full grid, a set number of laps, and a podium to fight for.', usesLaps: true, usesOpponents: true, usesDifficulty: true, usesStart: true },
   timeTrial: { label: 'Time Trial', blurb: 'You against the clock. Chase your own best lap and race your ghost.', usesLaps: false, usesOpponents: false, usesDifficulty: false, usesStart: false },
-  freeRoam: { label: 'Free Roam', blurb: 'No laps, no pressure. Learn the circuit and tune your driving.', usesLaps: false, usesOpponents: true, usesDifficulty: true, usesStart: false },
+  freeRoam: { label: 'Free Roam', blurb: 'No laps, no pressure: the circuit to yourself. Learn it and tune your driving.', usesLaps: false, usesOpponents: false, usesDifficulty: false, usesStart: false },
 };
 
 export const CHAMPIONSHIP_INFO = {

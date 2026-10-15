@@ -104,6 +104,8 @@ export class Game {
   private toast: { text: string; until: number } | null = null;
   private finishAt: number | null = null;
   private resultsShown = false;
+  /** The pad driving the race, to notice it being unplugged. */
+  private racePadId: string | null = null;
   private tvTimer = 0;
   private tvTarget = 0;
   private ghost: { lap: GhostLap; visual: CarVisual; state: VehicleState; mats: { opacity: number }[] } | null = null;
@@ -572,6 +574,9 @@ export class Game {
     this.ui.show('none');
     this.ui.setHudVisible(this.hudVisible);
     this.phase = 'race';
+    this.racePadId = null;
+    // switched away while it loaded: the countdown waits behind the pause menu, as it would for an alt-tab mid-race
+    if (document.hidden || !document.hasFocus()) this.setPaused(true);
   }
 
   /**
@@ -892,10 +897,17 @@ export class Game {
       return;
     }
 
-    // pause / menus (once the flag has fallen, Start and Esc belong to the results and standings screens)
-    if (input.pause && !this.resultsShown) {
-      this.setPaused(!this.paused);
-      this.audio.ui(this.paused ? 'select' : 'back');
+    // the pad was unplugged mid-race: wait behind the pause menu (it says why) instead of coasting on with no input
+    if (input.gamepadId !== this.racePadId) {
+      if (this.racePadId && !input.gamepadId && !this.paused && !this.resultsShown) this.setPaused(true);
+      this.racePadId = input.gamepadId;
+    }
+    // pause / menus (once the flag has fallen, Start and Esc belong to the results and standings screens). Start only
+    // pauses here: while paused it belongs to the screen on show, which resumes from the pause menu but accepts a
+    // name or steps back in the settings
+    if (input.pause && !this.resultsShown && !this.paused) {
+      this.setPaused(true);
+      this.audio.ui('select');
     }
     if (this.paused || this.resultsShown) {
       this.ui.handleInput(input);

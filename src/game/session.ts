@@ -20,6 +20,11 @@ export interface EntrantProgress {
   d: number;
   /** Line crossings since the start (the grid is behind the line, so the first crossing starts lap 1). */
   crossings: number;
+  /**
+   * Backward crossings not yet driven back over: the next forward crossing only returns the car to the lap it was on
+   * (a reset that drops it just behind the line, a spin or reversing must not complete a lap).
+   */
+  recross: number;
   /** Continuous race distance (m) — used for positions. */
   distance: number;
   lapStart: number;
@@ -85,6 +90,7 @@ export class RaceSession {
       s: 0,
       d: 0,
       crossings: 0,
+      recross: 0,
       distance: 0,
       lapStart: 0,
       lapTimes: [],
@@ -165,9 +171,15 @@ export class RaceSession {
   private onCross(p: EntrantProgress, dir: 1 | -1): void {
     if (dir < 0) {
       p.crossings--;
+      p.recross++;
       return;
     }
     p.crossings++;
+    if (p.recross > 0) {
+      // back over the line it reversed across: still the same lap, timed from where it really began
+      p.recross--;
+      return;
+    }
     if (this.phase !== 'racing' || p.finished) return;
     const now = this.now;
     if (p.crossings >= 2) {

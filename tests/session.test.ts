@@ -64,6 +64,32 @@ describe('race session', () => {
     expect(session.progress[1].finished).toBe(false);
   });
 
+  it('does not complete a lap when a car reverses (or is reset) back over the line and drives on', () => {
+    const { entrants, session } = setup(1, 0);
+    (session as unknown as { config: RaceConfig }).config.mode = 'timeTrial';
+    (session as unknown as { unlimited: boolean }).unlimited = true;
+    session.startCountdown(0, false);
+    const dist = [-10];
+    // a real lap, then park just past the line
+    let t = drive(session, entrants, dist, [60], 0, (L + 12) / 60);
+    const p = session.progress[0];
+    expect(p.lapTimes.length).toBe(1);
+    t = drive(session, entrants, dist, [0], t, 17);
+    // the reset puts the car 4 m behind the line, then it drives over it again and on for half a lap
+    dist[0] -= 6;
+    place(entrants[0].state, dist[0], 0);
+    session.update(1 / 60, (t += 1 / 60));
+    t = drive(session, entrants, dist, [60], t, L / 2 / 60);
+    expect(p.lapTimes.length).toBe(1);
+    // the lap that was under way still ends on the next real crossing, timed from its true start
+    const lapBegan = 10 / 60 + L / 60;
+    t = drive(session, entrants, dist, [60], t, (L / 2 + 10) / 60);
+    expect(p.lapTimes.length).toBe(2);
+    expect(p.lapTimes[1]).toBeGreaterThan(17 + L / 60 - 1);
+    // (it ends 6 m past the line)
+    expect(p.lapTimes[1]).toBeCloseTo(t - 6 / 60 - lapBegan, 1);
+  });
+
   it('classifies cars still running at the end: projected time on the final lap, laps down otherwise', () => {
     const { entrants, session } = setup(3, 2);
     session.startCountdown(0, false);

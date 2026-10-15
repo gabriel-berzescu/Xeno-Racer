@@ -35,7 +35,9 @@ export class PauseScreen extends BaseScreen {
         run: () =>
           this.championship()
             ? this.confirm('Restart the round?', 'You will start again from the grid. Your progress in this round will be lost.', 'Restart', 'Keep racing', () => ctx.emit({ type: 'restart' }))
-            : this.confirm('Restart the race?', 'You will start again from the grid. Your progress in this race will be lost.', 'Restart', 'Keep racing', () => ctx.emit({ type: 'restart' })),
+            : this.mode() === 'race'
+              ? this.confirm('Restart the race?', 'You will start again from the grid. Your progress in this race will be lost.', 'Restart', 'Keep racing', () => ctx.emit({ type: 'restart' }))
+              : this.confirm('Start over?', 'You will roll out again before the line. The lap you are on will not count.', 'Restart', 'Keep driving', () => ctx.emit({ type: 'restart' })),
       },
       { label: 'Settings', run: () => ctx.go('settings') },
       {
@@ -44,7 +46,9 @@ export class PauseScreen extends BaseScreen {
         run: () =>
           this.championship()
             ? this.confirm('Quit to the menu?', 'This round will not count. Your championship is saved, and you can pick it up again from the main menu.', 'Quit', 'Cancel', () => ctx.emit({ type: 'quitToMenu' }))
-            : this.confirm('Quit to the menu?', 'You will leave the race. Your progress in this race will be lost.', 'Quit', 'Cancel', () => ctx.emit({ type: 'quitToMenu' })),
+            : this.mode() === 'race'
+              ? this.confirm('Quit to the menu?', 'You will leave the race. Your progress in this race will be lost.', 'Quit', 'Cancel', () => ctx.emit({ type: 'quitToMenu' }))
+              : this.confirm('Quit to the menu?', 'The lap you are on will not count. Your best laps are already saved.', 'Quit', 'Cancel', () => ctx.emit({ type: 'quitToMenu' })),
       },
     ];
     const menu = h('nav', 'menu');
@@ -91,12 +95,11 @@ export class PauseScreen extends BaseScreen {
     return !!this.ctx.lastConfig?.championship;
   }
 
+  private mode(): 'race' | 'timeTrial' | 'freeRoam' {
+    return this.ctx.lastHud?.mode ?? this.ctx.lastConfig?.mode ?? 'race';
+  }
+
   private confirm(title: string, text: string, yes: string, no: string, onYes: () => void): void {
-    const mode = this.ctx.lastHud?.mode ?? this.ctx.lastConfig?.mode ?? 'race';
-    if (mode !== 'race') {
-      onYes();
-      return;
-    }
     this.dialog.show({ title, text, yes, no, onYes });
   }
 
