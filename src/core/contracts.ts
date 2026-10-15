@@ -453,6 +453,28 @@ export interface Settings {
 export type RaceMode = 'race' | 'timeTrial' | 'freeRoam';
 export type Difficulty = 'rookie' | 'amateur' | 'pro' | 'alien';
 
+/** One slot of a championship round's grid. */
+export interface ChampionshipGridSlot {
+  /** Stable driver id within the championship. */
+  id: string;
+  name: string;
+  isPlayer: boolean;
+  /** Opponents: their season livery and AI variation seed (stable, so a driver's pace is too). */
+  livery?: Livery;
+  seed?: number;
+}
+
+/** Present on the races of a championship: which round this is and who starts where. */
+export interface ChampionshipRoundInfo {
+  /** "Xeno Cup". */
+  name: string;
+  /** 1-based. */
+  round: number;
+  rounds: number;
+  /** The grid, pole first. All drivers use the player's car; opponents keep their identity all season. */
+  grid: ChampionshipGridSlot[];
+}
+
 export interface RaceConfig {
   mode: RaceMode;
   trackId: string;
@@ -463,6 +485,8 @@ export interface RaceConfig {
   difficulty: Difficulty;
   environment: EnvironmentSettings;
   startPosition: 'back' | 'middle' | 'pole';
+  /** Set for a round of a championship (mode is then always 'race'); `grid` overrides `startPosition`. */
+  championship?: ChampionshipRoundInfo;
 }
 
 export interface RaceResultEntry {
@@ -474,6 +498,10 @@ export interface RaceResultEntry {
   bestLap: number | null;
   gap: string; // "+1.234" / "+1 LAP" / "WINNER"
   laps: number;
+  /** Championship rounds: points scored in this race (fastest-lap bonus included). */
+  points?: number;
+  /** Championship rounds: this driver took the fastest-lap point. */
+  fastestLap?: boolean;
 }
 
 export interface RaceResults {
@@ -481,6 +509,107 @@ export interface RaceResults {
   entries: RaceResultEntry[];
   playerLapTimes: number[];
   personalBest: boolean; // player set a new best lap for this track+car
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Championship (owner: game computes everything; the UI only renders these view models)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** How long each race of a championship is, relative to the track's default lap count. */
+export type ChampionshipLength = 'short' | 'standard' | 'long';
+
+/** What the player chooses when starting a championship (the calendar itself is fixed). */
+export interface ChampionshipSetup {
+  carId: string;
+  livery?: Partial<Livery>;
+  difficulty: Difficulty;
+  /** AI opponents, 1..11. */
+  opponents: number;
+  length: ChampionshipLength;
+  /** Where the player starts round 1. */
+  startPosition: 'back' | 'middle' | 'pole';
+  /** Rounds 2+: gridded by the championship standings (leader on pole) or by the reverse of them. */
+  grid: 'standings' | 'reverse';
+}
+
+/** One entry of the fixed calendar, as the setup screen previews it. */
+export interface ChampionshipRoundDef {
+  trackId: string;
+  environment: EnvironmentSettings;
+  /** Laps of this round for every race length. */
+  laps: Record<ChampionshipLength, number>;
+}
+
+/** The fixed calendar and scoring rules. */
+export interface ChampionshipDef {
+  name: string;
+  rounds: ChampionshipRoundDef[];
+  /** Points for P1, P2, ...; everyone further back scores nothing. */
+  points: number[];
+  /** Bonus for the fastest lap of a race, if its driver finishes in the points. */
+  fastestLapPoint: number;
+}
+
+export interface ChampionshipRow {
+  /** Championship position, 1-based. */
+  position: number;
+  id: string;
+  name: string;
+  isPlayer: boolean;
+  /** Livery colour (the player's chip is teal, as in the race tower). */
+  color: string;
+  points: number;
+  /** Points behind the leader (0 for the leader). */
+  gap: number;
+  /** Per calendar round: points scored, or null if the round has not been raced yet. */
+  roundPoints: (number | null)[];
+  /** Per calendar round: finishing position, or null. */
+  roundPositions: (number | null)[];
+  /** Per calendar round: this driver took the fastest-lap point. */
+  roundFastest: boolean[];
+  wins: number;
+  podiums: number;
+  fastestLaps: number;
+  /** Places gained (+) or lost (-) in the last completed round; null while there is nothing to compare. */
+  move: number | null;
+  /** Championship position before the last completed round (the roster order before any round was raced). */
+  prevPosition: number;
+  /** Points scored in the last completed round. */
+  lastGain: number;
+}
+
+export interface ChampionshipRoundView {
+  /** 0-based index in the calendar. */
+  round: number;
+  trackId: string;
+  environment: EnvironmentSettings;
+  laps: number;
+  done: boolean;
+  winner: { name: string; isPlayer: boolean } | null;
+  /** The player's finish and points in a completed round. */
+  playerPosition: number | null;
+  playerPoints: number | null;
+  fastestLap: { name: string; time: number; isPlayer: boolean } | null;
+}
+
+/** Everything the menus need to show a championship in progress (or just finished). */
+export interface ChampionshipView {
+  name: string;
+  carId: string;
+  difficulty: Difficulty;
+  length: ChampionshipLength;
+  opponents: number;
+  grid: ChampionshipSetup['grid'];
+  rounds: ChampionshipRoundView[];
+  /** Rounds completed; the next one to race has this index (== rounds.length once the season is over). */
+  done: number;
+  complete: boolean;
+  /** Standings, best first. */
+  table: ChampionshipRow[];
+  /** The player's row of `table`. */
+  player: ChampionshipRow;
+  /** The player's season so far. */
+  season: { rounds: number; wins: number; podiums: number; fastestLaps: number; points: number; bestFinish: number | null };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -539,6 +668,8 @@ export interface HudState {
   toast: string | null;
   showTelemetry: boolean;
   hudVisible: boolean;
+  /** Set during a championship round ("Round 2 / 4"). The game keeps one object for the whole race. */
+  championship?: { name: string; round: number; rounds: number } | null;
 }
 
 /** Minimap geometry, sent once per track. */
@@ -560,6 +691,12 @@ export type UIIntent =
   | { type: 'previewCar'; carId: string; livery?: Partial<Livery> }
   | { type: 'previewTrack'; trackId: string }
   | { type: 'menuOpened'; screen: string }
-  | { type: 'watchReplay' };
+  | { type: 'watchReplay' }
+  /** Start a new championship (replacing any saved one) and its first round. The game calls `setRaceConfig()` and shows the loading screen. */
+  | { type: 'startChampionship'; setup: ChampionshipSetup }
+  /** Race the next round of the saved championship (the game shows the loading screen, as for `startChampionship`). */
+  | { type: 'championshipNext' }
+  /** Forget the saved championship (abandoned, or finished and seen). */
+  | { type: 'championshipAbandon' };
 
 export type UiSound = 'move' | 'select' | 'back' | 'error' | 'countdown' | 'go' | 'lap' | 'bestLap' | 'finish';

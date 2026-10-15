@@ -44,6 +44,9 @@ import {
   type MapFit,
 } from '../src/ui/hudlogic';
 import { FocusList, snap, stepIndex, type FocusRow, type Nav } from '../src/ui/nav';
+import { buildChampionshipSetup, CHAMP_DEFAULTS, CHAMP_OPPONENTS_MIN, championshipHint, modeLabel, OPPONENTS_MAX } from '../src/ui/model';
+import { formatConditions, formatPointsGap, lapsLabel, leadText, seasonTitle, trackCode } from '../src/ui/format';
+import { buildView, championshipDef, createChampionship, recordRound } from '../src/game/championship';
 import { autoCase, keyAtColumn } from '../src/ui/osk';
 import { CARS } from '../src/cars';
 import { DEFAULT_SETTINGS, QUALITY_PRESETS } from '../src/core/settings';
@@ -559,5 +562,129 @@ describe('stepIndex / snap', () => {
     expect(snap(7, 0, 1, 0.05)).toBe(1);
     expect(snap(1.43, 1, 3, 0.1)).toBe(1.4);
     expect(snap(62.4, 45, 100, 1)).toBe(62);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+describe('championship setup', () => {
+  it('starts from sensible defaults: 7 opponents, amateur, standard length, back of the grid, standings order', () => {
+    const s = defaultSetup('championship', TRACKS, CARS);
+    expect(s.mode).toBe('championship');
+    expect(s.champ).toEqual({ opponents: 7, difficulty: 'amateur', length: 'standard', startPosition: 'back', grid: 'standings' });
+    expect(s.champ).toEqual(CHAMP_DEFAULTS);
+    expect(modeLabel('championship')).toBe('Championship');
+    expect(modeLabel('timeTrial')).toBe('Time Trial');
+  });
+
+  it('keeps its own options apart from the Race setup, and the car choice in common', () => {
+    const race = { ...defaultSetup('race', TRACKS, CARS), opponents: 3, difficulty: 'alien' as const, carIndex: 2, liveryIndex: 4 };
+    const s = defaultSetup('championship', TRACKS, CARS, race);
+    expect(s.carIndex).toBe(2);
+    expect(s.liveryIndex).toBe(4);
+    expect(s.champ.opponents).toBe(7); // not the 3 of the race
+    s.champ.opponents = 10;
+    s.champ.length = 'long';
+    // visiting the championship must not wipe what the race remembers...
+    const back = defaultSetup('race', TRACKS, CARS, s);
+    expect(back.opponents).toBe(3);
+    expect(back.difficulty).toBe('alien');
+    // ...and the championship remembers its last choices
+    expect(defaultSetup('championship', TRACKS, CARS, s).champ).toMatchObject({ opponents: 10, length: 'long' });
+    // a time trial in between does not reset the championship's field either
+    expect(defaultSetup('championship', TRACKS, CARS, defaultSetup('timeTrial', TRACKS, CARS, s)).champ.opponents).toBe(10);
+  });
+
+  it('builds the setup the game starts a championship from', () => {
+    const s = defaultSetup('championship', TRACKS, CARS);
+    s.carIndex = 1;
+    s.liveryIndex = 3;
+    s.champ = { opponents: 11, difficulty: 'pro', length: 'short', startPosition: 'pole', grid: 'reverse' };
+    const c = buildChampionshipSetup(s, CARS, 'Ana');
+    expect(c).toEqual({
+      carId: CARS[1].id,
+      livery: liveryFor(LIVERY_PRESETS[3], 'Ana'),
+      difficulty: 'pro',
+      opponents: 11,
+      length: 'short',
+      startPosition: 'pole',
+      grid: 'reverse',
+    });
+    expect(c.livery).toMatchObject({ driver: 'Ana', primary: LIVERY_PRESETS[3].livery!.primary });
+  });
+
+  it('keeps the field between 1 and 11 opponents', () => {
+    const s = defaultSetup('championship', TRACKS, CARS);
+    s.champ.opponents = 40;
+    expect(buildChampionshipSetup(s, CARS, 'X').opponents).toBe(OPPONENTS_MAX);
+    s.champ.opponents = 0;
+    expect(buildChampionshipSetup(s, CARS, 'X').opponents).toBe(CHAMP_OPPONENTS_MIN);
+    s.champ.opponents = 4.4;
+    expect(buildChampionshipSetup(s, CARS, 'X').opponents).toBe(4);
+  });
+
+  it('a championship wizard still builds a legal race config if asked (the mode maps to race)', () => {
+    const c = buildRaceConfig(defaultSetup('championship', TRACKS, CARS), TRACKS, CARS, 'X');
+    expect(c.mode).toBe('race');
+    expect(c.championship).toBeUndefined();
+  });
+});
+
+describe('championship menu text', () => {
+  const tracks: TrackInfo[] = [
+    { ...TRACKS[0], id: 'aurelia', name: 'Aurelia Ring', defaultLaps: 3 },
+    { ...TRACKS[1], id: 'kuroyama', name: 'Kuroyama Pass', defaultLaps: 2 },
+  ];
+  const def = championshipDef(tracks);
+  const start = (): ReturnType<typeof createChampionship> =>
+    createChampionship({
+      setup: { carId: CARS[0].id, difficulty: 'pro', opponents: 3, length: 'standard', startPosition: 'back', grid: 'standings' },
+      tracks,
+      playerName: 'Gabriel',
+      playerLivery: { ...CARS[0].defaultLivery, driver: 'Gabriel' },
+      car: CARS[0],
+      seed: 5,
+    });
+  const ids = (s: ReturnType<typeof start>): string[] => s.drivers.map((d) => d.id);
+  const finish = (order: string[]) => order.map((id, i) => ({ id, position: i + 1, totalTime: 100 + i, bestLap: null, laps: 3 }));
+
+  it('describes the championship before there is one', () => {
+    const t = championshipHint(def, null);
+    expect(t).toContain('4 rounds across 2 circuits');
+    expect(t).toContain('Xeno Cup');
+    expect(championshipHint(undefined, null).length).toBeGreaterThan(20);
+  });
+
+  it('says where a saved season stands', () => {
+    let s = start();
+    expect(championshipHint(def, buildView(s))).toBe('Xeno Cup: round 1 of 4 is next. Nobody has scored yet.');
+    s = recordRound(s, finish([...ids(s)].reverse())); // the player (listed first) finishes last: 12 points... on 4 cars: P4 = 12
+    const v = buildView(s);
+    expect(championshipHint(def, v)).toBe(`Xeno Cup, round 2 of 4. 4th with 12 points. Pick up where you left off.`);
+    s = recordRound(s, finish([ids(s)[0], ...ids(s).slice(1)]));
+    expect(championshipHint(def, buildView(s))).toContain('round 3 of 4');
+  });
+
+  it('congratulates a champion and shows a runner-up their place once the season is over', () => {
+    let win = start();
+    for (let i = 0; i < 4; i++) win = recordRound(win, finish(ids(win)));
+    expect(championshipHint(def, buildView(win))).toBe('Xeno Cup won with 100 points. See the final standings.');
+    let lose = start();
+    for (let i = 0; i < 4; i++) lose = recordRound(lose, finish([ids(lose)[1], ids(lose)[0], ...ids(lose).slice(2)]));
+    expect(championshipHint(def, buildView(lose))).toBe('Xeno Cup finished: 2nd with 72 points. See the final standings.');
+  });
+
+  it('formats conditions, laps, gaps, track codes and season titles', () => {
+    expect(formatConditions({ timeOfDay: 'golden', weather: 'clear' })).toBe('Golden hour  ·  Clear');
+    expect(formatConditions({ timeOfDay: 'dusk', weather: 'rain' })).toBe('Dusk  ·  Rain');
+    expect([1, 2, 6].map(lapsLabel)).toEqual(['1 lap', '2 laps', '6 laps']);
+    expect([0, 7, 25].map(formatPointsGap)).toEqual(['', '-7', '-25']);
+    expect(trackCode('Aurelia Ring')).toBe('AUR');
+    expect(trackCode('Kuroyama Pass')).toBe('KUR');
+    expect(trackCode('X')).toBe('X');
+    expect([1, 2, 3, 4, 11].map(seasonTitle)).toEqual(['Champion', 'Runner-up', 'Third place', '4th place', '11th place']);
+    expect(leadText(1, 0, 7)).toBe('7 ahead');
+    expect(leadText(1, 0, 0)).toBe('level on points');
+    expect(leadText(2, 0, 0)).toBe('level on points'); // level on points but behind on countback
+    expect(leadText(5, 12, 0)).toBe('12 behind the lead');
   });
 });

@@ -2,15 +2,17 @@ import type { InputFrame, RaceMode } from '../../core/contracts';
 import type { UiCtx } from '../ctx';
 import { clearEl, h } from '../dom';
 import { formatLapTime } from '../format';
-import { MODE_INFO } from '../model';
+import { championshipHint, MODE_INFO } from '../model';
 import { FocusList, type FocusRow } from '../nav';
 import { wordmark } from '../wordmark';
 import { BaseScreen } from './base';
 
 interface Item {
   label: string;
-  hint: string;
+  hint(): string;
   danger?: boolean;
+  /** A small chip beside the label (e.g. the round a saved championship is at). */
+  badge?(): { text: string; tone?: 'gold' } | null;
   run(): void;
 }
 
@@ -19,22 +21,43 @@ export class MainScreen extends BaseScreen {
   private readonly list = new FocusList(true);
   private readonly hint = h('div', 'main-hint');
   private readonly items: Item[];
+  private readonly badges: (HTMLElement | null)[] = [];
   private readonly driver = h('b');
   private readonly pb = h('div', { cls: 'panel chamfer edge main-pb in', style: { '--d': '700', '--tx': '60px' } });
 
   constructor(ctx: UiCtx) {
     super(ctx, 'main');
     const mode = (m: RaceMode) => () => ctx.openSetup(m);
-    this.items = [
-      { label: 'Race', hint: MODE_INFO.race.blurb, run: mode('race') },
-      { label: 'Time Trial', hint: MODE_INFO.timeTrial.blurb, run: mode('timeTrial') },
-      { label: 'Free Roam', hint: MODE_INFO.freeRoam.blurb, run: mode('freeRoam') },
-      { label: 'Settings', hint: 'Graphics, audio, controls, driving assists and gameplay.', run: () => ctx.go('settings') },
-      { label: 'Credits', hint: 'The people and projects behind Xeno-Racer.', run: () => ctx.go('credits') },
-    ];
+    const modeItem = (label: string, m: RaceMode): Item => ({ label, hint: () => MODE_INFO[m].blurb, run: mode(m) });
+    this.items = [modeItem('Race', 'race')];
+    if (ctx.championshipDef) {
+      this.items.push({
+        label: 'Championship',
+        hint: () => championshipHint(ctx.championshipDef, ctx.championship),
+        badge: () => {
+          const v = ctx.championship;
+          if (!v) return null;
+          return v.complete ? { text: 'Finished', tone: 'gold' } : { text: `Round ${v.done + 1}/${v.rounds.length}` };
+        },
+        // a saved season resumes at its standings (or its final table); a new one starts at the setup
+        run: () => {
+          const v = ctx.championship;
+          if (!v) ctx.openSetup('championship');
+          else ctx.go(v.complete ? 'champion' : 'standings');
+        },
+      });
+    }
+    this.items.push(
+      modeItem('Time Trial', 'timeTrial'),
+      modeItem('Free Roam', 'freeRoam'),
+      { label: 'Settings', hint: () => 'Graphics, audio, controls, driving assists and gameplay.', run: () => ctx.go('settings') },
+      { label: 'Credits', hint: () => 'The people and projects behind Xeno-Racer.', run: () => ctx.go('credits') },
+    );
     const menu = h('nav', 'menu');
     const rows: FocusRow[] = this.items.map((it, i) => {
-      const el = h('div', { cls: 'menu-item focusable in', style: { '--d': String(200 + i * 70), '--tx': '-70px' } }, h('i', 'plate'), h('i', 'plate-edge'), h('span', 'idx', String(i + 1).padStart(2, '0')), h('span', 'lbl', it.label));
+      const badge = it.badge ? h('span', 'mi-badge') : null;
+      this.badges.push(badge);
+      const el = h('div', { cls: 'menu-item focusable in', style: { '--d': String(200 + i * 70), '--tx': '-70px' } }, h('i', 'plate'), h('i', 'plate-edge'), h('span', 'idx', String(i + 1).padStart(2, '0')), h('span', 'lbl', it.label), badge);
       el.addEventListener('pointermove', (e) => {
         if ((e as PointerEvent).movementX !== 0 || (e as PointerEvent).movementY !== 0) this.focusTo(i);
       });
@@ -48,7 +71,7 @@ export class MainScreen extends BaseScreen {
         setFocused: (on: boolean) => el.classList.toggle('is-focus', on),
         activate: () => (it.run(), true),
         onFocus: () => {
-          this.hint.textContent = it.hint;
+          this.hint.textContent = it.hint();
         },
       };
     });
@@ -69,7 +92,7 @@ export class MainScreen extends BaseScreen {
       { action: 'confirm', label: 'Open' },
       { action: 'back', label: 'Title' },
     ]);
-    this.hint.textContent = this.items[0].hint;
+    this.hint.textContent = this.items[0].hint();
     ctx.onSettings(() => this.refresh());
     this.refresh();
   }
@@ -81,6 +104,16 @@ export class MainScreen extends BaseScreen {
   refresh(): void {
     this.driver.textContent = this.ctx.settings.playerName;
     this.renderBests();
+    this.items.forEach((it, i) => {
+      const el = this.badges[i];
+      if (!el || !it.badge) return;
+      const b = it.badge();
+      el.textContent = b?.text ?? '';
+      el.style.display = b ? '' : 'none';
+      el.classList.toggle('gold', b?.tone === 'gold');
+    });
+    const cur = this.list.index >= 0 ? this.items[this.list.index] : null;
+    if (cur) this.hint.textContent = cur.hint(); // a saved championship changes its own line
   }
 
   /** Up to three personal bests (track order), or nothing at all before the first lap. */

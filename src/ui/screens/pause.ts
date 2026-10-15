@@ -2,7 +2,7 @@ import type { InputFrame } from '../../core/contracts';
 import type { ScreenId } from '../../core/systems';
 import type { UiCtx } from '../ctx';
 import { h, clearEl } from '../dom';
-import { formatLapTime } from '../format';
+import { formatLapTime, ordinal } from '../format';
 import { MODE_INFO } from '../model';
 import { FocusList, type FocusRow } from '../nav';
 import { Dialog } from '../widgets';
@@ -14,6 +14,8 @@ interface Item {
   run(): void;
 }
 
+const chip = (k: string, v: string): HTMLElement => h('div', 'kv', h('span', 'k', k), h('span', 'v', v));
+
 export class PauseScreen extends BaseScreen {
   readonly id = 'pause' as const;
   private readonly list = new FocusList(true);
@@ -21,19 +23,33 @@ export class PauseScreen extends BaseScreen {
   private readonly kicker = h('div', 'kicker');
   private readonly info = h('div', 'pause-info');
   private readonly items: Item[];
+  private readonly restartLabel = h('span', 'lbl', 'Restart');
 
   constructor(ctx: UiCtx) {
     super(ctx, 'pause');
     this.dialog = new Dialog(ctx);
     this.items = [
       { label: 'Resume', run: () => this.resume() },
-      { label: 'Restart', run: () => this.confirm('Restart the race?', 'You will start again from the grid. Your progress in this race will be lost.', 'Restart', 'Keep racing', () => ctx.emit({ type: 'restart' })) },
+      {
+        label: 'Restart',
+        run: () =>
+          this.championship()
+            ? this.confirm('Restart the round?', 'You will start again from the grid. Your progress in this round will be lost.', 'Restart', 'Keep racing', () => ctx.emit({ type: 'restart' }))
+            : this.confirm('Restart the race?', 'You will start again from the grid. Your progress in this race will be lost.', 'Restart', 'Keep racing', () => ctx.emit({ type: 'restart' })),
+      },
       { label: 'Settings', run: () => ctx.go('settings') },
-      { label: 'Quit to menu', danger: true, run: () => this.confirm('Quit to the menu?', 'You will leave the race. Your progress in this race will be lost.', 'Quit', 'Cancel', () => ctx.emit({ type: 'quitToMenu' })) },
+      {
+        label: 'Quit to menu',
+        danger: true,
+        run: () =>
+          this.championship()
+            ? this.confirm('Quit to the menu?', 'This round will not count. Your championship is saved, and you can pick it up again from the main menu.', 'Quit', 'Cancel', () => ctx.emit({ type: 'quitToMenu' }))
+            : this.confirm('Quit to the menu?', 'You will leave the race. Your progress in this race will be lost.', 'Quit', 'Cancel', () => ctx.emit({ type: 'quitToMenu' })),
+      },
     ];
     const menu = h('nav', 'menu');
     const rows: FocusRow[] = this.items.map((it, i) => {
-      const el = h('div', { cls: 'menu-item focusable in' + (it.danger ? ' danger' : ''), style: { '--d': String(220 + i * 70), '--tx': '-70px' } }, h('i', 'plate'), h('i', 'plate-edge'), h('span', 'idx', String(i + 1).padStart(2, '0')), h('span', 'lbl', it.label));
+      const el = h('div', { cls: 'menu-item focusable in' + (it.danger ? ' danger' : ''), style: { '--d': String(220 + i * 70), '--tx': '-70px' } }, h('i', 'plate'), h('i', 'plate-edge'), h('span', 'idx', String(i + 1).padStart(2, '0')), i === 1 ? this.restartLabel : h('span', 'lbl', it.label));
       el.addEventListener('pointermove', (e) => {
         if (this.dialog.open) return;
         if ((e as PointerEvent).movementX !== 0 || (e as PointerEvent).movementY !== 0) {
@@ -70,6 +86,11 @@ export class PauseScreen extends BaseScreen {
     this.ctx.go('none');
   }
 
+  /** Is the race being paused a round of a championship? */
+  private championship(): boolean {
+    return !!this.ctx.lastConfig?.championship;
+  }
+
   private confirm(title: string, text: string, yes: string, no: string, onYes: () => void): void {
     const mode = this.ctx.lastHud?.mode ?? this.ctx.lastConfig?.mode ?? 'race';
     if (mode !== 'race') {
@@ -86,13 +107,17 @@ export class PauseScreen extends BaseScreen {
     const hud = this.ctx.lastHud;
     const track = cfg ? this.ctx.deps.tracks.find((t) => t.id === cfg.trackId) : undefined;
     const mode = MODE_INFO[hud?.mode ?? cfg?.mode ?? 'race'].label;
-    this.kicker.textContent = `${track ? track.name + '  ·  ' : ''}${mode}`;
+    const ch = cfg?.championship;
+    this.kicker.textContent = ch ? `${ch.name}  ·  Round ${ch.round} / ${ch.rounds}${track ? '  ·  ' + track.name : ''}` : `${track ? track.name + '  ·  ' : ''}${mode}`;
+    this.restartLabel.textContent = ch ? 'Restart round' : 'Restart';
     clearEl(this.info);
     if (hud) {
-      const chip = (k: string, v: string): HTMLElement => h('div', 'kv', h('span', 'k', k), h('span', 'v', v));
       if (hud.mode === 'race') this.info.append(chip('Position', `P${hud.position} / ${hud.totalCars}`));
       this.info.append(chip('Lap', hud.totalLaps > 0 ? `${hud.lap} / ${hud.totalLaps}` : String(hud.lap)), chip('Best lap', formatLapTime(hud.bestLap)), chip('Last lap', formatLapTime(hud.lastLap)));
     }
+    // where the season stands going into this round
+    const season = ch ? this.ctx.championship : null;
+    if (season) this.info.append(chip('Championship', season.done === 0 ? 'Not started' : `${ordinal(season.player.position)}  ·  ${season.player.points} pts`));
   }
 
   leave(): void {

@@ -25,6 +25,12 @@ export class PosLap {
   private lastTotal = -1;
   private flip = 0;
   private lastMode = '';
+  /** "ROUND 2/4": hangs off the right of the block during a championship round. */
+  private readonly roundBlock: HTMLElement;
+  private readonly roundTxt: Txt;
+  private readonly roundOfTxt: Txt;
+  private lastRound = -1;
+  private lastRounds = -1;
 
   constructor(parent: HTMLElement) {
     const posN = h('span', 'pl-n');
@@ -37,7 +43,13 @@ export class PosLap {
     this.posOf = new Txt(posOf, '/1');
     this.lap = new Txt(lapN, '1');
     this.lapOf = new Txt(this.lapOfEl, '');
-    this.el = h('div', 'hud-poslap', this.posBlock, this.lapBlock);
+    const roundN = h('span', 'pl-n');
+    const roundOf = h('span', 'pl-of');
+    this.roundBlock = h('div', 'pl-round', h('span', 'k', 'ROUND'), h('div', 'pl-val', roundN, roundOf));
+    this.roundBlock.style.display = 'none';
+    this.roundTxt = new Txt(roundN, '');
+    this.roundOfTxt = new Txt(roundOf, '');
+    this.el = h('div', 'hud-poslap', this.posBlock, this.lapBlock, this.roundBlock);
     parent.appendChild(this.el);
   }
 
@@ -66,6 +78,16 @@ export class PosLap {
     if (s.totalLaps !== this.lastTotal) {
       this.lastTotal = s.totalLaps;
       this.lapOf.set(s.totalLaps > 0 ? '/' + s.totalLaps : '');
+    }
+    const ch = s.championship;
+    const round = ch ? ch.round : 0;
+    const rounds = ch ? ch.rounds : 0;
+    if (round !== this.lastRound || rounds !== this.lastRounds) {
+      this.lastRound = round;
+      this.lastRounds = rounds;
+      this.roundBlock.style.display = ch ? '' : 'none';
+      this.roundTxt.set(ch ? String(round) : '');
+      this.roundOfTxt.set(ch ? '/' + rounds : '');
     }
   }
 }

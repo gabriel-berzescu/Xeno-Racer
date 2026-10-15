@@ -4,6 +4,11 @@
  * Phases: boot → menu (attract-mode race or showroom behind the UI) → loading → race → results.
  * URL flags for development: ?quick=race|timeTrial|freeRoam&track=&car=&opp=&diff=&laps=&tod=
  * &weather=&cam=&autopilot=1&ui=0 start straight into a session; window.__GAME__ exposes the instance.
+ * ?quick=championship starts a new championship (car, opp, diff, start; &champlaps=N makes every round N laps).
+ *
+ * Championship: the season lives in `this.championship` (src/game/championship.ts, saved after every round). A round is
+ * a normal race whose RaceConfig carries `championship` (the grid and the season identity of each driver); when the
+ * results come up the finishing order is scored, the season saved and the UI sent a fresh view model.
  */
 import { Matrix4, Quaternion, Vector3 } from 'three';
 import { AIDriver } from '../ai';
@@ -13,6 +18,8 @@ import { createCarVisual } from '../carvis';
 import type {
   CameraMode,
   CarDefinition,
+  ChampionshipSetup,
+  ChampionshipView,
   Difficulty,
   HudState,
   HudStanding,
@@ -20,6 +27,7 @@ import type {
   Livery,
   MinimapTrack,
   RaceConfig,
+  RaceResults,
   Settings,
   TimeOfDay,
   TrackFrame,
@@ -36,6 +44,7 @@ import { createCameraRig, createEffects, createRenderSystem } from '../render';
 import { TRACKS, buildTrackScene, loadTrackRuntime } from '../track';
 import { createUI } from '../ui';
 import { GhostRecorder, ghostPose, loadBestLaps, loadGhost, recordKey, saveBestLap, saveGhost, type GhostLap } from './records';
+import { buildView, championshipDef, createChampionship, isPlayable, loadChampionship, nextRound, recordRound, roundConfig, saveChampionship, type ChampionshipState, type Finisher } from './championship';
 import { RaceSession, type Entrant } from './session';
 import { DRIVER_NAMES, opponentLivery } from './liveries';
 import { ReplayPlayer, ReplayRecorder } from './replay';
@@ -50,6 +59,8 @@ interface RaceCar {
   sound: CarSound | null;
   ai: AIDriver | null;
   livery: Livery;
+  /** Championship rounds: the driver's stable id in the season. */
+  driverId?: string;
 }
 
 type Phase = 'boot' | 'menu' | 'loading' | 'race' | 'results';
@@ -81,6 +92,10 @@ export class Game {
 
   private steering = new SteeringFilter();
   private bestLaps: Record<string, number>;
+  /** The saved championship (null = none). The UI only ever sees view models built from it. */
+  private championship: ChampionshipState | null = null;
+  /** "Round 2 / 4" for the HUD; one object for the whole race. */
+  private hudChampionship: { name: string; round: number; rounds: number } | null = null;
   private loadToken = 0;
   private last = 0;
   private hudVisible = true;
@@ -113,6 +128,9 @@ export class Game {
   ) {
     this.settings = loadSettings();
     this.bestLaps = loadBestLaps();
+    // a saved season that names a track or car this build no longer has cannot be raced: ignore it
+    const saved = loadChampionship();
+    this.championship = saved && isPlayable(saved, TRACKS.map((t) => t.info.id), CARS.map((c) => c.id)) ? saved : null;
     this.showTelemetry = this.settings.hud.telemetry;
     const q = this.params.get('quality');
     if (q === 'low' || q === 'medium' || q === 'high' || q === 'ultra') this.settings.graphics.quality = q;
@@ -135,6 +153,8 @@ export class Game {
       minimapFor: (id) => this.minimapFor(id),
       onIntent: (i) => this.onIntent(i),
       sound: (s) => this.audio.ui(s),
+      championshipDef: championshipDef(TRACKS.map((t) => t.info)),
+      championship: this.championshipView(),
     });
     this.applyMaxFps();
     const unlock = () => void this.audio.unlock();
@@ -163,6 +183,16 @@ export class Game {
     this.ui.setLoading(0.05, 'Starting engines');
     if (quick === 'race' || quick === 'timeTrial' || quick === 'freeRoam') {
       await this.startRace(this.quickConfig(quick));
+    } else if (quick === 'championship') {
+      const p = this.params;
+      await this.beginChampionship({
+        carId: p.get('car') ?? 'vanta-gt',
+        difficulty: (p.get('diff') as Difficulty) ?? 'pro',
+        opponents: +(p.get('opp') ?? 7),
+        length: 'standard',
+        startPosition: (p.get('start') as RaceConfig['startPosition']) ?? 'back',
+        grid: 'standings',
+      });
     } else {
       await this.loadAttract(this.params.get('track') ?? 'aurelia');
       this.ui.show('title');
@@ -308,7 +338,7 @@ export class Game {
     v.placeOnGround(p, q, speed);
   }
 
-  private async spawnCar(def: CarDefinition, livery: Livery, entrant: Omit<Entrant, 'state' | 'id'>, slot: number, withSound: boolean, ai: Difficulty | null): Promise<RaceCar> {
+  private async spawnCar(def: CarDefinition, livery: Livery, entrant: Omit<Entrant, 'state' | 'id'>, slot: number, withSound: boolean, ai: Difficulty | null, aiSeed?: number, driverId?: string): Promise<RaceCar> {
     const world = this.world!;
     const vehicle = world.addVehicle(def);
     vehicle.assists = entrant.isPlayer
@@ -330,8 +360,10 @@ export class Game {
       vehicle,
       visual,
       sound,
-      ai: ai ? new AIDriver(world.track, def, { difficulty: ai, seed: vehicle.id * 17 + slot, wetness: world.wetness }) : null,
+      // a championship driver keeps the same seed (and so the same pace and mistakes) for the whole season
+      ai: ai ? new AIDriver(world.track, def, { difficulty: ai, seed: aiSeed ?? vehicle.id * 17 + slot, wetness: world.wetness }) : null,
       livery,
+      driverId,
     };
     this.cars.push(car);
     return car;
@@ -445,6 +477,7 @@ export class Game {
     this.finishAt = null;
     this.banner = this.toast = null;
     this.config = config;
+    this.ui.setRaceConfig(config);
     this.ui.show('loading');
     this.ui.setLoading(0.05, getTrackName(config.trackId));
     this.audio.setMusic(false);
@@ -456,17 +489,27 @@ export class Game {
     this.world.wetness = this.render.env.wetness;
     this.audio.setWeather(this.render.env.rain, this.render.env.wetness);
     const def = getCar(config.carId);
-    const opponents = config.mode === 'race' ? Math.max(0, Math.min(11, config.opponents)) : 0;
+    // a championship round brings its own grid: who starts where, with the season's liveries
+    const champ = config.mode === 'race' ? config.championship : undefined;
+    const opponents = champ ? Math.max(0, Math.min(11, champ.grid.length - 1)) : config.mode === 'race' ? Math.max(0, Math.min(11, config.opponents)) : 0;
     const total = opponents + 1;
-    const playerSlot = config.mode !== 'race' ? 0 : config.startPosition === 'pole' ? 0 : config.startPosition === 'back' ? total - 1 : Math.floor(total / 2);
+    const playerSlot = champ
+      ? Math.max(0, champ.grid.findIndex((g) => g.isPlayer))
+      : config.mode !== 'race' ? 0 : config.startPosition === 'pole' ? 0 : config.startPosition === 'back' ? total - 1 : Math.floor(total / 2);
     const playerLivery: Livery = { ...def.defaultLivery, ...config.livery, driver: this.settings.playerName || 'You' };
+    this.hudChampionship = champ ? { name: champ.name, round: champ.round, rounds: champ.rounds } : null;
     let slot = 0;
     let aiIndex = 0;
     for (let i = 0; i < total; i++) {
       if (token !== this.loadToken) return;
       this.ui.setLoading(0.78 + (0.2 * i) / total, 'Preparing the grid');
       if (i === playerSlot) {
-        this.player = await this.spawnCar(def, playerLivery, { name: playerLivery.driver, color: '#16e0bd', carId: def.id, isPlayer: true }, slot++, true, null);
+        this.player = await this.spawnCar(def, playerLivery, { name: playerLivery.driver, color: '#16e0bd', carId: def.id, isPlayer: true }, slot++, true, null, undefined, champ?.grid[i]?.id);
+      } else if (champ && champ.grid[i]) {
+        const g = champ.grid[i];
+        const livery: Livery = g.livery ? { ...g.livery, driver: g.name } : opponentLivery(aiIndex, def, playerLivery);
+        await this.spawnCar(def, livery, { name: livery.driver, color: livery.primary, carId: def.id, isPlayer: false }, slot++, true, config.difficulty, g.seed, g.id);
+        aiIndex++;
       } else {
         const livery = opponentLivery(aiIndex, def, playerLivery);
         await this.spawnCar(def, livery, { name: livery.driver, color: livery.primary, carId: def.id, isPlayer: false }, slot++, true, config.difficulty);
@@ -587,11 +630,95 @@ export class Game {
       case 'watchReplay':
         this.startReplay();
         break;
+      case 'startChampionship':
+        void this.beginChampionship(i.setup);
+        break;
+      case 'championshipNext':
+        this.raceNextRound();
+        break;
+      case 'championshipAbandon':
+        this.championship = null;
+        saveChampionship(null);
+        this.syncChampionship();
+        break;
     }
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Championship
+  // ───────────────────────────────────────────────────────────────────────────
+
+  private championshipView(): ChampionshipView | null {
+    return this.championship ? buildView(this.championship, this.settings.playerName) : null;
+  }
+
+  private syncChampionship(): void {
+    this.ui.setChampionship(this.championshipView());
+  }
+
+  /** A new season replaces any saved one and goes straight into round 1. */
+  private beginChampionship(setup: ChampionshipSetup): Promise<void> {
+    this.clearPreview();
+    const def = getCar(setup.carId);
+    const name = this.settings.playerName || 'You';
+    const state = createChampionship({
+      setup,
+      tracks: TRACKS.map((t) => t.info),
+      playerName: name,
+      playerLivery: { ...def.defaultLivery, ...setup.livery, driver: name },
+      car: def,
+      seed: Math.floor(Math.random() * 2147483647),
+    });
+    // dev: ?champlaps=N makes every round N laps
+    const devLaps = Math.round(+(this.params.get('champlaps') ?? 0));
+    if (devLaps >= 1) for (const r of state.calendar) r.laps = Math.min(50, devLaps);
+    this.championship = state;
+    saveChampionship(state);
+    this.syncChampionship();
+    return this.startRace(roundConfig(state, 0));
+  }
+
+  /** Race the round the saved season is waiting for. */
+  private raceNextRound(): void {
+    const c = this.championship;
+    const r = c ? nextRound(c) : -1;
+    if (!c || r < 0) return;
+    this.clearPreview();
+    void this.startRace(roundConfig(c, r));
+  }
+
+  /**
+   * A championship round just finished: score it, save the season and hand the UI its new standings. The entries of
+   * `res` get the points each driver scored, so the results screen can show them.
+   */
+  private scoreChampionshipRound(res: RaceResults): void {
+    const c = this.championship;
+    const info = res.config.championship;
+    const session = this.session;
+    if (!c || !info || !session || info.round - 1 !== c.results.length) return; // not the round the season is waiting for
+    const order = session.ordered();
+    const finishers: Finisher[] = order.map((p, i) => ({
+      id: this.cars.find((car) => car.entrant.id === p.entrant.id)?.driverId ?? '',
+      position: res.entries[i].position,
+      totalTime: res.entries[i].totalTime,
+      bestLap: res.entries[i].bestLap,
+      laps: res.entries[i].laps,
+    }));
+    const next = recordRound(c, finishers);
+    this.championship = next;
+    saveChampionship(next);
+    const scored = next.results[next.results.length - 1];
+    res.entries.forEach((e, i) => {
+      const r = scored.entries.find((x) => x.id === finishers[i].id);
+      e.points = r?.points ?? 0;
+      e.fastestLap = r?.fastestLap ?? false;
+    });
+    this.syncChampionship();
   }
 
   private applySettings(s: Settings): void {
     const prevQuality = this.settings.graphics.quality;
+    const renamed = this.settings.playerName !== s.playerName;
     this.settings = structuredClone(s);
     saveSettings(this.settings);
     this.render.applyGraphics(s.graphics);
@@ -602,6 +729,7 @@ export class Game {
     this.camera?.setShake(s.camera.shake);
     this.showTelemetry = s.hud.telemetry;
     this.applyMaxFps();
+    if (renamed && this.championship) this.syncChampionship();
     void prevQuality;
   }
 
@@ -716,8 +844,8 @@ export class Game {
       return;
     }
 
-    // pause / menus
-    if (input.pause) {
+    // pause / menus (once the flag has fallen, Start and Esc belong to the results and standings screens)
+    if (input.pause && !this.resultsShown) {
       this.setPaused(!this.paused);
       this.audio.ui(this.paused ? 'select' : 'back');
     }
@@ -917,6 +1045,7 @@ export class Game {
     const pb = session.player?.bestLap ?? null;
     const stored = session.storedBest;
     const res = session.results(pb !== null && (stored === null || pb <= stored));
+    if (cfg.championship) this.scoreChampionshipRound(res);
     this.ui.setResults(res);
     this.ui.setHudVisible(false);
     this.ui.show('results');
@@ -924,7 +1053,6 @@ export class Game {
     this.camera.setMode('tv');
     this.camera.snap();
     this.audio.setMusic(true);
-    void cfg;
   }
 
   private startReplay(): void {
@@ -1050,6 +1178,7 @@ export class Game {
       toast: this.toast?.text ?? null,
       showTelemetry: this.showTelemetry,
       hudVisible: this.hudVisible,
+      championship: this.hudChampionship,
     };
   }
 

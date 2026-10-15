@@ -9,18 +9,21 @@
  * `handleInput` returns true whenever a menu screen is showing (the game should ignore the frame).
  * Intents the UI raises on its own (see UIIntent): startRace, resume, restart, quitToMenu, watchReplay,
  * settingsChanged (live, on every edit), previewCar / previewTrack (setup screen), menuOpened (only for
- * UI-initiated navigation, e.g. `setup`, `setup:car`; not echoed when the game calls `show()`).
+ * UI-initiated navigation, e.g. `setup`, `setup:car`; not echoed when the game calls `show()`), and for the
+ * championship startChampionship, championshipNext and championshipAbandon. The game keeps the championship
+ * and pushes a view model with `setChampionship()`; the standings and champion screens only render it.
  */
 import './styles/base.css';
 import './styles/screens.css';
 import './styles/hud.css';
 
-import type { HudState, InputFrame, MinimapTrack, RaceConfig, RaceMode, RaceResults, Settings, UIIntent, UiSound } from '../core/contracts';
+import type { ChampionshipSetup, ChampionshipView, HudState, InputFrame, MinimapTrack, RaceConfig, RaceResults, Settings, UIIntent, UiSound } from '../core/contracts';
 import type { ScreenId, UIDeps, UISystem } from '../core/systems';
 import { prettyPadName } from '../input/processing';
 import type { Device, UiCtx } from './ctx';
 import { createHud, type HudView } from './hud';
 import type { BaseScreen, ActiveScreenId } from './screens/base';
+import { ChampionScreen } from './screens/champion';
 import { CreditsScreen } from './screens/credits';
 import { LoadingScreen } from './screens/loading';
 import { MainScreen } from './screens/main';
@@ -28,7 +31,9 @@ import { PauseScreen } from './screens/pause';
 import { ResultsScreen } from './screens/results';
 import { SettingsScreen } from './screens/settings';
 import { SetupScreen } from './screens/setup';
+import { StandingsScreen } from './screens/standings';
 import { TitleScreen } from './screens/title';
+import type { SetupMode } from './model';
 import { h } from './dom';
 
 export type { Settings } from '../core/contracts';
@@ -97,12 +102,16 @@ class UiImpl implements XenoUI {
       lastConfig: null,
       lastHud: null,
       results: null,
+      championship: deps.championship ?? null,
+      championshipDef: deps.championshipDef ?? null,
       pxScale: 1,
       sound: (s: UiSound) => this.playSound(s),
       emit: (i: UIIntent) => deps.onIntent(i),
       go: (s: ScreenId) => this.switchTo(s, true),
-      openSetup: (m: RaceMode) => this.openSetup(m),
+      openSetup: (m: SetupMode) => this.openSetup(m),
       startRace: (c: RaceConfig) => this.startRace(c),
+      startChampionship: (s: ChampionshipSetup) => this.startChampionship(s),
+      nextRound: () => this.nextRound(),
       changed: () => this.settingsChanged(),
       onDevice: (cb) => void this.deviceCbs.push(cb),
       onSettings: (cb) => void this.settingsCbs.push(cb),
@@ -180,6 +189,8 @@ class UiImpl implements XenoUI {
         case 'results': s = new ResultsScreen(this.ctx); break;
         case 'loading': s = new LoadingScreen(this.ctx); break;
         case 'credits': s = new CreditsScreen(this.ctx); break;
+        case 'standings': s = new StandingsScreen(this.ctx); break;
+        case 'champion': s = new ChampionScreen(this.ctx); break;
       }
       this.screensEl.appendChild(s.el);
       this.screens.set(id, s);
@@ -190,7 +201,7 @@ class UiImpl implements XenoUI {
 
   private prewarm(): void {
     if (this.disposed) return;
-    for (const id of ['title', 'main', 'setup', 'settings', 'pause', 'results', 'loading', 'credits'] as ActiveScreenId[]) this.screenFor(id);
+    for (const id of ['title', 'main', 'setup', 'settings', 'pause', 'results', 'loading', 'credits', 'standings', 'champion'] as ActiveScreenId[]) this.screenFor(id);
   }
 
   private switchTo(next: ScreenId, fromUi: boolean): void {
@@ -218,7 +229,7 @@ class UiImpl implements XenoUI {
     if (fromUi && next !== 'none') this.deps.onIntent({ type: 'menuOpened', screen: next });
   }
 
-  private openSetup(mode: RaceMode): void {
+  private openSetup(mode: SetupMode): void {
     (this.screenFor('setup') as SetupScreen).configure(mode);
     this.switchTo('setup', true);
   }
@@ -227,6 +238,21 @@ class UiImpl implements XenoUI {
     this.ctx.lastConfig = config;
     this.deps.onIntent({ type: 'startRace', config });
     this.switchTo('loading', false); // the game will call show('loading') too: idempotent
+  }
+
+  /**
+   * The championship intents do not switch to the loading screen themselves: the game does, in the same call, once it
+   * has described the round with `setRaceConfig()` and really starts the race. If it ignores the intent the player
+   * stays where they are instead of waiting on a loading screen that never ends.
+   */
+  private startChampionship(setup: ChampionshipSetup): void {
+    this.deps.onIntent({ type: 'startChampionship', setup });
+  }
+
+  private nextRound(): void {
+    const v = this.ctx.championship;
+    if (!v || v.complete) return; // nothing left to race
+    this.deps.onIntent({ type: 'championshipNext' });
   }
 
   // ── settings ───────────────────────────────────────────────────────────────
@@ -327,6 +353,15 @@ class UiImpl implements XenoUI {
     this.ctx.results = r;
     this.ctx.lastConfig = r.config;
     this.screens.get('results')?.refresh();
+  }
+
+  setRaceConfig(c: RaceConfig | null): void {
+    this.ctx.lastConfig = c;
+  }
+
+  setChampionship(v: ChampionshipView | null): void {
+    this.ctx.championship = v;
+    for (const s of this.screens.values()) s.refresh();
   }
 
   setSettings(s: Settings): void {

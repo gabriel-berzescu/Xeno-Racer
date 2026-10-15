@@ -521,6 +521,13 @@ export class TabBar {
     this.index = Math.min(this.tabEls.length - 1, Math.max(0, i));
     this.mark();
   }
+
+  /** Rename the tabs in place (the setup wizard calls its steps differently for a championship). */
+  setLabels(labels: readonly string[]): void {
+    labels.forEach((l, i) => {
+      if (this.tabEls[i]) this.tabEls[i].textContent = l;
+    });
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

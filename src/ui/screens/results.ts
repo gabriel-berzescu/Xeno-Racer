@@ -2,12 +2,18 @@ import type { InputFrame, RaceResultEntry } from '../../core/contracts';
 import type { UiCtx } from '../ctx';
 import { clearEl, h } from '../dom';
 import { formatDelta, formatLapTime, formatRaceTime, ordinal } from '../format';
-import { iconBack, iconRestart, iconReplay, iconTrophy } from '../icons';
+import { iconBack, iconPlay, iconRestart, iconReplay, iconTrophy } from '../icons';
 import { MODE_INFO } from '../model';
-import { FocusList, type FocusRow } from '../nav';
+import { FocusList } from '../nav';
 import { BaseScreen } from './base';
 
 const MAX_LAP_ROWS = 10;
+
+interface Btn {
+  el: HTMLElement;
+  label: HTMLElement;
+  run(): void;
+}
 
 export class ResultsScreen extends BaseScreen {
   readonly id = 'results' as const;
@@ -19,40 +25,29 @@ export class ResultsScreen extends BaseScreen {
   private readonly laps = h('div', 'res-laps');
   private readonly pace = h('div', 'pace');
   private readonly lapSummary = h('div', 'res-sum');
-  private readonly buttons: HTMLElement[] = [];
+  private readonly btnRow = h('div', { cls: 'res-buttons in', style: { '--d': '520', '--ty': '30px', '--tx': '0px' } });
+  private readonly btns: { restart: Btn; next: Btn; replay: Btn; menu: Btn };
+  /** The buttons on show, in focus order: Restart / Watch replay / Menu, or Continue instead of Restart in a championship. */
+  private visible: Btn[] = [];
+  private champ: boolean | null = null;
 
   constructor(ctx: UiCtx) {
     super(ctx, 'results');
-    const defs: { label: string; icon: () => SVGElement; run: () => void; primary?: boolean }[] = [
-      { label: 'Restart', icon: () => iconRestart('ico'), run: () => ctx.emit({ type: 'restart' }), primary: true },
-      { label: 'Watch replay', icon: () => iconReplay('ico'), run: () => ctx.emit({ type: 'watchReplay' }) },
-      { label: 'Menu', icon: () => iconBack('ico'), run: () => ctx.emit({ type: 'quitToMenu' }) },
-    ];
-    const btnRow = h('div', { cls: 'res-buttons in', style: { '--d': '520', '--ty': '30px', '--tx': '0px' } });
-    const rows: FocusRow[] = defs.map((d, i) => {
-      const b = h('div', 'btn focusable', d.icon(), h('span', null, d.label));
-      b.addEventListener('pointermove', (e) => {
-        if ((e as PointerEvent).movementX !== 0 || (e as PointerEvent).movementY !== 0) {
-          if (this.list.focus(i)) ctx.sound('move');
-        }
-      });
-      b.addEventListener('click', () => {
-        this.list.focus(i);
-        ctx.sound('select');
-        d.run();
-      });
-      btnRow.appendChild(b);
-      this.buttons.push(b);
-      return { setFocused: (on: boolean) => b.classList.toggle('is-focus', on), activate: () => (d.run(), true) };
-    });
-    this.list.setRows(rows, 0);
+    this.btns = {
+      restart: this.makeBtn('Restart', iconRestart('ico'), () => ctx.emit({ type: 'restart' })),
+      next: this.makeBtn('Continue', iconPlay('ico'), () => this.next()),
+      replay: this.makeBtn('Watch replay', iconReplay('ico'), () => ctx.emit({ type: 'watchReplay' })),
+      menu: this.makeBtn('Menu', iconBack('ico'), () => ctx.emit({ type: 'quitToMenu' })),
+    };
+    for (const b of Object.values(this.btns)) this.btnRow.appendChild(b.el);
+    this.layoutButtons(false);
     this.el.append(
       h('div', 'scrim scrim-flat'),
       h('div', 'scrim scrim-vignette'),
       h('header', 'topbar', h('div', { cls: 'in', style: { '--d': '60', '--tx': '-60px' } }, this.kicker, this.title), this.badge),
       h('div', { cls: 'panel chamfer edge res-panel res-standings in', style: { '--d': '200', '--ty': '40px', '--tx': '0px' } }, h('div', 'res-head', h('span', null, 'Final standings')), this.table),
       h('div', { cls: 'panel chamfer edge res-panel res-yours in', style: { '--d': '300', '--ty': '40px', '--tx': '0px' } }, h('div', 'res-head', h('span', null, 'Your laps')), this.lapSummary, this.laps, this.pace),
-      btnRow,
+      this.btnRow,
       this.prompts.el,
     );
     this.prompts.set([
@@ -60,6 +55,41 @@ export class ResultsScreen extends BaseScreen {
       { action: 'confirm', label: 'Confirm' },
     ]);
     this.render();
+  }
+
+  private makeBtn(label: string, icon: SVGElement, run: () => void): Btn {
+    const labelEl = h('span', null, label);
+    const el = h('div', 'btn focusable', icon, labelEl);
+    const index = (): number => this.visible.findIndex((b) => b.el === el);
+    el.addEventListener('pointermove', (e) => {
+      if ((e as PointerEvent).movementX !== 0 || (e as PointerEvent).movementY !== 0) {
+        if (this.list.focus(index())) this.ctx.sound('move');
+      }
+    });
+    el.addEventListener('click', () => {
+      this.list.focus(index());
+      this.ctx.sound('select');
+      run();
+    });
+    return { el, label: labelEl, run };
+  }
+
+  /** A championship round continues to the standings instead of restarting. */
+  private layoutButtons(champ: boolean): void {
+    const { restart, next, replay, menu } = this.btns;
+    this.visible = champ ? [next, replay, menu] : [restart, replay, menu];
+    for (const b of Object.values(this.btns)) b.el.style.display = this.visible.includes(b) ? '' : 'none';
+    this.list.setRows(
+      this.visible.map((b) => ({ setFocused: (on: boolean) => b.el.classList.toggle('is-focus', on), activate: () => (b.run(), true) })),
+      0,
+    );
+  }
+
+  /** On to the standings (or, after the last round, the final table). */
+  private next(): void {
+    const v = this.ctx.championship;
+    if (!v) this.ctx.emit({ type: 'quitToMenu' });
+    else this.ctx.go(v.complete ? 'champion' : 'standings');
   }
 
   refresh(): void {
@@ -82,6 +112,12 @@ export class ResultsScreen extends BaseScreen {
     clearEl(this.pace);
     clearEl(this.lapSummary);
     clearEl(this.badge);
+    const ch = r?.config.championship;
+    this.table.classList.toggle('champ', !!ch);
+    if (!!ch !== this.champ) {
+      this.champ = !!ch;
+      this.layoutButtons(!!ch);
+    }
     if (!r) {
       this.title.textContent = 'Results';
       this.kicker.textContent = '';
@@ -90,19 +126,37 @@ export class ResultsScreen extends BaseScreen {
     const cfg = r.config;
     const track = this.ctx.deps.tracks.find((t) => t.id === cfg.trackId);
     const info = MODE_INFO[cfg.mode];
-    this.kicker.textContent = `${track ? track.name + '  ·  ' : ''}${info.label}${cfg.mode === 'race' ? `  ·  ${cfg.laps} ${cfg.laps === 1 ? 'lap' : 'laps'}` : ''}`;
+    const laps = `${cfg.laps} ${cfg.laps === 1 ? 'lap' : 'laps'}`;
+    this.kicker.textContent = ch
+      ? `${ch.name}  ·  Round ${ch.round} / ${ch.rounds}  ·  ${track ? track.name + '  ·  ' : ''}${laps}`
+      : `${track ? track.name + '  ·  ' : ''}${info.label}${cfg.mode === 'race' ? `  ·  ${laps}` : ''}`;
     const me = r.entries.find((e) => e.isPlayer);
     if (cfg.mode !== 'race' || !me) this.title.textContent = 'Session complete';
     else if (me.totalTime === null) this.title.textContent = 'Did not finish';
     else this.title.textContent = me.position === 1 ? 'Victory' : `${ordinal(me.position)} place`;
 
     if (r.personalBest) this.badge.append(h('div', 'badge-in', iconTrophy('ico'), h('span', null, 'New personal best')));
+    if (ch) this.renderSeason(me?.points ?? 0);
+
+    // the button that carries on in a championship says where to: the next standings or the final table
+    this.btns.next.label.textContent = this.ctx.championship?.complete ? 'Final standings' : 'Continue';
 
     // standings
     const fastest = r.entries.reduce<number>((m, e) => (e.bestLap !== null && e.bestLap < m ? e.bestLap : m), Infinity);
-    this.table.appendChild(h('div', 'rt-row rt-head', h('span', 'c-pos', 'Pos'), h('span', 'c-name', 'Driver'), h('span', 'c-laps', 'Laps'), h('span', 'c-best', 'Best lap'), h('span', 'c-time', 'Time / gap')));
+    this.table.appendChild(
+      h(
+        'div',
+        'rt-row rt-head',
+        h('span', 'c-pos', 'Pos'),
+        h('span', 'c-name', 'Driver'),
+        ch ? null : h('span', 'c-laps', 'Laps'),
+        h('span', 'c-best', 'Best lap'),
+        h('span', 'c-time', 'Time / gap'),
+        ch ? h('span', 'c-pts', 'Pts') : null,
+      ),
+    );
     const entries = [...r.entries].sort((a, b) => a.position - b.position).slice(0, 12);
-    entries.forEach((e, i) => this.table.appendChild(this.entryRow(e, fastest, i)));
+    entries.forEach((e, i) => this.table.appendChild(this.entryRow(e, fastest, i, !!ch)));
 
     // laps
     const times = r.playerLapTimes;
@@ -149,16 +203,33 @@ export class ResultsScreen extends BaseScreen {
     }
   }
 
-  private entryRow(e: RaceResultEntry, fastest: number, i: number): HTMLElement {
+  /** Where this round leaves the player in the championship (the game records the round before showing results). */
+  private renderSeason(gained: number): void {
+    const v = this.ctx.championship;
+    if (!v) return;
+    const me = v.player;
+    this.badge.append(
+      h(
+        'div',
+        'st-me res-season',
+        h('span', 'k', v.name),
+        h('div', 'st-me-val', h('b', 'pn', 'P' + me.position), h('span', 'of', '/' + v.table.length)),
+        h('div', 'st-me-sub', `+${gained} ${gained === 1 ? 'pt' : 'pts'}`, h('em', null, `${me.points} total`)),
+      ),
+    );
+  }
+
+  private entryRow(e: RaceResultEntry, fastest: number, i: number, champ: boolean): HTMLElement {
     const dnf = e.totalTime === null;
     const row = h(
       'div',
       { cls: 'rt-row' + (e.isPlayer ? ' me' : '') + (e.position === 1 ? ' win' : ''), style: { '--i': String(i) } },
       h('span', 'c-pos', String(e.position)),
       h('span', 'c-name', h('b', null, e.name), h('em', null, this.carName(e.carId))),
-      h('span', 'c-laps t-num', String(e.laps)),
+      champ ? null : h('span', 'c-laps t-num', String(e.laps)),
       h('span', 'c-best t-num' + (e.bestLap !== null && e.bestLap === fastest ? ' fl' : ''), formatLapTime(e.bestLap)),
       h('span', 'c-time t-num', dnf ? 'DNF' : e.position === 1 ? formatRaceTime(e.totalTime) : e.gap),
+      champ ? h('span', 'c-pts t-num' + ((e.points ?? 0) > 0 ? ' scored' : ''), e.fastestLap ? h('i', 'fl-tag', 'FL') : null, String(e.points ?? 0)) : null,
     );
     return row;
   }

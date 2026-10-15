@@ -14,6 +14,8 @@ import type {
   AudioSettings,
   CameraMode,
   CarDefinition,
+  ChampionshipDef,
+  ChampionshipView,
   ControlSettings,
   EngineSoundProfile,
   EnvironmentSettings,
@@ -24,6 +26,7 @@ import type {
   Livery,
   MinimapTrack,
   QualityLevel,
+  RaceConfig,
   RaceResults,
   Settings,
   TrackInfo,
@@ -192,9 +195,19 @@ export interface UIDeps {
   minimapFor(trackId: string): MinimapTrack | null;
   onIntent(intent: UIIntent): void;
   sound(s: UiSound): void;
+  /** The fixed championship calendar and rules. Without it the Championship menu entry is hidden. */
+  championshipDef?: ChampionshipDef;
+  /** The saved championship, if there is one. */
+  championship?: ChampionshipView | null;
 }
 
-export type ScreenId = 'title' | 'main' | 'setup' | 'settings' | 'pause' | 'results' | 'loading' | 'credits' | 'none';
+export type ScreenId =
+  | 'title' | 'main' | 'setup' | 'settings' | 'pause' | 'results' | 'loading' | 'credits'
+  /** Championship standings between rounds (also the hub a saved championship resumes at). */
+  | 'standings'
+  /** The final table of a finished championship: podium, champion celebration, season summary. */
+  | 'champion'
+  | 'none';
 
 export interface UISystem {
   readonly root: HTMLElement;
@@ -204,6 +217,10 @@ export interface UISystem {
   readonly screen: ScreenId;
   setLoading(fraction: number, label: string): void;
   setResults(r: RaceResults): void;
+  /** The race being loaded / run (the loading and pause screens describe it). Call before `show('loading')`. */
+  setRaceConfig(c: RaceConfig | null): void;
+  /** The saved championship changed: a round was recorded, one started, or it was abandoned. */
+  setChampionship(v: ChampionshipView | null): void;
   setSettings(s: Settings): void;
   setBestLaps(b: Record<string, number>): void;
   /** HUD. */

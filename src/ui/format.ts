@@ -73,9 +73,36 @@ export const TIME_OF_DAY_LABEL: Record<string, string> = {
 export const WEATHER_LABEL: Record<string, string> = { clear: 'Clear', cloudy: 'Cloudy', overcast: 'Overcast', rain: 'Rain', storm: 'Storm' };
 export const DIFFICULTY_LABEL: Record<string, string> = { rookie: 'Rookie', amateur: 'Amateur', pro: 'Pro', alien: 'Alien' };
 export const START_LABEL: Record<string, string> = { back: 'Back of the grid', middle: 'Mid grid', pole: 'Pole position' };
+export const LENGTH_LABEL: Record<string, string> = { short: 'Short', standard: 'Standard', long: 'Long' };
+export const GRID_LABEL: Record<string, string> = { standings: 'Standings', reverse: 'Reverse' };
 export const CAMERA_LABEL: Record<string, string> = {
   chase: 'Chase', 'chase-far': 'Chase (far)', hood: 'Hood', bumper: 'Bumper', cockpit: 'Cockpit', tv: 'TV', orbit: 'Orbit',
 };
+
+/** "Golden hour  ·  Clear". */
+export function formatConditions(env: { timeOfDay: string; weather: string }): string {
+  return `${TIME_OF_DAY_LABEL[env.timeOfDay] ?? env.timeOfDay}  ·  ${WEATHER_LABEL[env.weather] ?? env.weather}`;
+}
+
+/** Points behind the leader: "-7", nothing for the leader. */
+export const formatPointsGap = (gap: number): string => (gap > 0 ? '-' + gap : '');
+
+/** "1 lap" / "3 laps". */
+export const lapsLabel = (n: number): string => `${n} ${n === 1 ? 'lap' : 'laps'}`;
+
+/** Where the player stands against the rest of the table: "12 behind the lead", "5 ahead", "level on points". */
+export function leadText(position: number, behind: number, ahead: number): string {
+  if (position === 1) return ahead > 0 ? `${ahead} ahead` : 'level on points';
+  return behind > 0 ? `${behind} behind the lead` : 'level on points';
+}
+
+/** Headline for the player's final place in a championship. */
+export function seasonTitle(position: number): string {
+  return position === 1 ? 'Champion' : position === 2 ? 'Runner-up' : position === 3 ? 'Third place' : `${ordinal(position)} place`;
+}
+
+/** Three-letter code for a track in table headers: "Aurelia Ring" -> "AUR". */
+export const trackCode = (name: string): string => name.replace(/[^a-z]/gi, '').slice(0, 3).toUpperCase();
 
 /** Upper-cases for display while leaving digits and units alone. */
 export const caps = (s: string): string => s.toUpperCase();

@@ -1,7 +1,7 @@
 import type { ScreenId } from '../../core/systems';
 import type { UiCtx } from '../ctx';
-import { h } from '../dom';
-import { formatLength } from '../format';
+import { clearEl, h } from '../dom';
+import { formatConditions, formatLength, lapsLabel } from '../format';
 import { BaseScreen } from './base';
 
 export const LOADING_TIPS: readonly string[] = [
@@ -19,11 +19,23 @@ export const LOADING_TIPS: readonly string[] = [
   'Downforce makes a car faster the faster it goes. Trust the prototype through the quick corners.',
 ];
 
+/** Shown first on the loading screen of a championship round (mixed in with the general ones). */
+export const CHAMPIONSHIP_TIPS: readonly string[] = [
+  'Every point counts. A clean finish in the top ten beats a risky move that ends in the wall.',
+  'The quickest lap of a race is worth a bonus point, but only if you finish in the points.',
+  'From round 2 the grid is set by the standings: points earned now buy a better start later.',
+  'The night and wet rounds are where a season is won. Brake earlier, stay off the kerbs and be smooth.',
+  'Quit to the menu and the round does not count, but your season is saved. Pick it up from the Championship entry.',
+];
+
 export class LoadingScreen extends BaseScreen {
   readonly id = 'loading' as const;
+  private readonly kicker = h('div', 'kicker', 'LOADING');
   private readonly name = h('h1', 'load-name');
   private readonly place = h('div', 'load-place');
   private readonly facts = h('div', 'load-facts');
+  /** One pip per round of a championship: done, this one, still to come. */
+  private readonly rounds = h('div', 'load-rounds');
   private readonly label = h('div', 'load-label');
   private readonly pctEl = h('div', 'load-pct');
   private readonly fill = h('i');
@@ -31,6 +43,7 @@ export class LoadingScreen extends BaseScreen {
   private readonly tipWrap = h('div', 'load-tipwrap', h('div', 'load-tipk', 'DRIVING TIP'), this.tip);
   private timer = 0;
   private tipIndex = 0;
+  private tips: readonly string[] = LOADING_TIPS;
   private fraction = 0;
   private glow = h('div', 'load-glow');
 
@@ -41,7 +54,7 @@ export class LoadingScreen extends BaseScreen {
       this.glow,
       h('div', 'load-stripes'),
       h('div', 'scrim scrim-vignette'),
-      h('div', 'load-head', h('div', 'kicker', 'LOADING'), this.name, this.place, this.facts),
+      h('div', 'load-head', this.kicker, this.name, this.place, this.facts, this.rounds),
       this.tipWrap,
       h('div', 'load-bar', h('div', 'load-meta', this.label, this.pctEl), h('div', 'load-track', this.fill)),
     );
@@ -58,7 +71,7 @@ export class LoadingScreen extends BaseScreen {
   private showTip(): void {
     this.tipWrap.classList.remove('show');
     window.setTimeout(() => {
-      this.tip.textContent = LOADING_TIPS[this.tipIndex % LOADING_TIPS.length];
+      this.tip.textContent = this.tips[this.tipIndex % this.tips.length];
       this.tipIndex++;
       this.tipWrap.classList.add('show');
     }, 280);
@@ -72,10 +85,21 @@ export class LoadingScreen extends BaseScreen {
     this.name.classList.toggle('long', nm.length > 14 && nm.length <= 22);
     this.name.classList.toggle('xlong', nm.length > 22);
     this.place.textContent = track?.location ?? '';
-    this.facts.textContent = track ? `${formatLength(track.lengthHint, this.ctx.settings.units)}  ·  ${cfg?.mode === 'race' ? cfg.laps + (cfg.laps === 1 ? ' lap' : ' laps') : cfg?.mode === 'timeTrial' ? 'Time trial' : 'Free roam'}` : '';
+    const ch = cfg?.championship;
+    this.kicker.textContent = ch ? `${ch.name}  ·  Round ${ch.round} / ${ch.rounds}` : 'LOADING';
+    this.facts.textContent = track
+      ? ch && cfg
+        ? `${formatLength(track.lengthHint, this.ctx.settings.units)}  ·  ${lapsLabel(cfg.laps)}  ·  ${formatConditions(cfg.environment)}`
+        : `${formatLength(track.lengthHint, this.ctx.settings.units)}  ·  ${cfg?.mode === 'race' ? cfg.laps + (cfg.laps === 1 ? ' lap' : ' laps') : cfg?.mode === 'timeTrial' ? 'Time trial' : 'Free roam'}`
+      : '';
+    clearEl(this.rounds);
+    this.rounds.style.display = ch ? '' : 'none';
+    if (ch) for (let i = 1; i <= ch.rounds; i++) this.rounds.appendChild(h('i', i < ch.round ? 'done' : i === ch.round ? 'now' : null));
     this.glow.style.setProperty('--accent', track?.color ?? '#16e0bd');
-    this.tipIndex = Math.floor(Math.random() * LOADING_TIPS.length);
-    this.tip.textContent = LOADING_TIPS[this.tipIndex % LOADING_TIPS.length];
+    // a championship round leads with its own advice
+    this.tips = ch ? [...CHAMPIONSHIP_TIPS, ...LOADING_TIPS] : LOADING_TIPS;
+    this.tipIndex = ch ? Math.floor(Math.random() * CHAMPIONSHIP_TIPS.length) : Math.floor(Math.random() * this.tips.length);
+    this.tip.textContent = this.tips[this.tipIndex % this.tips.length];
     this.tipIndex++;
     this.tipWrap.classList.add('show');
     window.clearInterval(this.timer);

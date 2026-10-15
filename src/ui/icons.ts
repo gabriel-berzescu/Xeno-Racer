@@ -42,6 +42,8 @@ export const iconBack = (cls = ''): SVGElement => wrap('0 0 32 32', '<path d="M2
 
 export const iconCheck = (cls = ''): SVGElement => wrap('0 0 32 32', '<path d="M12 22.5L5.5 16l-3 3L12 28.5 29.5 11l-3-3z"/>', cls);
 
+export const iconClose = (cls = ''): SVGElement => wrap('0 0 32 32', '<path d="M7 4l9 9 9-9 3 3-9 9 9 9-3 3-9-9-9 9-3-3 9-9-9-9z"/>', cls);
+
 export const iconWarn = (cls = ''): SVGElement => wrap('0 0 32 32', '<path d="M16 3l14 25H2zm-2 9v8h4v-8zm0 10v4h4v-4z"/>', cls);
 
 export const iconClock = (cls = ''): SVGElement =>

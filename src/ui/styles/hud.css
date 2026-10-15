@@ -13,12 +13,14 @@
 /* ── top-left: position / lap + tower ──────────────────────────────────────── */
 
 .hud-tl { left: 56px; top: 48px; width: 372px; display: flex; flex-direction: column; gap: 10px; }
-.hud-poslap { display: flex; gap: 6px; height: 104px; }
+.hud-poslap { position: relative; display: flex; gap: 6px; height: 104px; }
 .pl-pos, .pl-lap { position: relative; display: flex; flex-direction: column; justify-content: space-between; padding: 11px 22px 8px 22px; }
 .pl-pos { flex: 1.12; background: linear-gradient(135deg, #1fe9c5, #0fb99d); color: #02221c; clip-path: polygon(0 0, 100% 0, calc(100% - 18px) 100%, 0 100%); }
 .pl-pos .k { color: rgba(2, 34, 28, 0.7); }
 .pl-lap { flex: 1; margin-left: -12px; padding-left: 34px; background: linear-gradient(180deg, rgba(14, 17, 24, 0.8), rgba(7, 9, 13, 0.86)); clip-path: polygon(18px 0, 100% 0, 100% 100%, 0 100%); }
 .hud-poslap.solo .pl-lap { flex: none; width: 196px; margin-left: 0; padding-left: 28px; }
+/* championship: the round hangs off the right of the block like a third cell */
+.pl-round { position: absolute; left: calc(100% - 12px); top: 0; bottom: 0; width: 140px; display: flex; flex-direction: column; justify-content: space-between; padding: 11px 18px 8px 34px; background: linear-gradient(180deg, rgba(14, 17, 24, 0.8), rgba(7, 9, 13, 0.86)); clip-path: polygon(18px 0, 100% 0, 100% 100%, 0 100%); }
 .pl-val { display: flex; align-items: baseline; gap: 4px; line-height: 0.9; }
 .pl-n { font: 900 italic 72px / 0.9 var(--f-display); letter-spacing: 0.01em; font-variant-numeric: tabular-nums; }
 .pl-p { font: 800 italic 38px / 1 var(--f-display); margin-right: 2px; opacity: 0.8; }

@@ -5,6 +5,10 @@
 import type {
   CameraMode,
   CarDefinition,
+  ChampionshipDef,
+  ChampionshipLength,
+  ChampionshipSetup,
+  ChampionshipView,
   Difficulty,
   GraphicsSettings,
   Livery,
@@ -17,7 +21,7 @@ import type {
   Weather,
 } from '../core/contracts';
 import { DEFAULT_SETTINGS, QUALITY_PRESETS } from '../core/settings';
-import { CAMERA_LABEL, DIFFICULTY_LABEL, pct, START_LABEL, TIME_OF_DAY_LABEL, WEATHER_LABEL } from './format';
+import { CAMERA_LABEL, DIFFICULTY_LABEL, GRID_LABEL, LENGTH_LABEL, ordinal, pct, START_LABEL, TIME_OF_DAY_LABEL, WEATHER_LABEL } from './format';
 import { clamp, clamp01 } from './hudlogic';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -29,10 +33,14 @@ export const WEATHERS: readonly Weather[] = ['clear', 'cloudy', 'overcast', 'rai
 export const DIFFICULTIES: readonly Difficulty[] = ['rookie', 'amateur', 'pro', 'alien'];
 export const STARTS: readonly RaceConfig['startPosition'][] = ['back', 'middle', 'pole'];
 export const CAMERA_MODES: readonly CameraMode[] = ['chase', 'chase-far', 'hood', 'bumper', 'cockpit', 'tv', 'orbit'];
+export const LENGTHS: readonly ChampionshipLength[] = ['short', 'standard', 'long'];
+export const GRID_RULES: readonly ChampionshipSetup['grid'][] = ['standings', 'reverse'];
 
 export const LAPS_MIN = 1;
 export const LAPS_MAX = 50;
 export const OPPONENTS_MAX = 11;
+/** A championship needs someone to race against. */
+export const CHAMP_OPPONENTS_MIN = 1;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Car stats
@@ -133,8 +141,22 @@ export function bestLapFor(best: Record<string, number>, trackId: string, carId?
 export type SetupStep = 'track' | 'car' | 'race';
 export const SETUP_STEPS: readonly SetupStep[] = ['track', 'car', 'race'];
 
+/** The setup wizard serves the three race modes and the championship. */
+export type SetupMode = RaceMode | 'championship';
+
+/** The championship's own options (kept apart from the Race ones so each remembers its last choice). */
+export interface ChampSetupState {
+  opponents: number;
+  difficulty: Difficulty;
+  length: ChampionshipLength;
+  startPosition: RaceConfig['startPosition'];
+  grid: ChampionshipSetup['grid'];
+}
+
+export const CHAMP_DEFAULTS: ChampSetupState = { opponents: 7, difficulty: 'amateur', length: 'standard', startPosition: 'back', grid: 'standings' };
+
 export interface SetupState {
-  mode: RaceMode;
+  mode: SetupMode;
   trackIndex: number;
   carIndex: number;
   liveryIndex: number;
@@ -144,6 +166,7 @@ export interface SetupState {
   timeOfDay: TimeOfDay;
   weather: Weather;
   startPosition: RaceConfig['startPosition'];
+  champ: ChampSetupState;
 }
 
 export interface ModeInfo {
@@ -161,20 +184,31 @@ export const MODE_INFO: Record<RaceMode, ModeInfo> = {
   freeRoam: { label: 'Free Roam', blurb: 'No laps, no pressure. Learn the circuit and tune your driving.', usesLaps: false, usesOpponents: true, usesDifficulty: true, usesStart: false },
 };
 
-export function defaultSetup(mode: RaceMode, tracks: readonly TrackInfo[], cars: readonly CarDefinition[], prev?: Partial<SetupState>): SetupState {
+export const CHAMPIONSHIP_INFO = {
+  label: 'Championship',
+  blurb: 'A season of races across the circuits, in changing light and weather. Score points in every round and take the cup.',
+};
+
+/** "Race", "Time Trial", "Free Roam", "Championship". */
+export const modeLabel = (mode: SetupMode): string => (mode === 'championship' ? CHAMPIONSHIP_INFO.label : MODE_INFO[mode].label);
+
+export function defaultSetup(mode: SetupMode, tracks: readonly TrackInfo[], cars: readonly CarDefinition[], prev?: Partial<SetupState>): SetupState {
   const trackIndex = clamp(prev?.trackIndex ?? 0, 0, Math.max(0, tracks.length - 1));
   const track = tracks[trackIndex];
+  // visiting the championship setup must not wipe what the Race setup remembers
+  const racing = mode === 'race' || mode === 'championship';
   return {
     mode,
     trackIndex,
     carIndex: clamp(prev?.carIndex ?? 0, 0, Math.max(0, cars.length - 1)),
     liveryIndex: prev?.liveryIndex ?? 0,
     laps: prev?.laps ?? track?.defaultLaps ?? 3,
-    opponents: mode === 'race' ? clamp(prev?.opponents ?? 7, 0, OPPONENTS_MAX) : 0,
+    opponents: racing ? clamp(prev?.opponents ?? 7, 0, OPPONENTS_MAX) : 0,
     difficulty: prev?.difficulty ?? 'amateur',
     timeOfDay: prev?.timeOfDay ?? track?.defaultTimeOfDay ?? 'golden',
     weather: prev?.weather ?? 'clear',
-    startPosition: mode === 'race' ? prev?.startPosition ?? 'back' : 'pole',
+    startPosition: racing ? prev?.startPosition ?? 'back' : 'pole',
+    champ: { ...CHAMP_DEFAULTS, ...prev?.champ },
   };
 }
 
@@ -187,10 +221,11 @@ export function applyTrackDefaults(s: SetupState, track: TrackInfo): void {
 export function buildRaceConfig(s: SetupState, tracks: readonly TrackInfo[], cars: readonly CarDefinition[], playerName: string): RaceConfig {
   const track = tracks[clamp(s.trackIndex, 0, tracks.length - 1)];
   const car = cars[clamp(s.carIndex, 0, cars.length - 1)];
-  const info = MODE_INFO[s.mode];
+  const mode: RaceMode = s.mode === 'championship' ? 'race' : s.mode;
+  const info = MODE_INFO[mode];
   const preset = LIVERY_PRESETS[clamp(s.liveryIndex, 0, LIVERY_PRESETS.length - 1)];
   return {
-    mode: s.mode,
+    mode,
     trackId: track.id,
     carId: car.id,
     livery: liveryFor(preset, playerName),
@@ -200,6 +235,39 @@ export function buildRaceConfig(s: SetupState, tracks: readonly TrackInfo[], car
     environment: { timeOfDay: s.timeOfDay, weather: s.weather },
     startPosition: info.usesStart ? s.startPosition : 'pole',
   };
+}
+
+/** What the setup wizard sends to start a championship. */
+export function buildChampionshipSetup(s: SetupState, cars: readonly CarDefinition[], playerName: string): ChampionshipSetup {
+  const car = cars[clamp(s.carIndex, 0, cars.length - 1)];
+  const preset = LIVERY_PRESETS[clamp(s.liveryIndex, 0, LIVERY_PRESETS.length - 1)];
+  const c = s.champ;
+  return {
+    carId: car.id,
+    livery: liveryFor(preset, playerName),
+    difficulty: c.difficulty,
+    opponents: clamp(Math.round(c.opponents), CHAMP_OPPONENTS_MIN, OPPONENTS_MAX),
+    length: c.length,
+    startPosition: c.startPosition,
+    grid: c.grid,
+  };
+}
+
+/** The line under the Championship entry of the main menu. */
+export function championshipHint(def: ChampionshipDef | null | undefined, view: ChampionshipView | null | undefined): string {
+  if (!view) {
+    const n = def?.rounds.length ?? 0;
+    const circuits = new Set(def?.rounds.map((r) => r.trackId)).size;
+    const name = def?.name ?? 'cup';
+    return n > 0
+      ? `${n} rounds across ${circuits} ${circuits === 1 ? 'circuit' : 'circuits'}, in changing light and weather. Score points in every race and take the ${name}.`
+      : CHAMPIONSHIP_INFO.blurb;
+  }
+  const me = view.player;
+  const pts = `${me.points} ${me.points === 1 ? 'point' : 'points'}`;
+  if (view.complete) return me.position === 1 ? `${view.name} won with ${pts}. See the final standings.` : `${view.name} finished: ${ordinal(me.position)} with ${pts}. See the final standings.`;
+  if (view.done === 0) return `${view.name}: round 1 of ${view.rounds.length} is next. Nobody has scored yet.`;
+  return `${view.name}, round ${view.done + 1} of ${view.rounds.length}. ${ordinal(me.position)} with ${pts}. Pick up where you left off.`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -443,4 +511,6 @@ export const OPTION_LABELS = {
   weather: WEATHER_LABEL,
   difficulty: DIFFICULTY_LABEL,
   start: START_LABEL,
+  length: LENGTH_LABEL,
+  grid: GRID_LABEL,
 };

@@ -1,12 +1,12 @@
-import type { InputFrame, MinimapTrack, RaceMode } from '../../core/contracts';
+import type { ChampionshipRoundDef, InputFrame, MinimapTrack, RaceMode, TrackInfo } from '../../core/contracts';
 import type { ScreenId } from '../../core/systems';
 import type { UiCtx } from '../ctx';
 import { clearEl, h } from '../dom';
-import { formatLapTime, formatLength } from '../format';
+import { formatConditions, formatLapTime, formatLength, lapsLabel, TIME_OF_DAY_LABEL, WEATHER_LABEL } from '../format';
 import { iconPlay } from '../icons';
 import {
-  applyTrackDefaults, bestLapFor, buildRaceConfig, carStatBars, defaultSetup, DIFFICULTIES, LAPS_MAX, LAPS_MIN, LIVERY_PRESETS, liveryFor,
-  MODE_INFO, OPPONENTS_MAX, OPTION_LABELS, SETUP_STEPS, STARTS, TIMES, WEATHERS, type SetupState, type SetupStep,
+  applyTrackDefaults, bestLapFor, buildChampionshipSetup, buildRaceConfig, carStatBars, CHAMP_OPPONENTS_MIN, defaultSetup, DIFFICULTIES, GRID_RULES, LAPS_MAX, LAPS_MIN, LENGTHS,
+  LIVERY_PRESETS, liveryFor, MODE_INFO, modeLabel, OPPONENTS_MAX, OPTION_LABELS, SETUP_STEPS, STARTS, TIMES, WEATHERS, type SetupMode, type SetupState, type SetupStep,
 } from '../model';
 import { FocusList, type FocusRow } from '../nav';
 import { drawTrack, MENU_MAP_STYLE, sizeCanvas } from '../trackmap';
@@ -16,6 +16,9 @@ import { BaseScreen } from './base';
 
 const STEP_LABEL: Record<SetupStep, string> = { track: 'Track', car: 'Car', race: 'Race' };
 const STEP_TITLE: Record<SetupStep, string> = { track: 'Choose your track', car: 'Choose your car', race: 'Race setup' };
+/** A championship's first step is its fixed calendar, not a choice of track. */
+const CHAMP_STEP_LABEL: Record<SetupStep, string> = { track: 'Calendar', car: 'Car', race: 'Season' };
+const CHAMP_STEP_TITLE: Record<SetupStep, string> = { track: 'The calendar', car: 'Choose your car', race: 'Season setup' };
 
 const MAP_W = 576;
 const MAP_H = 330;
@@ -32,8 +35,11 @@ export class SetupScreen extends BaseScreen {
   private readonly title = h('h1', 'h1');
   private flip = 0;
 
-  // track step
+  // track step (in a championship: the calendar, one card per round)
+  private readonly trackList = h('div', 'track-list');
   private trackCards: HTMLElement[] = [];
+  /** Championship: the round whose track is on show. */
+  private roundIndex = 0;
   private readonly mapCanvas = h('canvas', 'map-canvas');
   private mapCache = new Map<string, { canvas: HTMLCanvasElement; fit: MapFit; px: number }>();
   private readonly tName = h('h2', 'sd-name');
@@ -43,7 +49,12 @@ export class SetupScreen extends BaseScreen {
   private readonly tDiff = h('div', 'v');
   private readonly tLaps = h('div', 'v');
   private readonly tBest = h('div', 'v');
+  /** The four labels of the detail grid (a championship round shows different facts). */
+  private readonly kLabels: HTMLElement[] = [];
+  private readonly sdGrid = h('div', 'sd-grid');
   private mapUnavailable = h('div', 'map-na', 'Map unavailable');
+  /** "Round 2 / 4" beside the name of a calendar round. */
+  private readonly mapTag = h('span', 'sd-tag');
   private animRaf = 0;
 
   // car step
@@ -57,6 +68,7 @@ export class SetupScreen extends BaseScreen {
   private carRow!: HTMLElement;
   private swatches: HTMLElement[] = [];
   private readonly liveryName = h('span', 'liv-name');
+  private readonly nextLabel = h('span', null, 'Race options');
 
   // race step
   private raceRows: RowHandle[] = [];
@@ -67,14 +79,24 @@ export class SetupScreen extends BaseScreen {
   private readonly sumMode = h('div', 'v');
   private readonly sumBest = h('div', 'v');
   private readonly sumCanvas = h('canvas', 'map-canvas');
+  private raceSummary: HTMLElement = h('div');
+  // race step, championship: the season at a glance
+  private champSummary: HTMLElement = h('div');
+  private readonly csRounds = h('div', 'cs-rounds');
+  private readonly csCar = h('div', 'v');
+  private readonly csField = h('div', 'v');
+  private readonly csPoints = h('div', 'cs-points t-num');
+  /** What the focused season option does. */
+  private readonly csHelp = h('p', 'cs-help');
 
   constructor(ctx: UiCtx) {
     super(ctx, 'setup');
     this.state = defaultSetup('race', ctx.deps.tracks, ctx.deps.cars);
-    this.tabs = new TabBar(ctx, SETUP_STEPS.map((s, i) => ({ id: s, label: `${i + 1}  ${STEP_LABEL[s]}` })), (i) => this.goStep(SETUP_STEPS[i], false));
+    this.tabs = new TabBar(ctx, SETUP_STEPS.map((s, i) => ({ id: s, label: this.tabLabel(s, i) })), (i) => this.goStep(SETUP_STEPS[i], false));
     this.views.track = this.buildTrackView();
     this.views.car = this.buildCarView();
     this.views.race = this.buildRaceView();
+    this.rebuildTrackCards();
     this.rebuildRaceRows();
     const body = h('div', 'setup-body', this.views.track, this.views.car, this.views.race);
     this.el.append(
@@ -92,8 +114,11 @@ export class SetupScreen extends BaseScreen {
   // ── public ─────────────────────────────────────────────────────────────────
 
   /** Reset the wizard for a mode (keeps the last track / car / livery). */
-  configure(mode: RaceMode): void {
+  configure(mode: SetupMode): void {
     this.state = defaultSetup(mode, this.ctx.deps.tracks, this.ctx.deps.cars, this.state);
+    this.roundIndex = 0;
+    this.tabs.setLabels(SETUP_STEPS.map((s, i) => this.tabLabel(s, i)));
+    this.rebuildTrackCards();
     this.rebuildRaceRows();
     this.step = 'track';
     this.renderAll();
@@ -125,9 +150,19 @@ export class SetupScreen extends BaseScreen {
 
   // ── data ───────────────────────────────────────────────────────────────────
 
-  private track() {
+  private champMode(): boolean {
+    return this.state.mode === 'championship';
+  }
+
+  /** The calendar entry on show (championship mode), else null. */
+  private round(): ChampionshipRoundDef | null {
+    return this.champMode() ? this.ctx.championshipDef?.rounds[this.roundIndex] ?? null : null;
+  }
+
+  private track(): TrackInfo {
     const t = this.ctx.deps.tracks;
-    return t[Math.min(this.state.trackIndex, t.length - 1)];
+    const r = this.round();
+    return (r && t.find((x) => x.id === r.trackId)) || t[Math.min(this.state.trackIndex, t.length - 1)];
   }
   private car() {
     const c = this.ctx.deps.cars;
@@ -135,6 +170,10 @@ export class SetupScreen extends BaseScreen {
   }
   private units() {
     return this.ctx.settings.units;
+  }
+
+  private tabLabel(step: SetupStep, i: number): string {
+    return `${i + 1}  ${(this.champMode() ? CHAMP_STEP_LABEL : STEP_LABEL)[step]}`;
   }
 
   // ── step control ───────────────────────────────────────────────────────────
@@ -152,15 +191,15 @@ export class SetupScreen extends BaseScreen {
   private showStep(step: SetupStep, animate: boolean): void {
     for (const s of SETUP_STEPS) this.views[s].style.display = s === step ? '' : 'none';
     this.tabs.setIndex(SETUP_STEPS.indexOf(step));
-    this.title.textContent = STEP_TITLE[step];
-    this.kicker.textContent = `${MODE_INFO[this.state.mode].label}  ·  Setup`;
+    this.title.textContent = (this.champMode() ? CHAMP_STEP_TITLE : STEP_TITLE)[step];
+    this.kicker.textContent = `${modeLabel(this.state.mode)}  ·  Setup`;
     if (animate) {
       this.flip ^= 1;
       this.views[step].setAttribute('data-flip', String(this.flip));
     }
     this.updatePrompts();
     this.renderAll();
-    if (step === 'track') this.lists.track.focus(this.state.trackIndex);
+    if (step === 'track') this.lists.track.focus(this.champMode() ? this.roundIndex : this.state.trackIndex);
     this.drawMaps();
   }
 
@@ -182,7 +221,7 @@ export class SetupScreen extends BaseScreen {
 
   private updatePrompts(): void {
     if (this.step === 'track') {
-      this.prompts.set([{ action: 'navigate', label: 'Browse' }, { action: 'confirm', label: 'Choose' }, { action: 'tabs', label: 'Step' }, { action: 'back', label: 'Back' }]);
+      this.prompts.set([{ action: 'navigate', label: 'Browse' }, { action: 'confirm', label: this.champMode() ? 'Continue' : 'Choose' }, { action: 'tabs', label: 'Step' }, { action: 'back', label: 'Back' }]);
     } else if (this.step === 'car') {
       this.prompts.set([{ action: 'adjust', label: 'Change' }, { action: 'navigate', label: 'Livery' }, { action: 'confirm', label: 'Continue' }, { action: 'tabs', label: 'Step' }, { action: 'back', label: 'Back' }]);
     } else {
@@ -193,16 +232,40 @@ export class SetupScreen extends BaseScreen {
   // ── track step ─────────────────────────────────────────────────────────────
 
   private buildTrackView(): HTMLElement {
+    const kv = (label: string, v: HTMLElement): HTMLElement => {
+      const k = h('span', 'k', label);
+      this.kLabels.push(k);
+      return h('div', 'kv', k, v);
+    };
+    this.sdGrid.append(kv('Length', this.tLength), kv('Difficulty', this.tDiff), kv('Default laps', this.tLaps), kv('Best lap', this.tBest));
+    const detail = h(
+      'div',
+      { cls: 'panel chamfer edge track-detail in', style: { '--d': '260', '--tx': '70px' } },
+      h('div', 'map-wrap', this.mapCanvas, this.mapUnavailable),
+      h('div', 'sd-head', h('div', 'sd-titles', this.tName, this.tPlace), this.mapTag),
+      this.tDesc,
+      this.sdGrid,
+    );
+    return h('div', 'setup-view view-track', this.trackList, detail);
+  }
+
+  /** The cards of the track step: every track, or in a championship the rounds of the calendar. */
+  private rebuildTrackCards(): void {
     const tracks = this.ctx.deps.tracks;
-    const list = h('div', 'track-list');
-    const rows: FocusRow[] = tracks.map((t, i) => {
+    const def = this.champMode() ? this.ctx.championshipDef : null;
+    clearEl(this.trackList);
+    this.trackCards = [];
+    const entries: { t: TrackInfo; round: ChampionshipRoundDef | null }[] = def
+      ? def.rounds.map((round) => ({ t: tracks.find((x) => x.id === round.trackId) ?? tracks[0], round }))
+      : tracks.map((t) => ({ t, round: null }));
+    const rows: FocusRow[] = entries.map(({ t, round }, i) => {
       const card = h(
         'div',
         { cls: 'track-card focusable in', style: { '--d': String(160 + i * 60), '--tx': '-60px', '--accent': t.color } },
         h('i', 'tc-accent'),
-        h('span', 'tc-idx', String(i + 1).padStart(2, '0')),
-        h('div', 'tc-main', h('div', 'tc-name', t.name), h('div', 'tc-place', t.location)),
-        h('div', 'tc-side', pips(t.difficulty, 5, t.difficulty >= 4), h('div', 'tc-len', formatLength(t.lengthHint, this.units()))),
+        h('span', 'tc-idx', round ? 'R' + (i + 1) : String(i + 1).padStart(2, '0')),
+        h('div', 'tc-main', h('div', 'tc-name', t.name), h('div', 'tc-place', round ? formatConditions(round.environment) : t.location)),
+        h('div', 'tc-side', pips(t.difficulty, 5, t.difficulty >= 4), h('div', 'tc-len', round ? lapsLabel(round.laps[this.state.champ.length]) : formatLength(t.lengthHint, this.units()))),
       );
       card.addEventListener('pointermove', (e) => {
         if ((e as PointerEvent).movementX !== 0 || (e as PointerEvent).movementY !== 0) {
@@ -213,32 +276,15 @@ export class SetupScreen extends BaseScreen {
         this.lists.track.focus(i);
         this.nextStep(true);
       });
-      list.appendChild(card);
+      this.trackList.appendChild(card);
       this.trackCards.push(card);
       return {
         setFocused: (on: boolean) => card.classList.toggle('is-focus', on),
-        onFocus: () => this.selectTrack(i),
+        onFocus: () => (round ? this.selectRound(i) : this.selectTrack(i)),
         activate: () => (this.nextStep(), true),
       };
     });
-    this.lists.track.setRows(rows, this.state.trackIndex);
-
-    const detail = h(
-      'div',
-      { cls: 'panel chamfer edge track-detail in', style: { '--d': '260', '--tx': '70px' } },
-      h('div', 'map-wrap', this.mapCanvas, this.mapUnavailable),
-      h('div', 'sd-head', this.tName, this.tPlace),
-      this.tDesc,
-      h(
-        'div',
-        'sd-grid',
-        h('div', 'kv', h('span', 'k', 'Length'), this.tLength),
-        h('div', 'kv', h('span', 'k', 'Difficulty'), this.tDiff),
-        h('div', 'kv', h('span', 'k', 'Default laps'), this.tLaps),
-        h('div', 'kv', h('span', 'k', 'Best lap'), this.tBest),
-      ),
-    );
-    return h('div', 'setup-view view-track', list, detail);
+    this.lists.track.setRows(rows, def ? this.roundIndex : this.state.trackIndex);
   }
 
   private selectTrack(i: number): void {
@@ -252,24 +298,47 @@ export class SetupScreen extends BaseScreen {
     this.rebuildRaceRowsValues();
   }
 
+  private selectRound(i: number): void {
+    const before = this.track().id;
+    this.roundIndex = i;
+    if (this.track().id !== before) this.ctx.emit({ type: 'previewTrack', trackId: this.track().id });
+    this.renderTrackDetail();
+  }
+
   private renderTrackDetail(): void {
     const t = this.track();
+    const round = this.round();
+    const def = this.ctx.championshipDef;
     this.tName.textContent = t.name;
     this.tPlace.textContent = t.location;
+    this.mapTag.style.display = round && def ? '' : 'none';
+    if (round && def) this.mapTag.textContent = `Round ${this.roundIndex + 1} / ${def.rounds.length}`;
     this.tDesc.textContent = t.description;
+    this.sdGrid.classList.toggle('champ', !!round);
     this.tLength.textContent = formatLength(t.lengthHint, this.units());
     clearEl(this.tDiff);
-    this.tDiff.appendChild(pips(t.difficulty, 5, t.difficulty >= 4));
-    this.tLaps.textContent = String(t.defaultLaps);
-    const best = bestLapFor(this.ctx.bestLaps, t.id);
-    const carName = best ? this.ctx.deps.cars.find((c) => c.id === best.carId)?.name : undefined;
-    this.tBest.textContent = best ? formatLapTime(best.time) : 'No lap yet';
-    this.tBest.classList.toggle('dim', !best);
-    this.tBest.title = carName ?? '';
+    // a calendar round shows its own facts in the same four cells: length, laps, time of day, weather
+    this.kLabels.forEach((k, i) => (k.textContent = (round ? ['Length', 'Laps', 'Time', 'Weather'] : ['Length', 'Difficulty', 'Default laps', 'Best lap'])[i]));
+    if (round) {
+      this.tDiff.textContent = String(round.laps[this.state.champ.length]);
+      this.tLaps.textContent = TIME_OF_DAY_LABEL[round.environment.timeOfDay] ?? round.environment.timeOfDay;
+      this.tBest.textContent = WEATHER_LABEL[round.environment.weather] ?? round.environment.weather;
+      this.tBest.classList.remove('dim');
+      this.tBest.title = '';
+    } else {
+      this.tDiff.appendChild(pips(t.difficulty, 5, t.difficulty >= 4));
+      this.tLaps.textContent = String(t.defaultLaps);
+      const best = bestLapFor(this.ctx.bestLaps, t.id);
+      const carName = best ? this.ctx.deps.cars.find((c) => c.id === best.carId)?.name : undefined;
+      this.tBest.textContent = best ? formatLapTime(best.time) : 'No lap yet';
+      this.tBest.classList.toggle('dim', !best);
+      this.tBest.title = carName ?? '';
+    }
     this.trackCards.forEach((c, i) => {
-      const tt = this.ctx.deps.tracks[i];
       const len = c.querySelector('.tc-len');
-      if (len) len.textContent = formatLength(tt.lengthHint, this.units());
+      if (!len) return;
+      const r = this.champMode() ? def?.rounds[i] : undefined;
+      len.textContent = r ? lapsLabel(r.laps[this.state.champ.length]) : formatLength(this.ctx.deps.tracks[i]?.lengthHint ?? 0, this.units());
     });
     this.drawMaps();
   }
@@ -294,7 +363,7 @@ export class SetupScreen extends BaseScreen {
     });
     const livRow = h('div', { cls: 'liv-row focusable in', style: { '--d': '420', '--tx': '-60px' } }, h('div', 'liv-k', h('span', null, 'Livery'), this.liveryName), sw);
 
-    const next = h('div', { cls: 'btn primary focusable in', style: { '--d': '520', '--tx': '-60px' } }, h('span', null, 'Race options'), iconPlay('ico'));
+    const next = h('div', { cls: 'btn primary focusable in', style: { '--d': '520', '--tx': '-60px' } }, this.nextLabel, iconPlay('ico'));
     next.addEventListener('click', () => this.nextStep(true));
 
     const rows: FocusRow[] = [
@@ -359,6 +428,9 @@ export class SetupScreen extends BaseScreen {
     this.cChips.append(h('span', 'chip teal', c.class), h('span', 'chip', c.drivetrain));
     this.cDesc.textContent = c.description;
     this.cStats.set(carStatBars(c, this.units()));
+    // a championship runs on several tracks: no single best lap to show
+    this.cBest.style.display = this.champMode() ? 'none' : '';
+    this.nextLabel.textContent = this.champMode() ? 'Season options' : 'Race options';
     const best = bestLapFor(this.ctx.bestLaps, this.track().id, c.id);
     this.cBest.textContent = '';
     this.cBest.append(h('span', 'k', `Best lap at ${this.track().name}`), h('span', 'v t-num', best ? formatLapTime(best.time) : 'No lap yet'));
@@ -382,7 +454,7 @@ export class SetupScreen extends BaseScreen {
   // ── race step ──────────────────────────────────────────────────────────────
 
   private buildRaceView(): HTMLElement {
-    const summary = h(
+    this.raceSummary = h(
       'div',
       { cls: 'panel chamfer edge race-summary in', style: { '--d': '260', '--tx': '70px' } },
       h('div', 'map-wrap small', this.sumCanvas),
@@ -391,13 +463,23 @@ export class SetupScreen extends BaseScreen {
       h('div', 'kv', h('span', 'k', 'Mode'), this.sumMode),
       h('div', 'kv', h('span', 'k', 'Your best'), this.sumBest),
     );
-    return h('div', 'setup-view view-race', h('div', { cls: 'panel chamfer edge race-panel in', style: { '--d': '120', '--tx': '-60px' } }, this.raceList), summary);
+    this.champSummary = h(
+      'div',
+      { cls: 'panel chamfer edge race-summary champ-summary in', style: { '--d': '260', '--tx': '70px' } },
+      h('div', 'cs-k', 'The season'),
+      this.csRounds,
+      h('div', 'kv', h('span', 'k', 'Car'), this.csCar),
+      h('div', 'kv', h('span', 'k', 'Field'), this.csField),
+      h('div', 'kv', h('span', 'k', 'Points for 1st to 10th'), this.csPoints),
+      this.csHelp,
+    );
+    return h('div', 'setup-view view-race', h('div', { cls: 'panel chamfer edge race-panel in', style: { '--d': '120', '--tx': '-60px' } }, this.raceList), this.raceSummary, this.champSummary);
   }
 
   private rebuildRaceRows(): void {
     const ctx = this.ctx;
     const s = this.state;
-    const info = MODE_INFO[s.mode];
+    const champ = this.champMode();
     clearEl(this.raceList);
     this.raceRows = [];
     const rows: FocusRow[] = [];
@@ -415,21 +497,38 @@ export class SetupScreen extends BaseScreen {
     const onChange = (): void => {
       this.renderSummary();
     };
-    if (info.usesLaps) {
-      add(stepperRow(ctx, { label: 'Laps', min: LAPS_MIN, max: LAPS_MAX, get: () => s.laps, set: (v) => (s.laps = v), fmt: (v) => `${v} ${v === 1 ? 'lap' : 'laps'}` }, { onChange }));
+    if (champ) {
+      const c = s.champ;
+      // each season option explains itself in the summary while it has the focus
+      const help = (text: string) => (r: RowHandle): RowHandle => {
+        r.row.onFocus = () => {
+          this.csHelp.textContent = text;
+        };
+        return r;
+      };
+      add(help('How many rivals you race all season. They keep their names, colours and pace from round to round.')(stepperRow(ctx, { label: 'Opponents', min: CHAMP_OPPONENTS_MIN, max: OPPONENTS_MAX, get: () => c.opponents, set: (v) => (c.opponents = v) }, { onChange })));
+      add(help('How hard the rivals drive. Everyone races your car, so it comes down to driving.')(selectRow(ctx, { label: 'Difficulty', options: DIFFICULTIES.map((d) => ({ value: d, label: OPTION_LABELS.difficulty[d] })), get: () => c.difficulty, set: (v) => (c.difficulty = v as typeof c.difficulty) }, { onChange })));
+      add(help('Short is half the usual race at each circuit, Long is double. The laps for every round are listed above.')(selectRow(ctx, { label: 'Race length', options: LENGTHS.map((l) => ({ value: l, label: OPTION_LABELS.length[l] })), get: () => c.length, set: (v) => (c.length = v as typeof c.length) }, { onChange: () => (onChange(), this.renderTrackDetail()) })));
+      add(help('Where you start the first race. From round 2 the grid follows the championship.')(selectRow(ctx, { label: 'Round 1 start', options: STARTS.map((p) => ({ value: p, label: p === 'back' ? 'Back' : p === 'middle' ? 'Middle' : 'Pole' })), get: () => c.startPosition, set: (v) => (c.startPosition = v as typeof c.startPosition) }, { onChange })));
+      add(help('Standings: the championship leader starts on pole. Reverse: the leader starts last, and the back of the order starts up front.')(selectRow(ctx, { label: 'Later grids', options: GRID_RULES.map((g) => ({ value: g, label: OPTION_LABELS.grid[g] })), get: () => c.grid, set: (v) => (c.grid = v as typeof c.grid) }, { onChange })));
+    } else {
+      const info = MODE_INFO[s.mode as RaceMode];
+      if (info.usesLaps) {
+        add(stepperRow(ctx, { label: 'Laps', min: LAPS_MIN, max: LAPS_MAX, get: () => s.laps, set: (v) => (s.laps = v), fmt: (v) => `${v} ${v === 1 ? 'lap' : 'laps'}` }, { onChange }));
+      }
+      if (info.usesOpponents) {
+        add(stepperRow(ctx, { label: 'Opponents', min: 0, max: OPPONENTS_MAX, get: () => s.opponents, set: (v) => (s.opponents = v), fmt: (v) => (v === 0 ? 'None' : String(v)) }, { onChange }));
+      }
+      if (info.usesDifficulty) {
+        add(selectRow(ctx, { label: 'Difficulty', options: DIFFICULTIES.map((d) => ({ value: d, label: OPTION_LABELS.difficulty[d] })), get: () => s.difficulty, set: (v) => (s.difficulty = v as SetupState['difficulty']) }, { onChange }));
+      }
+      add(selectRow(ctx, { label: 'Time of day', options: TIMES.map((t) => ({ value: t, label: OPTION_LABELS.time[t] })), get: () => s.timeOfDay, set: (v) => (s.timeOfDay = v as SetupState['timeOfDay']), wrap: true }, { onChange }));
+      add(selectRow(ctx, { label: 'Weather', options: WEATHERS.map((w) => ({ value: w, label: OPTION_LABELS.weather[w] })), get: () => s.weather, set: (v) => (s.weather = v as SetupState['weather']) }, { onChange }));
+      if (info.usesStart) {
+        add(selectRow(ctx, { label: 'Start position', options: STARTS.map((p) => ({ value: p, label: p === 'back' ? 'Back' : p === 'middle' ? 'Middle' : 'Pole' })), get: () => s.startPosition, set: (v) => (s.startPosition = v as SetupState['startPosition']) }, { onChange }));
+      }
     }
-    if (info.usesOpponents) {
-      add(stepperRow(ctx, { label: 'Opponents', min: 0, max: OPPONENTS_MAX, get: () => s.opponents, set: (v) => (s.opponents = v), fmt: (v) => (v === 0 ? 'None' : String(v)) }, { onChange }));
-    }
-    if (info.usesDifficulty) {
-      add(selectRow(ctx, { label: 'Difficulty', options: DIFFICULTIES.map((d) => ({ value: d, label: OPTION_LABELS.difficulty[d] })), get: () => s.difficulty, set: (v) => (s.difficulty = v as SetupState['difficulty']) }, { onChange }));
-    }
-    add(selectRow(ctx, { label: 'Time of day', options: TIMES.map((t) => ({ value: t, label: OPTION_LABELS.time[t] })), get: () => s.timeOfDay, set: (v) => (s.timeOfDay = v as SetupState['timeOfDay']), wrap: true }, { onChange }));
-    add(selectRow(ctx, { label: 'Weather', options: WEATHERS.map((w) => ({ value: w, label: OPTION_LABELS.weather[w] })), get: () => s.weather, set: (v) => (s.weather = v as SetupState['weather']) }, { onChange }));
-    if (info.usesStart) {
-      add(selectRow(ctx, { label: 'Start position', options: STARTS.map((p) => ({ value: p, label: p === 'back' ? 'Back' : p === 'middle' ? 'Middle' : 'Pole' })), get: () => s.startPosition, set: (v) => (s.startPosition = v as SetupState['startPosition']) }, { onChange }));
-    }
-    const label = s.mode === 'race' ? 'Start race' : s.mode === 'timeTrial' ? 'Start time trial' : 'Start free roam';
+    const label = champ ? 'Start championship' : s.mode === 'race' ? 'Start race' : s.mode === 'timeTrial' ? 'Start time trial' : 'Start free roam';
     this.startBtn = h('div', 'btn primary start-btn focusable', h('span', null, label), iconPlay('ico'));
     this.startBtn.addEventListener('click', () => this.start(true));
     this.raceList.appendChild(h('div', 'race-start', this.startBtn));
@@ -439,7 +538,15 @@ export class SetupScreen extends BaseScreen {
         if (this.lists.race.focus(sbIndex)) ctx.sound('move');
       }
     });
-    rows.push({ setFocused: (on) => this.startBtn.classList.toggle('is-focus', on), activate: () => (this.start(), true) });
+    rows.push({
+      setFocused: (on) => this.startBtn.classList.toggle('is-focus', on),
+      onFocus: champ
+        ? () => {
+            this.csHelp.textContent = 'Race round 1 of the season. Your progress is saved after every round, so you can stop whenever you like.';
+          }
+        : undefined,
+      activate: () => (this.start(), true),
+    });
     this.lists.race.setRows(rows, 0);
   }
 
@@ -448,20 +555,47 @@ export class SetupScreen extends BaseScreen {
   }
 
   private start(sound = false): void {
-    const cfg = buildRaceConfig(this.state, this.ctx.deps.tracks, this.ctx.deps.cars, this.ctx.settings.playerName);
     if (sound) this.ctx.sound('select');
-    this.ctx.startRace(cfg);
+    if (this.champMode()) {
+      this.ctx.startChampionship(buildChampionshipSetup(this.state, this.ctx.deps.cars, this.ctx.settings.playerName));
+      return;
+    }
+    this.ctx.startRace(buildRaceConfig(this.state, this.ctx.deps.tracks, this.ctx.deps.cars, this.ctx.settings.playerName));
   }
 
   private renderSummary(): void {
+    const champ = this.champMode();
+    this.raceSummary.style.display = champ ? 'none' : '';
+    this.champSummary.style.display = champ ? '' : 'none';
+    if (champ) {
+      this.renderChampSummary();
+      return;
+    }
     const t = this.track();
     const c = this.car();
     this.sumTrack.textContent = t.name;
     this.sumCar.textContent = `${c.name}  ·  ${LIVERY_PRESETS[this.state.liveryIndex].name}`;
-    this.sumMode.textContent = MODE_INFO[this.state.mode].label;
+    this.sumMode.textContent = MODE_INFO[this.state.mode as RaceMode].label;
     const best = bestLapFor(this.ctx.bestLaps, t.id, c.id);
     this.sumBest.textContent = best ? formatLapTime(best.time) : 'No lap yet';
     this.drawMaps();
+  }
+
+  /** The calendar with this season's lap counts, the car, the field and the points table. */
+  private renderChampSummary(): void {
+    const def = this.ctx.championshipDef;
+    if (!def) return;
+    const c = this.state.champ;
+    clearEl(this.csRounds);
+    def.rounds.forEach((r, i) => {
+      const t = this.ctx.deps.tracks.find((x) => x.id === r.trackId);
+      this.csRounds.appendChild(
+        h('div', 'cs-round', h('span', 'n', 'R' + (i + 1)), h('div', 'cs-main', h('b', null, t?.name ?? r.trackId), h('em', null, formatConditions(r.environment))), h('span', 'cs-laps t-num', lapsLabel(r.laps[c.length]))),
+      );
+    });
+    this.csCar.textContent = `${this.car().name}  ·  ${LIVERY_PRESETS[this.state.liveryIndex].name}`;
+    this.csField.textContent = `${c.opponents + 1} drivers  ·  ${OPTION_LABELS.difficulty[c.difficulty]}`;
+    this.csPoints.textContent = `${def.points.join('  ')}   +${def.fastestLapPoint} fastest lap`;
   }
 
   // ── rendering ──────────────────────────────────────────────────────────────
@@ -471,7 +605,7 @@ export class SetupScreen extends BaseScreen {
     this.renderCar();
     this.renderSummary();
     this.rebuildRaceRowsValues();
-    this.kicker.textContent = `${MODE_INFO[this.state.mode].label}  ·  Setup`;
+    this.kicker.textContent = `${modeLabel(this.state.mode)}  ·  Setup`;
   }
 
   /** Static track image per (track, canvas size), cached; the moving dot is drawn on top every frame. */
@@ -495,7 +629,7 @@ export class SetupScreen extends BaseScreen {
 
   private drawMaps(): void {
     this.drawOne(this.mapCanvas, this.track().id, MAP_W, MAP_H, this.mapUnavailable);
-    this.drawOne(this.sumCanvas, this.track().id, 440, 250);
+    if (!this.champMode()) this.drawOne(this.sumCanvas, this.track().id, 440, 250);
   }
 
   private drawOne(canvas: HTMLCanvasElement, id: string, w: number, hh: number, na?: HTMLElement): void {
@@ -536,7 +670,7 @@ export class SetupScreen extends BaseScreen {
     const loop = (): void => {
       this.animRaf = requestAnimationFrame(loop);
       if (this.step === 'track') this.drawOne(this.mapCanvas, this.track().id, MAP_W, MAP_H, this.mapUnavailable);
-      else if (this.step === 'race') this.drawOne(this.sumCanvas, this.track().id, 440, 250);
+      else if (this.step === 'race' && !this.champMode()) this.drawOne(this.sumCanvas, this.track().id, 440, 250);
     };
     this.animRaf = requestAnimationFrame(loop);
   }
