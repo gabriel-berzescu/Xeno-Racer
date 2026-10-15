@@ -123,8 +123,9 @@ const vanta: CarDefinition = {
     },
     brakes: { frontTorque: 3300, rearTorque: 1400, handbrakeTorque: 2400, discHeatCapacity: 4200 },
     aero: { dragArea: 0.74, liftAreaFront: 0.22, liftAreaRear: 0.32 },
-    tireFront: roadTire(265, 35, 20, 1.14),
-    tireRear: roadTire(305, 30, 20, 1.14),
+    // track-biased performance tires: superb dry, mediocre in standing water
+    tireFront: roadTire(265, 35, 20, 1.14, { wetGrip: 0.66 }),
+    tireRear: roadTire(305, 30, 20, 1.14, { wetGrip: 0.66 }),
     suspFront: { travel: 0.12, spring: 46000, bump: 2400, rebound: 4400, antiRoll: 32000, camber: -1.6 * DEG },
     suspRear: { travel: 0.12, spring: 52000, bump: 2600, rebound: 4800, antiRoll: 22000, camber: -1.2 * DEG },
   },
@@ -208,8 +209,8 @@ const kestrel: CarDefinition = {
     },
     brakes: { frontTorque: 2700, rearTorque: 700, handbrakeTorque: 2000, discHeatCapacity: 3300 },
     aero: { dragArea: 0.72, liftAreaFront: 0.04, liftAreaRear: 0.08 },
-    tireFront: roadTire(235, 35, 19, 1.08),
-    tireRear: roadTire(235, 35, 19, 1.08),
+    tireFront: roadTire(235, 35, 19, 1.08, { wetGrip: 0.72 }),
+    tireRear: roadTire(235, 35, 19, 1.08, { wetGrip: 0.72 }),
     suspFront: { travel: 0.13, spring: 42000, bump: 2300, rebound: 4000, antiRoll: 26000, camber: -1.4 * DEG },
     suspRear: { travel: 0.13, spring: 34000, bump: 1900, rebound: 3400, antiRoll: 30000, camber: -1.6 * DEG },
   },
@@ -293,8 +294,9 @@ const ronin: CarDefinition = {
     },
     brakes: { frontTorque: 2300, rearTorque: 820, handbrakeTorque: 2200, discHeatCapacity: 3000 },
     aero: { dragArea: 0.66, liftAreaFront: 0.02, liftAreaRear: 0.05 },
-    tireFront: roadTire(215, 40, 18, 1.0, { peakSlipAngle: 8 * DEG, slideRatio: 0.82 }),
-    tireRear: roadTire(215, 40, 18, 1.0, { peakSlipAngle: 8 * DEG, slideRatio: 0.82 }),
+    // modest treaded tires: the least grip in the dry, the most of it kept in the wet
+    tireFront: roadTire(215, 40, 18, 1.0, { peakSlipAngle: 8 * DEG, slideRatio: 0.82, wetGrip: 0.76 }),
+    tireRear: roadTire(215, 40, 18, 1.0, { peakSlipAngle: 8 * DEG, slideRatio: 0.82, wetGrip: 0.76 }),
     suspFront: { travel: 0.13, spring: 34000, bump: 2000, rebound: 3500, antiRoll: 24000, camber: -1.5 * DEG },
     suspRear: { travel: 0.13, spring: 38000, bump: 2100, rebound: 3700, antiRoll: 16000, camber: -1.2 * DEG },
   },
@@ -392,6 +394,8 @@ const lmp: CarDefinition = {
       optimalTemp: 95,
       tempWindow: 35,
       coldGrip: 0.74,
+      // (wet-weather compound fitted when it rains: slicks would keep barely half)
+      wetGrip: 0.6,
     },
     tireRear: {
       ...roadTire(340, 30, 18, 1.62),
@@ -407,6 +411,8 @@ const lmp: CarDefinition = {
       optimalTemp: 95,
       tempWindow: 35,
       coldGrip: 0.74,
+      // (wet-weather compound fitted when it rains: slicks would keep barely half)
+      wetGrip: 0.6,
     },
     suspFront: { travel: 0.07, spring: 110000, bump: 4200, rebound: 7000, antiRoll: 60000, camber: -2.8 * DEG },
     suspRear: { travel: 0.07, spring: 125000, bump: 4600, rebound: 7600, antiRoll: 42000, camber: -1.8 * DEG },

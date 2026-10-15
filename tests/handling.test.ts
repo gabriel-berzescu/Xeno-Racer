@@ -14,8 +14,9 @@ import { PhysicsWorld, SteeringFilter, createFlatTrack } from '../src/physics';
 const DT = 1 / 60;
 
 /** Drive with a scripted raw stick (as a human would) through the SteeringFilter. */
-function run(def: CarDefinition, assists: Assists, kmh: number, script: (t: number) => { steer: number; throttle: number; brake: number }, seconds: number) {
+function run(def: CarDefinition, assists: Assists, kmh: number, script: (t: number) => { steer: number; throttle: number; brake: number }, seconds: number, wetness = 0) {
   const world = new PhysicsWorld(createFlatTrack());
+  world.wetness = wetness;
   const car = world.addVehicle(def);
   car.assists = { ...assists };
   car.placeOnGround(new Vector3(), new Quaternion(), kmh / 3.6);
@@ -46,20 +47,21 @@ function run(def: CarDefinition, assists: Assists, kmh: number, script: (t: numb
 }
 
 describe('gamepad handling', () => {
-  it('stays catchable with default assists, still slides without them', () => {
+  for (const [label, wetness] of [['dry', 0], ['storm', 1]] as const)
+  it(`stays catchable with default assists, still slides without them (${label})`, () => {
     const rows: string[] = [];
     const defaults = DEFAULT_SETTINGS.assists;
     const none: Assists = { abs: false, tcs: 'off', esc: false, autoShift: true, steeringAssist: 0, autoClutch: true };
     const failures: string[] = [];
     for (const def of CARS) {
       // 1. full stick step at 150 km/h, held for 2 s, then released
-      const step = (a: Assists) => run(def, a, 150, (t) => ({ steer: t > 0.5 && t < 2.5 ? 1 : 0, throttle: 0.3, brake: 0 }), 5);
+      const step = (a: Assists) => run(def, a, 150, (t) => ({ steer: t > 0.5 && t < 2.5 ? 1 : 0, throttle: 0.3, brake: 0 }), 5, wetness);
       // 2. flick left-right at 110 km/h (Scandinavian flick)
-      const flick = (a: Assists) => run(def, a, 110, (t) => ({ steer: t < 0.6 ? -1 : t < 1.4 ? 1 : 0, throttle: t < 1.4 ? 0 : 1, brake: 0 }), 4);
+      const flick = (a: Assists) => run(def, a, 110, (t) => ({ steer: t < 0.6 ? -1 : t < 1.4 ? 1 : 0, throttle: t < 1.4 ? 0 : 1, brake: 0 }), 4, wetness);
       // 3. full throttle out of a 60 km/h corner
-      const exit = (a: Assists) => run(def, a, 60, (t) => ({ steer: t < 2 ? 0.7 : 0.2, throttle: t > 0.5 ? 1 : 0.2, brake: 0 }), 4);
+      const exit = (a: Assists) => run(def, a, 60, (t) => ({ steer: t < 2 ? 0.7 : 0.2, throttle: t > 0.5 ? 1 : 0.2, brake: 0 }), 4, wetness);
       // 4. panic brake while turning at 130
-      const panic = (a: Assists) => run(def, a, 130, (t) => ({ steer: t > 0.3 ? 0.8 : 0, throttle: 0, brake: t > 0.3 ? 1 : 0 }), 4);
+      const panic = (a: Assists) => run(def, a, 130, (t) => ({ steer: t > 0.3 ? 0.8 : 0, throttle: 0, brake: t > 0.3 ? 1 : 0 }), 4, wetness);
       const tests: [string, (a: Assists) => ReturnType<typeof run>][] = [['step150', step], ['flick110', flick], ['exit60', exit], ['panic130', panic]];
       for (const [name, f] of tests) {
         const d = f(defaults);
@@ -71,7 +73,7 @@ describe('gamepad handling', () => {
       }
     }
     mkdirSync('.cache', { recursive: true });
-    writeFileSync('.cache/handling.txt', rows.join('\n') + '\n');
+    writeFileSync(`.cache/handling-${label}.txt`, rows.join('\n') + '\n');
     expect(failures).toEqual([]);
   }, 300000);
 });

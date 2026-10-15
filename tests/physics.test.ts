@@ -12,9 +12,10 @@ import { PhysicsWorld, createFlatTrack, type Vehicle } from '../src/physics';
 const G = 9.81;
 const DT = 1 / 60;
 
-function setup(def: CarDefinition, opts: Parameters<typeof createFlatTrack>[0] = {}, speed = 0) {
+function setup(def: CarDefinition, opts: Parameters<typeof createFlatTrack>[0] = {}, speed = 0, wetness = 0) {
   const track = createFlatTrack(opts);
   const world = new PhysicsWorld(track);
+  world.wetness = wetness;
   const car = world.addVehicle(def);
   car.assists = { abs: true, tcs: 'off', esc: false, autoShift: true, steeringAssist: 0, autoClutch: true };
   car.placeOnGround(new Vector3(0, 0, 0), new Quaternion(), speed);
@@ -52,9 +53,9 @@ function dragRun(def: CarDefinition, seconds = 70) {
 }
 
 /** Braking from 100 km/h to rest with full pedal. */
-function brakeRun(def: CarDefinition, abs: boolean) {
+function brakeRun(def: CarDefinition, abs: boolean, wetness = 0) {
   const v0 = 100 / 3.6;
-  const { world, car } = setup(def, {}, v0);
+  const { world, car } = setup(def, {}, v0, wetness);
   car.assists.abs = abs;
   world.simulate(0.3); // settle at speed (coasting)
   car.placeOnGround(new Vector3(0, 0, car.p.z), new Quaternion(), v0);
@@ -73,8 +74,8 @@ function brakeRun(def: CarDefinition, abs: boolean) {
  * Skidpad: drive a circle of radius R, slowly raising the target speed; the highest sustained
  * lateral acceleration before the car can no longer hold the line is the grip limit.
  */
-function skidpad(def: CarDefinition, R = 60) {
-  const { world, car } = setup(def);
+function skidpad(def: CarDefinition, R = 60, wetness = 0) {
+  const { world, car } = setup(def, {}, 0, wetness);
   car.assists.tcs = 'high';
   // start on the circle, tangent along +Z, circle center at (+R, 0, 0) (turning left)
   const center = new Vector3(R, 0, 0);
@@ -158,6 +159,30 @@ describe('vehicle physics', () => {
     }
     mkdirSync('.cache', { recursive: true });
     writeFileSync('.cache/physics-metrics.txt', rows.join('\n') + '\n');
+    for (const c of checks) c();
+  }, 300000);
+
+  it('loses grip in the wet like real tires', () => {
+    const rows: string[] = [];
+    const checks: (() => void)[] = [];
+    for (const def of CARS) {
+      const dryPad = skidpad(def);
+      const dryBrake = brakeRun(def, true);
+      for (const wetness of [0.75, 1]) {
+        const pad = skidpad(def, 60, wetness);
+        const brake = brakeRun(def, true, wetness);
+        rows.push(`${def.id.padEnd(10)} wetness ${wetness.toFixed(2)}  skidpad ${pad.latG.toFixed(2)} g (dry ${dryPad.latG.toFixed(2)}, ${((pad.latG / dryPad.latG) * 100).toFixed(0)}%)  100-0 ABS ${brake.distance.toFixed(1)} m (dry ${dryBrake.distance.toFixed(1)})`);
+        checks.push(() => {
+          // wet tarmac keeps roughly 50-85 % of dry grip, and stopping takes clearly longer
+          expect(pad.latG / dryPad.latG).toBeGreaterThan(0.5);
+          expect(pad.latG / dryPad.latG).toBeLessThan(0.88);
+          expect(brake.distance).toBeGreaterThan(dryBrake.distance * 1.12);
+          expect(brake.distance).toBeLessThan(dryBrake.distance * 2);
+        });
+      }
+    }
+    mkdirSync('.cache', { recursive: true });
+    writeFileSync('.cache/physics-wet.txt', rows.join('\n') + '\n');
     for (const c of checks) c();
   }, 300000);
 

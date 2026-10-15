@@ -22,7 +22,7 @@ import type {
 } from '../core/contracts';
 import { RADS_TO_RPM, RPM_TO_RADS, peakTorque, torqueAt } from './engine';
 import type { DifferentialSpec, SuspensionSpec, TireSpec, VehicleSpec } from './spec';
-import { SURFACES } from './surfaces';
+import { SURFACES, wetGripFactor } from './surfaces';
 import { loadFactor, makeShape, shapeRatio, tempFactor, type TireShape } from './tire';
 
 const GRAVITY = 9.81;
@@ -149,6 +149,8 @@ export class Vehicle {
   holdOnGrid = false;
   /** Track grip multiplier (e.g. dusty/cold). */
   gripScale = 1;
+  /** 0..1 water on the track (set by the world): wet grip, aquaplaning, tread cooling. */
+  wetness = 0;
   /** Set each frame by the world: slipstream / dirty air. */
   dragMul = 1;
   downforceMul = 1;
@@ -395,7 +397,9 @@ export class Vehicle {
   /** Warm tires / brakes to racing temperature (after a formation lap) or reset to cold. */
   setTemperatures(tireFraction: number): void {
     for (const wh of this.wheels) {
-      wh.tempC = AMBIENT_C + (wh.tire.optimalTemp - AMBIENT_C) * tireFraction;
+      // (in the wet the working window sits 30 °C lower — see the grip calculation)
+      const optimal = Math.max(AMBIENT_C + 5, wh.tire.optimalTemp - 30 * this.wetness);
+      wh.tempC = AMBIENT_C + (optimal - AMBIENT_C) * tireFraction;
       wh.brakeTempC = AMBIENT_C + 150 * tireFraction;
     }
   }
@@ -663,7 +667,10 @@ export class Vehicle {
       wh.vLong = vLong;
       wh.vLat = vLat;
       const surf = SURFACES[wh.surface];
-      const mu = tire.mu * surf.grip * loadFactor(wh.load, tire) * tempFactor(wh.tempC, tire) * this.gripScale;
+      const wet = this.wetness > 0 ? wetGripFactor(this.wetness, tire.wetGrip ?? 0.72, surf, Math.abs(vLong)) : 1;
+      // (wet-weather rubber works ~30 °C cooler than its dry window)
+      const tWork = wh.tempC + 30 * this.wetness;
+      const mu = tire.mu * surf.grip * loadFactor(wh.load, tire) * tempFactor(tWork, tire) * this.gripScale * wet;
       const aLong = Math.abs(vLong);
       const denom = aLong > SLIP_VMIN ? aLong : SLIP_VMIN;
       const kappa = (wh.omega * wh.radius - vLong) / denom;
@@ -681,7 +688,8 @@ export class Vehicle {
       wh.fx = F * ratio * sx * 1.08;
       wh.fy = -F * ratio * sy;
       wh.implicitD = (wh.radius * wh.radius * F * ratio * 1.08) / tire.peakSlipRatio / denom;
-      wh.rollingTorque = (tire.rollingResistance + surf.rolling) * wh.load * wh.radius + 2;
+      // (on a wet road the tread also has to push water aside)
+      wh.rollingTorque = (tire.rollingResistance + surf.rolling + (surf.paved ? 0.004 * this.wetness : 0)) * wh.load * wh.radius + 2;
       wh.kappa = kappa;
       wh.alpha = Math.atan(tAu);
       wh.rho = rho;
@@ -690,7 +698,8 @@ export class Vehicle {
       // tread temperature: sliding power + carcass flex − convection
       const pSlip = Math.abs(wh.fx * (wh.omega * wh.radius - vLong)) + Math.abs(wh.fy * vLat);
       const heat = 0.18 * pSlip + 0.006 * wh.load * aLong;
-      const cool = (6 + 0.55 * aLong) * (wh.tempC - AMBIENT_C);
+      // (a water film cools the tread hard — slicks struggle to stay warm in the rain)
+      const cool = (6 + 0.55 * aLong) * (1 + 1.1 * this.wetness) * (wh.tempC - AMBIENT_C);
       wh.tempC += ((heat - cool) / 2600) * dt;
     }
 

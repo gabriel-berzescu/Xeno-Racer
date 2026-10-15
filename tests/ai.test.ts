@@ -13,16 +13,17 @@ import { TRACKS, loadTrackRuntime } from '../src/track';
 
 const DT = 1 / 60;
 
-function lapTest(trackId: string, carId: string, difficulty: Difficulty, laps = 2) {
+function lapTest(trackId: string, carId: string, difficulty: Difficulty, laps = 2, wetness = 0) {
   const track = loadTrackRuntime(trackId);
   const def = getCar(carId);
   const world = new PhysicsWorld(track);
+  world.wetness = wetness;
   const car = world.addVehicle(def);
   car.assists = { abs: true, tcs: 'low', esc: false, autoShift: true, steeringAssist: 0, autoClutch: true };
   const slot = track.grid[0];
   car.placeOnGround(slot.position, slot.quaternion, 0);
   car.setTemperatures(1);
-  const ai = new AIDriver(track, def, { difficulty, seed: 1 });
+  const ai = new AIDriver(track, def, { difficulty, seed: 1, wetness });
   const est = profileLapTime(ai.line, ai.profile) / ai.skill.pace;
   const tp: TrackPoint = { s: 0, d: 0, segment: 0, widthLeft: 0, widthRight: 0, wallLeft: 0, wallRight: 0, tx: 0, tz: 1, lx: 1, lz: 0, y: 0 };
   let hint = -1;
@@ -65,12 +66,13 @@ function lapTest(trackId: string, carId: string, difficulty: Difficulty, laps = 
 }
 
 describe('AI driver', () => {
-  it('laps every track with every car', () => {
+  for (const [label, wetness] of [['dry', 0], ['storm', 1]] as const)
+  it(`laps every track with every car (${label})`, () => {
     const rows: string[] = [];
     const fails: string[] = [];
     for (const t of TRACKS) {
       for (const c of CARS) {
-        const r = lapTest(t.info.id, c.id, 'alien', 2);
+        const r = lapTest(t.info.id, c.id, 'alien', 2, wetness);
         const fmt = (x: number) => `${Math.floor(x / 60)}:${(x % 60).toFixed(2).padStart(5, '0')}`;
         rows.push(
           `${t.info.id.padEnd(9)} ${c.id.padEnd(10)} len ${r.length.toFixed(0)} m  est ${fmt(r.est)}  laps ${r.lapTimes.map(fmt).join(' ')}  vmax ${r.maxSpeed.toFixed(0)}  resets ${r.resets}  impacts ${r.impacts}  off ${r.offTrack.toFixed(1)}s  tires ${r.temps}C  brakes ${r.brakes}C`,
@@ -79,7 +81,7 @@ describe('AI driver', () => {
       }
     }
     mkdirSync('.cache', { recursive: true });
-    writeFileSync('.cache/ai-laps.txt', rows.join('\n') + '\n');
+    writeFileSync(`.cache/ai-laps-${label}.txt`, rows.join('\n') + '\n');
     expect(fails).toEqual([]);
   }, 600000);
 });

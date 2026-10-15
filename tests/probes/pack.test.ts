@@ -2,7 +2,7 @@
  * Pack-race probe: a full grid of AI cars races from a standing start, the way the game sets it up.
  * Counts car-to-car contacts, wall hits, off-track time, resets and overtakes per car.
  *
- *   PACK=1 [TRACK=kuroyama] [CAR=vanta-gt|mixed] [DIFF=pro] [N=8] [LAPS=2] npx vitest run tests/probes/pack.test.ts
+ *   PACK=1 [TRACK=kuroyama] [CAR=vanta-gt|mixed] [DIFF=pro] [N=8] [LAPS=2] [WET=0..1] npx vitest run tests/probes/pack.test.ts
  *   → .cache/pack.txt
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -32,6 +32,8 @@ export interface PackResult {
 export function runPack(trackId: string, carSpec: string, diff: Difficulty, n: number, laps: number, log = false): PackResult {
   const track = loadTrackRuntime(trackId);
   const world = new PhysicsWorld(track);
+  const wetness = +(process.env.WET ?? 0);
+  world.wetness = wetness;
   const frame: TrackFrame = { position: new Vector3(), tangent: new Vector3(), normal: new Vector3(), left: new Vector3(), widthLeft: 0, widthRight: 0, wallLeft: 0, wallRight: 0, curvature: 0, bank: 0 };
   const m4 = new Matrix4();
   const place = (v: Vehicle, s: number, d: number, speed: number) => {
@@ -51,7 +53,7 @@ export function runPack(trackId: string, carSpec: string, diff: Difficulty, n: n
     v.setTemperatures(0.8);
     v.holdOnGrid = true;
     const d = i === n - 1 && process.env.LASTDIFF ? (process.env.LASTDIFF as Difficulty) : diff;
-    cars.push({ v, ai: new AIDriver(track, def, { difficulty: d, seed: v.id * 17 + i }), hint: -1, prevS: 0, crossings: 0, lapStart: 0, laps: [], carHits: 0, hardHits: 0, wallHits: 0, resets: 0, off: 0, finished: false, finishT: 0, seenImpact: 0, wasOff: false });
+    cars.push({ v, ai: new AIDriver(track, def, { difficulty: d, seed: v.id * 17 + i, wetness }), hint: -1, prevS: 0, crossings: 0, lapStart: 0, laps: [], carHits: 0, hardHits: 0, wallHits: 0, resets: 0, off: 0, finished: false, finishT: 0, seenImpact: 0, wasOff: false });
   }
   const tp: TrackPoint = { s: 0, d: 0, segment: 0, widthLeft: 0, widthRight: 0, wallLeft: 0, wallRight: 0, tx: 0, tz: 1, lx: 1, lz: 0, y: 0 };
   for (const c of cars) {

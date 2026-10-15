@@ -10,6 +10,7 @@
  */
 import { Vector3 } from 'three';
 import type { CarControls, CarDefinition, Difficulty, TrackPoint, TrackRuntime, VehicleState } from '../core/contracts';
+import { SURFACES, wetGripFactor } from '../physics/surfaces';
 import { computeRacingLine, computeSpeedProfile, type RacingLine, type SpeedProfile } from './racing-line';
 
 export interface Skill {
@@ -35,6 +36,8 @@ export interface AIDriverOptions {
   difficulty: Difficulty;
   /** Per-driver variation seed. */
   seed: number;
+  /** Water on the track (0..1): slower corners, earlier braking, wheels kept off the kerbs. */
+  wetness?: number;
 }
 
 export class AIDriver {
@@ -45,6 +48,8 @@ export class AIDriver {
   needsReset = false;
   /** Current track position (updated every update). */
   s = 0;
+  /** Asphalt grip factor for the weather (1 when dry). */
+  private readonly wetMu: number;
   d = 0;
 
   private hint = -1;
@@ -74,8 +79,12 @@ export class AIDriver {
     this.wanderPhase = r * 100;
     this.skill = base;
     this.halfWidth = def.visual.width / 2;
-    this.line = computeRacingLine(track, { edgeMargin: this.halfWidth - 0.25 });
-    this.profile = computeSpeedProfile(track, this.line, def, { gripUse: base.gripUse, brakeUse: base.brakeUse });
+    const wet = opts.wetness ?? 0;
+    // in the wet, painted kerbs are ice: keep the wheels on the asphalt
+    this.line = computeRacingLine(track, { edgeMargin: this.halfWidth - 0.25 + (wet > 0 ? 0.45 : 0) });
+    this.profile = computeSpeedProfile(track, this.line, def, { gripUse: base.gripUse, brakeUse: base.brakeUse, wetness: wet });
+    const tireWet = Math.min(def.physics.tireFront.wetGrip ?? 0.72, def.physics.tireRear.wetGrip ?? 0.72);
+    this.wetMu = wetGripFactor(wet, tireWet, SURFACES.asphalt, 0);
   }
 
   /** Target speed at track position s (m/s), with this driver's pace. */
@@ -172,7 +181,7 @@ export class AIDriver {
     // kinematic angle + the slip angle the front tires need for this lateral acceleration
     const ph = def.physics;
     const aLat = v * v * kappa;
-    const muG = 9.81 * ph.tireFront.mu;
+    const muG = 9.81 * ph.tireFront.mu * this.wetMu;
     let delta = Math.atan(L * kappa) + ph.tireFront.peakSlipAngle * Math.max(-1.2, Math.min(1.2, aLat / muG)) * 0.85;
     // yaw-rate tracking: steer against yaw rate that differs from what the path asks for
     // (gentler at hairpin speeds, where the loop through the tires would otherwise ring)
@@ -194,7 +203,7 @@ export class AIDriver {
     // ── speed: track the profile slightly ahead; brake early for slower points ahead ──
     let vT = this.targetSpeedOff(s + v * 0.3 + 2, this.offset);
     // anticipate: the slowest requirement within the next ~1.2 s, discounted by distance
-    const brakeCap = 9.81 * Math.min(def.physics.tireFront.mu, def.physics.tireRear.mu) * this.skill.brakeUse * 0.9;
+    const brakeCap = 9.81 * Math.min(def.physics.tireFront.mu, def.physics.tireRear.mu) * this.wetMu * this.skill.brakeUse * 0.9;
     for (let k = 1; k <= 6; k++) {
       const ahead = v * 0.2 * k + 4;
       const va = this.targetSpeedOff(s + ahead, this.offset);

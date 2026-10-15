@@ -8,6 +8,7 @@
  */
 import type { CarDefinition, TrackRuntime } from '../core/contracts';
 import { peakPower } from '../physics/engine';
+import { SURFACES, wetGripFactor } from '../physics/surfaces';
 
 const G = 9.81;
 const RHO = 1.225;
@@ -146,6 +147,8 @@ export interface ProfileOptions {
   gripUse: number;
   /** Fraction of the braking capability used. */
   brakeUse: number;
+  /** Water on the track (0..1): wet tire grip and aquaplaning at speed. */
+  wetness?: number;
 }
 
 /** Quasi-steady speed profile for one car on one line. */
@@ -153,7 +156,12 @@ export function computeSpeedProfile(track: TrackRuntime, line: RacingLine, def: 
   const n = line.n;
   const ph = def.physics;
   const m = ph.chassis.mass;
-  const mu = Math.min(ph.tireFront.mu, ph.tireRear.mu) * 0.95 * o.gripUse;
+  // wet: the tires' wet grip on asphalt, and aquaplaning that grows with speed (relative to 0 m/s)
+  const wet = o.wetness ?? 0;
+  const tireWet = Math.min(ph.tireFront.wetGrip ?? 0.72, ph.tireRear.wetGrip ?? 0.72);
+  const wet0 = wetGripFactor(wet, tireWet, SURFACES.asphalt, 0);
+  const aqua = (vv: number) => (wet > 0 ? wetGripFactor(wet, tireWet, SURFACES.asphalt, vv) / wet0 : 1);
+  const mu = Math.min(ph.tireFront.mu, ph.tireRear.mu) * 0.95 * o.gripUse * wet0;
   const cDown = (0.5 * RHO * (ph.aero.liftAreaFront + ph.aero.liftAreaRear)) / m;
   const cDrag = (0.5 * RHO * ph.aero.dragArea) / m;
   const power = peakPower(ph.engine).watts * ph.drivetrain.efficiency * 0.92;
@@ -162,14 +170,20 @@ export function computeSpeedProfile(track: TrackRuntime, line: RacingLine, def: 
   const L = ph.chassis.wheelbase;
   const drivenFrac = ph.drivetrain.layout === 'FWD' ? (L - a) / L * 0.92 : ph.drivetrain.layout === 'RWD' ? (a / L) * 1.1 : 1;
   const v = new Float32Array(n);
-  const latMax = (vv: number) => mu * (G + cDown * vv * vv);
+  const latMax = (vv: number) => mu * aqua(vv) * (G + cDown * vv * vv);
   for (let i = 0; i < n; i++) {
     const k = Math.abs(line.k[i]);
-    const den = k - mu * cDown;
     // bank helps (or hurts) the corner: positive bank raises the left edge, good for right turns
     const j = Math.min(track.count - 1, Math.round((i * line.step) / track.spacing));
     const bankHelp = -Math.sign(line.k[i]) * Math.sin(track.bank[j]) * G;
-    const vmax = den > 1e-6 ? Math.sqrt(Math.max(1, mu * G + bankHelp) / den) : vTop;
+    // closed form for a constant mu; one fixed-point pass picks up the aquaplaning at that speed
+    let muC = mu;
+    let vmax = vTop;
+    for (let it = 0; it < (wet > 0 ? 2 : 1); it++) {
+      const den = k - muC * cDown;
+      vmax = den > 1e-6 ? Math.sqrt(Math.max(1, muC * G + bankHelp) / den) : vTop;
+      muC = mu * aqua(Math.min(vmax, vTop));
+    }
     v[i] = Math.min(vTop, vmax);
   }
   // friction-circle remainder for longitudinal acceleration at speed vv on curvature k
@@ -185,7 +199,7 @@ export function computeSpeedProfile(track: TrackRuntime, line: RacingLine, def: 
       const i = t % n;
       const b = (i + 1) % n;
       const vi = v[i];
-      const trac = mu * 1.05 * G * drivenFrac + mu * cDown * vi * vi * drivenFrac;
+      const trac = (mu * 1.05 * G * drivenFrac + mu * cDown * vi * vi * drivenFrac) * aqua(vi);
       const pow = power / (m * Math.max(vi, 3));
       const acc = longAvail(vi, line.k[i], Math.min(trac, pow)) - cDrag * vi * vi - 0.12;
       const vn = Math.sqrt(Math.max(0, vi * vi + 2 * acc * line.ds[i]));
@@ -196,7 +210,7 @@ export function computeSpeedProfile(track: TrackRuntime, line: RacingLine, def: 
       const i = t % n;
       const p = (i - 1 + n) % n;
       const vi = v[i];
-      const cap = (mu * 1.05 * G + mu * cDown * vi * vi) * o.brakeUse;
+      const cap = (mu * 1.05 * G + mu * cDown * vi * vi) * o.brakeUse * aqua(vi);
       const dec = longAvail(vi, line.k[i], cap) + cDrag * vi * vi;
       const vp = Math.sqrt(vi * vi + 2 * dec * line.ds[p]);
       if (vp < v[p]) v[p] = vp;

@@ -43,6 +43,16 @@ export class PhysicsWorld {
   private nextId = 0;
   /** Car-to-car contacts this frame (for debugging/tests). */
   carContacts = 0;
+  private wet = 0;
+
+  /** Water on the track, 0 (dry) .. 1 (standing water): applies to every car, present and future. */
+  get wetness(): number {
+    return this.wet;
+  }
+  set wetness(w: number) {
+    this.wet = Math.min(1, Math.max(0, w));
+    for (const v of this.vehicles) v.wetness = this.wet;
+  }
 
   constructor(
     readonly track: TrackRuntime,
@@ -55,6 +65,7 @@ export class PhysicsWorld {
 
   addVehicle(def: CarDefinition): Vehicle {
     const v = new Vehicle(this.nextId++, def, this.track);
+    v.wetness = this.wet;
     this.vehicles.push(v);
     return v;
   }

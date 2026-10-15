@@ -28,6 +28,8 @@ export interface TireSpec {
   tempWindow: number;
   /** Grip at a cold tire relative to optimal (0.85 road .. 0.7 slick). */
   coldGrip: number;
+  /** Fraction of dry grip kept on fully wet asphalt (≈0.55 slick .. 0.8 treaded road tire). Default 0.72. */
+  wetGrip?: number;
 }
 
 export interface SuspensionSpec {
