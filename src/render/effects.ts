@@ -481,13 +481,15 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
         rr(0.3, 0.95), rr(0.012, 0.024), rr(7, 16), gy,
       );
     }
-    const nc = Math.round(6 + 44 * k);
+    // debris: small shards of bodywork and grit (big flat chips read as black squares right next to the camera)
+    const nc = Math.round(4 + 26 * k);
     const dust = ground ? SURF.dirt : SURF.concrete;
     for (let i = 0; i < nc; i++) {
+      const tone = rr(0.45, 0.9);
       chips.spawn(
         p.x + rg() * 0.15, p.y + rg() * 0.1, p.z + rg() * 0.15,
         nx * rr(1, 4) + rg() * 5, ny * rr(1, 4) + rr(1, 5), nz * rr(1, 4) + rg() * 5,
-        rr(0.8, 1.7), rr(0.016, 0.04), dust.r * 0.55, dust.g * 0.55, dust.b * 0.55, gy,
+        rr(0.8, 1.7), rr(0.008, 0.024), dust.r * tone, dust.g * tone, dust.b * tone, gy,
       );
     }
     const np = 2 + Math.round(6 * k);

@@ -645,7 +645,7 @@ export class ChipPool {
       const o = n * 4;
       const t = this.age[i] / this.life[i];
       A[o] = this.px[i]; A[o + 1] = this.py[i]; A[o + 2] = this.pz[i]; A[o + 3] = this.size[i];
-      B[o] = this.rot[i]; B[o + 1] = 0; B[o + 2] = 0; B[o + 3] = 0;
+      B[o] = this.rot[i]; B[o + 1] = (i * 0.618034) % 1; B[o + 2] = 0; B[o + 3] = 0;
       C[o] = this.cr[i]; C[o + 1] = this.cg[i]; C[o + 2] = this.cb[i]; C[o + 3] = 1 - Math.max(0, (t - 0.7) / 0.3);
       n++;
     }

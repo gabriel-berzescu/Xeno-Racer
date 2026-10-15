@@ -325,11 +325,12 @@ void main() {
 
 export const chipVertex = /* glsl */ `
 attribute vec4 aA;   // world position xyz, size
-attribute vec4 aB;   // rotation, unused, unused, unused
+attribute vec4 aB;   // rotation, shape seed 0..1, unused, unused
 attribute vec4 aC;   // colour rgb, alpha
 varying vec2 vP;
 varying vec4 vC;
 varying vec3 vView;
+varying vec2 vS;     // shape seed, facet shade
 
 void main() {
   vec4 mv = viewMatrix * vec4(aA.xyz, 1.0);
@@ -338,6 +339,8 @@ void main() {
   vec2 p = position.xy * 2.0;
   vP = p;
   vC = aC;
+  // a flat chip tumbling through the air: its face turns toward and away from the light as it spins
+  vS = vec2(aB.y, 0.35 + 0.65 * abs(cos(aB.x * 0.83 + aB.y * 6.2831)));
   mv.xy += vec2(c * p.x - s * p.y, s * p.x + c * p.y) * aA.w;
   gl_Position = projectionMatrix * mv;
 }
@@ -347,13 +350,17 @@ export const chipFragment = /* glsl */ `
 varying vec2 vP;
 varying vec4 vC;
 varying vec3 vView;
+varying vec2 vS;
 
 void main() {
-  float m = max(abs(vP.x), abs(vP.y));
-  if (m > 0.95) discard;
+  // an irregular shard, not a square: one or two corners cut at a per-chip angle
+  float k = vS.x;
+  if (max(abs(vP.x), abs(vP.y)) > 0.95) discard;
+  if (vP.x * (0.5 + k) + vP.y > 0.9 - 0.7 * k) discard;
+  if (k > 0.55 && -vP.x * 0.8 - vP.y * (1.4 - k) > 0.85) discard;
   float depthV = -vView.z;
   if (sceneViewDepth() < depthV - 0.03) discard;
-  vec3 lit = vC.rgb * (uSunLight * 0.22 + uSkyAmb * 0.9);
+  vec3 lit = vC.rgb * (uSunLight * 0.22 + uSkyAmb * 0.9) * vS.y;
   lit = applyFog(lit, depthV);
   gl_FragColor = vec4(lit, vC.a);
 }
