@@ -1130,9 +1130,9 @@ class RenderSystemImpl implements XenoRenderSystem {
     const sol = this.solution;
     if (!pass || !blend || !sol) return;
     const sd = sol.sunDir;
-    // (a changing weather runs the pass in the hidden warm-up frame wherever the sun can come out, so that its two programs are
-    // built behind the loading screen and not when the sun first shows)
-    if (this.warmPasses && this.fc && !sol.tod.moon && sd[1] > -0.02) {
+    // (the hidden warm-up frame runs the pass wherever the sun can show, now or after a change of weather, so that its two
+    // programs are built behind the loading screen and not when the sun first comes into view)
+    if (this.warmPasses && !sol.tod.moon && sd[1] > -0.02 && (this.fc || sol.weather.overcast <= 0.83)) {
       pass.strength = 0.001;
       pass.enabled = true;
       blend.blendMode.opacity.value = 0;
