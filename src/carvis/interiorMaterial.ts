@@ -10,7 +10,7 @@ export interface InteriorUniforms {
   uPrimary: IUniform<Color>;
   uSeat: IUniform<Color>;
   uLight: IUniform<number>;
-  /** soft window light on the cabin under a rain deck (0 in the dry): a Fresnel-weighted lift that outlines the dark glossy parts */
+  /** soft window light on the cabin (by day, fading out at night): a Fresnel-weighted lift that outlines the dark glossy parts */
   uFill: IUniform<number>;
   uScreen: IUniform<number>;
   /** rpm 0..1, gear (-1 R, 0 N, 1..), speed km/h, over-rev flash 0/1 */
@@ -23,7 +23,7 @@ export function createInteriorUniforms(): InteriorUniforms {
     uAccent: { value: new Color('#ff6a1a') },
     uPrimary: { value: new Color('#1c2c5a') },
     uSeat: { value: new Color(0.03, 0.03, 0.035) },
-    uLight: { value: 0.2 },
+    uLight: { value: 0.45 },
     uFill: { value: 0 },
     uScreen: { value: 1 },
     uCluster: { value: new Vector4(0, 0, 0, 0) },

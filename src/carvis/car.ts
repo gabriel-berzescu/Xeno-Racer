@@ -589,10 +589,10 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
         cl.set(Math.min(1, Math.max(0, state.rpm / span)), state.gear, state.speed * 3.6, state.revLimiter ? 1 : 0);
       }
 
+      // the light through the glass: the sun rarely reaches the dash and wheel under the roof, and with the black trim
+      // the cockpit view fell to pure black even at noon (QA). A soft window light all day, fading out after dusk.
+      IU.uFill.value = 0.055 * (1 - env.darkness);
       // rain: wet paint (shader), a glossier and darker far LOD, shinier tyres
-      // (and a soft window light in the cabin: under a rain deck there is no sun on the dash and wheel, and the
-      // interior would fall to pure black)
-      IU.uFill.value = 0.05 * Math.min(1, env.rain * 1.5) * (1 - env.darkness);
       U.uWet.value = env.wetness;
       U.uSpd.value = state.speed;
       if (env.wetness !== lastWet) {

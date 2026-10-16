@@ -35,7 +35,7 @@ describe('car visuals in the rain', () => {
     expect(glass.customProgramCacheKey()).not.toBe(paint.customProgramCacheKey());
   });
 
-  it('lights the cabin under a rain deck only when asked: the dry interior is untouched', () => {
+  it('lights the cabin through the glass only when asked (the car sets it by day): the default is unlit', () => {
     expect(createInteriorUniforms().uFill.value).toBe(0);
     const { material, uniforms } = createInteriorMaterial();
     const shader = {
