@@ -304,7 +304,7 @@ export interface CarMirrors {
   glass: CarMirrorGlass[];
   /** The rear camera (child of the car root): looks out of the tail along its own -Z. Feeds the dash display and the HUD mirror. */
   rearCamera: Object3D;
-  /** Set by the render system: the glass is drawn into this frame. While false the car keeps its glass hidden (the cockpit shows the plain glass face of the body). */
+  /** Set by the render system: the glass is drawn into this frame. While false (and until a render system attaches the mirrors) the cockpit shows a still mirror instead. */
   live: boolean;
   /** Interior parts every mirror leaves out (seats, headrests, the driver, the wheel): a mirror looks back from in front of them, and a view full of headrests is no view. */
   hide: Object3D[];

@@ -6,7 +6,9 @@
  *
  * The glass meshes carry a plain dark placeholder material: the render system (src/render/mirrors.ts) owns the glass
  * shader and swaps it in when the car's mirrors are attached, so the car can be built (and shown in the sandboxes)
- * without it. Everything here is static relative to the car, so the matrices are set once.
+ * without it. While nothing is drawn into the glass (the setting is off, a split screen, the sandboxes) a still mirror takes
+ * its place: polished metal that gives back the sky and the light around the car, and a dark screen for the prototype's
+ * display. Everything here is static relative to the car, so the matrices are set once.
  */
 import {
   BufferGeometry,
@@ -101,11 +103,15 @@ export function createMirrorRig(spec: CarVisualSpec): MirrorRig {
   const disposables: Array<{ dispose(): void }> = [];
   const glass: CarMirrorGlass[] = [];
   const glassMeshes: Mesh[] = [];
+  const stillMeshes: Mesh[] = [];
 
   // dark, glossy fallback until the render system swaps in the glass shader
   const placeholder = new MeshBasicMaterial({ color: 0x06080b });
   const plastic = new MeshStandardMaterial({ color: 0x0a0b0d, roughness: 0.5, metalness: 0.1 });
-  disposables.push(placeholder, plastic);
+  // (plain standard materials: the same programs as the rest of the cabin, nothing new to compile)
+  const still = new MeshStandardMaterial({ color: 0xb4bac2, roughness: 0.12, metalness: 1 });
+  const screenOff = new MeshStandardMaterial({ color: 0x040506, roughness: 0.3, metalness: 0 });
+  disposables.push(placeholder, plastic, still, screenOff);
 
   const addGlass = (m: MirrorPose, kind: 'reflect' | 'camera', name: string): void => {
     const hw = m.halfW * GLASS_INSET;
@@ -122,6 +128,16 @@ export function createMirrorRig(spec: CarVisualSpec): MirrorRig {
     mesh.renderOrder = 3;
     group.add(mesh);
     glassMeshes.push(mesh);
+    const stillMesh = new Mesh(geo, kind === 'camera' ? screenOff : still);
+    stillMesh.name = 'mirror.' + name + '.still';
+    stillMesh.matrixAutoUpdate = false;
+    stillMesh.matrix.copy(mesh.matrix);
+    stillMesh.castShadow = false;
+    stillMesh.receiveShadow = false;
+    stillMesh.visible = false;
+    stillMesh.renderOrder = 3;
+    group.add(stillMesh);
+    stillMeshes.push(stillMesh);
     glass.push({ kind, mesh, halfW: hw, halfH: hh, convex: m.convex, convexY: m.convexY });
   };
 
@@ -172,15 +188,16 @@ export function createMirrorRig(spec: CarVisualSpec): MirrorRig {
   rearCamera.quaternion.copy(new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), -L.rear.pitchDown));
   group.add(rearCamera);
 
-  const api: CarMirrors = { glass, rearCamera, live: true, hide: [], lowDetail: { hide: [], show: [] } };
+  const api: CarMirrors = { glass, rearCamera, live: false, hide: [], lowDetail: { hide: [], show: [] } };
   let cockpit = false;
   return {
     group,
     api,
     setCockpit(on: boolean): void {
       cockpit = on;
-      // the live glass shows in the cockpit view while the render system draws into it
+      // the live glass shows in the cockpit view while the render system draws into it, the still mirror otherwise
       for (const m of glassMeshes) m.visible = cockpit && api.live;
+      for (const m of stillMeshes) m.visible = cockpit && !api.live;
     },
     dispose(): void {
       for (const d of disposables) d.dispose();

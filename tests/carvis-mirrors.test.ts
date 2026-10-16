@@ -194,24 +194,29 @@ describe('mirror rig', () => {
       if (c.visual.style === 'prototype') expect(kinds, c.id).toEqual(['reflect:left', 'reflect:right', 'camera:screen']);
       else expect(kinds, c.id).toEqual(['reflect:left', 'reflect:right', 'reflect:interior']);
       expect(rig.api.rearCamera).toBeTruthy();
-      expect(rig.api.live).toBe(true);
+      expect(rig.api.live).toBe(false);
       expect(rig.api.hide).toEqual([]);
       rig.dispose();
     }
   });
 
-  it('keeps the glass hidden until the cockpit view is on and the mirrors are live', () => {
+  it('keeps the glass hidden until the cockpit view is on and the mirrors are live, and shows a still mirror otherwise', () => {
     const rig = createMirrorRig(CARS[0].visual);
     const vis = (): boolean[] => rig.api.glass.map((g) => g.mesh.visible);
+    const still = (): boolean[] => rig.group.children.filter((o) => o.name.endsWith('.still')).map((o) => o.visible);
+    expect(still().length).toBe(rig.api.glass.length);
     expect(vis().every((v) => !v)).toBe(true);
+    // nothing draws into the glass yet: the cockpit has still mirrors
+    rig.setCockpit(true);
+    expect(vis().every((v) => !v)).toBe(true);
+    expect(still().every((v) => v)).toBe(true);
+    rig.api.live = true;
     rig.setCockpit(true);
     expect(vis().every((v) => v)).toBe(true);
-    rig.api.live = false;
-    rig.setCockpit(true);
-    expect(vis().every((v) => !v)).toBe(true);
-    rig.api.live = true;
+    expect(still().every((v) => !v)).toBe(true);
     rig.setCockpit(false);
     expect(vis().every((v) => !v)).toBe(true);
+    expect(still().every((v) => !v)).toBe(true);
   });
 
   it('puts each glass mesh where the layout says, facing the way it says, a hair in front of the baked glass face', () => {
