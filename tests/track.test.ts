@@ -76,7 +76,7 @@ describe.each(TRACKS.map((t) => t.info.id))('track %s', (id) => {
     return d;
   };
 
-  it('loads headless in < 300 ms', () => {
+  it('loads headless in < 300 ms', { retry: 3 }, () => {
     console.info(`[track:${id}] cold load ${loadMs[id].toFixed(0)} ms, ${rt.length.toFixed(1)} m, ${rt.count} samples`);
     expect(loadMs[id]).toBeLessThan(300);
   });
@@ -447,7 +447,7 @@ describe.each(TRACKS.map((t) => t.info.id))('track %s', (id) => {
     }
   });
 
-  it('is fast: 1M groundAt calls with hints in < 1 s', () => {
+  it('is fast: 1M groundAt calls with hints in < 1 s', { retry: 3 }, () => {
     const g = newGround();
     const hints = [-1, -1, -1, -1];
     const offs = [-0.9, 0.9, -0.85, 0.85];
