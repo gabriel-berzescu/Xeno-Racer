@@ -51,6 +51,20 @@ InputSystem.poll ─► game (steering filter, assists) ─► CarControls ─�
         └───────────────┴──── RenderSystem.render(camera) ┘
 ```
 
+Crash damage (Settings: Damage, Off / Visual / Full) is a deterministic fold over the impacts of a car, kept by the car's
+visual (it watches `VehicleState.impactCount`) and rebuilt by replays from the events they stamped:
+
+```
+VehicleState ─ImpactObserver─► DamageEvent ─CarDamage─► dents, marks, lamps, glass, zones      src/core/damage.ts  (how it looks)
+                                                   └─► MechState ─mechanicalEffects─► MechEffects  src/core/mechanical.ts  (how it drives)
+                                                          ├─► Vehicle.setDamage     toe and camber per wheel, downforce per axle, torque
+                                                          ├─► AIDriver.setDamage    the driver works with the car it has
+                                                          ├─► the wheels the car visual draws, and HudDamage → src/ui/hud/damage.ts
+```
+
+`MechLink` (src/game/mechsync.ts) puts a car's record on its physics and its driver whenever it changes, in Full only, and
+takes it off again outside it. Cars are rebuilt for a restart or a round (repaired); a reset to the track touches nothing.
+
 Track: `loadTrackRuntime(id)` is headless (physics/AI/tests use it); `buildTrackScene()` makes the
 visible world. Physics asks the track `groundAt()` for every wheel every substep and `project()`
 for barrier collisions — they must be fast and allocation-free.

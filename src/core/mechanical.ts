@@ -14,13 +14,17 @@
  * landed: the nose and the tail, and the wheels along each flank (the nearer axle takes more). Every part wears as
  * 1 - exp(-energy), so it saturates, repeated hits add up, and nothing ever gets worse than the limits below:
  *
- *   nose   front downforce (the splitter and bumper) down to 64 %, and, from about a third of the way to wrecked, up to
- *          9 % of the engine's power (a cracked radiator, a tired engine)
+ *   nose   front downforce (the splitter and bumper) down to 60 %, and, from about a third of the way to wrecked, up to
+ *          10 % of the engine's power (a cracked radiator, a tired engine)
  *   tail   rear downforce (wing, diffuser) down to 60 %, a trace of toe-out on both rear wheels
- *   flank  on the wheels of that side: toe-out up to 1.4 degrees at the front (the car pulls towards the damaged side and
- *          scrubs), 0.5 degrees at the rear (nervous), and up to 1.4 degrees of camber error (less grip, a push to the side)
+ *   flank  on the wheels of that side: toe-out up to 1.5 degrees at the front (the car pulls towards the damaged side and
+ *          scrubs), 0.5 degrees at the rear (nervous), and up to 1.5 degrees of camber error (less grip, a push to the side)
  *
  * The consequences are all losses, in bounded amounts: a badly damaged car is slower and trickier, never undrivable.
+ * (Measured in the game, Vanta GT on Aurelia: a 25 degree hit of the barrier at 100 km/h bends the front left wheel by a third
+ * of a degree, at 150 km/h by 0.8 and takes a fifth of the front downforce, at 200 km/h it is bent as far as it goes; a head-on
+ * hit at 60 km/h is half a degree and a seventh of the front downforce, at 100 km/h 1.3 degrees, a third of the front downforce
+ * and 9 % of the power. Tests and probes: tests/damage-mech.test.ts, tests/probes/damage-*.test.ts.)
  *
  * Wheel order is the physics': 0 front left, 1 front right, 2 rear left, 3 rear right. Angles are radians, positive to the
  * left like a steering angle, which makes a toed-out left wheel positive and a toed-out right wheel negative.
