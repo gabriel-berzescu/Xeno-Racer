@@ -697,7 +697,8 @@ describe('WeatherVoice: robustness and cost', () => {
     }
   });
 
-  it('is cheap: a storm voice costs a small fraction of the 2.67 ms render quantum', () => {
+  // a CPU benchmark: retried, since one run can stall on a busy machine (parallel test workers, a game running)
+  it('is cheap: a storm voice costs a small fraction of the 2.67 ms render quantum', { retry: 3 }, () => {
     const time = (rain: number, interior: number): number => {
       const v = new WeatherVoice(SR, 5);
       Object.assign(v.inp, { rain, interior, speed: 40 });
@@ -973,7 +974,8 @@ describe('wet chassis: hiss, spray, squeal, slush', () => {
     expect(worst).toBeLessThan(3);
   });
 
-  it('the wet path adds little CPU per voice (a few microseconds per 128-sample quantum)', () => {
+  // a CPU benchmark: retried, since one run can stall on a busy machine (parallel test workers, a game running)
+  it('the wet path adds little CPU per voice (a few microseconds per 128-sample quantum)', { retry: 3 }, () => {
     const time = (wet: number, stereo: boolean): number => {
       const v = new ChassisVoice(SR, 3);
       v.inp.quality = stereo ? 2 : 1;

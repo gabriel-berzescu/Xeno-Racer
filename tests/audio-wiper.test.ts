@@ -615,7 +615,8 @@ describe('WiperSystem: node lifecycle, sweeps, stopping cleanly', () => {
     expect(rig.nodes[0].sweeps.length).toBe(posted);
   });
 
-  it('is cheap: a frame costs microseconds', () => {
+  // a CPU benchmark: retried, since one run can stall on a busy machine (parallel test workers, a game running)
+  it('is cheap: a frame costs microseconds', { retry: 3 }, () => {
     const rig = makeRig();
     run(rig, 3);
     const t0 = performance.now();
@@ -1142,7 +1143,8 @@ describe('WiperVoice: stopping, starting and joining without a click', () => {
     expect(w.pending).toBe(0);
   });
 
-  it('is deterministic for a seed and cheap: a quantum costs a few microseconds with a sweep playing, nothing when asleep', () => {
+  // a CPU benchmark: retried, since one run can stall on a busy machine (parallel test workers, a game running)
+  it('is deterministic for a seed and cheap: a quantum costs a few microseconds with a sweep playing, nothing when asleep', { retry: 3 }, () => {
     const a = renderVoice([cmd()], 3, undefined, undefined, 5);
     const b = renderVoice([cmd()], 3, undefined, undefined, 5);
     for (let i = 0; i < a.l.length; i += 97) {

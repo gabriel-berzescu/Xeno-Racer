@@ -223,7 +223,8 @@ describe('vehicle physics', () => {
     expect(gap).toBeGreaterThan(2);
   });
 
-  it('runs fast enough for 12 cars at 1000 Hz', () => {
+  // a CPU benchmark: retried, since one run can stall on a busy machine (parallel test workers, a game running)
+  it('runs fast enough for 12 cars at 1000 Hz', { retry: 3 }, () => {
     const track = createFlatTrack();
     const world = new PhysicsWorld(track);
     for (let i = 0; i < 12; i++) {
