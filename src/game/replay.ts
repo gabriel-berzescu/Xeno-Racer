@@ -3,10 +3,16 @@
  * back into stand-in VehicleStates that drive the normal car visuals, effects and sounds.
  */
 import { Quaternion, Vector3 } from 'three';
-import type { SurfaceType, VehicleState, WheelState } from '../core/contracts';
+import type { ImpactKind, SurfaceType, VehicleState, WheelState } from '../core/contracts';
+import type { DamageEvent, StampedEvent } from '../core/damage';
 
 const SURFACES: SurfaceType[] = ['asphalt', 'curb', 'concrete', 'grass', 'gravel', 'sand', 'dirt'];
-const HEAD = 24;
+const IMPACT_KINDS: ImpactKind[] = ['wall', 'car', 'ground'];
+/**
+ * Floats per car before the wheels. 0..23 the pose and the drivetrain; 24..30 the last impact (world point, normal, kind), 31..33
+ * the scrape point: the sparks and the debris of a replay are thrown where the car really touched, not from its middle.
+ */
+const HEAD = 34;
 const WHEEL = 14;
 export const REPLAY_STRIDE = HEAD + 4 * WHEEL;
 const RATE = 30;
@@ -15,6 +21,12 @@ const MAX_SECONDS = 600;
 export class ReplayRecorder {
   readonly cars: number;
   readonly data: Float32Array;
+  /**
+   * Each car's crash damage as it happened: the events the car's visual took, stamped with the replay frame they fall
+   * after. Playback rebuilds the damage of any moment from these (CarDamage.syncTo), so it builds up as the replay
+   * plays and a seek or a restart shows the damage of that moment, whatever the car looks like at the end.
+   */
+  readonly damage: StampedEvent[][];
   frames = 0;
   private lastT = -Infinity;
   readonly t0: number;
@@ -23,6 +35,12 @@ export class ReplayRecorder {
     this.cars = cars;
     this.t0 = t0;
     this.data = new Float32Array(MAX_SECONDS * RATE * cars * REPLAY_STRIDE + 1);
+    this.damage = Array.from({ length: cars }, () => []);
+  }
+
+  /** A crash event of car `car`, happening now: between the last captured frame and the next one. */
+  addDamage(car: number, e: DamageEvent): void {
+    this.damage[car]?.push({ f: this.frames - 0.5, e });
   }
 
   get duration(): number {
@@ -61,6 +79,17 @@ export class ReplayRecorder {
       d[o + 21] = s.lastImpact.strength;
       d[o + 22] = s.scrape;
       d[o + 23] = (s.revLimiter ? 1 : 0) + (s.airborne ? 2 : 0);
+      const li = s.lastImpact;
+      d[o + 24] = li.point.x;
+      d[o + 25] = li.point.y;
+      d[o + 26] = li.point.z;
+      d[o + 27] = li.normal.x;
+      d[o + 28] = li.normal.y;
+      d[o + 29] = li.normal.z;
+      d[o + 30] = IMPACT_KINDS.indexOf(li.kind);
+      d[o + 31] = s.scrapePoint.x;
+      d[o + 32] = s.scrapePoint.y;
+      d[o + 33] = s.scrapePoint.z;
       let w = o + HEAD;
       for (const wh of s.wheels) {
         d[w] = wh.hub.x;
@@ -91,6 +120,8 @@ const _qb = new Quaternion();
 /** Writes interpolated replay frames into persistent stand-in states. */
 export class ReplayPlayer {
   readonly states: VehicleState[];
+  /** The (fractional) recorded frame the last apply() showed: what the damage timeline is read at. */
+  frame = 0;
 
   constructor(
     readonly rec: ReplayRecorder,
@@ -103,6 +134,7 @@ export class ReplayPlayer {
   apply(t: number): void {
     const r = this.rec;
     const f = Math.max(0, Math.min(r.frames - 1.001, t * RATE));
+    this.frame = f;
     const i = Math.floor(f);
     const k = f - i;
     const d = r.data;
@@ -130,10 +162,12 @@ export class ReplayPlayer {
       if (d[a + 20] !== s.impactCount) {
         s.impactCount = d[a + 20];
         s.lastImpact.strength = d[a + 21];
-        s.lastImpact.point.copy(s.position);
+        s.lastImpact.point.set(d[a + 24], d[a + 25], d[a + 26]);
+        s.lastImpact.normal.set(d[a + 27], d[a + 28], d[a + 29]);
+        s.lastImpact.kind = IMPACT_KINDS[d[a + 30]] ?? 'wall';
       }
       s.scrape = L(22);
-      s.scrapePoint.copy(s.position);
+      s.scrapePoint.set(d[a + 31], d[a + 32], d[a + 33]);
       s.revLimiter = (d[a + 23] & 1) === 1;
       s.airborne = (d[a + 23] & 2) === 2;
       for (let wi = 0; wi < 4; wi++) {

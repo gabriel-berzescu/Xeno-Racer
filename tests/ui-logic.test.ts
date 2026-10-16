@@ -371,7 +371,7 @@ describe('settings schema', () => {
     expect(rowIds('audio').sort()).toEqual(Object.keys(s.audio).sort());
     expect(rowIds('controls').sort()).toEqual(Object.keys(s.controls).sort());
     expect(rowIds('assists').sort()).toEqual(Object.keys(s.assists).sort());
-    expect(rowIds('gameplay').sort()).toEqual(['units', ...Object.keys(s.hud), 'fov', 'shake', 'defaultMode', 'playerName'].sort());
+    expect(rowIds('gameplay').sort()).toEqual(['units', ...Object.keys(s.hud), 'fov', 'shake', 'defaultMode', 'damage', 'playerName'].sort());
   });
 
   it('every row reads and writes through to the right field and round-trips', () => {

@@ -47,6 +47,7 @@ import { GhostRecorder, ghostPose, loadBestLaps, loadGhost, recordKey, saveBestL
 import { buildView, championshipDef, createChampionship, isPlayable, loadChampionship, nextRound, recordRound, roundConfig, saveChampionship, type ChampionshipState, type Finisher } from './championship';
 import { RaceSession, type Entrant } from './session';
 import { DRIVER_NAMES, opponentLivery } from './liveries';
+import type { ContactOther } from '../core/damage';
 import { ReplayPlayer, ReplayRecorder } from './replay';
 
 export const VERSION = '0.9.0';
@@ -366,8 +367,16 @@ export class Game {
     visual.setPlayer(entrant.isPlayer);
     this.render.scene.add(visual.root);
     visual.update(vehicle.state, 0, this.render.env);
+    // crash damage: the mode from the settings, every event into the replay's timeline, and the other car's paint in a contact
+    const dmg = visual.damage;
+    if (dmg) {
+      const index = this.cars.length;
+      dmg.setMode(this.settings.damage);
+      dmg.onEvent = (e) => this.replayRec?.addDamage(index, e);
+      dmg.otherAt = (x, y, z) => this.contactOther(vehicle.id, x, y, z);
+    }
     const sound = withSound ? this.audio.createCarSound(def.sound, entrant.isPlayer) : null;
-    this.effects?.registerCar(vehicle.id, def);
+    this.effects?.registerCar(vehicle.id, def, visual.damage);
     const car: RaceCar = {
       entrant: { ...entrant, id: vehicle.id, state: vehicle.state },
       def,
@@ -619,6 +628,7 @@ export class Game {
 
   private async makeGhost(lap: GhostLap, def: CarDefinition, livery: Livery): Promise<void> {
     const visual = await createCarVisual(def, { ...livery, primary: '#9fe9ff', secondary: '#9fe9ff', accent: '#ffffff' }, 'low');
+    visual.damage?.setMode('off'); // the ghost is a see-through lap, not a car that races
     const ghostMats: { opacity: number }[] = [];
     visual.root.traverse((o) => {
       const m = (o as { material?: { transparent: boolean; opacity: number; depthWrite: boolean } | { transparent: boolean; opacity: number; depthWrite: boolean }[] }).material;
@@ -637,6 +647,24 @@ export class Game {
     const v = tmpWorld.addVehicle(def);
     v.placeOnGround(this.track!.grid[0].position, this.track!.grid[0].quaternion, 0);
     this.ghost = { lap, visual, state: v.state, mats: ghostMats };
+  }
+
+  /** The car nearest a contact point, other than `selfId`: its paint and velocity, for what a car-to-car hit leaves on the other one. */
+  private contactOther(selfId: number, x: number, y: number, z: number): ContactOther | undefined {
+    let best = 16; // squared metres: a contact is within a few metres of the car it touched
+    let found: RaceCar | undefined;
+    for (const c of this.cars) {
+      if (c.vehicle.id === selfId) continue;
+      const p = c.vehicle.state.position;
+      const d = (p.x - x) ** 2 + (p.y - y) ** 2 + (p.z - z) ** 2;
+      if (d < best) {
+        best = d;
+        found = c;
+      }
+    }
+    if (!found) return undefined;
+    const v = found.vehicle.state.velocity;
+    return { paint: parseInt(found.livery.primary.slice(1), 16), vx: v.x, vy: v.y, vz: v.z };
   }
 
   private resetCar(c: RaceCar): void {
@@ -791,6 +819,7 @@ export class Game {
     this.render.applyGraphics(s.graphics);
     this.audio.setVolumes(s.audio);
     this.input.setControls(s.controls);
+    for (const c of this.cars) c.visual.damage?.setMode(s.damage);
     if (this.player) this.player.vehicle.assists = { ...s.assists };
     this.camera?.setFov(s.camera.fov);
     this.camera?.setShake(s.camera.shake);
@@ -1143,6 +1172,8 @@ export class Game {
   private startReplay(): void {
     if (!this.replayRec || this.replayRec.frames < 30 || !this.world) return;
     this.replay = { player: new ReplayPlayer(this.replayRec, this.world.states), t: 0, target: this.cars.indexOf(this.player!) };
+    // every car is pristine again at the start, and gets dented as the replay plays
+    this.cars.forEach((c, i) => c.visual.damage?.replay(this.replayRec!.damage[i], 0));
     this.effects?.clear();
     this.ui.show('none');
     this.ui.setHudVisible(false);
@@ -1153,6 +1184,8 @@ export class Game {
 
   private stopReplay(): void {
     this.replay = null;
+    // back to the race's own damage
+    for (const c of this.cars) c.visual.damage?.replay(null, 0);
     this.effects?.clear();
     this.ui.show('results');
     this.audio.setMusic(true);
@@ -1182,6 +1215,7 @@ export class Game {
     r.player.apply(r.t);
     const states = r.player.states;
     this.cars.forEach((c, i) => {
+      c.visual.damage?.replay(r.player.rec.damage[i], r.player.frame);
       c.visual.update(states[i], dt, this.render.env);
       c.sound?.update(states[i], dt);
     });

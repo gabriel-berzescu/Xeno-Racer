@@ -10,6 +10,7 @@
  *   src/ui/index.ts      -> createUI()
  */
 import type * as THREE from 'three';
+import type { CarDamageControl } from './damage';
 import type {
   AudioSettings,
   CameraMode,
@@ -92,8 +93,11 @@ export type CreateRenderSystem = (canvas: HTMLCanvasElement, g: GraphicsSettings
 
 /** Tire smoke, dust, skidmarks, sparks, exhaust flames, debris. */
 export interface EffectsSystem {
-  /** Tell effects about a car (exhaust positions, size) before its first update. id = VehicleState.id. */
-  registerCar(id: number, def: CarDefinition): void;
+  /**
+   * Tell effects about a car (exhaust positions, size) before its first update. id = VehicleState.id. With the car's
+   * damage handle, its broken lamps dim the lights around it and its hits throw bits of its bodywork.
+   */
+  registerCar(id: number, def: CarDefinition, damage?: CarDamageControl): void;
   unregisterCar(id: number): void;
   update(dt: number, cars: readonly VehicleState[], camera: THREE.Camera): void;
   clear(): void;
@@ -135,6 +139,11 @@ export interface CarVisual {
   setCockpitView(on: boolean): void;
   /** World-space anchors (Object3D children of root) for cameras. +Z forward. */
   readonly anchors: { hood: THREE.Object3D; bumper: THREE.Object3D; cockpit: THREE.Object3D; chase: THREE.Object3D };
+  /**
+   * What crashes have done to this car (src/core/damage.ts). The visual watches VehicleState.impactCount and scrape itself;
+   * the game sets the mode from Settings.damage, listens to `onEvent` for the replay and drives `replay()` during one.
+   */
+  readonly damage?: CarDamageControl;
   dispose(): void;
 }
 /** export function createCarVisual(def: CarDefinition, livery: Livery, quality: QualityLevel): Promise<CarVisual> */

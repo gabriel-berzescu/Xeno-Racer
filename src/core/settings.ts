@@ -18,6 +18,7 @@ export const DEFAULT_SETTINGS: Settings = {
   units: 'kmh',
   hud: { minimap: true, telemetry: false, ghost: true, standings: true },
   camera: { fov: 62, defaultMode: 'chase', shake: 0.6 },
+  damage: 'visual',
   playerName: 'Gabriel',
 };
 
@@ -64,7 +65,12 @@ function keepKnownChoices(s: Settings): Settings {
 export function loadSettings(): Settings {
   try {
     const raw = localStorage.getItem(KEY);
-    if (raw) return keepKnownChoices(merge(structuredClone(DEFAULT_SETTINGS), JSON.parse(raw)));
+    if (raw) {
+      const s = keepKnownChoices(merge(structuredClone(DEFAULT_SETTINGS), JSON.parse(raw)));
+      // a mode this build does not know (saved by a newer one) falls back to the default
+      if (s.damage !== 'off' && s.damage !== 'visual') s.damage = DEFAULT_SETTINGS.damage;
+      return s;
+    }
   } catch {
     /* private mode / corrupted — fall through */
   }

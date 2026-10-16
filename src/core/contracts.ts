@@ -441,6 +441,13 @@ export interface AudioSettings {
 
 export type CameraMode = 'chase' | 'chase-far' | 'hood' | 'bumper' | 'cockpit' | 'tv' | 'orbit';
 
+/**
+ * What a crash does to a car. 'off': cars stay pristine. 'visual': crumpled panels, scraped paint and broken lamps,
+ * nothing more (src/core/damage.ts). A later 'full' adds mechanical damage (alignment, aero, power), which reads the
+ * same per-zone record.
+ */
+export type DamageMode = 'off' | 'visual';
+
 export interface Settings {
   graphics: GraphicsSettings;
   audio: AudioSettings;
@@ -449,6 +456,7 @@ export interface Settings {
   units: 'kmh' | 'mph';
   hud: { minimap: boolean; telemetry: boolean; ghost: boolean; standings: boolean };
   camera: { fov: number; defaultMode: CameraMode; shake: number };
+  damage: DamageMode;
   playerName: string;
 }
 

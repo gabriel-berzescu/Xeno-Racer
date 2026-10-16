@@ -473,6 +473,7 @@ export const SETTINGS_TABS: TabDef[] = [
       s.units = DEFAULT_SETTINGS.units;
       s.hud = structuredClone(DEFAULT_SETTINGS.hud);
       s.camera = structuredClone(DEFAULT_SETTINGS.camera);
+      s.damage = DEFAULT_SETTINGS.damage;
       s.playerName = DEFAULT_SETTINGS.playerName;
     },
     rows: [
@@ -485,6 +486,11 @@ export const SETTINGS_TABS: TabDef[] = [
       { kind: 'toggle', id: 'standings', label: 'Standings tower', desc: 'The live order and gaps in the top-left corner.', get: (s) => s.hud.standings, set: (s, v) => { s.hud.standings = v; } },
       { kind: 'toggle', id: 'telemetry', label: 'Telemetry overlay', desc: 'Tire temperatures, load, g-meter and live pedal traces. Toggle in-race with D-pad down or T.', get: (s) => s.hud.telemetry, set: (s, v) => { s.hud.telemetry = v; } },
       { kind: 'toggle', id: 'ghost', label: 'Ghost car', desc: 'Shows your best lap as a see-through car to race against.', get: (s) => s.hud.ghost, set: (s, v) => { s.hud.ghost = v; } },
+      {
+        kind: 'select', id: 'damage', label: 'Damage', desc: 'What crashes do to the cars. Visual crumples panels, scrapes paint and breaks lamps on every car on track, and does not change how a car drives. Off keeps every car pristine.',
+        options: opts([['visual', 'Visual'], ['off', 'Off']]),
+        get: (s) => s.damage, set: (s, v) => { s.damage = v as Settings['damage']; },
+      },
       {
         kind: 'slider', id: 'fov', label: 'Field of view', min: 45, max: 100, step: 1,
         desc: 'The camera lens. Wider shows more of the road and feels faster.',

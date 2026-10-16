@@ -37,9 +37,12 @@ import {
   SpotLight,
   Vector3,
 } from 'three';
-import type { CarDefinition, EnvironmentState, Livery, QualityLevel, VehicleState } from '../core/contracts';
+import type { CarDefinition, DamageMode, EnvironmentState, Livery, QualityLevel, VehicleState } from '../core/contracts';
+import { CarDamage, ImpactObserver, MAX_DENTS, hullOf, type CarDamageControl, type DamageEvent } from '../core/damage';
 import type { CarVisual } from '../core/systems';
 import { VERTEX_STRIDE, type BodyData, type PartData } from './build';
+import { makeDamageGeometry, partBounds } from './damageGeometry';
+import { anyLampFlickers, packDamage, settleDentDepth } from './damageUniforms';
 import { loadCarData } from './dataSource';
 import { createInteriorMaterial } from './interiorMaterial';
 import { computeLayout, wheelLook } from './layouts';
@@ -224,7 +227,7 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
   const mats: BodyMaterials = createBodyMaterials();
   const U = mats.uniforms;
   const dbgMode = (globalThis as { __CARVIS_DBG__?: string }).__CARVIS_DBG__;
-  U.uDbg.value = dbgMode === 'zones' ? 1 : dbgMode === 'normal' ? 2 : dbgMode === 'zebra' ? 3 : 0;
+  U.uDbg.value = dbgMode === 'zones' ? 1 : dbgMode === 'normal' ? 2 : dbgMode === 'zebra' ? 3 : dbgMode === 'clay' ? 4 : 0;
   // AI cars (the default) paint a smaller livery atlas; setPlayer(true) upgrades it to the full quality tier
   let tier: LiveryTier = 'ai';
   let curLivery: Livery = livery;
@@ -397,6 +400,76 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
   glow.frustumCulled = false;
   root.add(glow);
 
+  // ── crash damage ───────────────────────────────────────────────────────────
+  // The model (src/core/damage.ts) is a fold over the car's hit events; here it is fed from the VehicleState, drawn
+  // through the body shader's uniform tables (damageShader.ts) and, for the lamps, through the lights themselves.
+  const hull = hullOf(spec);
+  const dmg = new CarDamage(hull, makeDamageGeometry(data.lod0, spec));
+  const observer = new ImpactObserver(hull);
+  let dmgMode: DamageMode = 'visual';
+  let dmgWritten = -1;
+  const dentShown = new Float32Array(MAX_DENTS);
+  let dentMoving = false;
+  let dmgClock = 0;
+  let replaying = false;
+  /** every event the car took in live play, so a replay can hand the race's own damage back when it ends */
+  const liveLog: DamageEvent[] = [];
+  const lampsNow = new Float32Array([1, 1, 1, 1]);
+  if (spec.style === 'prototype') U.uDmgBase.value = 1;
+  {
+    const [lo, hi] = partBounds(data.interior.cabin.vertices);
+    U.uCabinMin.value.set(lo[0], lo[1], lo[2]);
+    U.uCabinMax.value.set(hi[0], hi[1], hi[2]);
+  }
+  const takeEvent = (e: DamageEvent): void => {
+    dmg.apply(e);
+    liveLog.push(e);
+    damage.onEvent?.(e);
+  };
+  const damage: CarDamageControl = {
+    get mode() {
+      return dmgMode;
+    },
+    state: dmg,
+    onEvent: null,
+    lamps: lampsNow,
+    get paint() {
+      return parseInt(curLivery.primary.slice(1), 16);
+    },
+    get otherAt() {
+      return observer.otherAt;
+    },
+    set otherAt(f) {
+      observer.otherAt = f;
+    },
+    setMode(m: DamageMode): void {
+      if (m === dmgMode) return;
+      dmgMode = m;
+      if (m === 'off') {
+        dmg.reset();
+        liveLog.length = 0;
+      }
+      observer.reset();
+    },
+    repair(): void {
+      dmg.reset();
+      liveLog.length = 0;
+      observer.reset();
+    },
+    replay(list, frame): void {
+      if (dmgMode === 'off') return;
+      if (list) {
+        replaying = true;
+        dmg.syncTo(list, frame);
+      } else if (replaying) {
+        replaying = false;
+        dmg.reset();
+        for (const e of liveLog) dmg.apply(e);
+        observer.reset();
+      }
+    },
+  };
+
   let playerMode = false;
   let cockpitMode = false;
   let spotsOn = false;
@@ -459,6 +532,7 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
   const visual: CarVisual = {
     root,
     anchors,
+    damage,
     update(state: VehicleState, _dt: number, env: EnvironmentState): void {
       const q = state.quaternion;
       root.quaternion.copy(q);
@@ -521,6 +595,21 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
         WU.uWet.value = lastWet;
       }
 
+      // crash damage: a new impact becomes dents, scrapes and broken lamps; the uniforms follow the model
+      if (dmgMode !== 'off' && !replaying) observer.update(state, _dt, takeEvent);
+      dmgClock += _dt;
+      const dentsChanged = dmg.version !== dmgWritten;
+      if (dentsChanged || dentMoving) dentMoving = settleDentDepth(dmg, dentShown, _dt);
+      if (dentsChanged || dentMoving || (dmgMode !== 'off' && anyLampFlickers(dmg))) {
+        dmgWritten = dmg.version;
+        packDamage(dmg, dmgMode, U, dmgClock, dentShown);
+      }
+      const lampOut = U.uLampOut.value;
+      lampsNow[0] = lampOut.x;
+      lampsNow[1] = lampOut.y;
+      lampsNow[2] = lampOut.z;
+      lampsNow[3] = lampOut.w;
+
       // lights
       const dark = env.darkness;
       const head = Math.min(1, Math.max(0, (dark - 0.25) / 0.35));
@@ -534,11 +623,15 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
         spotsOn = wantSpots;
         for (const s of spots) s.visible = playerMode && spotsOn;
       }
-      if (spotsOn) for (const s of spots) s.intensity = CARVIS_TUNING.headlightIntensity * head;
+      // (a broken headlight goes dark; the spot stays "visible" at zero so the lights in the scene never change count)
+      if (spotsOn) {
+        spots[0].intensity = CARVIS_TUNING.headlightIntensity * head * lampOut.x;
+        spots[1].intensity = CARVIS_TUNING.headlightIntensity * head * lampOut.y;
+      }
       const showGlow = !playerMode && head > 0.02;
       glow.visible = showGlow;
       // (on a wet road the lamps' light skids away as reflection instead of pooling: a much fainter decal)
-      if (showGlow) (glow.material as MeshBasicMaterial).opacity = head * 0.8 * (1 - 0.7 * env.wetness);
+      if (showGlow) (glow.material as MeshBasicMaterial).opacity = head * 0.8 * (1 - 0.7 * env.wetness) * 0.5 * (lampOut.x + lampOut.y);
       root.updateMatrixWorld(true);
     },
     setLivery(l: Livery): void {

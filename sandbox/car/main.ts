@@ -2,11 +2,15 @@
  * Car showroom. Query: ?car=vanta-gt|kestrel-r|ronin-86|lmp-x &view=front34|side|rear34|top|front|rear|chase|cockpit|low|sheet
  *   &anim=0|1 &night=0|1 &q=low|medium|high &primary=%23hex &pattern=… &number=7 &metallic=0|1 &finish=0..1 &player=0|1
  *   &wet=0..1 (wet paint, beading, glass drops: env.wetness)  &rain=0..1 (env.rain; > 0 also marks the weather as rain)
+ *   &dmg=fl:14:wall:25,sl:5:car   crash damage, applied straight to the model: zone:closing speed (m/s):wall|car:angle (deg to the
+ *        barrier). Zones: fl fr f (front corners / centre), bl br b (rear), sl sr (flanks). &rub=sl:3 adds a scrape along a flank.
+ *        window.__CAR__.hit('fl:14:wall:25') does the same from a script.
  */
 import * as THREE from 'three';
 import { getCar } from '../../src/cars';
 import type { CarDefinition, EnvironmentState, Livery, QualityLevel, VehicleState } from '../../src/core/contracts';
 import { createCarVisual } from '../../src/carvis';
+import { hullOf, type DamageEvent, type V3 } from '../../src/core/damage';
 import { createStudioScene } from './studio';
 
 const q = new URLSearchParams(location.search);
@@ -19,7 +23,7 @@ const isPlayer = q.get('player') !== '0';
 const bare = q.get('floor') === '0';
 
 if (q.get('cell')) (window as unknown as { __CARVIS_CELL__: number }).__CARVIS_CELL__ = parseFloat(q.get('cell')!);
-if (q.get('dbg') === 'zones' || q.get('dbg') === 'normal' || q.get('dbg') === 'interior' || q.get('dbg') === 'zebra') (window as unknown as { __CARVIS_DBG__: string }).__CARVIS_DBG__ = q.get('dbg')!;
+if (q.get('dbg') === 'zones' || q.get('dbg') === 'normal' || q.get('dbg') === 'interior' || q.get('dbg') === 'zebra' || q.get('dbg') === 'clay') (window as unknown as { __CARVIS_DBG__: string }).__CARVIS_DBG__ = q.get('dbg')!;
 if (q.get('hide')) (window as unknown as { __CARVIS_HIDE__: string }).__CARVIS_HIDE__ = q.get('hide')!;
 const canvas = document.getElementById('c') as HTMLCanvasElement;
 const refUrl = q.get('ref');
@@ -397,7 +401,73 @@ async function lineup(count: number): Promise<void> {
   renderer.render(scene, cam);
   const info = renderer.info;
   (window as unknown as Record<string, unknown>).__STATS__ = { triangles: info.render.triangles, drawCalls: info.render.calls, buildMs: Math.round(buildMs), cars: count };
+  // (a hook for the GPU benchmark in .cache/dmg/microbench.mjs: damage every car alike, repair them, push the change to the shader)
+  (window as unknown as Record<string, unknown>).__LINEUP__ = {
+    renderer,
+    scene,
+    camera: cam,
+    cars: cars.map((c) => c.visual),
+    render: () => renderer.render(scene, cam),
+    update: () => cars.forEach((c) => c.visual.update(c.state, 0, env)),
+    hit: (spec: string) => cars.forEach((c) => applyCrashes(spec, c.visual, c.def)),
+    rub: (spec: string) => cars.forEach((c) => applyRubs(spec, c.visual, c.def)),
+    repair: () => cars.forEach((c) => c.visual.damage?.repair()),
+  };
   (window as unknown as Record<string, unknown>).__READY__ = true;
+}
+
+/** One synthetic crash event for the showroom car (see the header for the token). */
+function crashEvent(token: string, of: CarDefinition = def): DamageEvent | null {
+  const [zone, sRaw, kindRaw = 'wall', angRaw = '25'] = token.split(':');
+  const h = hullOf(of.visual);
+  const s = parseFloat(sRaw);
+  const a = (parseFloat(angRaw) * Math.PI) / 180;
+  const kind = kindRaw === 'car' ? 'car' : 'wall';
+  const sgn = zone.endsWith('r') && zone.length === 2 ? -1 : 1;
+  const midZ = (h.front + h.rear) / 2;
+  let p: V3;
+  let n: V3;
+  let slide: V3;
+  const V = s / Math.max(Math.sin(a), 0.05);
+  if (zone[0] === 'f' || zone[0] === 'b') {
+    const front = zone[0] === 'f';
+    const z = front ? h.front : h.rear;
+    const side = zone.length === 1 ? 0 : sgn;
+    p = [side * h.hw, h.top, z];
+    if (kind === 'car' || zone.length === 1) {
+      n = [0, 0, front ? -1 : 1];
+      slide = [0.4 * side, 0, 1];
+    } else {
+      // a corner against a barrier on that side, the car angled into it
+      n = [-side * Math.cos(a), 0, (front ? -1 : 1) * Math.sin(a)];
+      slide = [-side * Math.sin(a) * Math.cos(a) * V, 0, (front ? 1 : -1) * Math.cos(a) * Math.cos(a) * V];
+    }
+  } else {
+    const side = zone === 'sr' ? -1 : 1;
+    p = [side * h.hw, (h.top + h.bottom) / 2, midZ];
+    n = [-side, 0, 0];
+    slide = [0, 0, Math.max(V, 6)];
+  }
+  const e: DamageEvent = { type: 'hit', kind, strength: s, p, n, slide };
+  if (kind === 'car') e.paint = 0x2a62d0;
+  return e;
+}
+function applyCrashes(spec: string, to: Awaited<ReturnType<typeof createCarVisual>> = carVisual, of: CarDefinition = def): void {
+  for (const t of spec.split(',').filter(Boolean)) {
+    const e = crashEvent(t, of);
+    if (e) to.damage?.state.apply(e);
+  }
+}
+function applyRubs(spec: string, to: Awaited<ReturnType<typeof createCarVisual>> = carVisual, of: CarDefinition = def): void {
+  const h = hullOf(of.visual);
+  for (const t of spec.split(',').filter(Boolean)) {
+    const [zone, amountRaw = '3'] = t.split(':');
+    const side = zone === 'sr' ? -1 : 1;
+    const amount = parseFloat(amountRaw);
+    for (let i = 0; i < Math.ceil(amount / 0.6); i++) {
+      to.damage?.state.apply({ type: 'rub', kind: 'wall', p: [side * h.hw, h.top, h.front - 0.3 - i * 0.7], n: [-side, 0, 0], amount: 0.6, slide: [0, 0, 40] });
+    }
+  }
 }
 
 async function main(): Promise<void> {
@@ -415,7 +485,18 @@ async function main(): Promise<void> {
   }
   carVisual.setCockpitView(view === 'cockpit');
   scene.add(carVisual.root);
-  (window as unknown as Record<string, unknown>).__CAR__ = { visual: carVisual, def, state, env, render: () => render() };
+  (window as unknown as Record<string, unknown>).__CAR__ = {
+    visual: carVisual,
+    def,
+    state,
+    env,
+    renderer,
+    render: () => render(),
+    hit: (t: string) => applyCrashes(t),
+    rub: (t: string) => applyRubs(t),
+  };
+  if (q.get('dmg')) applyCrashes(q.get('dmg')!);
+  if (q.get('rub')) applyRubs(q.get('rub')!);
   carVisual.update(state, 0, env);
   render();
   if (q.get('bench') === '1') {

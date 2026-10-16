@@ -1,3 +1,5 @@
+import { DMG_FRAG_PARS, DMG_FRAG_PAINT, DMG_VERT_NORMAL, DMG_VERT_PARS } from './damageShader';
+
 /**
  * GLSL injected into MeshPhysicalMaterial for the car body. The body mesh carries per-vertex zone
  * signed distances (aZ0..aZ3, see blueprint.ts) which are interpolated across triangles and
@@ -41,10 +43,15 @@ varying vec4 vZ2;
 varying vec4 vZ3;
 varying vec3 vObjPos;
 varying vec3 vObjNrm;
+${DMG_VERT_PARS}
 `;
+
+/** Replaces beginnormal_vertex: the crash-deformed point and normal (damageShader.ts). */
+export const BODY_VERT_NORMAL = DMG_VERT_NORMAL;
 
 export const BODY_VERT_BEGIN = /* glsl */ `
 #include <begin_vertex>
+transformed = dmgPos;
 vZ0 = aZ0;
 vZ1 = aZ1;
 vZ2 = aZ2;
@@ -182,6 +189,7 @@ vec3 perturbNormalH(vec3 surf_pos, vec3 surf_norm, vec2 dHdxy, float faceDirecti
   vec3 vGrad = sign(fDet) * (dHdxy.x * R1 + dHdxy.y * R2);
   return normalize(abs(fDet) * surf_norm - vGrad);
 }
+${DMG_FRAG_PARS}
 `;
 
 /** Block placed right after color_fragment: decides albedo / roughness / metalness / clearcoat / emission. */
@@ -205,6 +213,7 @@ float zLine = 0.0;
 float zFlake = 0.0;
 float zAO = vZ3.x;
 float zIsPaint = 1.0;
+float zCarbon = 0.0;
 // object-space metres per pixel (taken here, in uniform control flow, for the pattern anti-aliasing)
 float zPx = length(fwidth(vObjPos));
 
@@ -232,6 +241,7 @@ float zPx = length(fwidth(vObjPos));
   if (zPart != 0) {
     vec2 puv = planarUV(vObjPos, vObjNrm);
     if (zPart == 1) {            // carbon
+      zCarbon = 1.0;
       vec2 c = carbon(puv, zPx * 135.0);
       zCol = vec3(c.x);
       zRough = c.y;
@@ -309,6 +319,14 @@ float zPx = length(fwidth(vObjPos));
     float mRev = zmask(vZ1.w);
     float frontSide = step(0.0, vObjPos.z);
     float mStop = thinLine(vZ1.y, vZ3.w, 0.0085) * (1.0 - frontSide);
+    // crash damage: each lamp has its own output and crack (x > 0 is the left side)
+    float lampLeft = vObjPos.x >= 0.0 ? 1.0 : 0.0;
+    float hOut = mix(uLampOut.y, uLampOut.x, lampLeft);
+    float tOut = mix(uLampOut.w, uLampOut.z, lampLeft);
+    float hCrk = mix(uLampCrk.y, uLampCrk.x, lampLeft);
+    float tCrk = mix(uLampCrk.w, uLampCrk.z, lampLeft);
+    vec4 hHit = lampLeft > 0.5 ? uLampHit[0] : uLampHit[1];
+    vec4 tHit = lampLeft > 0.5 ? uLampHit[2] : uLampHit[3];
 
     // window gasket (black rubber ring around the glass)
     float gasket = (1.0 - smoothstep(0.0, 0.016, winSd)) * step(-0.004, winSd);
@@ -317,6 +335,7 @@ float zPx = length(fwidth(vObjPos));
     vec2 puv = planarUV(vObjPos, vObjNrm);
     // carbon
     if (mCarbon > 0.0) {
+      zCarbon = mCarbon;
       vec2 c = carbon(puv, zPx * 135.0);
       zCol = mix(zCol, vec3(c.x), mCarbon);
       zRough = mix(zRough, c.y, mCarbon);
@@ -364,15 +383,16 @@ float zPx = length(fwidth(vObjPos));
       float pd = length(pp) - uProj.w;
       float pm = (1.0 - smoothstep(-0.004, 0.004, pd)) * mHead;
       float ring = (1.0 - smoothstep(0.0, 0.005, abs(pd + uProj.w * 0.3)));
-      zEmis += vec3(0.95, 0.97, 1.0) * pm * (0.12 + uHead * 9.0);
+      zEmis += vec3(0.95, 0.97, 1.0) * pm * (0.12 + uHead * 9.0) * hOut;
       zCol = mix(zCol, vec3(0.6, 0.65, 0.75), pm * 0.5);
-      zEmis += vec3(0.9, 0.95, 1.0) * ring * mHead * (0.15 + uHead * 0.8);
+      zEmis += vec3(0.9, 0.95, 1.0) * ring * mHead * (0.15 + uHead * 0.8) * hOut;
+      if (hCrk > 0.0) lensDamage(mHead, hCrk, hOut, vObjPos, hHit.xyz, hHit.w, zPx, zCol, zRough, zCC, zEmis, uHead);
     }
     // DRL / LED signature
     float mDrl = thinLine(vZ1.y, vZ3.w, 0.0055) * frontSide;
     if (mDrl > 0.0) {
       zCol = mix(zCol, vec3(0.8, 0.85, 0.9), mDrl);
-      zEmis += vec3(0.82, 0.92, 1.0) * mDrl * (uDrl * 3.2 + uHead * 2.2);
+      zEmis += vec3(0.82, 0.92, 1.0) * mDrl * (uDrl * 3.2 + uHead * 2.2) * hOut;
       zCC = mix(zCC, 1.0, mDrl);
       zFlake *= (1.0 - mDrl);
       zIsPaint *= (1.0 - mDrl);
@@ -388,15 +408,16 @@ float zPx = length(fwidth(vObjPos));
       zCC = mix(zCC, 1.0, mTail);
       zCCRough = mix(zCCRough, 0.015, mTail);
       float core = smoothstep(0.0, -0.018, vZ1.z);
-      zEmis += vec3(1.0, 0.035, 0.015) * mTail * (0.25 + 0.75 * core) * seg * (uTail * 1.2 + uBrake * 6.5);
+      zEmis += vec3(1.0, 0.035, 0.015) * mTail * (0.25 + 0.75 * core) * seg * (uTail * 1.2 + uBrake * 6.5) * tOut;
       zFlake *= (1.0 - mTail);
       zIsPaint *= (1.0 - mTail);
+      if (tCrk > 0.0) lensDamage(mTail, tCrk, tOut, vObjPos, tHit.xyz, tHit.w, zPx, zCol, zRough, zCC, zEmis, uTail + uBrake * 4.0);
     }
     if (mStop > 0.0) {
       zCol = mix(zCol, vec3(0.3, 0.0, 0.0), mStop);
       zRough = mix(zRough, 0.08, mStop);
       zMetal = mix(zMetal, 0.0, mStop);
-      zEmis += vec3(1.0, 0.03, 0.01) * mStop * (uTail * 0.5 + uBrake * 9.0);
+      zEmis += vec3(1.0, 0.03, 0.01) * mStop * (uTail * 0.5 + uBrake * 9.0) * tOut;
       zFlake *= (1.0 - mStop);
       zIsPaint *= (1.0 - mStop);
     }
@@ -404,7 +425,7 @@ float zPx = length(fwidth(vObjPos));
       zCol = mix(zCol, vec3(0.16), mRev);
       zRough = mix(zRough, 0.06, mRev);
       zMetal = mix(zMetal, 0.0, mRev);
-      zEmis += vec3(1.0, 0.97, 0.9) * mRev * uRev * 9.0;
+      zEmis += vec3(1.0, 0.97, 0.9) * mRev * uRev * 9.0 * tOut;
       zFlake *= (1.0 - mRev);
       zIsPaint *= (1.0 - mRev);
     }
@@ -416,6 +437,7 @@ float zPx = length(fwidth(vObjPos));
   }
 #endif
 
+${DMG_FRAG_PAINT}
 if (zBack) {
   // cabin interior seen through the glass: dark headliner / door cards (carbon tub on the prototype)
   vec2 cuv = planarUV(vObjPos, vObjNrm);
@@ -456,6 +478,15 @@ if (uDbg > 1.5) {
   zCC = 0.0;
   zFlake = 0.0;
 }
+if (uDbg > 3.5) {
+  // clay: one matte grey, to judge the forms and the crumple relief without the paint
+  zCol = vec3(0.45);
+  zEmis = vec3(0.0);
+  zMetal = 0.0;
+  zRough = 0.5;
+  zCC = 0.0;
+  zFlake = 0.0;
+}
 #endif
 // ---------- rain ----------
 gBead = vec3(0.0);
@@ -491,7 +522,8 @@ metalnessFactor = zMetal;
 export const BODY_FRAG_NORMAL = /* glsl */ `
 #ifndef GLASS_PASS
 {
-  float hgt = -0.00022 * zLine;
+  // (the crumple relief is finer than the mesh, so it fades out before it can only alias)
+  float hgt = -0.00022 * zLine + dmgRelief * (1.0 - smoothstep(0.004, 0.012, zPx));
   vec2 dH = vec2(dFdx(hgt), dFdy(hgt));
   vec3 nl = perturbNormalH(-vViewPosition, normal, dH, faceDirection);
   float px = length(fwidth(vObjPos));
@@ -520,7 +552,7 @@ export const BODY_FRAG_EMISSIVE = /* glsl */ `
 #include <emissivemap_fragment>
 totalEmissiveRadiance += zEmis;
 #ifndef GLASS_PASS
-if (uDbg > 2.5) {
+if (uDbg > 2.5 && uDbg < 3.5) {
   // zebra reflection test: bright/dark bands in reflection space reveal any waviness of the surface
   vec3 rv = reflect(-normalize(vViewPosition), nonPerturbedNormal);
   vec3 rw = normalize((vec4(rv, 0.0) * viewMatrix).xyz);

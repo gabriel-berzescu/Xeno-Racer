@@ -24,6 +24,7 @@ import {
   type Scene,
 } from 'three';
 import type { CarDefinition, EnvironmentState, QualityLevel, SurfaceType, TrackPoint, TrackRuntime, VehicleState } from '../core/contracts';
+import type { CarDamageControl } from '../core/damage';
 import type { EffectsSystem, RenderSystem } from '../core/systems';
 import { makeSmokeAtlas } from './noise';
 import { particleUniforms } from './post';
@@ -83,6 +84,10 @@ interface ExhaustTip {
 interface CarFx {
   id: number;
   def: CarDefinition;
+  /** Crash damage of the car's visual: its lamps (the lights around it follow them) and the newest hit (the debris). */
+  damage: CarDamageControl | null;
+  /** The newest damage hit already thrown as debris. */
+  debrisSeen: number;
   tips: ExhaustTip[];
   trails: SkidTrail[];
   smokeAcc: number[];
@@ -464,7 +469,72 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
     glows.spawn(sp.x, sp.y, sp.z, s.velocity.x, s.velocity.y, s.velocity.z, 0.08 + 0.1 * s.scrape, 0.07, 1.0, 0.72, 0.36, 0.5 + 1.1 * s.scrape);
   }
 
-  function impactBurst(s: VehicleState, gy: number): void {
+  /**
+   * Bits of bodywork thrown off by a hit: shards of the car's own paint, black carbon and plastic, and glass when a lamp
+   * went. The amount follows the closing speed; a scrape or a tap throws almost nothing.
+   */
+  function bodyDebris(rec: CarFx, s: VehicleState, gy: number): void {
+    const hit = rec.damage?.state.lastHit;
+    if (!hit) {
+      rec.debrisSeen = 0;
+      return;
+    }
+    if (hit.seq === rec.debrisSeen) return;
+    rec.debrisSeen = hit.seq;
+    const kd = clamp((hit.strength - 2) / 18, 0, 1);
+    if (kd <= 0 && !hit.lamp && !hit.glass) return;
+    // where it came off, in the world: the body-frame point on the car's surface
+    const v = rec.def.visual;
+    _v1.set(hit.c[0], hit.c[1] - v.cgHeight, hit.c[2] - (v.cgToFrontAxle - v.wheelbase / 2)).applyQuaternion(s.quaternion).add(s.position);
+    // out of the car: against the way the metal was pushed
+    _v2.set(-hit.n[0], -hit.n[1], -hit.n[2]).applyQuaternion(s.quaternion);
+    const paint = rec.damage!.paint;
+    const pr = Math.pow(((paint >> 16) & 255) / 255, 2.2);
+    const pg = Math.pow(((paint >> 8) & 255) / 255, 2.2);
+    const pb = Math.pow((paint & 255) / 255, 2.2);
+    const n = Math.round(3 + 22 * kd * caps.emit);
+    for (let i = 0; i < n; i++) {
+      const kind = rnd();
+      // paint, black carbon or plastic
+      const tone = kind < 0.5 ? rr(0.6, 1.1) : rr(0.8, 1.4);
+      const cr = kind < 0.5 ? pr * tone : kind < 0.82 ? 0.018 * tone : 0.07 * tone;
+      const cg = kind < 0.5 ? pg * tone : kind < 0.82 ? 0.018 * tone : 0.07 * tone;
+      const cb = kind < 0.5 ? pb * tone : kind < 0.82 ? 0.02 * tone : 0.075 * tone;
+      const sp = rr(1.5, 4 + 8 * kd);
+      chips.spawn(
+        _v1.x + rg() * 0.12, _v1.y + rg() * 0.1, _v1.z + rg() * 0.12,
+        s.velocity.x * 0.55 + _v2.x * sp + rg() * 2.2, s.velocity.y * 0.3 + _v2.y * sp + rr(0.8, 3.2), s.velocity.z * 0.55 + _v2.z * sp + rg() * 2.2,
+        rr(1.0, 2.4), rr(0.014, 0.034 + 0.02 * kd), cr, cg, cb, gy,
+      );
+    }
+    if (hit.lamp) {
+      for (let i = 0; i < 9; i++) {
+        const t = rr(0.7, 1.1);
+        const sp = rr(1, 4);
+        chips.spawn(
+          _v1.x + rg() * 0.15, _v1.y + rg() * 0.08, _v1.z + rg() * 0.15,
+          s.velocity.x * 0.6 + _v2.x * sp + rg() * 1.5, s.velocity.y * 0.3 + rr(0.5, 2.4), s.velocity.z * 0.6 + _v2.z * sp + rg() * 1.5,
+          rr(0.8, 1.6), rr(0.008, 0.02), 0.75 * t, 0.8 * t, 0.85 * t, gy,
+        );
+      }
+    }
+    if (hit.glass) {
+      // a window cracked: a few crumbs of glass jump off it, from the glass and not from the point of impact
+      const g = hit.glass;
+      _v1.set(g[0], g[1] - v.cgHeight, g[2] - (v.cgToFrontAxle - v.wheelbase / 2)).applyQuaternion(s.quaternion).add(s.position);
+      for (let i = 0; i < 6; i++) {
+        const t = rr(0.7, 1.1);
+        const sp = rr(0.6, 2.6);
+        chips.spawn(
+          _v1.x + rg() * 0.12, _v1.y + rg() * 0.06, _v1.z + rg() * 0.12,
+          s.velocity.x * 0.6 + _v2.x * sp + rg() * 1.2, s.velocity.y * 0.3 + rr(0.6, 2.2), s.velocity.z * 0.6 + _v2.z * sp + rg() * 1.2,
+          rr(0.7, 1.4), rr(0.006, 0.016), 0.72 * t, 0.78 * t, 0.84 * t, gy,
+        );
+      }
+    }
+  }
+
+  function impactBurst(rec: CarFx, s: VehicleState, gy: number): void {
     const im = s.lastImpact;
     const k = clamp(im.strength, 0.12, 1);
     const p = im.point;
@@ -754,8 +824,9 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
 
     if (s.impactCount !== rec.impactSeen) {
       rec.impactSeen = s.impactCount;
-      impactBurst(s, gy);
+      impactBurst(rec, s, gy);
     }
+    bodyDebris(rec, s, gy);
     if (s.backfireCount !== rec.backfireSeen) {
       rec.backfireSeen = s.backfireCount;
       backfire(rec, s);
@@ -838,15 +909,19 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
       const fx = _v3.x, fy = _v3.y, fz = _v3.z;
       const zNose = v.wheelbase / 2 + v.frontOverhang;
       const zTail = -(v.wheelbase / 2 + (v.length - v.wheelbase - v.frontOverhang));
-      if (head > 0.02) {
+      // a broken headlight or tail light gives less (or nothing)
+      const lamps = rec.damage?.lamps;
+      const headOut = lamps ? 0.5 * (lamps[0] + lamps[1]) : 1;
+      const tailOut = lamps ? 0.5 * (lamps[2] + lamps[3]) : 1;
+      if (head * headOut > 0.02) {
         _v2.set(0, 0.62, zNose - 0.3).applyQuaternion(q);
-        const k = 1.1 * head;
+        const k = 1.1 * head * headOut;
         lights.add(ox + _v2.x, oy + _v2.y, oz + _v2.z, 48, k, k * 0.93, k * 0.8, fx, fy, fz, 0.82, 0.14);
         // the beam itself: rain makes it a hazy cone
-        if (beams && rainK > 0.02) beams.add(ox + _v2.x, oy + _v2.y, oz + _v2.z, fx, fy - 0.05, fz, 30, head * (0.006 + 0.02 * rainK));
+        if (beams && rainK > 0.02) beams.add(ox + _v2.x, oy + _v2.y, oz + _v2.z, fx, fy - 0.05, fz, 30, head * headOut * (0.006 + 0.02 * rainK));
       }
       // tail lights: a dim red glow while the lamps are on, flaring on the brakes
-      const tail = 0.1 * head + (s.brake > 0.05 ? 0.55 : 0);
+      const tail = (0.1 * head + (s.brake > 0.05 ? 0.55 : 0)) * tailOut;
       _v2.set(0, 0.8, zTail + 0.05).applyQuaternion(q);
       if (tail > 0.01) lights.add(ox + _v2.x, oy + _v2.y, oz + _v2.z, s.brake > 0.05 ? 13 : 9, tail, tail * 0.06, tail * 0.04, -fx, -fy, -fz, 0.25, 0.4);
     }
@@ -874,11 +949,13 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
   // ── public API ──
 
   const api: EffectsSystem = {
-    registerCar(id: number, def: CarDefinition): void {
+    registerCar(id: number, def: CarDefinition, damage?: CarDamageControl): void {
       if (records.has(id)) return;
       records.set(id, {
         id,
         def,
+        damage: damage ?? null,
+        debrisSeen: 0,
         tips: buildTips(def),
         trails: [makeTrail(), makeTrail(), makeTrail(), makeTrail()],
         smokeAcc: [0, 0, 0, 0],

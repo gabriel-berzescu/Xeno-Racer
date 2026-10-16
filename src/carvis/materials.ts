@@ -17,6 +17,8 @@ import {
   type Texture,
   type WebGLProgramParametersWithUniforms,
 } from 'three';
+import { MAX_CRACKS, MAX_DENTS, MAX_MARKS } from '../core/damage';
+import { DMG_FRAG_SHARDS } from './damageShader';
 import {
   BODY_FRAG_AO,
   BODY_FRAG_BEADS,
@@ -28,6 +30,7 @@ import {
   BODY_FRAG_ROUGH,
   BODY_FRAG_ZONES,
   BODY_VERT_BEGIN,
+  BODY_VERT_NORMAL,
   BODY_VERT_PARS,
   FAR_FRAG_PARS,
   GLASS_OPAQUE,
@@ -58,6 +61,19 @@ export interface BodyUniforms {
   uDbg: IUniform<number>;
   uWet: IUniform<number>;
   uSpd: IUniform<number>;
+  /** crash damage (damageShader.ts): vec4 tables filled from the CarDamage model */
+  uDent: IUniform<Float32Array>;
+  uDentN: IUniform<number>;
+  uMark: IUniform<Float32Array>;
+  uMarkN: IUniform<number>;
+  uLampOut: IUniform<Vector4>;
+  uLampCrk: IUniform<Vector4>;
+  uLampHit: IUniform<Float32Array>;
+  uDmgBase: IUniform<number>;
+  uCrack: IUniform<Float32Array>;
+  uCrackN: IUniform<number>;
+  uCabinMin: IUniform<Vector3>;
+  uCabinMax: IUniform<Vector3>;
 }
 
 export function createBodyUniforms(): BodyUniforms {
@@ -85,26 +101,41 @@ export function createBodyUniforms(): BodyUniforms {
     uDbg: { value: 0 },
     uWet: { value: 0 },
     uSpd: { value: 0 },
+    uDent: { value: new Float32Array(MAX_DENTS * 3 * 4) },
+    uDentN: { value: 0 },
+    uMark: { value: new Float32Array(MAX_MARKS * 3 * 4) },
+    uMarkN: { value: 0 },
+    uLampOut: { value: new Vector4(1, 1, 1, 1) },
+    uLampCrk: { value: new Vector4(0, 0, 0, 0) },
+    uLampHit: { value: new Float32Array(16) },
+    uDmgBase: { value: 0 },
+    uCrack: { value: new Float32Array(MAX_CRACKS * 2 * 4) },
+    uCrackN: { value: 0 },
+    uCabinMin: { value: new Vector3(1e3, 1e3, 1e3) },
+    uCabinMax: { value: new Vector3(-1e3, -1e3, -1e3) },
   };
 }
 
 function patchBody(mat: MeshPhysicalMaterial, uniforms: BodyUniforms, glass: boolean): void {
   mat.onBeforeCompile = (shader: WebGLProgramParametersWithUniforms) => {
     Object.assign(shader.uniforms, uniforms);
-    shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>\n' + BODY_VERT_PARS).replace('#include <begin_vertex>', BODY_VERT_BEGIN);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\n' + BODY_VERT_PARS)
+      .replace('#include <beginnormal_vertex>', BODY_VERT_NORMAL)
+      .replace('#include <begin_vertex>', BODY_VERT_BEGIN);
     let f = shader.fragmentShader;
     f = f.replace('#include <common>', '#include <common>\n' + (glass ? '#define GLASS_PASS\n' : '') + BODY_FRAG_PARS);
     f = f.replace('#include <color_fragment>', '#include <color_fragment>\n' + BODY_FRAG_ZONES);
     f = f.replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n' + BODY_FRAG_ROUGH);
     f = f.replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\n' + BODY_FRAG_METAL);
-    f = f.replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\n' + BODY_FRAG_NORMAL + BODY_FRAG_BEADS);
+    f = f.replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\n' + BODY_FRAG_NORMAL + BODY_FRAG_BEADS + DMG_FRAG_SHARDS);
     f = f.replace('#include <emissivemap_fragment>', BODY_FRAG_EMISSIVE);
     f = f.replace('#include <lights_physical_fragment>', BODY_FRAG_PHYS);
     f = f.replace('#include <aomap_fragment>', BODY_FRAG_AO);
     if (glass) f = f.replace('#include <opaque_fragment>', GLASS_OPAQUE);
     shader.fragmentShader = f;
   };
-  mat.customProgramCacheKey = () => (glass ? 'xr-carbody-glass-v2' : 'xr-carbody-paint-v2');
+  mat.customProgramCacheKey = () => (glass ? 'xr-carbody-glass-v3' : 'xr-carbody-paint-v3');
 }
 
 export interface BodyMaterials {
