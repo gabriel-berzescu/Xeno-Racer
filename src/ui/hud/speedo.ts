@@ -1,6 +1,6 @@
 /**
  * Bottom-right instrument cluster: segmented rev arc, shift LEDs, speed, gear, throttle / brake bars and
- * ABS / TCS / ESC lights. DOM text is written only when it changes; bars use transforms; the arc is a
+ * ABS / TCS / ESC lights, and the braking assist's cue (the part of the brake bar it adds is blue, and a pill says so). DOM text is written only when it changes; bars use transforms; the arc is a
  * canvas that redraws only when rpm (or the limiter flash) actually changes.
  */
 import type { HudState } from '../../core/contracts';
@@ -56,6 +56,8 @@ export class Speedo {
   private readonly gearCls: ClassSlot;
   private readonly thr: Bar;
   private readonly brk: Bar;
+  /** The brake bar's second fill, behind the first: the whole brake, of which the driver's part is drawn over it, so what the assist adds shows in blue. */
+  private readonly brkAll: Bar;
   private readonly leds: HTMLElement[] = [];
   private readonly ledState: number[] = [];
   private readonly pills: { el: HTMLElement; until: number; on: boolean }[] = [];
@@ -94,9 +96,11 @@ export class Speedo {
 
     const thrFill = h('i');
     const brkFill = h('i');
+    const brkAllFill = h('i', 'assist');
     this.thr = new Bar(thrFill, 'Y', 0.01);
     this.brk = new Bar(brkFill, 'Y', 0.01);
-    const pedals = h('div', 'sp-pedals', h('div', 'ped brk', h('div', 'ped-trk', brkFill), h('span', null, 'BRK')), h('div', 'ped thr', h('div', 'ped-trk', thrFill), h('span', null, 'THR')));
+    this.brkAll = new Bar(brkAllFill, 'Y', 0.01);
+    const pedals = h('div', 'sp-pedals', h('div', 'ped brk', h('div', 'ped-trk', brkAllFill, brkFill), h('span', null, 'BRK')), h('div', 'ped thr', h('div', 'ped-trk', thrFill), h('span', null, 'THR')));
 
     const assists = h('div', 'sp-assists');
     for (const name of ['ABS', 'TCS', 'ESC']) {
@@ -104,8 +108,11 @@ export class Speedo {
       this.pills.push({ el: p, until: 0, on: false });
       assists.appendChild(p);
     }
+    // the braking assist's cue (lit while it is on the brakes; pills[3])
+    const assistCue = h('div', 'pill ba', 'BRAKE ASSIST');
+    this.pills.push({ el: assistCue, until: 0, on: false });
 
-    this.el = h('div', 'hud-speedo', h('div', 'sp-glow'), this.canvas, ledRow, speedEl, unitEl, this.gearBox, pedals, assists);
+    this.el = h('div', 'hud-speedo', h('div', 'sp-glow'), this.canvas, ledRow, speedEl, unitEl, this.gearBox, pedals, assists, assistCue);
     parent.appendChild(this.el);
     this.resize(1);
     void document.fonts?.load('600 18px Oxanium').then(() => {
@@ -194,12 +201,15 @@ export class Speedo {
     const warn = s.shiftLight >= 0.8;
     this.gearCls.set(GEAR_CLASS[(s.gear < 0 ? 1 : s.gear === 0 ? 2 : 0) | (limiter ? 4 : warn ? 8 : 0)]);
 
-    // pedals + assists
+    // pedals + assists (the brake bar shows the whole brake, and what the braking assist adds to the driver's pedal in its own colour)
+    const added = s.brakeAssist ?? 0;
     this.thr.set(s.throttle);
-    this.brk.set(s.brake);
+    this.brk.set(s.brake - added);
+    this.brkAll.set(added > 0.01 ? s.brake : 0);
     this.pill(0, s.absActive, now);
     this.pill(1, s.tcsActive, now);
     this.pill(2, s.escActive, now);
+    this.pill(3, added > 0.03, now);
 
     // shift LEDs
     const flash = limiter && flashPhase(now, 6);

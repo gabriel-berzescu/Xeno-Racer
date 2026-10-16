@@ -102,8 +102,41 @@ is everything that belongs to a view.
   so that two player voices are not twice as loud (`src/audio/spatial.ts`).
 - **UI:** `UISystem.setSplit(layout)` shows one HUD per seat in a pane over its view (`src/ui/hud/panes.ts`) and a divider;
   `updateHud(state, seat)` feeds each. `PlayersInfo` tells the setup's join card and the pause menu who plays on what.
+- **Aids:** each seat has a set of its own (`Settings.assists` for seat 0, `Settings.assists2` for seat 1: the gearbox, ABS, TCS, ESC, the steering assist, the
+  driving line and the braking assist), given to the car of that seat when it is built and whenever the settings change (`assistsOfSeat`, `carAssists`); see
+  Driving aids below. An old save that has only `assists` starts player 2 with a copy of it.
 - **Session:** `Entrant.seat` marks the humans. Each has their own lap reference, stored best and results row, and `RaceResults.duel`
   says who beat whom.
+
+## Driving aids: the driving line and the braking assist
+
+Two aids live above the physics, per human (Settings: `assists` for player 1 and `assists2` for player 2, both `PlayerAssists`: the car's six aids that the
+physics reads, plus `line` and `brakeAssist`). They share one source, the speed the AI's racing line asks of the player's own car:
+
+```
+computeRacingLine + ProfileJob ─► DrivingGuide (src/ai/guide.ts) ─┬─► DriverAids (src/game/driveraids.ts) ─► BrakeAssist ─► CarControls (brake, lifted throttle) ─► HudState.brakeAssist
+ (src/ai/racing-line.ts)          line (dry, wet), speeds, brake     │      finds the car on the track          (src/core/aids.ts)
+                                  model, refresh for rain and damage  └─► DrivingLine (src/render/drivingLine.ts): the ribbon, coloured by lineUrgency (src/core/aids.ts)
+```
+
+- **The numbers are pure** (`src/core/aids.ts`, tests/aids.test.ts): `neededDecel` and `lineUrgency` (the deceleration that brings the car to the line's speed
+  by a point, over what the car brakes at), `lineColor`, `lineFade`, `brakeDemand` and the `BrakeAssist` pedal (smoothed: quick to rise, slow to fall; it
+  only adds to the driver's pedal, and lifts the throttle as the car goes over the line's speed), and the presets (`ASSIST_PRESETS`, Pro / Standard / Beginner).
+- **The guide** (`src/ai/guide.ts`) takes the AI's racing line and speed profile for the player's car (a driver's share of the grip, 0.84, and of the brakes,
+  0.8) and the water on the road. A change in the water (or in the car's damage) is worked out in slices of a few hundred microseconds by `ProfileJob` (the profile
+  of the AI, in the same arithmetic, resumable) and the old speeds blend into the new over 1.5 s; the line moves from the dry racing line to the wet one over 2 s.
+  `DriverAids` (`src/game/driveraids.ts`) is what the game updates every frame: it keeps the guide current, finds the car on the track and runs the assist.
+  It runs headless, so tests/probes/brake-assist.test.ts drives a car round every circuit with the same code.
+- **The ribbon** (`src/render/drivingLine.ts`) is one transparent mesh per human, a window of up to 164 rows of 2 m rewritten every frame from tables made when
+  it was built (12 KB, microseconds of CPU). It lies 2.5 cm over the road at the point of each vertex, with a polygon offset, no depth write and no lighting;
+  its colours are divided by the scene's exposure so that the grade gives the same line at noon and at night; and where it covers the road it pulls the
+  wet-road reflection flag (the alpha of the scene buffer) towards "not glossy". Its program is built with the rest of the scene: the mesh is made before
+  `warmUp`, hidden when the setting is off, so switching the line on in the middle of a race builds nothing.
+- **Which view draws it:** a human's line sits on a camera layer of its own (`LINE_LAYERS`), and the game turns that layer on for the camera of that seat only.
+  So in a split screen each view shows its own driver's line, and the mirrors, the shadow cameras and nothing else see any. Whether it is drawn at all
+  (`paintLines()` in game.ts) follows the setting, the camera mode (`lineShownIn`: chase, far chase, hood, bumper, cockpit), the HUD (the photo mode hides it)
+  and the phase (not in a replay or behind the results). The attract race behind the menus has no drivers, so no line.
+- **Records and results do not know about the aids:** a lap set with the braking assist or the line counts like any other.
 
 ## Rules for everyone
 

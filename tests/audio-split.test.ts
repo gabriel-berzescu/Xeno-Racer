@@ -396,7 +396,8 @@ describe('the level of two human voices (real synthesis, full throttle from a st
     kestrel = renderPlayer('kestrel-r', 31, seconds);
     lmp = renderPlayer('lmp-x', 37, seconds);
     one = level(mix([{ v: vanta1, pan: 0, trim: 1 }]), from);
-  });
+    // four players' worth of real synthesis: a few seconds alone, far more while the machine is busy with something else
+  }, 60_000);
 
   it('untrimmed, a second voice adds about 2 to 4 dB: the doubling the trim is there to take away', () => {
     expect(two(vanta2, 1).rmsDb - one.rmsDb).toBeGreaterThan(1.5);

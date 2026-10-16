@@ -176,9 +176,31 @@ export function damageFactors(fx: MechEffects | null | undefined): { grip: numbe
   return { grip: 1 - SHARE * (1 - camber), aero: 1 - SHARE * (1 - Math.min(fx.aeroFront, fx.aeroRear)) };
 }
 
-/** Quasi-steady speed profile for one car on one line. */
-export function computeSpeedProfile(track: TrackRuntime, line: RacingLine, def: CarDefinition, o: ProfileOptions): SpeedProfile {
-  const n = line.n;
+/**
+ * What a car can do on a road, in the terms the speed profile works with: the tyres' grip with downforce, the water on the road and
+ * the damage the car carries, drag, power and the share of the car's weight on the driven axle. Shared by the profile and by
+ * everything that has to brake at the pace the profile does (the driving line's colours, the braking assist).
+ */
+export interface GripModel {
+  /** Peak grip coefficient the profile uses (the weaker axle's, with the driver's share of it, the wet and the damage). */
+  mu: number;
+  /** Downforce per (m/s)^2, as an acceleration. */
+  cDown: number;
+  /** Drag per (m/s)^2, as an acceleration. */
+  cDrag: number;
+  /** Power at the driven wheels (W) and the car's top speed (m/s). */
+  power: number;
+  vTop: number;
+  /** Share of the car's weight the driven axle carries (the traction the car has to put its power down with). */
+  drivenFrac: number;
+  mass: number;
+  /** Aquaplaning: the grip left at speed vv as a share of the grip at rest (1 on a dry road). */
+  aqua(vv: number): number;
+  /** Lateral acceleration the tyres can give at speed vv. */
+  latMax(vv: number): number;
+}
+
+export function gripModel(def: CarDefinition, o: ProfileOptions): GripModel {
   const ph = def.physics;
   const m = ph.chassis.mass;
   const dmg = damageFactors(o.damage);
@@ -195,54 +217,174 @@ export function computeSpeedProfile(track: TrackRuntime, line: RacingLine, def: 
   const a = ph.chassis.cgToFrontAxle;
   const L = ph.chassis.wheelbase;
   const drivenFrac = ph.drivetrain.layout === 'FWD' ? (L - a) / L * 0.92 : ph.drivetrain.layout === 'RWD' ? (a / L) * 1.1 : 1;
-  const v = new Float32Array(n);
   const latMax = (vv: number) => mu * aqua(vv) * (G + cDown * vv * vv);
-  for (let i = 0; i < n; i++) {
+  return { mu, cDown, cDrag, power, vTop, drivenFrac, mass: m, aqua, latMax };
+}
+
+/**
+ * How a car brakes on a road: the pace the speed profile brakes at, what the tyres give at the very most, what drag does by itself
+ * and what a full pedal asks of the brakes. The driving line's colours and the braking assist are built on these.
+ */
+export interface BrakeModel {
+  /** Deceleration (m/s^2) the profile brakes at, in a straight line at speed vv: the share of the grip it uses, drag included. */
+  profile(vv: number): number;
+  /** The most the tyres can brake at at speed vv (m/s^2): all of their grip with the downforce, drag not included. */
+  grip(vv: number): number;
+  /** Deceleration drag gives at speed vv (m/s^2). */
+  drag(vv: number): number;
+  /** Deceleration a full pedal gives if the tyres could take it (m/s^2): the brakes' own limit. */
+  pedal: number;
+  /** The car's top speed as the profile takes it (m/s). */
+  top: number;
+}
+
+export function brakeModel(def: CarDefinition, o: ProfileOptions): BrakeModel {
+  const gm = gripModel(def, o);
+  const ph = def.physics;
+  // (the grip without the driver's margin: the profile's own mu has the 0.95 and the driver's share of the grip in it)
+  const muFull = gm.mu / (0.95 * o.gripUse);
+  return {
+    profile: (vv) => (gm.mu * 1.05 * G + gm.mu * gm.cDown * vv * vv) * o.brakeUse * gm.aqua(vv) + gm.cDrag * vv * vv,
+    grip: (vv) => muFull * gm.aqua(vv) * (G + gm.cDown * vv * vv),
+    drag: (vv) => gm.cDrag * vv * vv,
+    pedal: ((2 * ph.brakes.frontTorque) / ph.tireFront.radius + (2 * ph.brakes.rearTorque) / ph.tireRear.radius) / ph.chassis.mass,
+    top: gm.vTop,
+  };
+}
+
+/**
+ * The quasi-steady speed profile of one car on one line, worked out in slices: `advance(budget)` does that many steps of the work and
+ * says whether it is finished. It is the arithmetic computeSpeedProfile always had, in the same order, so a profile worked out in
+ * pieces is bit for bit the one worked out in one go (tests/aids.test.ts). A caller that must not stall a frame (the driving line,
+ * when the rain comes) gives it a share of every frame; the AI drivers, who want the answer now, call computeSpeedProfile.
+ */
+export class ProfileJob {
+  readonly speeds: Float32Array;
+  done = false;
+  private readonly n: number;
+  private readonly gm: GripModel;
+  private readonly brakeUse: number;
+  private readonly wet: number;
+  /** 0 = the corner speeds, 1 = a forward pass, 2 = a backward pass; `t` counts the steps of the stage and `pass` the passes made. */
+  private stage = 0;
+  private t = 0;
+  private pass = 0;
+
+  constructor(
+    private readonly track: TrackRuntime,
+    private readonly line: RacingLine,
+    def: CarDefinition,
+    o: ProfileOptions,
+  ) {
+    this.n = line.n;
+    this.gm = gripModel(def, o);
+    this.brakeUse = o.brakeUse;
+    this.wet = o.wetness ?? 0;
+    this.speeds = new Float32Array(this.n);
+  }
+
+  /** The profile (finished, or as far as it has got). */
+  get profile(): SpeedProfile {
+    return { v: this.speeds };
+  }
+
+  /** Run to the end. */
+  finish(): SpeedProfile {
+    this.advance(Infinity);
+    return this.profile;
+  }
+
+  /** Do up to `budget` steps of the work (a step is one point of the line in one pass, about 40 ns); true when the profile is finished. */
+  advance(budget: number): boolean {
+    const n = this.n;
+    let left = budget;
+    while (!this.done && left > 0) {
+      if (this.stage === 0) {
+        const end = Math.min(n, this.t + left);
+        left -= end - this.t;
+        for (; this.t < end; this.t++) this.corner(this.t);
+        if (this.t < n) break;
+        this.stage = 1;
+        this.t = 0;
+      } else if (this.stage === 1) {
+        // forward: traction & power
+        const end = Math.min(2 * n, this.t + left);
+        left -= end - this.t;
+        for (; this.t < end; this.t++) this.forward(this.t);
+        if (this.t < 2 * n) break;
+        this.stage = 2;
+        this.t = 2 * n;
+      } else {
+        // backward: braking
+        const end = Math.max(0, this.t - left);
+        left -= this.t - end;
+        for (; this.t > end; this.t--) this.backward(this.t);
+        if (this.t > 0) break;
+        if (++this.pass >= 3) this.done = true;
+        else {
+          this.stage = 1;
+          this.t = 0;
+        }
+      }
+    }
+    return this.done;
+  }
+
+  /** The speed a corner allows at line point i. */
+  private corner(i: number): void {
+    const { track, line, gm } = this;
     const k = Math.abs(line.k[i]);
     // bank helps (or hurts) the corner: positive bank raises the left edge, good for right turns
     const j = Math.min(track.count - 1, Math.round((i * line.step) / track.spacing));
     const bankHelp = -Math.sign(line.k[i]) * Math.sin(track.bank[j]) * G;
     // closed form for a constant mu; one fixed-point pass picks up the aquaplaning at that speed
-    let muC = mu;
-    let vmax = vTop;
-    for (let it = 0; it < (wet > 0 ? 2 : 1); it++) {
-      const den = k - muC * cDown;
-      vmax = den > 1e-6 ? Math.sqrt(Math.max(1, muC * G + bankHelp) / den) : vTop;
-      muC = mu * aqua(Math.min(vmax, vTop));
+    let muC = gm.mu;
+    let vmax = gm.vTop;
+    for (let it = 0; it < (this.wet > 0 ? 2 : 1); it++) {
+      const den = k - muC * gm.cDown;
+      vmax = den > 1e-6 ? Math.sqrt(Math.max(1, muC * G + bankHelp) / den) : gm.vTop;
+      muC = gm.mu * gm.aqua(Math.min(vmax, gm.vTop));
     }
-    v[i] = Math.min(vTop, vmax);
+    this.speeds[i] = Math.min(gm.vTop, vmax);
   }
-  // friction-circle remainder for longitudinal acceleration at speed vv on curvature k
-  const longAvail = (vv: number, k: number, cap: number) => {
+
+  /** Friction-circle remainder for longitudinal acceleration at speed vv on curvature k. */
+  private longAvail(vv: number, k: number, cap: number): number {
     const lat = vv * vv * Math.abs(k);
-    const lm = latMax(vv);
+    const lm = this.gm.latMax(vv);
     const r = lat / lm;
     return r >= 1 ? 0 : cap * Math.sqrt(1 - r * r);
-  };
-  for (let pass = 0; pass < 3; pass++) {
-    // forward: traction & power
-    for (let t = 0; t < 2 * n; t++) {
-      const i = t % n;
-      const b = (i + 1) % n;
-      const vi = v[i];
-      const trac = (mu * 1.05 * G * drivenFrac + mu * cDown * vi * vi * drivenFrac) * aqua(vi);
-      const pow = power / (m * Math.max(vi, 3));
-      const acc = longAvail(vi, line.k[i], Math.min(trac, pow)) - cDrag * vi * vi - 0.12;
-      const vn = Math.sqrt(Math.max(0, vi * vi + 2 * acc * line.ds[i]));
-      if (vn < v[b]) v[b] = vn;
-    }
-    // backward: braking
-    for (let t = 2 * n; t > 0; t--) {
-      const i = t % n;
-      const p = (i - 1 + n) % n;
-      const vi = v[i];
-      const cap = (mu * 1.05 * G + mu * cDown * vi * vi) * o.brakeUse * aqua(vi);
-      const dec = longAvail(vi, line.k[i], cap) + cDrag * vi * vi;
-      const vp = Math.sqrt(vi * vi + 2 * dec * line.ds[p]);
-      if (vp < v[p]) v[p] = vp;
-    }
   }
-  return { v };
+
+  private forward(t: number): void {
+    const { n, line, gm } = this;
+    const v = this.speeds;
+    const i = t % n;
+    const b = (i + 1) % n;
+    const vi = v[i];
+    const trac = (gm.mu * 1.05 * G * gm.drivenFrac + gm.mu * gm.cDown * vi * vi * gm.drivenFrac) * gm.aqua(vi);
+    const pow = gm.power / (gm.mass * Math.max(vi, 3));
+    const acc = this.longAvail(vi, line.k[i], Math.min(trac, pow)) - gm.cDrag * vi * vi - 0.12;
+    const vn = Math.sqrt(Math.max(0, vi * vi + 2 * acc * line.ds[i]));
+    if (vn < v[b]) v[b] = vn;
+  }
+
+  private backward(t: number): void {
+    const { n, line, gm } = this;
+    const v = this.speeds;
+    const i = t % n;
+    const p = (i - 1 + n) % n;
+    const vi = v[i];
+    const cap = (gm.mu * 1.05 * G + gm.mu * gm.cDown * vi * vi) * this.brakeUse * gm.aqua(vi);
+    const dec = this.longAvail(vi, line.k[i], cap) + gm.cDrag * vi * vi;
+    const vp = Math.sqrt(vi * vi + 2 * dec * line.ds[p]);
+    if (vp < v[p]) v[p] = vp;
+  }
+}
+
+/** Quasi-steady speed profile for one car on one line. */
+export function computeSpeedProfile(track: TrackRuntime, line: RacingLine, def: CarDefinition, o: ProfileOptions): SpeedProfile {
+  return new ProfileJob(track, line, def, o).finish();
 }
 
 /** Estimated lap time for a profile (s). */

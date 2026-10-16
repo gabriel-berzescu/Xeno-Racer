@@ -362,8 +362,9 @@ describe('setup -> RaceConfig', () => {
 describe('settings schema', () => {
   const rowIds = (tab: string): string[] => SETTINGS_TABS.find((t) => t.id === tab)!.rows.map((r) => r.id);
 
-  it('has the five tabs in order', () => {
-    expect(SETTINGS_TABS.map((t) => t.id)).toEqual(['graphics', 'audio', 'controls', 'assists', 'gameplay']);
+  it('has the tabs in order (the Assists tab of player 2 is shown only while a second player matters)', () => {
+    expect(SETTINGS_TABS.map((t) => t.id)).toEqual(['graphics', 'audio', 'controls', 'assists', 'assists2', 'gameplay']);
+    expect(SETTINGS_TABS.filter((t) => t.split).map((t) => t.id)).toEqual(['assists2']);
   });
 
   it('covers EVERY field of GraphicsSettings, AudioSettings, ControlSettings, Assists, hud, camera, units, playerName', () => {
@@ -371,7 +372,9 @@ describe('settings schema', () => {
     expect(rowIds('graphics').sort()).toEqual(['quality', ...Object.keys(s.graphics).filter((k) => k !== 'quality')].sort());
     expect(rowIds('audio').sort()).toEqual(Object.keys(s.audio).sort());
     expect(rowIds('controls').sort()).toEqual(Object.keys(s.controls).sort());
-    expect(rowIds('assists').sort()).toEqual(Object.keys(s.assists).sort());
+    // (each human's aids: every field of them, and the preset row that sets them all at once)
+    expect(rowIds('assists').sort()).toEqual(['preset', ...Object.keys(s.assists)].sort());
+    expect(rowIds('assists2').sort()).toEqual(['preset', ...Object.keys(s.assists2)].sort());
     // (the split-screen settings: the second driver's name and how the screen divides)
     expect(rowIds('gameplay').sort()).toEqual(['units', ...Object.keys(s.hud), 'fov', 'shake', 'defaultMode', 'damage', 'playerName', 'player2Name', 'splitLayout'].sort());
   });

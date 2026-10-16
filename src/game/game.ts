@@ -7,6 +7,8 @@
  * ?quick=championship starts a new championship (car, opp, diff, start; &champlaps=N makes every round N laps).
  * &players=2 (race or freeRoam) puts a second human on the same screen in &car2= (default: another car), each with a camera and a HUD of
  * their own; with &autopilot=1 both drive themselves. Split screen: see src/core/split.ts, and `drivers` below for what is whose.
+ * &assists=pro|standard|beginner, &line=off|braking|full and &brakeassist=1 set player 1's aids for the session (player 2's: &assists2=,
+ * &line2=, &brakeassist2=); see src/core/aids.ts. A dev autopilot has pedals of its own: the braking assist leaves them alone.
  *
  * Championship: the season lives in `this.championship` (src/game/championship.ts, saved after every round). A round is
  * a normal race whose RaceConfig carries `championship` (the grid and the season identity of each driver); when the
@@ -45,12 +47,13 @@ import type {
   UIIntent,
   VehicleState,
 } from '../core/contracts';
+import { ASSIST_PRESET_IDS, applyAssistPreset, assistsOfSeat, carAssists, lineLead, lineShownIn, lineWidth, LINE_MODES, type AssistPreset } from '../core/aids';
 import { DEFAULT_SETTINGS, loadSettings, saveSettings } from '../core/settings';
 import type { AudioSystem, CameraRig, CarSound, CarVisual, EffectsSystem, RenderSystem, TrackScene, UISystem } from '../core/systems';
 import { opponentLimit, playerSlots, SEAT_COLOR, splitFov, viewAspect } from '../core/split';
 import { createInputSystem, type PlayerSource, type XenoInputSystem } from '../input';
 import { PhysicsWorld, SteeringFilter, type Vehicle } from '../physics';
-import { createCameraRig, createEffects, createRenderSystem, lightningStrength, type MirrorFrame, type ViewSpec, type XenoRenderSystem } from '../render';
+import { createCameraRig, createDrivingLine, createEffects, createRenderSystem, lightningStrength, LINE_LAYERS, type DrivingLine, type MirrorFrame, type ViewSpec, type XenoRenderSystem } from '../render';
 import { TRACKS, buildTrackScene, loadTrackRuntime } from '../track';
 import { createUI } from '../ui';
 import { GhostRecorder, ghostPose, loadBestLaps, loadGhost, recordKey, saveBestLap, saveGhost, type GhostLap } from './records';
@@ -59,6 +62,7 @@ import { RaceSession, type Entrant } from './session';
 import { DRIVER_NAMES, opponentLivery } from './liveries';
 import type { ContactOther } from '../core/damage';
 import { DAMAGE_SHOWN, mechanicalReport, mechanicalWorst } from '../core/mechanical';
+import { DriverAids } from './driveraids';
 import { MechLink } from './mechsync';
 import { ReplayPlayer, ReplayRecorder } from './replay';
 import { makeSpotter, updateSpotter, type SpotterBody, type SpotterState } from './spotter';
@@ -110,6 +114,9 @@ interface Driver {
   finished: boolean;
   /** Split screen: this human's own lap recorder (the ghost saved with a record they set; a single player's is Game.ghostRec). */
   ghostRec: GhostRecorder;
+  /** This human's driving guide and braking assist (src/game/driveraids.ts), and the driving line drawn from the guide. */
+  aids: DriverAids;
+  line: DrivingLine;
   /** Split screen: a lap of theirs beat the record of their car on this track during the race. */
   pb: boolean;
 }
@@ -237,6 +244,17 @@ export class Game {
     // development: ?damage=off|visual|full
     const dm = this.params.get('damage');
     if (dm === 'off' || dm === 'visual' || dm === 'full') this.settings.damage = dm;
+    // development: ?assists=pro|standard|beginner, ?line=off|braking|full and ?brakeassist=1 set player 1's aids (player 2's: assists2, line2, brakeassist2)
+    for (const seat of [0, 1] as const) {
+      const sfx = seat === 1 ? '2' : '';
+      const set = assistsOfSeat(this.settings, seat);
+      const preset = this.params.get('assists' + sfx) as AssistPreset | null;
+      if (preset && ASSIST_PRESET_IDS.includes(preset)) applyAssistPreset(set, preset);
+      const lm = this.params.get('line' + sfx);
+      if (lm && (LINE_MODES as readonly string[]).includes(lm)) set.line = lm as typeof set.line;
+      const ba = this.params.get('brakeassist' + sfx);
+      if (ba !== null) set.brakeAssist = ba !== '0' && ba !== 'false';
+    }
   }
 
   // ───────────────────────────────────────────────────────────────────────────
@@ -469,6 +487,10 @@ export class Game {
       c.sound?.dispose();
       this.effects?.unregisterCar(c.vehicle.id);
     }
+    for (const d of this.drivers) {
+      this.render.scene.remove(d.line.mesh);
+      d.line.dispose();
+    }
     this.cars = [];
     this.mirrorsOff();
     this.player = null;
@@ -498,8 +520,9 @@ export class Game {
   private async spawnCar(def: CarDefinition, livery: Livery, entrant: Omit<Entrant, 'state' | 'id'>, slot: number, withSound: boolean, ai: Difficulty | null, aiSeed?: number, driverId?: string): Promise<RaceCar> {
     const world = this.world!;
     const vehicle = world.addVehicle(def);
+    // a human drives with the aids of their seat (player 1's, or player 2's in a split screen); the opponents have fixed ones
     vehicle.assists = entrant.isPlayer
-      ? { ...this.settings.assists }
+      ? carAssists(assistsOfSeat(this.settings, entrant.seat ?? 0))
       : { abs: true, tcs: 'low', esc: false, autoShift: true, steeringAssist: 0, autoClutch: true };
     const g = world.track.grid[Math.min(slot, world.track.grid.length - 1)];
     if (slot < world.track.grid.length) vehicle.placeOnGround(g.position, g.quaternion, 0);
@@ -766,23 +789,35 @@ export class Game {
     this.ghostRec.reset();
     // the humans at the wheel, each with a camera and the rest of what is theirs alone
     const wet = this.world.wetness;
-    const driver = (seat: Seat, car: RaceCar, rig: CameraRig): Driver => ({
-      seat,
-      car,
-      rig,
-      steering: new SteeringFilter(),
-      autopilot: null,
-      banner: null,
-      toast: null,
-      hudVisible: true,
-      spotter: makeSpotter(),
-      spotOut: { left: 0, right: 0, leftAt: 0, rightAt: 0 },
-      lapWet: wet,
-      impactSeen: 0,
-      finished: false,
-      ghostRec: new GhostRecorder(),
-      pb: false,
-    });
+    const driver = (seat: Seat, car: RaceCar, rig: CameraRig): Driver => {
+      // the driving guide of this human's car (the AI's racing line and speeds for it), the braking assist that follows it, the line drawn from it
+      const aids = new DriverAids(track, car.def, { wetness: wet, weatherMayChange: !!this.wx?.plan });
+      aids.setAssists(assistsOfSeat(this.settings, seat));
+      car.mech.add(aids, car.visual.damage?.state.mech);
+      const line = createDrivingLine(track, aids.guide, seat);
+      line.setMode(aids.line);
+      this.render.scene.add(line.mesh);
+      rig.camera.layers.enable(LINE_LAYERS[seat]);
+      return {
+        seat,
+        car,
+        rig,
+        steering: new SteeringFilter(),
+        autopilot: null,
+        banner: null,
+        toast: null,
+        hudVisible: true,
+        spotter: makeSpotter(),
+        spotOut: { left: 0, right: 0, leftAt: 0, rightAt: 0 },
+        lapWet: wet,
+        impactSeen: 0,
+        finished: false,
+        ghostRec: new GhostRecorder(),
+        pb: false,
+        aids,
+        line,
+      };
+    };
     this.drivers = [driver(0, this.player!, this.camera)];
     if (car2) {
       this.rig2 ??= createCameraRig(track, this.trackScene!.tvCameras);
@@ -1123,7 +1158,13 @@ export class Game {
       const now = performance.now();
       for (const d of this.drivers) this.ui.updateHud(this.buildHud(now, d), d.seat);
     }
-    for (const d of this.drivers) d.car.vehicle.assists = { ...s.assists };
+    // each human's aids, live (from the pause menu too): the car's own, the braking assist and the line
+    for (const d of this.drivers) {
+      const set = assistsOfSeat(s, d.seat);
+      d.car.vehicle.assists = carAssists(set);
+      d.aids.setAssists(set);
+      d.line.setMode(set.line);
+    }
     this.camera?.setFov(s.camera.fov);
     this.camera?.setShake(s.camera.shake);
     this.rig2?.setShake(s.camera.shake);
@@ -1423,6 +1464,11 @@ export class Game {
       if (d.car.entrant.state.forwardSpeed < -0.5 && c.throttle > 0.1) c.handbrake = 0;
     }
 
+    // the driving guide follows the road and the water, and the braking assist adds to the pedals the pad has just set (a dev autopilot
+    // has its own pedals: the assist leaves them alone)
+    const live = session.phase === 'racing' && !this.resultsShown;
+    for (const d of drivers) d.aids.update(dt, d.car.vehicle.state, d.car.vehicle.controls, live && !d.autopilot, world.wetness);
+
     // AI
     const racing = session.phase === 'racing' || session.phase === 'finished';
     for (const car of this.cars) {
@@ -1517,6 +1563,7 @@ export class Game {
     this.audio.setListener(this.camera.camera, pv.state.velocity);
     this.updateSpotter(this.drivers[0], dt, input.lookBack);
     this.driveMirrors(input.lookBack);
+    this.paintLines();
     this.render.render(this.camera.camera, dt, pv.state.speed);
     // the cockpit wiper: its swish and thunks follow the windscreen pass's own clock, so they land on the blade you see
     setWiper(this.audio, xr.wiper);
@@ -1536,10 +1583,27 @@ export class Game {
     this.effects?.update(dt, world.states, this.drivers[0].rig.camera);
     this.trackScene?.setStartLights(session.phase === 'countdown' ? session.lights : session.phase === 'racing' && world.time - session.startTime < 3 ? 6 : null);
     this.mirrorsOff();
+    this.paintLines();
     this.drawSplit(dt);
     // the cockpit wiper of whichever view shows its blade (player 1's first)
     const w0 = xr.wiperOf(0);
     setWiper(this.audio, w0.drawn ? w0 : xr.wiperOf(1));
+  }
+
+  /**
+   * The driving line of each human: drawn in the cameras that look along the road (not the TV, the orbit view, the replay, the photo
+   * mode that takes the HUD away, or the results behind the menus), in the race that is on, and rewritten for where the car is now. In a
+   * split screen every view has its own: the line of a seat is on a camera layer only that seat's camera has.
+   */
+  private paintLines(): void {
+    const exposure = (this.render as XenoRenderSystem).solution?.exposure ?? 1;
+    const live = this.phase === 'race' && !this.resultsShown && !this.replay;
+    const split = this.drivers.length > 1;
+    for (const d of this.drivers) {
+      const on = live && (split ? d.hudVisible : this.hudVisible) && d.aids.line !== 'off' && lineShownIn(d.rig.mode);
+      d.line.show(on);
+      if (on) d.line.update(d.aids.s, Math.max(0, d.aids.speed), exposure, lineLead(d.rig.mode), lineWidth(d.rig.mode));
+    }
   }
 
   /** Draw the two views of a split screen (the race, or the pause menu's frozen frame). */
@@ -1765,6 +1829,7 @@ export class Game {
   private startReplay(): void {
     if (!this.replayRec || this.replayRec.frames < 30 || !this.world) return;
     this.replay = { player: new ReplayPlayer(this.replayRec, this.world.states), t: 0, target: this.cars.indexOf(this.player!) };
+    for (const d of this.drivers) d.line.show(false);
     // every car is pristine again at the start, and gets dented as the replay plays
     this.cars.forEach((c, i) => c.visual.damage?.replay(this.replayRec!.damage[i], 0));
     this.effects?.clear();
@@ -1930,6 +1995,7 @@ export class Game {
       mirror: split ? false : (this.render as XenoRenderSystem).mirrorStrip,
       weather: this.wx?.plan ? this.hudWeather(now) : null,
       damage: this.hudDamage(p, d.seat),
+      brakeAssist: d.aids.added,
     };
   }
 

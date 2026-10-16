@@ -176,6 +176,23 @@ export interface Assists {
   autoClutch: boolean;
 }
 
+/**
+ * The driving line a human can have drawn on the road (src/core/aids.ts, src/render/drivingLine.ts): never, only where the
+ * line says to lift or brake, or all along.
+ */
+export type LineMode = 'off' | 'braking' | 'full';
+
+/**
+ * Everything one human driver can switch on: the aids the car has (`Assists`, which the physics reads) and the two that live above
+ * the physics, the driving line and the braking assist (src/core/aids.ts). Each human has a set of their own (`Settings.assists`,
+ * `Settings.assists2`); the opponents drive with fixed aids.
+ */
+export interface PlayerAssists extends Assists {
+  line: LineMode;
+  /** The car brakes itself for a corner it arrives at too fast for the driving line's speed; the player still steers and accelerates, and can brake harder. */
+  brakeAssist: boolean;
+}
+
 export interface WheelState {
   hub: Vector3; // world position of wheel center
   contactPoint: Vector3; // world position of the contact patch
@@ -526,7 +543,10 @@ export interface Settings {
   graphics: GraphicsSettings;
   audio: AudioSettings;
   controls: ControlSettings;
-  assists: Assists;
+  /** Player 1's aids (the one player's, in a single-player race). */
+  assists: PlayerAssists;
+  /** Split screen: player 2's aids (a save from before they existed starts from a copy of `assists`). */
+  assists2: PlayerAssists;
   units: 'kmh' | 'mph';
   hud: { minimap: boolean; telemetry: boolean; ghost: boolean; standings: boolean; mirror: MirrorMode; spotter: boolean };
   camera: { fov: number; defaultMode: CameraMode; shake: number };
@@ -831,6 +851,8 @@ export interface HudState {
   weather?: HudWeather | null;
   /** The player's mechanical damage (Damage: Full), or null when the car is sound or the mode is not Full. */
   damage?: HudDamage | null;
+  /** The braking assist is on the brakes right now: the pedal it adds on top of the driver's (0..1; 0 or absent: it is not acting). */
+  brakeAssist?: number;
 }
 
 /**
