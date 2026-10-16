@@ -11,6 +11,7 @@ import type { SideArrays, TrackRuntimeImpl } from '../runtime';
 import type { Ctx } from './ctx';
 import { buildBuildings } from './winterProps';
 import { buildCrowds, buildPoles, buildReeds } from './winterDetail';
+import { makeSnowGround, noIceMask } from './snow';
 
 const CHUNK = 120;
 
@@ -151,7 +152,12 @@ export function buildSnowbanks(ctx: Ctx, mat: THREE.Material): THREE.Group {
 export function buildWinterScenery(ctx: Ctx, ground: THREE.Material): THREE.Group {
   const root = new THREE.Group();
   root.name = 'winter';
-  root.add(buildSnowbanks(ctx, ground));
+  // (the banks along the lake are snow, not ice: the terrain material turns what stands on the lake into ice, so they have their own, with no lake under it)
+  const bankMat = makeSnowGround(ctx, false, noIceMask(ctx));
+  bankMat.name = 'snowbank';
+  ctx.disposables.push(bankMat);
+  void ground;
+  root.add(buildSnowbanks(ctx, bankMat));
   const sc = ctx.rt.def.scenery?.winter;
   if (!sc) return root;
   // (buildings first: they reserve their ground, and the reeds and the crowds keep clear of it)

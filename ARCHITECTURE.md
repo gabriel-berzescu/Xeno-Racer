@@ -105,6 +105,43 @@ is everything that belongs to a view.
 - **Session:** `Entrant.seat` marks the humans. Each has their own lap reference, stored best and results row, and `RaceResults.duel`
   says who beat whom.
 
+## Winter circuits
+
+A circuit with `TrackInfo.winter` (Isvik: packed snow, a frozen lake, snowbanks for walls) is one flag that every system reads for its own
+purpose. Nothing else changes for the other four circuits: a road circuit gets the very same objects, numbers and shaders as before.
+
+- **Surfaces** (`src/physics/surfaces.ts`): `snow` (packed road, 0.50 of dry asphalt), `ice` (the studded lake, 0.40) and `deepsnow` (beside
+  the road, 0.32, with ploughing drag and a heavy rolling term). `SurfaceProps.fresh` is the grip kept under a heavy fall of fresh snow: on a
+  winter circuit the world's `wetness` *is* that snow (`wetGripFactor`), so no water film, no aquaplaning and no wet-tyre window.
+- **Tyres** (`src/physics/compound.ts`): `fitCar(def, track)` returns the car itself on a road circuit and a copy on studded winter tyres on
+  a winter one; `PhysicsWorld.addVehicle`, `AIDriver` and the steering filter all read the fitted car, so physics, AI and aids agree. A studded
+  tyre peaks later (10 degrees, slip ratio 0.16), falls off gently (`slideRatio` 0.9) and hardly minds load: the car slides without letting go.
+  The thermal model runs in air at -6 degrees (`WINTER_AMBIENT_C`).
+- **Soft barriers:** `BarrierKind` `snowbank` sets `TrackPoint.softLeft/softRight`. `Vehicle.resolveBank` is a spring and a damper that
+  stiffens with depth, gives back a fifth of what it took and drags the flank along it, with a hard stop at 3.5 m (the frozen ground under
+  it). The hit is an `ImpactKind` `snow` at a third of its closing speed (`damage.ts` counts it as a wall hit of that strength).
+- **Track** (`src/track/defs/isvik.ts`): laid out with `turtleVerts` (corner deflection, radius, edge length; two free edges close the loop).
+  `TrackDef.winter` picks the road and the ground surface and the patches of ice; the runtime keeps them as per-sample channels (`roadSurf`,
+  `farSurf`) next to the bands, and `terrain.frozen` makes a level lake with a shore and bakes the ice into a mask the lake shader reads.
+- **Scene** (`src/track/scene/{snow,winter,winterProps,winterDetail}.ts`): the snow ground, the packed road with its polished lane and the
+  ice are patched `MeshStandardMaterial`s (sparkle from the light list, a bump from screen-space derivatives, blue shadows from the ground
+  bounce); the snowbanks are extruded from the road's own wall line, lumpy with noise; spruce, pine and birch are the instanced trees with
+  snow on their planes. Red cabins, the paddock, the poles on the ice, the reeds and the crowds are instanced and keep clear of each other.
+- **Light and weather** (`src/render/presets.ts`, `environment.ts`): `TOD_WINTER` (a low sun, a blue hour) and `WEATHER_WINTER`
+  (`rain` is a snowfall, `storm` a blizzard; the clear, cloudy and overcast skies are the ordinary ones), a ground albedo of 0.8 for the
+  bounce, and an aurora in the sky shader (two curtains, a few texture reads, only on a clear winter night). `wet/snowfall.ts` is the
+  `RainField`'s twin: flakes as capsules in the same camera-local box. `effects.ts` throws powder (the mist pool, lit by the whole sky), a
+  burst for a snowbank, and the exhaust plumes of the cold. The snow reaches the windscreen as a seventh of the rain, the headlights and
+  the floodlights are dimmed (snow gives back five times the light of asphalt). The weather pipeline (`WeatherState`, the forecast, the
+  HUD chip) is unchanged: only its words (`ui/format.ts`, `game/weather.ts`) and icons say snow.
+- **AI** (`src/ai`): `lineSurfaces` gives the speed profile the grip under every point of the line (the ice is slower than the snow); a
+  winter driver is always in the cautious mode of a wet road and keeps off the snowbanks; lane changes move at the speed the surface's grip
+  allows, the throttle is limited to what the friction circle leaves the driven axle, and a car that has let go points its wheels where it is
+  travelling and lifts. `tests/probes/winter-laps.test.ts` and the pack probes measure all of it.
+- **Audio** (`src/audio`): snow and ice are two more surface voices of the chassis (a crunch that follows the speed; the ratchet of studs),
+  a sliding tyre on snow hisses where asphalt squeals, a snowbank is a low whump, and the weather node's `WCTL.SNOW` turns the rain bed into
+  a wind (no drops, no thunder).
+
 ## Rules for everyone
 
 - Conventions are in the header of `src/core/contracts.ts`. **+Z forward, +X left, +Y up.**

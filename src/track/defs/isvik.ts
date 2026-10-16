@@ -1,6 +1,6 @@
 /**
  * Isvik Circuit: a winter circuit on packed snow and the frozen Isvattnet, the way ice racing is done in Sweden and Finland.
- * Clockwise, about 4.2 km, 13 m wide between ploughed snowbanks, 12 m of relief, 16 named corners. The lap (s from the start line;
+ * Clockwise, 4.28 km, 13 m wide between ploughed snowbanks, 12 m of relief, 16 named corners. The lap (s from the start line;
  * the paddock of red cabins is on the left):
  *
  *   main     435 m of start straight, gently downhill, to
@@ -8,7 +8,7 @@
  *            a little too fast for the grip (a Vanta on a handful of throttle slides all the way), up and over the crest
  *   Lind     a slower right (85 deg, R130) at the top of the ridge, and
  *   Skogen   the long fast right (80 deg, R240) down through the spruce to the shore of Isvattnet
- *   the ice  850 m across the frozen lake, flat out on studs: Sjo1 and Sjo2, two long gentle bends in a straight line of
+ *   the ice  775 m across the frozen lake, flat out on studs: Sjo1 and Sjo2, two long gentle bends in a straight line of
  *            snowbank markers, 15 m wide, where the road is ice (0.4 of dry asphalt, the packed snow around it 0.5)
  *   Vand     the switchbacks up the north shore: a right hairpin (R25, heavy braking from the ice), a short climb and a left
  *            hairpin back, the snowbank of the first an inch from the second
@@ -114,11 +114,11 @@ export const isvik: TrackDef = {
     name: 'Isvik Circuit',
     location: 'Isvik, Lake Isvattnet, Norrland',
     description:
-      'A winter circuit on packed snow and the frozen Isvattnet: flowing sweepers through the spruce between ploughed snowbanks, 850 m flat out across the ice where the studs bite and the tail comes round, and a heavy-braking switchback up the shore into the fishing village.',
+      'A winter circuit on packed snow and the frozen Isvattnet: flowing sweepers through the spruce between ploughed snowbanks, 775 m flat out across the ice where the studs bite and the tail comes round, and a heavy-braking switchback up the shore into the fishing village.',
     difficulty: 4,
     defaultLaps: 3,
     defaultTimeOfDay: 'golden',
-    lengthHint: 4200,
+    lengthHint: 4280,
     color: '#8fd3ff',
     floodlit: true,
     winter: true,

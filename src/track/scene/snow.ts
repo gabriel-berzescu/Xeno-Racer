@@ -197,6 +197,14 @@ export function buildIceMask(ctx: Ctx): { tex: THREE.DataTexture; rect: THREE.Ve
   return { tex, rect };
 }
 
+/** A mask with no ice on it: for what stands on the lake and is snow all the same (the snowbanks at its side). */
+export function noIceMask(ctx: Ctx): { tex: THREE.DataTexture; rect: THREE.Vector4 } {
+  const tex = new THREE.DataTexture(new Uint8Array([0]), 1, 1, THREE.RedFormat, THREE.UnsignedByteType);
+  tex.needsUpdate = true;
+  ctx.disposables.push(tex);
+  return { tex, rect: new THREE.Vector4(0, 0, 1, 1) };
+}
+
 /** Ground look per track: where the rock shows, and the far-hill forest (strength, fade-in start / end, forest mask) and its colour. */
 interface SnowLook {
   rockRange: [number, number];

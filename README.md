@@ -1,10 +1,10 @@
 # Xeno-Racer
 
 A realistic racing game for the browser, built for a gamepad. A from-scratch vehicle simulation
-running at 1000 Hz, AI drivers that race wheel to wheel, four hand-built circuits from a mountain
-pass to a floodlit harbour street circuit, rain that you can feel through the tyres, procedurally
-sculpted cars that crumple when they hit something, working mirrors, synthesized engine sound, and
-a TV director that films the race.
+running at 1000 Hz, AI drivers that race wheel to wheel, five hand-built circuits from a mountain
+pass to a floodlit harbour street circuit and a frozen lake, rain and snow that you can feel through
+the tyres, procedurally sculpted cars that crumple when they hit something, working mirrors,
+synthesized engine sound, and a TV director that films the race.
 
 ![Racing up Kuroyama Pass](docs/img/kuroyama.jpg)
 
@@ -91,11 +91,14 @@ All four are original designs, and their figures are measured in the simulation,
 
 - **Porto Vela** (3.96 km) is a floodlit street circuit through a Mediterranean harbour town, between concrete walls and catch fences. A 660 m quay straight ends in a heavy braking zone, then the road climbs through the old town past a cathedral at a tight hairpin, dives through a 210 m tunnel under the castle hill and comes down an 8 % descent to a chicane by the marina. The windows light up at dusk.
 
+- **Isvik Circuit** (4.28 km, 16 corners) is a winter circuit in the far north, the way ice racing is done in Sweden and Finland: packed snow between ploughed snowbanks, a frozen lake and a fishing village of red cabins. A 600 m start straight leads into flowing sweepers through the spruce, each one a little too fast for the grip, over a crest to the long fast right of Skogen and then 775 m flat out across the ice of Lake Isvattnet between rows of snowbank markers. A heavy braking zone from the ice leads to two switchback hairpins up the north shore and into the village. 12 m of relief. Every car runs studded winter tyres. Floodlit at night, under the northern lights.
+
 ![The pack in the Brennwald forest](docs/img/brennwald.jpg)
 ![Under the stone arch in Porto Vela at dusk](docs/img/portovela.jpg)
+![Across the ice of Lake Isvattnet at Isvik](docs/img/isvik.jpg)
 
-Six times of day (dawn to night) and five weathers (clear, cloudy, overcast, rain and storm), all
-lit by a physically based sky.
+Six times of day (dawn to night) and five weathers (clear, cloudy, overcast, rain and storm; at
+Isvik the rain is snow and the storm a blizzard), all lit by a physically based sky.
 
 ## Rain
 
@@ -115,6 +118,19 @@ Rain changes how the car drives as well as how it looks:
   and spray. In the cockpit the wiper motor whines and the blade thunks at each end of its sweep.
 - **Records:** wet best laps and ghosts are kept apart from dry ones. In a race whose weather changes, a lap counts as wet if the track was wet at any point of it.
 
+## Snow and ice
+
+Isvik Circuit changes how the car drives, not only how it looks:
+
+- **Grip:** measured on the skidpad, packed snow holds 0.50-0.56 g, half of what asphalt does, and the frozen lake 0.40-0.44 g. Deep snow beside the road holds 0.32 g and drags the car back. Stopping from 100 km/h takes 62-68 m on snow and 76-84 m on ice with ABS. 0-100 km/h takes 9.7-10.6 s on snow and 12-13.5 s on ice with the traction control on low; without it the driven wheels spin the whole way.
+- **Studded winter tyres:** every car wears them at Isvik, whatever it wears elsewhere. A studded tyre is not a slippery summer tyre. Its grip peaks later (at 10 degrees of slip, against 6 to 8) and falls away gently, so a car slides without letting go, and it hardly minds load. The rear-drive Vanta and Ronin swing their tails out when you lean on the throttle in a corner and spin if you stand on it, the front-drive Kestrel pushes wide, and the LMP-X's downforce helps at speed and not at all in the hairpins. ABS, traction control and stability control work on 0.4 μ as they do on asphalt.
+- **Snowbanks, not walls:** a bank slows the car over a metre or two and gives it back gently (a hit at 100 km/h and 30 degrees is 6.6 g, where a wall is 13), and a car that goes in far enough is stopped by the frozen ground under it. Damage is a wall's, at a third of the speed. The deep snow at the foot of the bank drags and bogs a car down.
+- **AI drivers:** they know the grip under every point of the lap (the ice is slower than the snow), change lanes at the pace the grip allows, ask the throttle for what the corner leaves the driven axle, keep clear of the edge, and catch a slide by pointing the wheels where the car is going. The quickest ones lap in 2:20 (LMP-X), 2:29 (Ronin), 2:31 (Vanta, Kestrel), running 8 degrees of body slip and counter-steering for 7-9 % of the lap.
+- **Snow, not rain:** at Isvik the Rain weather is a snowfall and the Storm a blizzard, in the setup, on the HUD and in the forecast ("Snow later"). Fresh snow lies on the packed road as water lies on asphalt: a heavy fall costs 14 % of the grip and builds up with a lap's lag, but nothing aquaplanes and the tyres do not change.
+- **Look:** a low sun and a blue hour over snow that gives the light back (blue shadows, a sparkle, wind-blown ripples), spruce, pine and birch laden with it, snowbanks lumpy along the whole road, a frozen lake with cracks and a polished lane, red cabins, flags and crowds, floodlights and an aurora at night. The cars throw powder, their exhausts steam in the cold, the flakes streak towards the lens, and on the glass the snow melts to a few small drops.
+- **Sound:** snow crunches under the tyres at a rate that follows the speed, studs rattle on the ice, a sliding tyre hisses where asphalt squeals, a snowbank is a low whump, and the snowfall is a wind.
+- **Records:** best laps on fresh snow are kept apart from the ones on a packed road, as wet laps are.
+
 ### Weather that changes
 
 The setup's **Forecast** row (Stable, Rain later, Clearing) makes the weather move during a race. It is offered where it makes sense: rain later from a dry start (clear, cloudy or overcast), clearing from rain or a storm, in races of two laps or more and in free roam.
@@ -132,7 +148,7 @@ The setup's **Forecast** row (Stable, Rain later, Clearing) makes the weather mo
 ## Under the hood
 
 - **Vehicle physics** (`src/physics`) is written from scratch and steps at 1000 Hz:
-  - **Tires:** combined-slip tire model with relaxation length, load sensitivity, and tread and brake temperatures. In the wet, grip depends on the surface and each tyre's wet compound, and the car aquaplanes in standing water.
+  - **Tires:** combined-slip tire model with relaxation length, load sensitivity, and tread and brake temperatures. In the wet, grip depends on the surface and each tyre's wet compound, and the car aquaplanes in standing water. On a winter circuit every car is fitted with studded winter tyres (`src/physics/compound.ts`), and snow, ice and deep snow are surfaces of their own.
   - **Suspension:** raycast suspension with anti-roll bars.
   - **Drivetrain:** engine torque curves with turbo lag, a clutch and gearbox solved implicitly, and a limited-slip differential.
   - **Aero:** drag, downforce and slipstream.
@@ -173,7 +189,7 @@ npm run typecheck
 - `scripts/tour.mjs` scripts a play-through in headless Chrome. It can wait, press keys, take screenshots, evaluate code and collect perf stats. With `--init scripts/fixtures/fake-pad.js` it drives a fake F310.
 - `tests/probes/` holds diagnostics that only run on demand. For example, `PACKSET=1 npx vitest run tests/probes/pack.test.ts` runs the AI pack-racing benchmark, and `WXRACE=1 npx vitest run tests/probes/weather-race.test.ts` races the AI through a changing forecast (rain arriving, or clearing) and prints how clean it stays in each phase of the change. For the mechanical damage, `DMGRACE=1 npx vitest run tests/probes/damage-race.test.ts` races the same packs with Visual and with Full damage (and with half the field badly bent) and compares how clean each is, `DMGCAL=pull|grip|lap npx vitest run tests/probes/damage-calib.test.ts` shows what a given damage does to a car (the pull and the stick that holds it, top speed, lap times) and `STEPCOST=1 npx vitest run tests/probes/step-cost.test.ts` times the physics step with and without it.
 
-Dev URL flags: `?quick=race|timeTrial|freeRoam&track=aurelia|kuroyama|brennwald|portovela&car=vanta-gt&opp=7&laps=3&tod=night&weather=clear|cloudy|overcast|rain|storm&cam=tv&quality=low|medium|high|ultra&damage=off|visual|full&autopilot=1&ui=0`. `?quick=championship&car=&opp=&diff=&start=` starts a new Xeno Cup, and `&champlaps=1` makes every round that many laps (with `autopilot=1` it plays itself). `&players=2` (race or free roam) puts a second player on the same screen in `&car2=` and `&cam2=` (with `autopilot=1` both drive themselves; the fake pad of `scripts/fixtures/fake-pad.js` has a second pad, `window.__pad2`, that is unplugged unless the page has `pad2=1`). `&forecast=rainLater|clearing` changes the weather during a race (`&wxseed=7` picks when and how hard, `&wxat=30` brings the change in 30 s after the start, `&wxspeed=10` runs it ten times faster).
+Dev URL flags: `?quick=race|timeTrial|freeRoam&track=aurelia|kuroyama|brennwald|portovela|isvik&car=vanta-gt&opp=7&laps=3&tod=night&weather=clear|cloudy|overcast|rain|storm&cam=tv&quality=low|medium|high|ultra&damage=off|visual|full&autopilot=1&ui=0`. `?quick=championship&car=&opp=&diff=&start=` starts a new Xeno Cup, and `&champlaps=1` makes every round that many laps (with `autopilot=1` it plays itself). `&players=2` (race or free roam) puts a second player on the same screen in `&car2=` and `&cam2=` (with `autopilot=1` both drive themselves; the fake pad of `scripts/fixtures/fake-pad.js` has a second pad, `window.__pad2`, that is unplugged unless the page has `pad2=1`). `&forecast=rainLater|clearing` changes the weather during a race (`&wxseed=7` picks when and how hard, `&wxat=30` brings the change in 30 s after the start, `&wxspeed=10` runs it ten times faster).
 
 ## Credits
 

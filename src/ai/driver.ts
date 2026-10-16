@@ -140,13 +140,15 @@ function edgeHazards(track: TrackRuntime, line: RacingLine): Uint8Array {
   let h = hazardCache.get(key);
   if (h) return h;
   h = new Uint8Array(line.n);
+  // (on a winter circuit the metre of packed snow at the edge is as good as the road: the trouble is the deep snow beyond it)
+  const out = track.info.winter ? 1.5 : 0.5;
   for (let i = 0; i < line.n; i++) {
     const sa = i * line.step;
     const j = Math.min(track.count - 1, Math.round(sa / track.spacing));
-    track.pointAt(sa, track.widthLeft[j] + 0.5, _hp);
+    track.pointAt(sa, track.widthLeft[j] + out, _hp);
     track.groundAt(_hp.x, _hp.z, _gs);
     if (wetGripRatio(_gs.surface, road) < SLIPPERY_RATIO) h[i] |= 1;
-    track.pointAt(sa, -(track.widthRight[j] + 0.5), _hp);
+    track.pointAt(sa, -(track.widthRight[j] + out), _hp);
     track.groundAt(_hp.x, _hp.z, _gs);
     if (wetGripRatio(_gs.surface, road) < SLIPPERY_RATIO) h[i] |= 2;
   }
