@@ -22,6 +22,7 @@ import type {
   ChampionshipView,
   Difficulty,
   Forecast,
+  HudDamage,
   HudState,
   HudStanding,
   HudWeather,
@@ -51,6 +52,8 @@ import { buildView, championshipDef, createChampionship, isPlayable, loadChampio
 import { RaceSession, type Entrant } from './session';
 import { DRIVER_NAMES, opponentLivery } from './liveries';
 import type { ContactOther } from '../core/damage';
+import { DAMAGE_SHOWN, mechanicalReport, mechanicalWorst } from '../core/mechanical';
+import { MechLink } from './mechsync';
 import { ReplayPlayer, ReplayRecorder } from './replay';
 import { makeSpotter, updateSpotter, type SpotterBody, type SpotterState } from './spotter';
 import { collectHeadlamps, makeMirrorLamps } from './headlamps';
@@ -71,6 +74,8 @@ interface RaceCar {
   livery: Livery;
   /** Championship rounds: the driver's stable id in the season. */
   driverId?: string;
+  /** Puts the mechanical damage of the car's record on its physics and its driver (Damage: Full, see syncMechanical). */
+  mech: MechLink;
 }
 
 type Phase = 'boot' | 'menu' | 'loading' | 'race' | 'results';
@@ -164,6 +169,8 @@ export class Game {
   private readonly wxTuned = new WeakMap<AIDriver, number>();
   /** The most water on the track since the player's lap began: a lap on a road that was wet at any point is a wet lap. */
   private lapWet = 0;
+  /** Damage: Full. What the HUD is handed of the player's mechanical damage (one object, rewritten in place). */
+  private readonly dmgHud: HudDamage = { front: 0, rear: 0, left: 0, right: 0, wheels: [0, 0, 0, 0] };
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -177,6 +184,9 @@ export class Game {
     this.showTelemetry = this.settings.hud.telemetry;
     const q = this.params.get('quality');
     if (q === 'low' || q === 'medium' || q === 'high' || q === 'ultra') this.settings.graphics.quality = q;
+    // development: ?damage=off|visual|full
+    const dm = this.params.get('damage');
+    if (dm === 'off' || dm === 'visual' || dm === 'full') this.settings.damage = dm;
   }
 
   // ───────────────────────────────────────────────────────────────────────────
@@ -429,6 +439,7 @@ export class Game {
       ai: driver,
       livery,
       driverId,
+      mech: new MechLink(driver ? [vehicle, driver] : [vehicle]),
     };
     this.cars.push(car);
     return car;
@@ -531,7 +542,7 @@ export class Game {
     // otherwise hang frozen in the air: effects don't update while the showroom runs)
     for (const c of this.cars) c.visual.root.visible = false;
     this.effects?.clear();
-    const car: RaceCar = { entrant: { id: vehicle.id, name: '', color: livery.primary, carId, isPlayer: true, state: vehicle.state }, def, vehicle, visual, sound: null, ai: null, livery };
+    const car: RaceCar = { entrant: { id: vehicle.id, name: '', color: livery.primary, carId, isPlayer: true, state: vehicle.state }, def, vehicle, visual, sound: null, ai: null, livery, mech: new MechLink([vehicle]) };
     this.preview = { world, car, carId, liveryKey: key };
     this.camera.setMode('orbit');
     this.camera.snap();
@@ -638,6 +649,8 @@ export class Game {
     if (this.params.get('autopilot') === '1') {
       this.autopilot = new AIDriver(track, def, { difficulty: 'alien', seed: 99, wetness: this.world.wetness });
       if (this.wx?.plan) this.autopilot.prepareWeather();
+      // (it drives the player's car: it learns of that car's damage too)
+      this.player!.mech.add(this.autopilot, this.player!.visual.damage?.state.mech);
     }
 
     this.steering.reset();
@@ -892,6 +905,7 @@ export class Game {
     this.audio.setVolumes(s.audio);
     this.input.setControls(s.controls);
     for (const c of this.cars) c.visual.damage?.setMode(s.damage);
+    this.syncMechanical();
     if (this.player) this.player.vehicle.assists = { ...s.assists };
     this.camera?.setFov(s.camera.fov);
     this.camera?.setShake(s.camera.shake);
@@ -1133,6 +1147,8 @@ export class Game {
         if (car === player) car.sound.setInterior(interior);
       }
     }
+    // (the visuals just took this frame's hits: what they did to the mechanics goes on the physics before the next step)
+    this.syncMechanical();
     player.visual.setCockpitView(this.camera.mode === 'cockpit');
     (this.render as XenoRenderSystem).setCockpitView(this.camera.mode === 'cockpit');
     this.effects?.update(dt, world.states, this.camera.camera);
@@ -1155,6 +1171,26 @@ export class Game {
 
     // results
     if (this.finishAt !== null && !this.resultsShown && (now > this.finishAt || session.phase === 'finished')) this.showResults();
+  }
+
+  /**
+   * Damage: Full. What the crashes did to each car's mechanics (the CarDamage record of its visual, src/core/mechanical.ts) goes
+   * on its physics and its driver, when it changes: bent suspension, lost downforce, a tired engine, and an AI that drives the car
+   * it has now. Any other mode takes it off again. Every car, the AI's too; the ghost is no car in this list.
+   * A restart or the next round builds new cars (repaired), and a reset to the track leaves the car as it is.
+   */
+  private syncMechanical(): void {
+    const full = this.settings.damage === 'full';
+    for (const c of this.cars) c.mech.update(c.visual.damage?.state.mech, full);
+  }
+
+  /** What the HUD shows of the player's mechanical damage: null when the mode is not Full or nothing is bent enough to show (a few taps are not). */
+  private hudDamage(p: RaceCar): HudDamage | null {
+    if (this.settings.damage !== 'full') return null;
+    const m = p.visual.damage?.state.mech;
+    if (!m || mechanicalWorst(m) < DAMAGE_SHOWN) return null;
+    mechanicalReport(m, this.dmgHud);
+    return this.dmgHud;
   }
 
   private lastImpactSeen = 0;
@@ -1471,6 +1507,7 @@ export class Game {
       spotter: this.settings.hud.spotter ? this.spotOut : null,
       mirror: (this.render as XenoRenderSystem).mirrorStrip,
       weather: this.wx?.plan ? this.hudWeather(now) : null,
+      damage: this.hudDamage(p),
     };
   }
 

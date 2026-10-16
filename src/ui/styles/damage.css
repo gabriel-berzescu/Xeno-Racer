@@ -1,0 +1,49 @@
+/* ══════════════════════════════════════════════════════════════════════════════
+   Damage indicator (src/ui/hud/damage.ts): a car from above whose body zones and wheels tint from amber to red. Each part gets
+   --on (hurt at all, 0 or 1) and --hot (how red, 0..1: it gets there well before the part is wrecked) from the script.
+   On the race HUD it comes up for a few seconds after a hit and fades; the pause screen shows the same drawing in a chip.
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+.xr-hud > .hud-dmg {
+  right: 616px;
+  bottom: 48px;
+  width: 130px;
+  height: 222px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding-top: 16px;
+  background: linear-gradient(180deg, rgba(14, 17, 24, 0.78), rgba(7, 9, 13, 0.86));
+  clip-path: polygon(16px 0, 100% 0, 100% 100%, 0 100%, 0 16px);
+  opacity: 0;
+  transition: opacity 0.9s var(--ease);
+}
+.xr-hud > .hud-dmg.show { opacity: 1; transition-duration: 0.2s; }
+.hud-dmg::after { content: ''; position: absolute; left: 16px; right: 0; top: 0; height: 2px; background: linear-gradient(90deg, var(--warn), rgba(255, 176, 32, 0) 75%); }
+.dmg-k { font: 600 15px / 1 var(--f-display); letter-spacing: 0.22em; padding-left: 0.22em; text-transform: uppercase; color: rgba(238, 240, 243, 0.62); }
+
+/* narrow stages put the telemetry traces next to the minimap, in this panel's way: it steps up out of it */
+.xr-stage[data-narrow] .xr-hud > .hud-dmg { bottom: 250px; }
+
+.dmg-car { display: block; width: 88px; height: 156px; overflow: visible; }
+.dmg-body { fill: rgba(238, 240, 243, 0.1); }
+.dmg-edge { fill: none; stroke: rgba(238, 240, 243, 0.52); stroke-width: 1.3; }
+.dmg-cabin { fill: rgba(4, 5, 8, 0.55); stroke: rgba(238, 240, 243, 0.16); stroke-width: 0.8; }
+
+.dz, .dw { --hot: 0; --on: 0; }
+.dz { --c: color-mix(in srgb, var(--bad) calc(var(--hot) * 100%), var(--warn)); fill: var(--c); opacity: calc(var(--on) * (0.42 + 0.58 * var(--hot))); }
+.dw { fill: color-mix(in srgb, color-mix(in srgb, var(--bad) calc(var(--hot) * 100%), var(--warn)) calc(var(--on) * 100%), #3b404b); stroke: rgba(238, 240, 243, 0.5); stroke-width: 1; }
+.hud-dmg.hit0 .dmg-car { animation: xr-dmg-a 0.9s ease-out; }
+.hud-dmg.hit1 .dmg-car { animation: xr-dmg-b 0.9s ease-out; }
+@keyframes xr-dmg-a { 0% { transform: scale(1.14); filter: brightness(1.9); } 100% { transform: none; filter: none; } }
+@keyframes xr-dmg-b { 0% { transform: scale(1.14); filter: brightness(1.9); } 100% { transform: none; filter: none; } }
+@media (prefers-reduced-motion: reduce) { .hud-dmg.hit0 .dmg-car, .hud-dmg.hit1 .dmg-car { animation: none; } }
+
+/* ── the pause screen's chip ───────────────────────────────────────────────── */
+
+.dmg-chip .v { display: flex; align-items: center; gap: 14px; height: 72px; }
+.dmg-chip .dmg-car { width: 40px; height: 72px; }
+.dmg-word { font: 800 italic 34px / 1 var(--f-display); letter-spacing: 0.04em; text-transform: uppercase; color: var(--warn); }
+.dmg-word.l2 { color: color-mix(in srgb, var(--bad) 55%, var(--warn)); }
+.dmg-word.l3 { color: var(--bad); }

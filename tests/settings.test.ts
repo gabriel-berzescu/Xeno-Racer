@@ -41,4 +41,21 @@ describe('saved settings', () => {
     const s = loadSettings();
     expect([s.graphics.quality, s.graphics.shadows, s.graphics.antialias, s.assists.tcs, s.units, s.camera.defaultMode]).toEqual(['low', 'off', 'off', 'off', 'mph', 'cockpit']);
   });
+
+  it('takes Off, Visual and Full for the damage, and anything else for Visual', () => {
+    expect(DEFAULT_SETTINGS.damage).toBe('visual');
+    for (const mode of ['off', 'visual', 'full']) {
+      store[KEY] = JSON.stringify({ damage: mode });
+      expect(loadSettings().damage).toBe(mode);
+    }
+    // a save from before Full existed, one from a newer build with a mode this one lacks, and hand editing
+    for (const bad of ['brutal', 'FULL', '', 3, null, true, ['full'], {}]) {
+      store[KEY] = JSON.stringify({ damage: bad, units: 'mph' });
+      const s = loadSettings();
+      expect(s.damage).toBe('visual');
+      expect(s.units).toBe('mph');
+    }
+    store[KEY] = JSON.stringify({ units: 'mph' });
+    expect(loadSettings().damage).toBe('visual');
+  });
 });

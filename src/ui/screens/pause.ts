@@ -2,6 +2,7 @@ import type { InputFrame } from '../../core/contracts';
 import type { ScreenId } from '../../core/systems';
 import type { UiCtx } from '../ctx';
 import { h, clearEl } from '../dom';
+import { damageChip } from '../hud/damage';
 import { FORECAST_LABEL, formatLapTime, ordinal, WEATHER_LABEL } from '../format';
 import { MODE_INFO } from '../model';
 import { FocusList, type FocusRow } from '../nav';
@@ -121,6 +122,8 @@ export class PauseScreen extends BaseScreen {
     // weather that changes: what it is now, or what is coming
     const wx = hud?.weather;
     if (wx) this.info.append(chip('Weather', wx.called ? `${WEATHER_LABEL[wx.sky]}  ·  track ${wx.track.toLowerCase()}` : `${WEATHER_LABEL[wx.sky]}, ${FORECAST_LABEL[wx.forecast].toLowerCase()}`));
+    // Damage: Full, and the car is bent
+    if (hud?.damage) this.info.append(damageChip(hud.damage));
     // where the season stands going into this round
     const season = ch ? this.ctx.championship : null;
     if (season) this.info.append(chip('Championship', season.done === 0 ? 'Not started' : `${ordinal(season.player.position)}  ·  ${season.player.points} pts`));

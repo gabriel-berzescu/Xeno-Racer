@@ -43,6 +43,7 @@ import {
   TrailBuf,
   type MapFit,
 } from '../src/ui/hudlogic';
+import { damageWord } from '../src/ui/hud/damage';
 import { FocusList, snap, stepIndex, type FocusRow, type Nav } from '../src/ui/nav';
 import { buildChampionshipSetup, CHAMP_DEFAULTS, CHAMP_OPPONENTS_MIN, championshipHint, modeLabel, OPPONENTS_MAX } from '../src/ui/model';
 import { formatConditions, formatPointsGap, lapsLabel, leadText, seasonTitle, trackCode } from '../src/ui/format';
@@ -372,6 +373,26 @@ describe('settings schema', () => {
     expect(rowIds('controls').sort()).toEqual(Object.keys(s.controls).sort());
     expect(rowIds('assists').sort()).toEqual(Object.keys(s.assists).sort());
     expect(rowIds('gameplay').sort()).toEqual(['units', ...Object.keys(s.hud), 'fov', 'shake', 'defaultMode', 'damage', 'playerName'].sort());
+  });
+
+  it('puts a word to the worst part of a damaged car for the pause screen', () => {
+    const d = (worst: number) => ({ front: worst, rear: 0, left: 0, right: 0, wheels: [0, 0, 0, 0] as [number, number, number, number] });
+    expect([0.05, 0.3, 0.6, 0.95].map((w) => damageWord(d(w)))).toEqual(['Light', 'Moderate', 'Heavy', 'Severe']);
+    expect(damageWord({ ...d(0.1), wheels: [0, 0, 0.8, 0] })).toBe('Severe');
+  });
+
+  it('offers the damage as Off, Visual and Full, and says what Full does', () => {
+    const row = SETTINGS_TABS.find((t) => t.id === 'gameplay')!.rows.find((r) => r.id === 'damage')!;
+    expect(row.kind).toBe('select');
+    if (row.kind !== 'select') return;
+    expect(row.options.map((o) => [o.value, o.label])).toEqual([['off', 'Off'], ['visual', 'Visual'], ['full', 'Full']]);
+    expect(row.desc).toMatch(/bent suspension/);
+    expect(row.desc).toMatch(/downforce/);
+    expect(row.desc).toMatch(/engine/);
+    const s: Settings = structuredClone(DEFAULT_SETTINGS);
+    row.set(s, 'full');
+    expect(s.damage).toBe('full');
+    expect(row.get(s)).toBe('full');
   });
 
   it('every row reads and writes through to the right field and round-trips', () => {
