@@ -221,6 +221,19 @@ export type ScreenId =
   | 'champion'
   | 'none';
 
+/** What a replay is showing, for its overlay. */
+export interface ReplayInfo {
+  /** The driver the camera follows, their livery colour and finishing position. */
+  driver: string;
+  color: string;
+  position: number;
+  /** Camera name ("TV", "Chase", "Cockpit"...). */
+  camera: string;
+  /** Replay time and length (s). */
+  t: number;
+  duration: number;
+}
+
 export interface UISystem {
   readonly root: HTMLElement;
   /** Feed every polled input frame; menus navigate with nav edges. Returns true if UI consumed it. */
@@ -241,6 +254,8 @@ export interface UISystem {
   updateHud(h: HudState): void;
   /** Device indicator (gamepad name or keyboard). */
   setDevice(name: string | null): void;
+  /** The replay overlay (what is playing and how to drive it), or null to hide it. */
+  setReplay(r: ReplayInfo | null): void;
   dispose(): void;
 }
 /** export function createUI(container: HTMLElement, deps: UIDeps): UISystem */

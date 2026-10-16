@@ -28,6 +28,11 @@ export class ReplayRecorder {
    */
   readonly damage: StampedEvent[][];
   frames = 0;
+  /**
+   * Frames per second. The buffer holds MAX_SECONDS at RATE; when a long race fills it, every other frame is dropped
+   * and recording goes on at half the rate, so the replay always runs from the start to the flag.
+   */
+  rate = RATE;
   private lastT = -Infinity;
   readonly t0: number;
 
@@ -44,12 +49,12 @@ export class ReplayRecorder {
   }
 
   get duration(): number {
-    return Math.max(0, (this.frames - 1) / RATE);
+    return Math.max(0, (this.frames - 1) / this.rate);
   }
 
   capture(t: number, states: readonly VehicleState[]): void {
-    if (t - this.lastT < 1 / RATE - 1e-4) return;
-    if ((this.frames + 1) * this.cars * REPLAY_STRIDE >= this.data.length) return;
+    if (t - this.lastT < 1 / this.rate - 1e-4) return;
+    if ((this.frames + 1) * this.cars * REPLAY_STRIDE >= this.data.length) this.halve();
     this.lastT = t;
     let o = this.frames * this.cars * REPLAY_STRIDE;
     const d = this.data;
@@ -112,6 +117,16 @@ export class ReplayRecorder {
     }
     this.frames++;
   }
+
+  /** Keep every other frame (0, 2, 4...) and halve the rate; the damage timeline is stamped in frames, so it follows. */
+  private halve(): void {
+    const n = this.cars * REPLAY_STRIDE;
+    const kept = Math.ceil(this.frames / 2);
+    for (let k = 1; k < kept; k++) this.data.copyWithin(k * n, 2 * k * n, (2 * k + 1) * n);
+    this.frames = kept;
+    this.rate /= 2;
+    for (const list of this.damage) for (const ev of list) ev.f /= 2;
+  }
 }
 
 const _qa = new Quaternion();
@@ -133,7 +148,7 @@ export class ReplayPlayer {
   /** Apply time t (seconds from the start of the recording). */
   apply(t: number): void {
     const r = this.rec;
-    const f = Math.max(0, Math.min(r.frames - 1.001, t * RATE));
+    const f = Math.max(0, Math.min(r.frames - 1.001, t * r.rate));
     this.frame = f;
     const i = Math.floor(f);
     const k = f - i;

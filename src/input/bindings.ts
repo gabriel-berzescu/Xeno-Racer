@@ -54,7 +54,7 @@ export const PAD_LABEL: Record<PadControl, string> = {
   dUp: 'D-pad up', dDown: 'D-pad down', dLeft: 'D-pad left', dRight: 'D-pad right',
 };
 
-export type MenuAction = 'navigate' | 'adjust' | 'confirm' | 'back' | 'tabs' | 'x' | 'y' | 'start';
+export type MenuAction = 'navigate' | 'adjust' | 'confirm' | 'back' | 'tabs' | 'x' | 'y' | 'start' | 'camera';
 
 /** Menu actions, for the button prompts at the bottom of every screen. */
 export const MENU_KEYS: Record<MenuAction, { pad: PadControl[]; keys: string[] }> = {
@@ -66,6 +66,8 @@ export const MENU_KEYS: Record<MenuAction, { pad: PadControl[]; keys: string[] }
   x: { pad: ['x'], keys: ['X'] },
   y: { pad: ['y'], keys: ['Y'] },
   start: { pad: ['start'], keys: ['Enter'] },
+  /** The camera button (Y on the pad, C on the keyboard; the replay changes camera with it). */
+  camera: { pad: ['y'], keys: ['C'] },
 };
 
 /** Standard-mapping button indices (W3C Gamepad API). */

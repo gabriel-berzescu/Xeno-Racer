@@ -18,7 +18,7 @@ import './styles/screens.css';
 import './styles/hud.css';
 
 import type { ChampionshipSetup, ChampionshipView, HudState, InputFrame, MinimapTrack, RaceConfig, RaceResults, Settings, UIIntent, UiSound } from '../core/contracts';
-import type { ScreenId, UIDeps, UISystem } from '../core/systems';
+import type { ReplayInfo, ScreenId, UIDeps, UISystem } from '../core/systems';
 import { prettyPadName } from '../input/processing';
 import type { Device, UiCtx } from './ctx';
 import { createHud, type HudView } from './hud';
@@ -35,6 +35,7 @@ import { StandingsScreen } from './screens/standings';
 import { TitleScreen } from './screens/title';
 import type { SetupMode } from './model';
 import { h } from './dom';
+import { ReplayOverlay } from './replay';
 
 export type { Settings } from '../core/contracts';
 
@@ -85,6 +86,7 @@ class UiImpl implements XenoUI {
   private disposed = false;
   private lastErrorAt = 0;
   private readonly notice = h('div', 'xr-notice');
+  private readonly replay: ReplayOverlay;
   private noticeTimer = 0;
 
   constructor(
@@ -125,7 +127,8 @@ class UiImpl implements XenoUI {
     this.stage = h('div', 'xr-stage');
     this.screensEl = h('div', 'xr-screens');
     this.hud = createHud(this.ctx);
-    this.stage.append(this.hud.el, this.screensEl, this.notice);
+    this.replay = new ReplayOverlay(this.ctx);
+    this.stage.append(this.hud.el, this.replay.el, this.screensEl, this.notice);
     this.root.appendChild(this.stage);
     container.appendChild(this.root);
 
@@ -308,6 +311,10 @@ class UiImpl implements XenoUI {
 
   show(screen: ScreenId): void {
     this.switchTo(screen, false);
+  }
+
+  setReplay(r: ReplayInfo | null): void {
+    this.replay.set(r);
   }
 
   handleInput(f: InputFrame): boolean {

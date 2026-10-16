@@ -232,3 +232,17 @@
 
 /* narrow stages: keep the traces clear of the instrument cluster by tucking them next to the minimap */
 .xr-stage[data-narrow] .hud-traces { left: 376px; margin-left: 0; width: 480px; }
+
+/* ── replay overlay ─────────────────────────────────────────────────────────── */
+
+.xr-replay { position: absolute; inset: 0; pointer-events: none; opacity: 0; visibility: hidden; transition: opacity 0.3s var(--ease), visibility 0s linear 0.3s; z-index: 4; }
+.xr-replay.on { opacity: 1; visibility: visible; transition: opacity 0.3s var(--ease), visibility 0s; }
+.rp-tag { position: absolute; left: 72px; top: 52px; display: flex; align-items: center; gap: 16px; padding: 12px 34px 12px 26px; font: 900 italic 38px / 1 var(--f-display); letter-spacing: 0.16em; text-transform: uppercase; color: #fff; background: rgba(4, 5, 8, 0.78); box-shadow: inset 4px 0 0 var(--pink); clip-path: polygon(16px 0, 100% 0, calc(100% - 16px) 100%, 0 100%); }
+.rp-dot { width: 15px; height: 15px; border-radius: 50%; background: var(--pink); animation: xr-blink 1.2s steps(1) infinite; }
+.rp-who { position: absolute; left: 80px; top: 124px; display: flex; align-items: center; gap: 14px; font: 700 26px / 1 var(--f-display); letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); text-shadow: 0 2px 8px rgba(0, 0, 0, 0.6); }
+.rp-who b { font-style: italic; font-weight: 800; color: #fff; }
+.rp-col { width: 6px; height: 28px; transform: skewX(-12deg); }
+.rp-time { position: absolute; left: 72px; right: 72px; bottom: 112px; height: 5px; background: rgba(255, 255, 255, 0.14); }
+.rp-time i { display: block; height: 100%; background: var(--teal); transform-origin: 0 50%; transform: scaleX(0); }
+.xr-replay .prompts { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .rp-dot { animation: none; } }

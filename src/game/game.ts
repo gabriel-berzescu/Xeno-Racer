@@ -52,6 +52,9 @@ import { ReplayPlayer, ReplayRecorder } from './replay';
 import { makeSpotter, updateSpotter, type SpotterBody, type SpotterState } from './spotter';
 import { collectHeadlamps, makeMirrorLamps } from './headlamps';
 
+/** Camera names for the replay overlay. */
+const CAMERA_LABEL: Record<CameraMode, string> = { chase: 'Chase', 'chase-far': 'Chase far', hood: 'Hood', bumper: 'Bumper', cockpit: 'Cockpit', tv: 'TV', orbit: 'Orbit' };
+
 export const VERSION = '0.9.0';
 
 interface RaceCar {
@@ -1204,6 +1207,7 @@ export class Game {
 
   private stopReplay(): void {
     this.replay = null;
+    this.ui.setReplay(null);
     // back to the race's own damage
     for (const c of this.cars) c.visual.damage?.replay(null, 0);
     this.effects?.clear();
@@ -1248,6 +1252,15 @@ export class Game {
     this.trackScene?.update(dt, this.camera.camera);
     this.audio.setListener(this.camera.camera, ts.velocity);
     this.render.render(this.camera.camera, dt, ts.speed);
+    const e = target.entrant;
+    this.ui.setReplay({
+      driver: e.name,
+      color: e.color,
+      position: this.session?.progress[r.target]?.position ?? r.target + 1,
+      camera: CAMERA_LABEL[this.camera.mode],
+      t: r.t,
+      duration: r.player.rec.duration,
+    });
   }
 
   private buildHud(now: number): HudState {
