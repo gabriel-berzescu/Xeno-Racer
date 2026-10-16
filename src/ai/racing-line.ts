@@ -7,6 +7,7 @@
  * (traction/power) and backward (braking) integration under a friction circle.
  */
 import type { CarDefinition, TrackRuntime } from '../core/contracts';
+import type { MechEffects } from '../core/mechanical';
 import { peakPower } from '../physics/engine';
 import { SURFACES, wetGripFactor } from '../physics/surfaces';
 
@@ -149,6 +150,30 @@ export interface ProfileOptions {
   brakeUse: number;
   /** Water on the track (0..1): wet tire grip and aquaplaning at speed. */
   wetness?: number;
+  /** Mechanical damage the car carries (src/core/mechanical.ts): less downforce and grip. Absent or null: a sound car. */
+  damage?: MechEffects | null;
+}
+
+/**
+ * How much of what the damage takes a driver gives up in the speed profile. The profile of a sound car already keeps clear of the
+ * limit (its grip use, the margin on top, the load the tyres lose to their own sensitivity), so a car that lost a tenth of its
+ * downforce still has the corner speeds of its profile in hand, in all but the fastest corners: a driver that gave up all of it would
+ * lose two to six times what the damage really costs (measured on all four circuits with a lone car that was not told: the
+ * physics alone costs 0.1 to 3 % of a lap, and the full adaptation 0.4 to 8 %). A quarter of it brakes earlier and carries less
+ * speed in the corners the damage hurts, and leaves the driver a little more room for the traffic around it.
+ */
+const SHARE = 0.25;
+
+/**
+ * What a damaged car can still give, as the factors the speed profile and the driver work with: `grip` (the camber errors of the
+ * tyres of the weaker axle) and `aero` (the downforce of the weaker end: the car is as loose or as tight as its worse end, so the
+ * total is not the measure). A sound car, or none, is 1, 1. The engine's power is left out on purpose: the car loses it whether the
+ * driver knows or not, and a driver on the throttle already has it flat out wherever the profile asks for more than the car has.
+ */
+export function damageFactors(fx: MechEffects | null | undefined): { grip: number; aero: number } {
+  if (!fx) return { grip: 1, aero: 1 };
+  const camber = Math.min((fx.camberGrip[0] + fx.camberGrip[1]) / 2, (fx.camberGrip[2] + fx.camberGrip[3]) / 2);
+  return { grip: 1 - SHARE * (1 - camber), aero: 1 - SHARE * (1 - Math.min(fx.aeroFront, fx.aeroRear)) };
 }
 
 /** Quasi-steady speed profile for one car on one line. */
@@ -156,13 +181,14 @@ export function computeSpeedProfile(track: TrackRuntime, line: RacingLine, def: 
   const n = line.n;
   const ph = def.physics;
   const m = ph.chassis.mass;
+  const dmg = damageFactors(o.damage);
   // wet: the tires' wet grip on asphalt, and aquaplaning that grows with speed (relative to 0 m/s)
   const wet = o.wetness ?? 0;
   const tireWet = Math.min(ph.tireFront.wetGrip ?? 0.72, ph.tireRear.wetGrip ?? 0.72);
   const wet0 = wetGripFactor(wet, tireWet, SURFACES.asphalt, 0);
   const aqua = (vv: number) => (wet > 0 ? wetGripFactor(wet, tireWet, SURFACES.asphalt, vv) / wet0 : 1);
-  const mu = Math.min(ph.tireFront.mu, ph.tireRear.mu) * 0.95 * o.gripUse * wet0;
-  const cDown = (0.5 * RHO * (ph.aero.liftAreaFront + ph.aero.liftAreaRear)) / m;
+  const mu = Math.min(ph.tireFront.mu, ph.tireRear.mu) * 0.95 * o.gripUse * wet0 * dmg.grip;
+  const cDown = ((0.5 * RHO * (ph.aero.liftAreaFront + ph.aero.liftAreaRear)) / m) * dmg.aero;
   const cDrag = (0.5 * RHO * ph.aero.dragArea) / m;
   const power = peakPower(ph.engine).watts * ph.drivetrain.efficiency * 0.92;
   const vTop = (def.stats.topSpeedKmh / 3.6) * 0.995;
