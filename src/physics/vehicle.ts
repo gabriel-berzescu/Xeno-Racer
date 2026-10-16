@@ -29,6 +29,23 @@ import { loadFactor, makeShape, shapeRatio, tempFactor, type TireShape } from '.
 const GRAVITY = 9.81;
 const AIR_DENSITY = 1.225;
 const AMBIENT_C = 24;
+/** Air temperature on a winter circuit: the tyres and the brakes cool towards it. */
+const WINTER_AMBIENT_C = -6;
+/**
+ * A snowbank (a soft barrier, `TrackPoint.softLeft/Right`) takes a car in over this depth (m) beyond the barrier line. Inside it a
+ * hull point meets a spring that stiffens with depth and a damper, and the bank only gives back a fraction of what it took (the
+ * snow is packed, not bounced off); past it the bank is as hard as the ground below.
+ */
+const BANK_DEPTH = 3.5;
+/** Stiffness (N/m per hull point) and damping (N·s/m) of a snowbank going in; coming out the snow gives back this share of the spring and holds on with its own damping. */
+const BANK_STIFFNESS = 12000;
+const BANK_DAMPING = 2600;
+const BANK_UNLOAD = 0.06;
+const BANK_OUT_DAMPING = 1800;
+/** Friction of the car's flank sliding along a snowbank (the snow drags and heaps against it). */
+const BANK_FRICTION = 0.25;
+/** A hit of a snowbank counts for this share of its closing speed as an impact (damage, sound): it is a thump, not a crash. */
+const BANK_IMPACT = 0.34;
 /** Slip denominators never go below this speed (m/s) — keeps slip finite at standstill. */
 const SLIP_VMIN = 3;
 /** Static suspension compression as a fraction of travel. */
@@ -68,7 +85,7 @@ const _torque = new Vector3();
 const _q1 = new Quaternion();
 const _ground: GroundSample = { height: 0, normal: new Vector3(0, 1, 0), surface: 'asphalt' };
 const _gN = new Vector3();
-const _tp: TrackPoint = { s: 0, d: 0, segment: 0, widthLeft: 0, widthRight: 0, wallLeft: 0, wallRight: 0, tx: 0, tz: 1, lx: 1, lz: 0, y: 0 };
+const _tp: TrackPoint = { s: 0, d: 0, segment: 0, widthLeft: 0, widthRight: 0, wallLeft: 0, wallRight: 0, softLeft: 0, softRight: 0, tx: 0, tz: 1, lx: 1, lz: 0, y: 0 };
 
 /** Deterministic per-vehicle PRNG (mulberry32). */
 function rng(seed: number) {
@@ -128,7 +145,7 @@ class WheelSim {
   escBrake = 0;
   skid = 0;
   tempC: number;
-  brakeTempC = AMBIENT_C + 60;
+  brakeTempC: number;
 
   constructor(
     readonly index: number,
@@ -143,11 +160,13 @@ class WheelSim {
     staticLoad: number,
     /** Height above the contact patch where horizontal tire forces act on the body (roll center). */
     readonly rcHeight: number,
+    ambient: number,
   ) {
     this.shape = makeShape(tire.slideRatio);
     this.tanPeakAlpha = Math.tan(tire.peakSlipAngle);
     this.springPre = staticLoad / susp.spring - STATIC_SAG * susp.travel;
     this.tempC = tire.optimalTemp - 0.35 * tire.tempWindow;
+    this.brakeTempC = ambient + 60;
   }
 
   get radius() {
@@ -166,8 +185,11 @@ export class Vehicle {
   holdOnGrid = false;
   /** Track grip multiplier (e.g. dusty/cold). */
   gripScale = 1;
-  /** 0..1 water on the track (set by the world): wet grip, aquaplaning, tread cooling. */
+  /** 0..1 water on the track (set by the world): wet grip, aquaplaning, tread cooling. On a winter circuit it is fresh snow. */
   wetness = 0;
+  /** A winter circuit (studded tyres, cold air, snowbanks), and its air temperature (°C). */
+  readonly winter: boolean;
+  private readonly ambient: number;
   /** Set each frame by the world: slipstream / dirty air. */
   dragMul = 1;
   downforceMul = 1;
@@ -254,6 +276,8 @@ export class Vehicle {
     this.inertia = new Vector3(c.inertia.x, c.inertia.y, c.inertia.z);
     this.invInertia = new Vector3(1 / c.inertia.x, 1 / c.inertia.y, 1 / c.inertia.z);
     this.rand = rng(0x9e3779b9 ^ (id * 7919));
+    this.winter = track.info.winter === true;
+    this.ambient = this.winter ? WINTER_AMBIENT_C : AMBIENT_C;
 
     const a = c.cgToFrontAxle;
     const b = c.wheelbase - a;
@@ -265,7 +289,7 @@ export class Vehicle {
       const track = front ? c.trackFront : c.trackRear;
       const yExt = tire.radius - c.cgHeight - STATIC_SAG * susp.travel;
       const rc = c.cgHeight * (front ? 0.16 : 0.24);
-      return new WheelSim(i, front, left, (left ? 1 : -1) * track / 2, front ? a : -b, yExt, tire, susp, front ? frontStatic : rearStatic, rc);
+      return new WheelSim(i, front, left, (left ? 1 : -1) * track / 2, front ? a : -b, yExt, tire, susp, front ? frontStatic : rearStatic, rc, this.ambient);
     };
     this.wheels = [mk(0, true, true), mk(1, true, false), mk(2, false, true), mk(3, false, false)];
     const dt = s.drivetrain;
@@ -331,8 +355,8 @@ export class Vehicle {
       forceLong: 0,
       forceLat: 0,
       skid: 0,
-      tempC: AMBIENT_C,
-      brakeTempC: AMBIENT_C,
+      tempC: this.ambient,
+      brakeTempC: this.ambient,
     });
     this.state = {
       id,
@@ -421,11 +445,12 @@ export class Vehicle {
 
   /** Warm tires / brakes to racing temperature (after a formation lap) or reset to cold. */
   setTemperatures(tireFraction: number): void {
+    const water = this.winter ? 0 : this.wetness;
     for (const wh of this.wheels) {
       // (in the wet the working window sits 30 °C lower — see the grip calculation)
-      const optimal = Math.max(AMBIENT_C + 5, wh.tire.optimalTemp - 30 * this.wetness);
-      wh.tempC = AMBIENT_C + (optimal - AMBIENT_C) * tireFraction;
-      wh.brakeTempC = AMBIENT_C + 150 * tireFraction;
+      const optimal = Math.max(this.ambient + 5, wh.tire.optimalTemp - 30 * water);
+      wh.tempC = this.ambient + (optimal - this.ambient) * tireFraction;
+      wh.brakeTempC = this.ambient + 150 * tireFraction;
     }
   }
 
@@ -728,8 +753,9 @@ export class Vehicle {
       wh.vLat = vLat;
       const surf = SURFACES[wh.surface];
       const wet = this.wetness > 0 ? wetGripFactor(this.wetness, tire.wetGrip ?? 0.72, surf, Math.abs(vLong)) : 1;
-      // (wet-weather rubber works ~30 °C cooler than its dry window)
-      const tWork = wh.tempC + 30 * this.wetness;
+      // (wet-weather rubber works ~30 °C cooler than its dry window; on a winter circuit the "water" is snow and the tyre has no such window)
+      const water = this.winter ? 0 : this.wetness;
+      const tWork = wh.tempC + 30 * water;
       const mu = tire.mu * surf.grip * loadFactor(wh.load, tire) * tempFactor(tWork, tire) * this.gripScale * wet * wh.camberGrip;
       const aLong = Math.abs(vLong);
       const denom = aLong > SLIP_VMIN ? aLong : SLIP_VMIN;
@@ -750,8 +776,8 @@ export class Vehicle {
       // (a camber error also pushes the tyre sideways, towards the lean)
       wh.fy = -F * ratio * sy + wh.camberThrust * wh.load;
       wh.implicitD = (wh.radius * wh.radius * F * ratio * 1.08) / tire.peakSlipRatio / denom;
-      // (on a wet road the tread also has to push water aside)
-      wh.rollingTorque = (tire.rollingResistance + surf.rolling + (surf.paved ? 0.004 * this.wetness : 0)) * wh.load * wh.radius + 2;
+      // (on a wet road the tread also has to push water aside, and on a winter one fresh snow aside)
+      wh.rollingTorque = (tire.rollingResistance + surf.rolling + (surf.paved ? 0.004 * this.wetness : 0) + (surf.fresh !== undefined ? 0.016 * this.wetness : 0)) * wh.load * wh.radius + 2;
       wh.kappa = kappa;
       wh.alpha = Math.atan(tAu);
       wh.rho = rho;
@@ -761,7 +787,7 @@ export class Vehicle {
       const pSlip = Math.abs(wh.fx * (wh.omega * wh.radius - vLong)) + Math.abs(wh.fy * vLat);
       const heat = 0.18 * pSlip + 0.006 * wh.load * aLong;
       // (a water film cools the tread hard — slicks struggle to stay warm in the rain)
-      const cool = (6 + 0.55 * aLong) * (1 + 1.1 * this.wetness) * (wh.tempC - AMBIENT_C);
+      const cool = (6 + 0.55 * aLong) * (1 + 1.1 * water) * (wh.tempC - this.ambient);
       wh.tempC += ((heat - cool) / 2600) * dt;
     }
 
@@ -803,7 +829,16 @@ export class Vehicle {
     if (as.esc && fwdSpeed > 8 && contacts >= 3) {
       const L = ch.wheelbase;
       const yaw = w.dot(ay);
-      const maxYaw = (tire0.mu * GRAVITY) / fwdSpeed;
+      // (the most yaw rate the road can hold: the tyre's friction on the surface it is on, 1 on asphalt, half on packed snow)
+      let gripSum = 0;
+      let loadSum = 0;
+      for (const wh of wheels) {
+        if (!wh.contact) continue;
+        const sf = SURFACES[wh.surface];
+        gripSum += wh.load * sf.grip * (sf.fresh !== undefined ? 1 + (sf.fresh - 1) * this.wetness : 1);
+        loadSum += wh.load;
+      }
+      const maxYaw = (tire0.mu * (loadSum > 0 ? gripSum / loadSum : 1) * GRAVITY) / fwdSpeed;
       // (the steering the car answers is the rack's plus the mean toe of the front wheels: a car pulling to one side is driven with
       // the wheel held the other way, and stability control must not mistake that steering for a turn the car is not making)
       const ref = clamp((fwdSpeed * (sa + this.toeMean)) / (L + 0.0022 * fwdSpeed * fwdSpeed), -maxYaw, maxYaw);
@@ -833,7 +868,7 @@ export class Vehicle {
     for (const wh of wheels) {
       const pBrake = wh.brakeTorque * Math.abs(wh.omega);
       const cap = s.brakes.discHeatCapacity * (wh.front ? 1 : 0.8);
-      const cool = (6 + 1.6 * Math.abs(wh.vLong)) * (wh.brakeTempC - AMBIENT_C) * 0.6;
+      const cool = (6 + 1.6 * Math.abs(wh.vLong)) * (wh.brakeTempC - this.ambient) * 0.6;
       wh.brakeTempC += ((pBrake * 0.92 - cool) / cap) * dt;
       wh.spin += wh.omega * dt;
       if (wh.spin > 1e4 || wh.spin < -1e4) wh.spin %= Math.PI * 2;
@@ -906,7 +941,7 @@ export class Vehicle {
     // ── collisions ──────────────────────────────────────────────────────────
     this.impactCooldown -= dt;
     this.scrapeAcc *= 1 - dt * 6;
-    this.collideWalls();
+    this.collideWalls(dt);
     this.collideGround(ay);
 
     // ── integrate positions ─────────────────────────────────────────────────
@@ -1202,6 +1237,63 @@ export class Vehicle {
     if (pen > 0.004) this.p.addScaledVector(n, (pen - 0.004) * 0.25);
   }
 
+  /**
+   * A hull point in a snowbank: P is `pen` metres past the barrier line, n points back to the road. The bank is not a wall that
+   * answers with an impulse but a body of packed snow that gives way:
+   *   - a spring that stiffens with depth and a damper while the point moves in, so the car is slowed over a metre or more
+   *     (a few g at a hard hit) instead of stopped in a millisecond;
+   *   - on the way out only a fifth of that spring, and no damper: the snow stays packed, it does not throw the car back, it
+   *     lets it go and pushes it gently towards the road;
+   *   - the flank drags along it, heaping snow against it (the friction rises with how hard the car presses);
+   *   - past BANK_DEPTH it is as hard as the frozen ground under it (an inelastic stop).
+   * The hit registers as a `snow` impact at a third of its closing speed: a thump the damage model hardly feels.
+   */
+  private resolveBank(P: Vector3, n: Vector3, pen: number, dt: number): void {
+    this.debugWallHits++;
+    const v = this.v;
+    const w = this.w;
+    const r = _r.subVectors(P, this.p);
+    const vp = _v2.crossVectors(w, r).add(v);
+    const vn = vp.dot(n);
+    const depth = pen < BANK_DEPTH ? pen : BANK_DEPTH;
+    let F = BANK_STIFFNESS * depth * (1 + depth / BANK_DEPTH);
+    if (vn < 0) F -= BANK_DAMPING * vn;
+    else {
+      F = F * BANK_UNLOAD - BANK_OUT_DAMPING * vn;
+      if (F < 0) F = 0;
+    }
+    const j = F * dt;
+    if (j > 0) {
+      const rn = _t.crossVectors(r, n);
+      this.applyInvInertia(rn);
+      v.addScaledVector(n, j * this.invMass);
+      w.addScaledVector(rn, j);
+      // the flank drags along the snow
+      const vt2 = vp.lengthSq() - vn * vn;
+      if (vt2 > 1e-6) {
+        const vt = Math.sqrt(vt2);
+        // tangential direction of the contact point's velocity (vp is the velocity before this impulse)
+        _v3.copy(vp).addScaledVector(n, -vn).multiplyScalar(1 / vt);
+        const jt = Math.min(BANK_FRICTION * j * (vt / (vt + 0.4)), vt / (this.invMass + 1e-9) * 0.5);
+        const rt = _t.crossVectors(r, _v3);
+        this.applyInvInertia(rt);
+        v.addScaledVector(_v3, -jt * this.invMass);
+        w.addScaledVector(rt, -jt);
+      }
+    }
+    const strength = -vn * BANK_IMPACT;
+    if (strength > 1.0 && (this.impactCooldown <= 0 || strength > this.state.lastImpact.strength * 1.5)) {
+      this.state.impactCount++;
+      this.state.lastImpact.strength = strength;
+      this.state.lastImpact.point.copy(P);
+      this.state.lastImpact.normal.copy(n);
+      this.state.lastImpact.kind = 'snow';
+      this.impactCooldown = 0.12;
+    }
+    // the frozen ground under the bank
+    if (pen > BANK_DEPTH) this.resolveStatic(P, n, pen - BANK_DEPTH, 0, 0.5, 'wall');
+  }
+
   /** v ← I⁻¹_world · v (in place). */
   private applyInvInertia(vec: Vector3): void {
     _q1.copy(this.q).invert();
@@ -1212,7 +1304,7 @@ export class Vehicle {
     vec.applyQuaternion(this.q);
   }
 
-  private collideWalls(): void {
+  private collideWalls(dt: number): void {
     const tr = this.track;
     this.comHint = tr.project(this.p.x, this.p.z, _tp, this.comHint);
     const margin = this.hullRadiusXZ + 0.3;
@@ -1225,18 +1317,22 @@ export class Vehicle {
       const penL = _tp.d - _tp.wallLeft;
       const penR = -_tp.d - _tp.wallRight;
       let pen = 0;
+      let soft = 0;
       if (penL > 0) {
         n.set(-_tp.lx, 0, -_tp.lz);
         pen = penL;
+        soft = _tp.softLeft ?? 0;
       } else if (penR > 0) {
         n.set(_tp.lx, 0, _tp.lz);
         pen = penR;
+        soft = _tp.softRight ?? 0;
       } else continue;
       // copy n: resolveStatic uses _f as scratch
       const nx = n.x;
       const nz = n.z;
       _wallN.set(nx, 0, nz);
-      this.resolveStatic(P, _wallN, pen, 0.22, 0.32, 'wall');
+      if (soft > 0.5) this.resolveBank(P, _wallN, pen, dt);
+      else this.resolveStatic(P, _wallN, pen, 0.22, 0.32, 'wall');
     }
   }
 

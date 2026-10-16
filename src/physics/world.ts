@@ -4,6 +4,7 @@
  */
 import { Quaternion, Vector3 } from 'three';
 import type { CarDefinition, TrackRuntime, VehicleState } from '../core/contracts';
+import { fitCar } from './compound';
 import { Vehicle } from './vehicle';
 
 const _d = new Vector3();
@@ -64,7 +65,8 @@ export class PhysicsWorld {
   }
 
   addVehicle(def: CarDefinition): Vehicle {
-    const v = new Vehicle(this.nextId++, def, this.track);
+    // (a winter circuit puts every car on studded winter tyres; the car itself is returned on a road circuit)
+    const v = new Vehicle(this.nextId++, fitCar(def, this.track), this.track);
     v.wetness = this.wet;
     this.vehicles.push(v);
     return v;

@@ -132,6 +132,10 @@ const SURF: Record<SurfaceType, SurfaceLook> = {
   gravel: { r: 0.56, g: 0.53, b: 0.49, dust: 1.0, dustAlpha: 0.26, tr: 0.11, tg: 0.1, tb: 0.09, trAlpha: 0.3, chips: 1.0 },
   sand: { r: 0.8, g: 0.68, b: 0.46, dust: 1.3, dustAlpha: 0.36, tr: 0.3, tg: 0.24, tb: 0.15, trAlpha: 0.28, chips: 0.2 },
   dirt: { r: 0.44, g: 0.33, b: 0.22, dust: 1.0, dustAlpha: 0.26, tr: 0.055, tg: 0.04, tb: 0.028, trAlpha: 0.42, chips: 0.7 },
+  // snow: bright, fine powder that hangs in the air; ice throws little, and fine; a snowbank or deep snow throws heaps
+  snow: { r: 0.86, g: 0.9, b: 0.96, dust: 1.1, dustAlpha: 0.36, tr: 0.42, tg: 0.46, tb: 0.54, trAlpha: 0.3, chips: 0.35 },
+  ice: { r: 0.88, g: 0.93, b: 1.0, dust: 0.45, dustAlpha: 0.28, tr: 0.5, tg: 0.56, tb: 0.66, trAlpha: 0.22, chips: 0.15 },
+  deepsnow: { r: 0.88, g: 0.92, b: 0.98, dust: 2.0, dustAlpha: 0.5, tr: 0.4, tg: 0.44, tb: 0.52, trAlpha: 0.34, chips: 0.5 },
 };
 
 const _q = new Vector3();

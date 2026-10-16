@@ -9,6 +9,12 @@ export interface FlatTrackOptions {
   halfWidth?: number;
   wall?: number;
   length?: number;
+  /** Surface of the whole plane (default asphalt). */
+  surface?: SurfaceType;
+  /** A winter circuit: studded winter tyres, cold air (TrackInfo.winter). */
+  winter?: boolean;
+  /** The walls are snowbanks (soft barriers). */
+  softWalls?: boolean;
   /** Surface for x > 0 half-plane (default asphalt everywhere). */
   leftSurface?: SurfaceType;
   /** Slope along +Z (rise/run). */
@@ -35,7 +41,7 @@ export function createFlatTrack(opts: FlatTrackOptions = {}): TrackRuntime {
   }
   const height = (x: number, z: number) => z * slope + x * side;
   const rt: TrackRuntime = {
-    info: { id: 'flat', name: 'Proving Ground', location: 'Test', description: 'Flat pad', difficulty: 1, defaultLaps: 1, defaultTimeOfDay: 'noon', lengthHint: length, color: '#888' },
+    info: { id: 'flat', name: 'Proving Ground', location: 'Test', description: 'Flat pad', difficulty: 1, defaultLaps: 1, defaultTimeOfDay: 'noon', lengthHint: length, color: '#888', ...(opts.winter ? { winter: true } : {}) },
     length,
     spacing,
     count,
@@ -52,7 +58,7 @@ export function createFlatTrack(opts: FlatTrackOptions = {}): TrackRuntime {
     groundAt(x: number, z: number, out: GroundSample): number {
       out.height = height(x, z);
       out.normal.copy(normal);
-      out.surface = opts.leftSurface && x > 0 ? opts.leftSurface : 'asphalt';
+      out.surface = opts.leftSurface && x > 0 ? opts.leftSurface : (opts.surface ?? 'asphalt');
       return 0;
     },
     project(x: number, z: number, out: TrackPoint): number {
@@ -63,6 +69,8 @@ export function createFlatTrack(opts: FlatTrackOptions = {}): TrackRuntime {
       out.widthRight = halfWidth;
       out.wallLeft = wall;
       out.wallRight = wall;
+      out.softLeft = opts.softWalls ? 1 : 0;
+      out.softRight = opts.softWalls ? 1 : 0;
       out.tx = 0;
       out.tz = 1;
       out.lx = 1;

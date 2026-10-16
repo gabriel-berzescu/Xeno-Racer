@@ -16,6 +16,10 @@ const SURF_INDEX: Record<SurfaceType, number> = {
   gravel: 3,
   sand: 4,
   dirt: 5,
+  // (the winter surfaces get their own voices later: for now they sound like dirt)
+  snow: 5,
+  ice: 5,
+  deepsnow: 5,
 };
 
 /** Rotate (px,py,pz) by the inverse of quaternion q (world -> car frame), returning the local X (left). */

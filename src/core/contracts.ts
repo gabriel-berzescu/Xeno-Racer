@@ -34,7 +34,10 @@ export type SurfaceType =
   | 'grass'
   | 'gravel' // gravel trap: low grip, huge rolling drag
   | 'sand'
-  | 'dirt';
+  | 'dirt'
+  | 'snow' // packed snow (the winter road): about half the grip of dry asphalt
+  | 'ice' // studded ice (a frozen lake)
+  | 'deepsnow'; // loose snow off the road and the foot of a snowbank: soft, draggy, bogs a car down
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Track (owner: track)
@@ -63,6 +66,9 @@ export interface TrackPoint {
   /** Distance from centerline to the barrier faces at s (m, positive). The car must stay within. */
   wallLeft: number;
   wallRight: number;
+  /** How soft the barrier on each side is at s: 0 = a hard wall (concrete, steel, tyres), 1 = a snowbank that takes a car in and slows it. Absent = 0. */
+  softLeft?: number;
+  softRight?: number;
   /** Unit horizontal tangent (direction of travel) at s. */
   tx: number;
   tz: number;
@@ -109,6 +115,11 @@ export interface TrackInfo {
   color: string;
   /** Lit for racing after dark (the menus only pick a night attract race on these). */
   floodlit?: boolean;
+  /**
+   * A winter circuit: snow and ice under studded winter tyres, snowbanks for barriers, cold air. Precipitation is snow there (the
+   * 'rain' and 'storm' weathers are snowfall and a blizzard), and the "water" on the track is fresh snow.
+   */
+  winter?: boolean;
 }
 
 /**
@@ -200,7 +211,7 @@ export interface WheelState {
   brakeTempC: number; // disc temperature (glows above ~450 °C)
 }
 
-export type ImpactKind = 'wall' | 'car' | 'ground';
+export type ImpactKind = 'wall' | 'car' | 'ground' | 'snow';
 
 export interface VehicleState {
   id: number;

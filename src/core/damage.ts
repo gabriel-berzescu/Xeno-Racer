@@ -767,10 +767,12 @@ export class ImpactObserver {
       if (li.kind !== 'ground' && li.strength >= DAMAGE_TUNING.hitMin) {
         const pos: V3 = [st.position.x, st.position.y, st.position.z];
         const q: Quat = { x: st.quaternion.x, y: st.quaternion.y, z: st.quaternion.z, w: st.quaternion.w };
-        const loc = this.locate(pos, q, [li.point.x, li.point.y, li.point.z], [li.normal.x, li.normal.y, li.normal.z], li.kind === 'wall');
-        const other = li.kind === 'car' ? this.otherAt?.(li.point.x, li.point.y, li.point.z) : undefined;
+        // (a snowbank marks a car like a wall does, only its strength is already a third of the closing speed: see Vehicle.resolveBank)
+        const kind: 'wall' | 'car' = li.kind === 'car' ? 'car' : 'wall';
+        const loc = this.locate(pos, q, [li.point.x, li.point.y, li.point.z], [li.normal.x, li.normal.y, li.normal.z], kind === 'wall');
+        const other = kind === 'car' ? this.otherAt?.(li.point.x, li.point.y, li.point.z) : undefined;
         const slide = this.slideOf(st, q, [li.normal.x, li.normal.y, li.normal.z], other);
-        const ev: HitEvent = { type: 'hit', kind: li.kind, strength: li.strength, p: loc.p, n: loc.n, slide };
+        const ev: HitEvent = { type: 'hit', kind, strength: li.strength, p: loc.p, n: loc.n, slide };
         if (other) ev.paint = other.paint;
         emit(ev);
       }
