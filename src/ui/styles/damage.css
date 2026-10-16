@@ -8,7 +8,7 @@
   right: 616px;
   bottom: 48px;
   width: 130px;
-  height: 222px;
+  height: 214px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -23,8 +23,8 @@
 .hud-dmg::after { content: ''; position: absolute; left: 16px; right: 0; top: 0; height: 2px; background: linear-gradient(90deg, var(--warn), rgba(255, 176, 32, 0) 75%); }
 .dmg-k { font: 600 15px / 1 var(--f-display); letter-spacing: 0.22em; padding-left: 0.22em; text-transform: uppercase; color: rgba(238, 240, 243, 0.62); }
 
-/* narrow stages put the telemetry traces next to the minimap, in this panel's way: it steps up out of it */
-.xr-stage[data-narrow] .xr-hud > .hud-dmg { bottom: 250px; }
+/* narrow stages put the telemetry traces next to the minimap, in this panel's way: with the telemetry on it steps up out of it */
+.xr-stage[data-narrow] .xr-hud > .hud-dmg.tele { bottom: 250px; }
 
 .dmg-car { display: block; width: 88px; height: 156px; overflow: visible; }
 .dmg-body { fill: rgba(238, 240, 243, 0.1); }
@@ -32,7 +32,7 @@
 .dmg-cabin { fill: rgba(4, 5, 8, 0.55); stroke: rgba(238, 240, 243, 0.16); stroke-width: 0.8; }
 
 .dz, .dw { --hot: 0; --on: 0; }
-.dz { --c: color-mix(in srgb, var(--bad) calc(var(--hot) * 100%), var(--warn)); fill: var(--c); opacity: calc(var(--on) * (0.42 + 0.58 * var(--hot))); }
+.dz { --c: color-mix(in srgb, var(--bad) calc(var(--hot) * 100%), var(--warn)); fill: var(--c); opacity: calc(var(--on) * (0.78 + 0.22 * var(--hot))); }
 .dw { fill: color-mix(in srgb, color-mix(in srgb, var(--bad) calc(var(--hot) * 100%), var(--warn)) calc(var(--on) * 100%), #3b404b); stroke: rgba(238, 240, 243, 0.5); stroke-width: 1; }
 .hud-dmg.hit0 .dmg-car { animation: xr-dmg-a 0.9s ease-out; }
 .hud-dmg.hit1 .dmg-car { animation: xr-dmg-b 0.9s ease-out; }

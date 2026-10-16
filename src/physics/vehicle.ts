@@ -175,6 +175,8 @@ export class Vehicle {
   private aeroFrontMul = 1;
   private aeroRearMul = 1;
   private powerMul = 1;
+  /** The mean toe of the front wheels (rad, + = pointing left): the steering angle that goes straight is the rack's minus this. */
+  private toeMean = 0;
   /** The mechanical damage the car carries now, or null when it is sound. */
   private damage: MechEffects | null = null;
 
@@ -438,6 +440,7 @@ export class Vehicle {
     this.aeroFrontMul = fx ? fx.aeroFront : 1;
     this.aeroRearMul = fx ? fx.aeroRear : 1;
     this.powerMul = fx ? fx.power : 1;
+    this.toeMean = fx ? 0.5 * (fx.toe[0] + fx.toe[1]) : 0;
     for (let i = 0; i < 4; i++) {
       const wh = this.wheels[i];
       wh.toe = fx ? fx.toe[i] : 0;
@@ -800,7 +803,9 @@ export class Vehicle {
       const L = ch.wheelbase;
       const yaw = w.dot(ay);
       const maxYaw = (tire0.mu * GRAVITY) / fwdSpeed;
-      const ref = clamp((fwdSpeed * sa) / (L + 0.0022 * fwdSpeed * fwdSpeed), -maxYaw, maxYaw);
+      // (the steering the car answers is the rack's plus the mean toe of the front wheels: a car pulling to one side is driven with
+      // the wheel held the other way, and stability control must not mistake that steering for a turn the car is not making)
+      const ref = clamp((fwdSpeed * (sa + this.toeMean)) / (L + 0.0022 * fwdSpeed * fwdSpeed), -maxYaw, maxYaw);
       const err = yaw - ref;
       const dead = 0.06 + 0.12 * Math.abs(ref);
       if (Math.abs(err) > dead) {

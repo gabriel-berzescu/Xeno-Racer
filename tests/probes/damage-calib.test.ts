@@ -118,7 +118,8 @@ function stickFor(def: CarDefinition, kmh: number, f: number): number {
   const scale = 1 + (limit - 1) * c.speedSensitivity;
   const processed = Math.min(1, Math.abs(f) / scale);
   const curved = Math.pow(processed, 1 / c.steerLinearity);
-  return Math.abs(f) < 1e-4 ? 0 : c.steerDeadzone + (1 - c.steerDeadzone) * curved;
+  // (a trim under a hundredth of a degree is the bisection's noise, not a stick held)
+  return Math.abs(f) < 5e-4 ? 0 : c.steerDeadzone + (1 - c.steerDeadzone) * curved;
 }
 
 /** Holds the car on the line x = 0 heading +Z like a driver would (a pull is corrected, not ignored). */

@@ -6,6 +6,7 @@
  */
 import '../styles/damage.css';
 import type { HudDamage, HudState } from '../../core/contracts';
+import { DAMAGE_SHOWN } from '../../core/mechanical';
 import { ClassSlot, h, svg } from '../dom';
 
 /** How long the indicator stays up after the damage last changed (ms), and the steps a level is drawn in. */
@@ -74,7 +75,8 @@ export class DamageGlyph {
     let changed = false;
     for (let i = 0; i < PARTS.length; i++) {
       const v = !d ? 0 : i === 0 ? d.front : i === 1 ? d.rear : i === 2 ? d.left : i === 3 ? d.right : d.wheels[i - 4];
-      const q = Math.round(Math.max(0, Math.min(1, v)) * STEPS);
+      // (a part under DAMAGE_SHOWN is not drawn as hurt, the first step from there up is amber)
+      const q = v < DAMAGE_SHOWN ? 0 : Math.max(1, Math.round(Math.min(1, v) * STEPS));
       if (q === this.q[i]) continue;
       this.q[i] = q;
       changed = true;
@@ -107,14 +109,42 @@ export function damageChip(d: HudDamage): HTMLElement {
   return h('div', 'kv dmg-chip', h('span', 'k', 'Car damage'), h('div', 'v', g.el, h('span', 'dmg-word l' + damageLevel(d), damageWord(d))));
 }
 
+/**
+ * When the indicator is up: for a few seconds after what is drawn last changed (a hit that bent something, or the first look at a car
+ * that already carries damage), and never while the car is sound. Each change is a new pulse, alternately 1 and 2 so that an animation
+ * on the class restarts. No DOM, so it is tested on its own.
+ */
+export class DamageShow {
+  private until = 0;
+  private flip = 0;
+  /** Up now? */
+  on = false;
+  /** 0, or 1 / 2 on the step that began a pulse. */
+  pulse = 0;
+
+  step(moved: boolean, sound: boolean, now: number): void {
+    this.pulse = 0;
+    if (sound) {
+      this.on = false;
+      this.until = 0;
+      return;
+    }
+    if (moved) {
+      this.until = now + SHOW_MS;
+      this.pulse = (this.flip ^= 1) + 1;
+    }
+    this.on = now < this.until;
+  }
+}
+
 /** The panel on the race HUD. */
 export class DamageHud {
   readonly el: HTMLElement;
   private readonly glyph = new DamageGlyph();
   private readonly cls: ClassSlot;
-  private until = 0;
-  private flip = 0;
+  private readonly when = new DamageShow();
   private shown = false;
+  private tele = false;
 
   constructor(hud: HTMLElement) {
     this.el = h('div', 'hud-dmg', h('span', 'dmg-k', 'Damage'), this.glyph.el);
@@ -124,19 +154,14 @@ export class DamageHud {
 
   update(s: HudState, now: number): void {
     const moved = this.glyph.set(s.damage ?? null);
-    if (this.glyph.sound) {
-      this.show(false, 0);
-      return;
-    }
-    // a hit that changed what is drawn (or the first look at a car that already carries damage): up for a few seconds
-    if (moved) this.until = now + SHOW_MS;
-    this.show(now < this.until, moved ? (this.flip ^= 1) + 1 : 0);
-  }
-
-  private show(on: boolean, hit: number): void {
-    if (on !== this.shown || hit) {
+    this.when.step(moved, this.glyph.sound, now);
+    const { on, pulse } = this.when;
+    // (the telemetry overlay puts its traces where the panel would be on a narrow stage: the panel steps up out of the way)
+    const tele = s.showTelemetry;
+    if (on !== this.shown || pulse || tele !== this.tele) {
       this.shown = on;
-      this.cls.set('hud-dmg' + (on ? ' show' : '') + (hit ? ' hit' + (hit - 1) : ''));
+      this.tele = tele;
+      this.cls.set('hud-dmg' + (on ? ' show' : '') + (tele ? ' tele' : '') + (pulse ? ' hit' + (pulse - 1) : ''));
     }
   }
 }

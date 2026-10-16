@@ -62,6 +62,13 @@ describe('what a hit counts for', () => {
     }
   });
 
+  it('shows a part to the driver from a hit of about 19 km/h of closing speed up, and not a tap', () => {
+    expect(DAMAGE_SHOWN).toBe(0.05);
+    expect(hitWear(5.2)).toBeLessThan(DAMAGE_SHOWN);
+    expect(hitWear(5.4)).toBeGreaterThan(DAMAGE_SHOWN);
+    for (const s of [1.3, 2.6, 3.2, 4, 5]) expect(hitWear(s)).toBeLessThan(DAMAGE_SHOWN);
+  });
+
   it('gives a pack race next to nothing, a 60 km/h tap a little, and a real crash a good deal', () => {
     // (closing speeds measured in tests/damage-probe.test.ts: 25 degrees at 60 km/h 6 m/s, at 100 km/h 11, head on at 60 km/h 14,
     // 25 degrees at 200 km/h 23, head on at 100 km/h 27 and at 200 km/h 56)
@@ -358,6 +365,39 @@ describe('what the damage does to the car', () => {
     expect(rear.headingDeg).toBeLessThan(-2);
     // nose and tail pull nowhere
     for (const w of [{ front: 1 }, { rear: 1 }, { front: 1, rear: 1, wheels: [1, 1, 1, 1] as [number, number, number, number] }]) expect(Math.abs(wander(vanta, fx(w), 150, 0).headingDeg)).toBeLessThan(0.1);
+  });
+
+  it('does not let the stability control fight the stick held against a pull', () => {
+    // A driver whose car pulls left holds the wheel a little to the right to go straight. Stability control that read that as a turn the
+    // car is not making ("understeer") would brake a rear wheel and cut the throttle all down the straight (it did: 0.5 s a lap).
+    const hurt = fx({ wheels: [1, 0, 0, 0] });
+    // the steering that holds it straight, found with the control off
+    let lo = -0.1;
+    let hi = 0.1;
+    for (let k = 0; k < 12; k++) {
+      const mid = (lo + hi) / 2;
+      if (wander(vanta, hurt, 200, mid, 3).headingDeg > 0) lo = mid;
+      else hi = mid;
+    }
+    const trim = (lo + hi) / 2;
+    expect(trim).toBeGreaterThan(0.012);
+    const run = (esc: boolean): { active: number; kmh: number } => {
+      const { world, v } = car(vanta, 200, hurt);
+      v.assists.esc = esc;
+      let active = 0;
+      for (let i = 0; i < 360; i++) {
+        v.controls.steer = trim;
+        v.controls.throttle = Math.min(1, Math.max(0, 0.25 + (200 / 3.6 - v.state.forwardSpeed) * 0.3));
+        world.step(1 / 60);
+        // (the first moments are the car settling onto the steering: the control may speak then; after that, never)
+        if (i >= 60 && v.state.escActive) active++;
+      }
+      return { active: active / 300, kmh: v.state.speed * 3.6 };
+    };
+    const on = run(true);
+    const off = run(false);
+    expect(on.active).toBeLessThan(0.01); // (it was active in nine frames of ten, with the steering read as a turn)
+    expect(Math.abs(on.kmh - off.kmh)).toBeLessThan(0.5);
   });
 
   it('pulls harder the more it is bent, and is the same every time', () => {

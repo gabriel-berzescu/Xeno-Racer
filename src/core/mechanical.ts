@@ -30,6 +30,8 @@
  * left like a steering angle, which makes a toed-out left wheel positive and a toed-out right wheel negative.
  */
 
+import type { HudDamage } from './contracts';
+
 const DEG = Math.PI / 180;
 
 export const MECH_TUNING = {
@@ -175,7 +177,7 @@ export function mechanicalEffects(m: MechState, out: MechEffects = neutralEffect
 }
 
 /** What the HUD draws: how hurt each part is, 0..1. */
-export function mechanicalReport(m: MechState, out: { front: number; rear: number; left: number; right: number; wheels: [number, number, number, number] }): void {
+export function mechanicalReport(m: MechState, out: HudDamage): void {
   out.front = wear(m.front);
   out.rear = wear(m.rear);
   out.left = wear(m.wheel[0] + m.wheel[2]);
@@ -183,8 +185,12 @@ export function mechanicalReport(m: MechState, out: { front: number; rear: numbe
   for (let i = 0; i < 4; i++) out.wheels[i] = wear(m.wheel[i]);
 }
 
-/** The wear of a part from which the HUD shows it (under a fiftieth the car drives as it did: a few taps are not a damaged car). */
-export const DAMAGE_SHOWN = 0.02;
+/**
+ * The wear of a part from which the HUD shows it. Under a twentieth the car drives as it did (a tenth of a degree of toe, not a
+ * pull a driver could feel against a thumbstick's dead zone), so a few taps are not a damaged car: a single hit of 5.3 m/s, 19 km/h
+ * of closing speed, on a part that takes all of it, is the smallest that shows.
+ */
+export const DAMAGE_SHOWN = 0.05;
 
 /** The worst part of the car, 0..1 (the HUD lights the indicator by it, the tests read it). */
 export function mechanicalWorst(m: MechState): number {
