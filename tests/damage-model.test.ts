@@ -576,7 +576,10 @@ describe('settings', () => {
       expect(s.damage).toBe('visual');
       store['xeno-racer.settings.v1'] = JSON.stringify({ damage: 'off' });
       expect(loadSettings().damage).toBe('off');
+      // (Full has been a mode since the mechanical damage came: a word nobody knows still falls back)
       store['xeno-racer.settings.v1'] = JSON.stringify({ damage: 'full' });
+      expect(loadSettings().damage).toBe('full');
+      store['xeno-racer.settings.v1'] = JSON.stringify({ damage: 'brutal' });
       expect(loadSettings().damage).toBe('visual');
       store['xeno-racer.settings.v1'] = JSON.stringify({ damage: 3 });
       expect(loadSettings().damage).toBe('visual');

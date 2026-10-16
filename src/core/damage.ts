@@ -9,11 +9,15 @@
  * events it recorded (CarDamage.syncTo). Body frame = the car visual's frame: origin on the ground between the axles,
  * +Z forward, +X left, +Y up.
  *
+ * The same hits also feed the mechanical damage (src/core/mechanical.ts: bent suspension, lost downforce, a tired engine): each
+ * CarDamage keeps it next to the dents, and the game puts it on the physics only in Settings: Damage, Full.
+ *
  * Calibration (tests/damage-probe.test.ts measures it): `strength` is the closing speed along the contact normal in
  * m/s. A 4 degree graze of a barrier at 200 km/h reads 3 m/s, a 25 degree one 23 m/s, head on at 60 km/h 14 m/s and at
  * 200 km/h 56 m/s. The hits between AI cars in a pack race read 1.3 to 3.2 m/s.
  */
 import type { CarVisualSpec, DamageMode, VehicleState } from './contracts';
+import { MechState, axleShare, hitEnergy } from './mechanical';
 
 export type V3 = [number, number, number];
 
@@ -49,7 +53,7 @@ export const DAMAGE_TUNING = {
   glassRadiusMax: 0.4,
   /** hits closer than this many mean radii merge into one dent */
   mergeReach: 0.8,
-  /** energy at which a zone counts as 63 % wrecked (the severity a mechanical phase will read) */
+  /** energy at which a zone counts as 63 % wrecked (how a zone looks; the mechanics have their own, gentler scale in src/core/mechanical.ts) */
   zoneEnergy: 120,
 } as const;
 
@@ -202,13 +206,15 @@ export interface Hull {
   /** centre of mass in the body frame (0, cgH, cgZ) */
   cgH: number;
   cgZ: number;
+  /** wheelbase: the axles are at z = +-wb/2 */
+  wb: number;
 }
 
 /** The physics' collision box (src/cars: hullFromVisual), in the body frame. */
 export function hullOf(v: CarVisualSpec): Hull {
   const front = v.wheelbase / 2 + v.frontOverhang;
   const rear = -(v.wheelbase / 2 + (v.length - v.wheelbase - v.frontOverhang));
-  return { hw: v.width / 2, front, rear, bottom: v.rideHeight, top: v.height * 0.92, height: v.height, cgH: v.cgHeight, cgZ: v.cgToFrontAxle - v.wheelbase / 2 };
+  return { hw: v.width / 2, front, rear, bottom: v.rideHeight, top: v.height * 0.92, height: v.height, cgH: v.cgHeight, cgZ: v.cgToFrontAxle - v.wheelbase / 2, wb: v.wheelbase };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -333,6 +339,11 @@ export class CarDamage {
   /** cracked windows: stars of cracks on the glass (at most MAX_CRACKS) */
   readonly cracks: GlassCrack[] = [];
   readonly zones: ZoneDamageMap = freshZones();
+  /**
+   * What the hits did to the mechanics: bent suspension, lost downforce, a tired engine (src/core/mechanical.ts). Kept in every
+   * mode that records damage; only Settings: Damage, Full puts it on the physics. `mech.version` moves when it changes.
+   */
+  readonly mech = new MechState();
   /** increments on every change: the renderer refreshes its uniforms when it moves */
   version = 0;
   /** The newest hit: where it landed on the body and what it broke, for the debris thrown off around the car. */
@@ -359,6 +370,7 @@ export class CarDamage {
     }
     const z = freshZones();
     for (const k of DAMAGE_ZONES) Object.assign(this.zones[k], z[k]);
+    this.mech.reset();
     this.applied = 0;
     this.lastHit = null;
     this.replayList = null;
@@ -415,6 +427,8 @@ export class CarDamage {
         z.worst = Math.max(z.worst, s);
       }
     }
+    // the mechanics: only a hit from the dent threshold up counts, shared out over the nose, the tail and the wheels along the flanks
+    this.mech.add(hitEnergy(s), w.front, w.rear, w.left, w.right, axleShare(e.p[2], this.hull.wb));
 
     // push direction: horizontal walls and car sides, so the dent sinks into the car rather than up or down
     const d = unit([e.n[0], e.n[1] * 0.35, e.n[2]], [0, 0, 1]);

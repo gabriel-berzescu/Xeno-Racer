@@ -20,6 +20,7 @@ import type {
   VehicleState,
   WheelState,
 } from '../core/contracts';
+import { cloneEffects, isNeutral, type MechEffects } from '../core/mechanical';
 import { RADS_TO_RPM, RPM_TO_RADS, peakTorque, torqueAt } from './engine';
 import type { DifferentialSpec, SuspensionSpec, TireSpec, VehicleSpec } from './spec';
 import { SURFACES, wetGripFactor } from './surfaces';
@@ -103,6 +104,10 @@ class WheelSim {
   hint = -1;
 
   steer = 0;
+  /** Mechanical damage (Vehicle.setDamage): toe added to the steering angle, and what a camber error does to the tyre. */
+  toe = 0;
+  camberGrip = 1;
+  camberThrust = 0;
   omega = 0;
   spin = 0;
   tanAlphaF = 0;
@@ -166,6 +171,12 @@ export class Vehicle {
   /** Set each frame by the world: slipstream / dirty air. */
   dragMul = 1;
   downforceMul = 1;
+  /** Mechanical damage (setDamage): the share of the front and rear downforce and of the engine's torque that is left. */
+  private aeroFrontMul = 1;
+  private aeroRearMul = 1;
+  private powerMul = 1;
+  /** The mechanical damage the car carries now, or null when it is sound. */
+  private damage: MechEffects | null = null;
 
   // rigid body
   readonly p = new Vector3();
@@ -416,6 +427,30 @@ export class Vehicle {
     }
   }
 
+  /**
+   * Mechanical damage (src/core/mechanical.ts): bent suspension (toe and camber per wheel), lost downforce at either axle and a
+   * tired engine. null, or effects that change nothing, repairs the car. The values are read into plain fields here, so the
+   * substep stays free of allocations and costs nothing on a sound car; call it when the damage changes, not every frame.
+   */
+  setDamage(e: MechEffects | null): void {
+    const fx = e && !isNeutral(e) ? e : null;
+    this.damage = fx && cloneEffects(fx);
+    this.aeroFrontMul = fx ? fx.aeroFront : 1;
+    this.aeroRearMul = fx ? fx.aeroRear : 1;
+    this.powerMul = fx ? fx.power : 1;
+    for (let i = 0; i < 4; i++) {
+      const wh = this.wheels[i];
+      wh.toe = fx ? fx.toe[i] : 0;
+      wh.camberGrip = fx ? fx.camberGrip[i] : 1;
+      wh.camberThrust = fx ? fx.camberThrust[i] : 0;
+    }
+  }
+
+  /** The mechanical damage the car carries, or null when it is sound. */
+  get mechanical(): MechEffects | null {
+    return this.damage;
+  }
+
   // ───────────────────────────────────────────────────────────────────────────
   // Per-frame logic (gearbox automation, backfires)
   // ───────────────────────────────────────────────────────────────────────────
@@ -576,6 +611,11 @@ export class Vehicle {
     } else {
       wheels[0].steer = wheels[1].steer = 0;
     }
+    // bent suspension: the toe of each wheel (all zero on a sound car) turns it a little away from where the rack points it
+    wheels[0].steer += wheels[0].toe;
+    wheels[1].steer += wheels[1].toe;
+    wheels[2].steer = wheels[2].toe;
+    wheels[3].steer = wheels[3].toe;
 
     // ── suspension geometry & forces ─────────────────────────────────────────
     let contacts = 0;
@@ -686,7 +726,7 @@ export class Vehicle {
       const wet = this.wetness > 0 ? wetGripFactor(this.wetness, tire.wetGrip ?? 0.72, surf, Math.abs(vLong)) : 1;
       // (wet-weather rubber works ~30 °C cooler than its dry window)
       const tWork = wh.tempC + 30 * this.wetness;
-      const mu = tire.mu * surf.grip * loadFactor(wh.load, tire) * tempFactor(tWork, tire) * this.gripScale * wet;
+      const mu = tire.mu * surf.grip * loadFactor(wh.load, tire) * tempFactor(tWork, tire) * this.gripScale * wet * wh.camberGrip;
       const aLong = Math.abs(vLong);
       const denom = aLong > SLIP_VMIN ? aLong : SLIP_VMIN;
       const kappa = (wh.omega * wh.radius - vLong) / denom;
@@ -703,7 +743,8 @@ export class Vehicle {
       const F = mu * wh.load;
       wh.peakF = F;
       wh.fx = F * ratio * sx * 1.08;
-      wh.fy = -F * ratio * sy;
+      // (a camber error also pushes the tyre sideways, towards the lean)
+      wh.fy = -F * ratio * sy + wh.camberThrust * wh.load;
       wh.implicitD = (wh.radius * wh.radius * F * ratio * 1.08) / tire.peakSlipRatio / denom;
       // (on a wet road the tread also has to push water aside)
       wh.rollingTorque = (tire.rollingResistance + surf.rolling + (surf.paved ? 0.004 * this.wetness : 0)) * wh.load * wh.radius + 2;
@@ -828,8 +869,8 @@ export class Vehicle {
       const vf = fwdSpeed > 0 ? fwdSpeed : 0;
       const qd = 0.5 * AIR_DENSITY * vf * vf * this.downforceMul;
       if (qd > 0) {
-        const dfF = qd * s.aero.liftAreaFront;
-        const dfR = qd * s.aero.liftAreaRear;
+        const dfF = qd * s.aero.liftAreaFront * this.aeroFrontMul;
+        const dfR = qd * s.aero.liftAreaRear * this.aeroRearMul;
         _f.copy(ay).multiplyScalar(-dfF);
         _r.copy(az).multiplyScalar(ch.cgToFrontAxle);
         F.add(_f);
@@ -930,7 +971,7 @@ export class Vehicle {
       this.boost += (target - this.boost) * clamp01(rate * dt);
       boostFactor = tb.baseFraction + (1 - tb.baseFraction) * this.boost;
     }
-    const full = torqueAt(e, rpm) * boostFactor;
+    const full = torqueAt(e, rpm) * boostFactor * this.powerMul;
     const braking = e.engineBraking * clamp01(rpm / e.limiterRpm) + 0.015 * this.torquePeak;
     let Te = th * full - (1 - th) * braking;
     if (Te > 0) Te *= d.efficiency;
