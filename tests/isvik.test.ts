@@ -7,7 +7,8 @@ import { describe, expect, it } from 'vitest';
 import { Quaternion, Vector3 } from 'three';
 import { DrivingGuide } from '../src/ai';
 import { lineSurfaces } from '../src/ai/racing-line';
-import { getCar } from '../src/cars';
+import { CARS, getCar } from '../src/cars';
+import { buildView, CALENDAR, championshipDef, createChampionship, isPlayable, lapsFor, roundConfig } from '../src/game/championship';
 import { createDrivingLine } from '../src/render';
 import { LINE } from '../src/render/drivingLine';
 import type { GroundSample, TrackPoint } from '../src/core/contracts';
@@ -291,6 +292,47 @@ describe('Isvik Circuit pack racing', () => {
       }
     }
   }, 600000);
+});
+
+describe('Isvik Circuit in the Xeno Cup', () => {
+  // (the circuit is not on the calendar: this is for the day somebody puts it there)
+  it('is a round like any other when it is put on the calendar: its laps, its snowfall and its clearing forecast', () => {
+    const extra = { trackId: 'isvik', environment: { timeOfDay: 'golden', weather: 'rain' }, forecast: 'clearing' } as const;
+    const calendar = CALENDAR as unknown as unknown[];
+    calendar.push(extra);
+    try {
+      const tracks = TRACKS.map((t) => t.info);
+      const def = championshipDef(tracks);
+      const last = def.rounds[def.rounds.length - 1];
+      expect(last.trackId).toBe('isvik');
+      expect(last.laps.standard).toBe(lapsFor(info.defaultLaps, 'standard'));
+      expect(last.laps.short).toBeLessThanOrEqual(last.laps.standard);
+      const car = CARS[0];
+      const state = createChampionship({
+        setup: { carId: car.id, livery: { primary: '#16e0bd', driver: 'Gabriel' }, difficulty: 'pro', opponents: 7, length: 'standard', startPosition: 'back', grid: 'standings' },
+        tracks,
+        playerName: 'Gabriel',
+        playerLivery: { ...car.defaultLivery, driver: 'Gabriel' },
+        car,
+        seed: 4242,
+      });
+      const r = state.calendar.length - 1;
+      expect(state.calendar[r].trackId).toBe('isvik');
+      expect(state.calendar[r].forecast).toBe('clearing');
+      expect(isPlayable(state, TRACKS.map((t) => t.info.id), CARS.map((c) => c.id))).toBe(true);
+      const cfg = roundConfig(state, r);
+      expect(cfg.trackId).toBe('isvik');
+      expect(cfg.environment).toEqual({ timeOfDay: 'golden', weather: 'rain' });
+      expect(cfg.forecast).toBe('clearing');
+      expect(cfg.laps).toBe(state.calendar[r].laps);
+      expect(buildView(state).rounds[r].trackId).toBe('isvik');
+      // and the menus call that day what it is
+      expect(formatConditions(cfg.environment, cfg.forecast, true)).toContain('Snow');
+    } finally {
+      calendar.pop();
+    }
+    expect(CALENDAR.some((c) => c.trackId === 'isvik')).toBe(false);
+  });
 });
 
 describe('The stick on snow', () => {
