@@ -6,7 +6,7 @@
  */
 import '../styles/damage.css';
 import type { HudDamage, HudState } from '../../core/contracts';
-import { DAMAGE_SHOWN } from '../../core/mechanical';
+import { DAMAGE_SHOWN, reportWorst } from '../../core/mechanical';
 import { ClassSlot, h, svg } from '../dom';
 
 /** How long the indicator stays up after the damage last changed (ms), and the steps a level is drawn in. */
@@ -93,7 +93,7 @@ const WORDS = ['Light', 'Moderate', 'Heavy', 'Severe'] as const;
 
 /** How bad the worst part is, 0 (light) .. 3 (severe). */
 function damageLevel(d: HudDamage): number {
-  const w = Math.max(d.front, d.rear, d.left, d.right, ...d.wheels);
+  const w = reportWorst(d);
   return w < 0.2 ? 0 : w < 0.45 ? 1 : w < 0.75 ? 2 : 3;
 }
 

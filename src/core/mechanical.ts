@@ -192,11 +192,17 @@ export function mechanicalReport(m: MechState, out: HudDamage): void {
  */
 export const DAMAGE_SHOWN = 0.05;
 
-/** The worst part of the car, 0..1 (the HUD lights the indicator by it, the tests read it). */
+/** The worst part of a report, 0..1 (the pause screen puts a word to it). */
+export function reportWorst(d: HudDamage): number {
+  return Math.max(d.front, d.rear, d.left, d.right, d.wheels[0], d.wheels[1], d.wheels[2], d.wheels[3]);
+}
+
+const scratch: HudDamage = { front: 0, rear: 0, left: 0, right: 0, wheels: [0, 0, 0, 0] };
+
+/** The worst part of the car, 0..1: what decides whether the HUD has anything to show. */
 export function mechanicalWorst(m: MechState): number {
-  let w = Math.max(wear(m.front), wear(m.rear), wear(m.wheel[0] + m.wheel[2]), wear(m.wheel[1] + m.wheel[3]));
-  for (let i = 0; i < 4; i++) w = Math.max(w, wear(m.wheel[i]));
-  return w;
+  mechanicalReport(m, scratch);
+  return reportWorst(scratch);
 }
 
 /** The share of the energy of a flank hit that goes to the front axle: 1 at the front axle and ahead of it, 0 at the rear axle and behind it. */

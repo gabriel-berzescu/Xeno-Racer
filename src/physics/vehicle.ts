@@ -615,6 +615,7 @@ export class Vehicle {
       wheels[0].steer = wheels[1].steer = 0;
     }
     // bent suspension: the toe of each wheel (all zero on a sound car) turns it a little away from where the rack points it
+    // (the rear wheels are not steered: their angle is the toe alone)
     wheels[0].steer += wheels[0].toe;
     wheels[1].steer += wheels[1].toe;
     wheels[2].steer = wheels[2].toe;

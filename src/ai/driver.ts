@@ -327,10 +327,11 @@ export class AIDriver {
     const fx = e && !isNeutral(e) ? cloneEffects(e) : null;
     if (!fx && !this.dmg) return;
     if (!Number.isFinite(blendSeconds)) blendSeconds = DAMAGE_BLEND_SECONDS;
-    this.dmg = fx;
     const f = damageFactors(fx);
-    // a change too small to alter the profile (the tap of a pack race) is not worth working it out again
+    // a change too small to alter the profile (the tap of a pack race) is not worth working it out again: the driver keeps the
+    // damage, the factors and the profile it has, which stay in step with one another
     if (Math.abs(f.grip - this.dmgGrip) < DAMAGE_NOTICED && Math.abs(f.aero - this.dmgAero) < DAMAGE_NOTICED) return;
+    this.dmg = fx;
     this.dmgGrip = f.grip;
     this.dmgAero = f.aero;
     this.startBlend(this.wetTo, blendSeconds);
