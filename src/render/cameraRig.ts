@@ -1318,12 +1318,14 @@ class CameraRigImpl implements CameraRig {
    * qualifies (enter thresholds), returns the nearest in 3D and sets tvChoiceOk = false.
    */
   /** True when the terrain doesn't block the line from camera C to the car at P. */
-  private tvLineOfSight(C: Vector3, P: Vector3): boolean {
+  private tvLineOfSight(cam: TvCameras[number], P: Vector3): boolean {
     const tr = this.track;
     if (!tr) return true;
+    const C = cam.position;
     const tx = P.x;
     const ty = P.y + 0.6;
     const tz = P.z;
+    if (cam.occluders && blockedByBuildings(cam.occluders, C.x, C.y, C.z, tx, ty, tz)) return false;
     const len = Math.hypot(tx - C.x, ty - C.y, tz - C.z);
     const n = Math.min(24, Math.max(6, Math.ceil(len / 12)));
     let hint = -1;
@@ -1352,7 +1354,7 @@ class CameraRigImpl implements CameraRig {
       const d3 = c.position.distanceTo(P);
       // a camera that can't see the car (a hill in the way), or that covers another stretch of road
       // (closer in 3D across a switchback), is never a choice
-      if (ds > T.tvTrackAhead || ds < -T.tvMaxBehind || !this.tvLineOfSight(c.position, P)) continue;
+      if (ds > T.tvTrackAhead || ds < -T.tvMaxBehind || !this.tvLineOfSight(c, P)) continue;
       if (d3 < nearD) {
         nearD = d3;
         near = i;
@@ -1373,7 +1375,7 @@ class CameraRigImpl implements CameraRig {
     this.tvLosTimer -= h;
     if (this.tvLosTimer > 0) return this.tvBlocked > 0.5;
     this.tvLosTimer = 0.2;
-    const ok = this.tvLineOfSight(this.tvCams[this.tvIdx].position, P);
+    const ok = this.tvLineOfSight(this.tvCams[this.tvIdx], P);
     this.tvBlocked = ok ? 0 : this.tvBlocked + 0.2;
     return this.tvBlocked > 0.5;
   }
@@ -1624,6 +1626,57 @@ class CameraRigImpl implements CameraRig {
 }
 
 /** See CreateCameraRig in src/core/systems.ts. */
+/**
+ * Does a building stand between a TV camera at (cx, cy, cz) and the target (tx, ty, tz)? Each occluder is a convex footprint and a
+ * roof height (see TrackScene.tvCameras): the sight line is clipped to the footprint on the map, and it is blocked where it passes
+ * the footprint below the roof. The two ends are left out (the camera on its mast, the car on the road).
+ */
+export function blockedByBuildings(occ: Float32Array, cx: number, cy: number, cz: number, tx: number, ty: number, tz: number): boolean {
+  const dx = tx - cx;
+  const dz = tz - cz;
+  const dy = ty - cy;
+  const len2 = dx * dx + dz * dz;
+  if (!(len2 > 1e-6)) return false;
+  for (let o = 0; o + 12 <= occ.length; o += 12) {
+    // far from the line on the map: no need to clip
+    const ox = occ[o];
+    const oz = occ[o + 1];
+    const r = occ[o + 2];
+    let t = ((ox - cx) * dx + (oz - cz) * dz) / len2;
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    const ex = cx + dx * t - ox;
+    const ez = cz + dz * t - oz;
+    if (ex * ex + ez * ez > r * r) continue;
+    // clip the segment to the convex footprint (each edge's inside is the centre's side)
+    let t0 = 0.04;
+    let t1 = 0.94;
+    for (let k = 0; k < 4 && t0 <= t1; k++) {
+      const ax = occ[o + 4 + k * 2];
+      const az = occ[o + 5 + k * 2];
+      const bx = occ[o + 4 + ((k + 1) % 4) * 2];
+      const bz = occ[o + 5 + ((k + 1) % 4) * 2];
+      let nx = -(bz - az);
+      let nz = bx - ax;
+      if ((ox - ax) * nx + (oz - az) * nz < 0) {
+        nx = -nx;
+        nz = -nz;
+      }
+      // inside where (p - a) . n >= 0, along the segment: f(t) = f0 + t * fd
+      const f0 = (cx - ax) * nx + (cz - az) * nz;
+      const fd = dx * nx + dz * nz;
+      if (Math.abs(fd) < 1e-9) {
+        if (f0 < 0) t1 = -1;
+      } else if (fd > 0) t0 = Math.max(t0, -f0 / fd);
+      else t1 = Math.min(t1, -f0 / fd);
+    }
+    if (t0 > t1) continue;
+    // the sight line is straight, so it is lowest over the footprint at one end of the clipped piece
+    const yLow = cy + dy * (dy < 0 ? t1 : t0);
+    if (yLow < occ[o + 3] - 0.3) return true;
+  }
+  return false;
+}
+
 export function createCameraRig(track: TrackRuntime | null, tvCameras: TrackScene['tvCameras']): CameraRig {
   return new CameraRigImpl(track, tvCameras);
 }

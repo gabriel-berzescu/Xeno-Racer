@@ -67,8 +67,11 @@ export interface TrackScene {
   setStartLights(state: number | null): void;
   /** Night lighting on/off (floodlights, emissive). */
   setEnvironment(env: EnvironmentState): void;
-  /** Fixed trackside camera positions for TV/replay cameras, ordered by s. */
-  tvCameras: { position: THREE.Vector3; s: number }[];
+  /**
+   * Fixed trackside camera positions for TV/replay cameras, ordered by s; `occluders` are the buildings near a camera that can stand
+   * between it and a car (centre x, z, radius, roof height, then four footprint corners x, z: 12 floats each).
+   */
+  tvCameras: { position: THREE.Vector3; s: number; occluders?: Float32Array }[];
   dispose(): void;
 }
 

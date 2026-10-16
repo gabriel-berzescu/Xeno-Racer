@@ -196,6 +196,50 @@ interface Chunk {
 
 export interface CityResult {
   group: THREE.Group;
+  /** Every building as a TV-camera occluder (see `OCC_STRIDE`). */
+  occluders: Float32Array;
+}
+
+/**
+ * A building as the TV director sees it: centre x, z and radius on the map, roof height, then the four corners of its footprint
+ * (x, z each) pulled 0.6 m in, so that a line of sight that only grazes a corner still counts as clear.
+ */
+export const OCC_STRIDE = 12;
+
+class Occluders {
+  private readonly v: number[] = [];
+  add(quad: readonly (readonly [number, number])[], top: number, inset = 0.6): void {
+    let cx = 0;
+    let cz = 0;
+    for (const [x, z] of quad) {
+      cx += x / quad.length;
+      cz += z / quad.length;
+    }
+    let r = 0;
+    const pts: number[] = [];
+    for (const [x, z] of quad) {
+      const dx = x - cx;
+      const dz = z - cz;
+      const l = Math.hypot(dx, dz);
+      const k = l > inset * 2 ? (l - inset) / l : 0.5;
+      pts.push(cx + dx * k, cz + dz * k);
+      r = Math.max(r, l * k);
+    }
+    if (pts.length !== 8 || !Number.isFinite(top)) return;
+    this.v.push(cx, cz, r, top, ...pts);
+  }
+  build(): Float32Array {
+    return new Float32Array(this.v);
+  }
+}
+
+/** The occluders within `radius` of (x, z): what a TV camera there could ever have between itself and a car. */
+export function occludersNear(all: Float32Array, x: number, z: number, radius: number): Float32Array {
+  const keep: number[] = [];
+  for (let o = 0; o + OCC_STRIDE <= all.length; o += OCC_STRIDE) {
+    if (Math.hypot(all[o] - x, all[o + 1] - z) <= radius + all[o + 2]) for (let k = 0; k < OCC_STRIDE; k++) keep.push(all[o + k]);
+  }
+  return new Float32Array(keep);
 }
 
 const _tp: TrackPoint = { s: 0, d: 0, segment: 0, widthLeft: 0, widthRight: 0, wallLeft: 0, wallRight: 0, tx: 0, tz: 1, lx: 1, lz: 0, y: 0 };
@@ -556,23 +600,28 @@ export function buildCity(ctx: Ctx): CityResult | null {
     return c;
   };
 
+  const occ = new Occluders();
   for (const lot of grid.lots) {
     if (lot.skip) continue;
     const mid = rt.wrapS((lot.s0 + lot.s1) / 2);
     const key = `n${lot.sgn}_${Math.floor(mid / 160)}`;
     const c = chunkFor(key, false);
-    emitStreetLot(rt, lot, c.base, c.detail);
+    occ.add(lot.quad, emitStreetLot(rt, lot, c.base, c.detail));
   }
   if (places.length) {
     const lc = chunkFor('landmarks', false);
-    for (const p of places) emitLandmark(lc.base, rt, p);
+    for (const p of places) {
+      emitLandmark(lc.base, rt, p);
+      // (the footprint keeps the lots clear with room to spare, and the towers stand above the walls: a smaller, lower block)
+      occ.add(p.quad, p.y + 8 * (p.def.scale ?? 1), 0.25 * Math.hypot(p.quad[0][0] - p.quad[2][0], p.quad[0][1] - p.quad[2][1]));
+    }
   }
   arches.forEach((a, i) => emitArch(chunkFor(`arch${i}`, false).base, rt, a.s, a.depth));
   for (const lot of farLots) {
     const q = lot.quad;
     const cx = (q[0][0] + q[2][0]) / 2;
     const cz = (q[0][1] + q[2][1]) / 2;
-    emitFarLot(rt, lot, chunkFor(`f${Math.floor(cx / 240)}_${Math.floor(cz / 240)}`, true).base);
+    occ.add(q, emitFarLot(rt, lot, chunkFor(`f${Math.floor(cx / 240)}_${Math.floor(cz / 240)}`, true).base));
   }
 
   // ── meshes ────────────────────────────────────────────────────────────────────────────────────────
@@ -691,14 +740,15 @@ export function buildCity(ctx: Ctx): CityResult | null {
     for (const sp of Object.keys(by) as SpeciesId[]) ctx.extraTrees = { ...(ctx.extraTrees ?? {}), [sp]: [...(ctx.extraTrees?.[sp] ?? []), ...by[sp]!] };
   }
 
-  return { group };
+  return { group, occluders: occ.build() };
 }
 
 // ── emitting buildings ──────────────────────────────────────────────────────────────────────────────
 
 
 /** A street lot: facades along the street samples, side and back walls, the roof, and (in `detail`) cornice, parapet, chimneys, awnings, balconies. */
-function emitStreetLot(rt: Ctx['rt'], lot: Lot, base: CityBuf, detail: CityBuf): void {
+/** Returns the height of the roof line. */
+function emitStreetLot(rt: Ctx['rt'], lot: Lot, base: CityBuf, detail: CityBuf): number {
   const { sgn, s0, s1, d0, d1, style } = lot;
   const w = s1 - s0;
   const m = Math.max(1, Math.ceil(w / 3));
@@ -955,10 +1005,11 @@ function emitStreetLot(rt: Ctx['rt'], lot: Lot, base: CityBuf, detail: CityBuf):
       }
     }
   }
+  return yTop;
 }
 
-/** A distant block: four walls and a roof, no detail geometry. */
-function emitFarLot(rt: Ctx['rt'], lot: Lot, base: CityBuf): void {
+/** A distant block: four walls and a roof, no detail geometry. Returns the height of the roof line. */
+function emitFarLot(rt: Ctx['rt'], lot: Lot, base: CityBuf): number {
   const q = lot.quad;
   const st = lot.style;
   const Hf = 3 + 0.5 * hash11(st.seed * 5.7);
@@ -1002,4 +1053,5 @@ function emitFarLot(rt: Ctx['rt'], lot: Lot, base: CityBuf): void {
   else {
     base.quad([[q[0][0], yTop, q[0][1]], [q[1][0], yTop, q[1][1]], [q[2][0], yTop, q[2][1]], [q[3][0], yTop, q[3][1]]], [[q[0][0], q[0][1]], [q[1][0], q[1][1]], [q[2][0], q[2][1]], [q[3][0], q[3][1]]], [0, 1, 0], st, FACADE_KIND.flat);
   }
+  return yTop;
 }

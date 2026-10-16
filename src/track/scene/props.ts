@@ -15,7 +15,7 @@ import { makeBoardTexture, makeChevronTexture, makeCrowdTexture, makeFacadeTextu
 export interface PropResult {
   group: THREE.Group;
   setStartLights(state: number | null): void;
-  tvCameras: { position: THREE.Vector3; s: number }[];
+  tvCameras: { position: THREE.Vector3; s: number; occluders?: Float32Array }[];
 }
 
 interface PropMats {
