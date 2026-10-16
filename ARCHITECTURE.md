@@ -116,7 +116,8 @@ purpose. Nothing else changes for the other four circuits: a road circuit gets t
 - **Tyres** (`src/physics/compound.ts`): `fitCar(def, track)` returns the car itself on a road circuit and a copy on studded winter tyres on
   a winter one; `PhysicsWorld.addVehicle`, `AIDriver` and the steering filter all read the fitted car, so physics, AI and aids agree. A studded
   tyre peaks later (10 degrees, slip ratio 0.16), falls off gently (`slideRatio` 0.9) and hardly minds load: the car slides without letting go.
-  The thermal model runs in air at -6 degrees (`WINTER_AMBIENT_C`).
+  The thermal model runs in air at -6 degrees (`WINTER_AMBIENT_C`). The stick is scaled to the grip of the snow or the ice under the front
+  wheels (`SteeringFilter`): full stick asks for what the tyres can use there, not what they could on asphalt.
 - **Soft barriers:** `BarrierKind` `snowbank` sets `TrackPoint.softLeft/softRight`. `Vehicle.resolveBank` is a spring and a damper that
   stiffens with depth, gives back a fifth of what it took and drags the flank along it, with a hard stop at 3.5 m (the frozen ground under
   it). The hit is an `ImpactKind` `snow` at a third of its closing speed (`damage.ts` counts it as a wall hit of that strength).

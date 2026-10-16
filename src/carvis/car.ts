@@ -658,7 +658,8 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
       IU.uFill.value = 0.055 * (1 - env.darkness);
       // rain: wet paint (shader), a glossier and darker far LOD, shinier tyres. The car is wet as soon as the drops fall on it,
       // before the road has caught up (a fixed weather has both at once: the rain is never wetter than the track)
-      const wet = Math.max(env.wetness, env.rain * 0.85);
+      // (in the snow the paint is dusted and a little damp, not beaded: 0.4 of what rain does)
+      const wet = Math.max(env.wetness, env.rain * 0.85) * (env.settings.winter ? 0.4 : 1);
       U.uWet.value = wet;
       U.uSpd.value = state.speed;
       if (wet !== lastWet) {

@@ -76,7 +76,7 @@ function reedTexture(): THREE.CanvasTexture {
     const x0 = w * (0.14 + 0.72 * rnd());
     const lean = (rnd() - 0.5) * 40;
     const top = 14 + rnd() * 70;
-    const col = ['#8b7a4a', '#9a8754', '#a8955c', '#7a6a42'][(rnd() * 4) | 0];
+    const col = ['#b3a066', '#c4b176', '#d0be84', '#a69358'][(rnd() * 4) | 0];
     g.strokeStyle = col;
     g.lineWidth = 2.6 + rnd() * 2;
     g.beginPath();
@@ -85,7 +85,7 @@ function reedTexture(): THREE.CanvasTexture {
     g.stroke();
     // the seed head, and snow on the bent top
     if (rnd() < 0.55) {
-      g.fillStyle = '#5a4a30';
+      g.fillStyle = '#7a6740';
       g.beginPath();
       g.ellipse(x0 + lean, top + 5, 3.2, 10, lean * 0.01, 0, Math.PI * 2);
       g.fill();
@@ -139,9 +139,9 @@ export function buildReeds(ctx: Ctx, count: number): THREE.Object3D | null {
   const idx: number[] = [];
   let n = 0;
   for (const a of [0, Math.PI / 3, (2 * Math.PI) / 3]) {
-    const dx = Math.cos(a) * 0.45;
-    const dz = Math.sin(a) * 0.45;
-    pos.push(-dx, 0, -dz, dx, 0, dz, dx, 1.6, dz, -dx, 1.6, -dz);
+    const dx = Math.cos(a) * 0.4;
+    const dz = Math.sin(a) * 0.4;
+    pos.push(-dx, 0, -dz, dx, 0, dz, dx, 1.9, dz, -dx, 1.9, -dz);
     uv.push(0, 0, 1, 0, 1, 1, 0, 1);
     for (let i = 0; i < 4; i++) nor.push(0, 1, 0);
     idx.push(n, n + 1, n + 2, n, n + 2, n + 3);

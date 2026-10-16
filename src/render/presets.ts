@@ -120,6 +120,8 @@ export const WEATHER: Record<Weather, WeatherPreset> = {
  */
 export const WEATHER_WINTER: Record<Weather, WeatherPreset> = {
   ...WEATHER,
+  // (a grey day over snow is a bright one: the cloud is white from below, and the exposure is up on the ordinary overcast sky's)
+  overcast: { coverage: 1.0, soft: 0.4, cirrus: 0.0, sun: 0.1, sky: 0.9, mie: 3.0, overcast: 0.92, fog: 2.0, shadow: 0.22, exposure: 1.95, dark: 0.5, deck: 0, deckDark: 0, scud: 0, rainFog: 0, darken: 0, glow: 0 },
   rain: { coverage: 1.0, soft: 0.5, cirrus: 0.0, sun: 0.06, sky: 0.7, mie: 3.0, overcast: 0.96, fog: 1.3, shadow: 0.0, exposure: 2.3, dark: 0.4, deck: 1, deckDark: 0.14, scud: 0.2, rainFog: 0.0011, darken: 0.03, glow: 0.14 },
   storm: { coverage: 1.0, soft: 0.6, cirrus: 0.0, sun: 0.03, sky: 0.55, mie: 3.6, overcast: 1.0, fog: 2.2, shadow: 0.0, exposure: 2.1, dark: 0.65, deck: 1, deckDark: 0.34, scud: 0.55, rainFog: 0.0034, darken: 0.14, glow: 0.1 },
 };

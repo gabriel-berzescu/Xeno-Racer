@@ -705,7 +705,8 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
     }
     // debris: small shards of bodywork and grit (big flat chips read as black squares right next to the camera)
     const nc = Math.round(4 + 26 * k);
-    const dust = ground ? SURF.dirt : SURF.concrete;
+    // (on a winter circuit what a hit throws up of the road is snow)
+    const dust = winter ? SURF.snow : ground ? SURF.dirt : SURF.concrete;
     for (let i = 0; i < nc; i++) {
       const tone = rr(0.45, 0.9);
       chips.spawn(
