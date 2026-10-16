@@ -10,6 +10,7 @@ import type { PartBuilder } from '../parts';
 import { dent, roundPoly, strip2 } from '../shapes';
 import { sdCylinderX, sdEllipseRot2, sdEllipsoid, sdPolygon2, sdRoundBox, sdRoundRect2, sdSegment2, smax, smin, ssub } from '../sdf';
 import { addDiffuserStrakes, addWing } from '../aero';
+import { addDoorMirrors } from '../mirrorParts';
 import { frontZ, rearZ, sideX } from './probe';
 
 export const makeHatch: BlueprintFactory = (s) => {
@@ -206,13 +207,8 @@ export const makeHatch: BlueprintFactory = (s) => {
       b.cylinder([x, 0.33, zTail + 0.07], [x, 0.33, zTail + 0.06], 0.046, 0.046, 20, true);
     }
     addDiffuserStrakes(b, [-0.3, -0.18, 0.18, 0.3], 0.28, 0.42, zTail + 0.02, zTail + 0.3, 0.04);
-    // mirrors
-    for (const sg of [-1, 1]) {
-      b.setPart(PART.body);
-      b.ellipsoid([sg * 0.97, 1.03, 0.36], 0.08, 0.055, 0.115, 20, 12);
-      b.setPart(PART.plastic);
-      b.cylinder([sg * 0.82, 0.99, 0.4], [sg * 0.94, 1.02, 0.37], 0.014, 0.018, 8, false);
-    }
+    // mirrors: housing, stalk and glass face, set where the live mirror glass sits (carvis/mirrorLayout.ts)
+    addDoorMirrors(b, s);
   };
 
   void tailPlaneZ;

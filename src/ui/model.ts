@@ -487,6 +487,13 @@ export const SETTINGS_TABS: TabDef[] = [
       { kind: 'toggle', id: 'telemetry', label: 'Telemetry overlay', desc: 'Tire temperatures, load, g-meter and live pedal traces. Toggle in-race with D-pad down or T.', get: (s) => s.hud.telemetry, set: (s, v) => { s.hud.telemetry = v; } },
       { kind: 'toggle', id: 'ghost', label: 'Ghost car', desc: 'Shows your best lap as a see-through car to race against.', get: (s) => s.hud.ghost, set: (s, v) => { s.hud.ghost = v; } },
       {
+        kind: 'select', id: 'mirror', label: 'Rear-view mirrors',
+        desc: 'Auto: the real mirrors in the cockpit view, a mirror strip at the top of the screen in the hood and bumper views. Off draws no mirror view at all, which saves a little GPU and CPU time.',
+        options: opts([['auto', 'Auto'], ['off', 'Off']]),
+        get: (s) => s.hud.mirror, set: (s, v) => { s.hud.mirror = v as Settings['hud']['mirror']; },
+      },
+      { kind: 'toggle', id: 'spotter', label: 'Car alongside indicator', desc: 'Lights the left or right edge of the screen when a car is alongside you or closing within a car length, brighter the closer it is.', get: (s) => s.hud.spotter, set: (s, v) => { s.hud.spotter = v; } },
+      {
         kind: 'select', id: 'damage', label: 'Damage', desc: 'What crashes do to the cars. Visual crumples panels, scrapes paint and breaks lamps on every car on track, and does not change how a car drives. Off keeps every car pristine.',
         options: opts([['visual', 'Visual'], ['off', 'Off']]),
         get: (s) => s.damage, set: (s, v) => { s.damage = v as Settings['damage']; },

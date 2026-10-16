@@ -81,7 +81,13 @@ export class SpeedEffect extends Effect {
   }
 }
 
-const finalFragment = /* glsl */ `
+/**
+ * Exposure, tone mapping and grade as GLSL: `xrGrade(linear scene colour)` gives display-linear colour, and `srgbEncode`
+ * encodes it. The final effect below runs it on the whole picture; the HUD mirror (mirrors.ts) runs the same code on its
+ * own small picture, so both agree on exposure, the night shift, AgX, the warm grade and the contrast curve. The uniform
+ * names are the final effect's, so the mirror can share its Uniform objects and follow every change it gets.
+ */
+export const GRADE_GLSL = /* glsl */ `
 uniform float exposure;
 uniform float tmMode;
 uniform float saturation;
@@ -90,9 +96,6 @@ uniform float lookSat;
 uniform float contrast;
 uniform vec3 tint;
 uniform float night;
-uniform float vignette;
-uniform float dither;
-uniform float seed;
 
 const mat3 REC2020_TO_SRGB = mat3(
   vec3( 1.6605, -0.1246, -0.0182),
@@ -153,8 +156,8 @@ vec3 srgbEncode(vec3 c) {
   return mix(pow(c, vec3(0.41666)) * 1.055 - vec3(0.055), c * 12.92, vec3(lessThanEqual(c, vec3(0.0031308))));
 }
 
-void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor) {
-  vec3 c = max(inputColor.rgb, vec3(0.0)) * exposure;
+vec3 xrGrade(vec3 scene) {
+  vec3 c = max(scene, vec3(0.0)) * exposure;
   // mesopic vision at night: the dim parts of the scene lose their colour and drift blue (the rods take over),
   // while whatever the floodlights and headlights reach keeps it. Without this, moonlit grass reads bright green.
   if (night > 0.001) {
@@ -170,7 +173,18 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
   c = vec3(l) + saturation * (c - vec3(l));
   c = max(c, vec3(0.0));
   // gentle S-curve about mid grey
-  c = mix(c, c * c * (3.0 - 2.0 * c), contrast);
+  return mix(c, c * c * (3.0 - 2.0 * c), contrast);
+}
+`;
+
+const finalFragment = /* glsl */ `
+${GRADE_GLSL}
+uniform float vignette;
+uniform float dither;
+uniform float seed;
+
+void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor) {
+  vec3 c = xrGrade(inputColor.rgb);
 
   // vignette
   vec2 q = (uv - 0.5) * vec2(aspect, 1.0);

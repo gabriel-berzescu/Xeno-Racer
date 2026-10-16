@@ -162,6 +162,26 @@
 .hud-toast i { align-self: stretch; width: 12px; margin-left: 16px; background: var(--pink); }
 .hud-toast .ttxt { font: 700 33px / 1 var(--f-display); letter-spacing: 0.1em; text-transform: uppercase; color: #fff; white-space: nowrap; }
 .hud-toast.show { opacity: 1; transform: translateX(-50%); }
+/* the HUD mirror strip owns the top centre: toasts drop below it */
+.xr-hud.has-mirror .hud-toast { top: 192px; }
+
+/* ── screen edges: car alongside ───────────────────────────────────────────── */
+/* A bar on the edge that lights up amber, then red, while a car is alongside or closing within a car length. --lv is
+   how close (0..1), --at where along your car it is (-1 behind .. 1 ahead). The right edge is the left one flipped. */
+
+.xr-hud .hud-spot { top: 52%; width: 72px; height: 400px; margin-top: -200px; opacity: 0; transition: opacity 0.2s var(--ease); --lv: 0; --at: 0; }
+.hud-spot.l { left: 0; }
+.hud-spot.r { right: 0; transform: scaleX(-1); }
+.hud-spot.on { opacity: 1; }
+.spot-trk { position: absolute; left: 14px; top: 24px; bottom: 24px; width: 2px; background: linear-gradient(180deg, transparent, rgba(238, 240, 243, 0.5) 22%, rgba(238, 240, 243, 0.5) 78%, transparent); opacity: calc(var(--lv) * 0.7); }
+.spot-lit {
+  position: absolute; left: 0; top: 50%; width: 64px; height: 140px; margin-top: -70px;
+  --c: color-mix(in srgb, var(--bad) calc(var(--lv) * 100%), var(--warn));
+  background: linear-gradient(90deg, var(--c) 0 9px, transparent 9px), linear-gradient(90deg, color-mix(in srgb, var(--c) 62%, transparent), transparent);
+  clip-path: polygon(0 0, 100% 26px, 100% calc(100% - 26px), 0 100%);
+  opacity: calc(0.32 + 0.68 * var(--lv));
+  transform: translateY(calc(var(--at) * -128px)) scaleY(calc(0.6 + 0.4 * var(--lv)));
+}
 
 /* ── telemetry ─────────────────────────────────────────────────────────────── */
 

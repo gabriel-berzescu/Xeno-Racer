@@ -46,6 +46,7 @@ import { anyLampFlickers, packDamage, settleDentDepth } from './damageUniforms';
 import { loadCarData } from './dataSource';
 import { createInteriorMaterial } from './interiorMaterial';
 import { computeLayout, wheelLook } from './layouts';
+import { createMirrorRig, type MirrorRig } from './mirrors';
 import { paintLivery, type LiveryTextures, type LiveryTier } from './livery';
 import { acquireTireTextTexture } from './textures';
 import { createBodyMaterials, createFarMaterial, type BodyMaterials } from './materials';
@@ -470,6 +471,8 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
     },
   };
 
+  /** The live mirrors (src/carvis/mirrors.ts): built the first time this becomes the player's car. */
+  let mirrorRig: MirrorRig | null = null;
   let playerMode = false;
   let cockpitMode = false;
   let spotsOn = false;
@@ -484,6 +487,7 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
     shadowProxy.visible = !playerMode;
     proxyWheels.visible = !playerMode;
     driverMesh.visible = playerMode && !cockpitMode && !hideList.includes('driver');
+    mirrorRig?.setCockpit(playerMode && cockpitMode);
     steerGroup.visible = playerMode && !hideList.includes('steer');
     for (const s of spots) s.visible = playerMode && spotsOn;
   };
@@ -532,6 +536,9 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
   const visual: CarVisual = {
     root,
     anchors,
+    get mirrors() {
+      return mirrorRig?.api;
+    },
     damage,
     update(state: VehicleState, _dt: number, env: EnvironmentState): void {
       const q = state.quaternion;
@@ -639,6 +646,14 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
     },
     setPlayer(on: boolean): void {
       playerMode = on;
+      if (on && !mirrorRig) {
+        mirrorRig = createMirrorRig(spec);
+        // in a mirror the player's body is the coarse one (its wheels stay the full-detail ones: only they are posed in player mode)
+        mirrorRig.api.hide.push(cabinMesh, driverMesh, steerGroup, driverLiteMesh, ...wheels1, ...cal1);
+        mirrorRig.api.lowDetail.hide.push(paint0, glass0);
+        mirrorRig.api.lowDetail.show.push(lodAI);
+        g0.add(mirrorRig.group);
+      }
       const want: LiveryTier = on ? quality : 'ai';
       if (want !== tier) {
         // different resolution: repaint into fresh textures
@@ -659,6 +674,7 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
     dispose(): void {
       if (disposed) return;
       disposed = true;
+      mirrorRig?.dispose();
       mats.paint.dispose();
       mats.glass.dispose();
       textures.dispose();

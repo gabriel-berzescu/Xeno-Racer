@@ -9,6 +9,7 @@ import type { UiCtx } from '../ctx';
 import { h } from '../dom';
 import { Center } from './center';
 import { HudMinimap } from './minimap';
+import { Spotter } from './spotter';
 import { Speedo } from './speedo';
 import { Telemetry } from './telemetry';
 import { PosLap, TimingPanel } from './timing';
@@ -37,12 +38,14 @@ export function createHud(ctx: UiCtx): HudView {
   const speedo = new Speedo(el);
   const minimap = new HudMinimap(el);
   const tele = new Telemetry(el);
+  const spotter = new Spotter(el);
   const center = new Center(el);
 
   let visible = false;
   let teleOn = false;
   let clean = false;
   let standingsOn = true;
+  let mirrorShown = false;
 
   tele.setVisible(false);
 
@@ -57,9 +60,15 @@ export function createHud(ctx: UiCtx): HudView {
         clean = isClean;
         el.classList.toggle('clean', clean);
       }
+      const mirror = !clean && s.mirror === true;
+      if (mirror !== mirrorShown) {
+        mirrorShown = mirror;
+        el.classList.toggle('has-mirror', mirror);
+      }
       center.update(s);
       if (clean) return; // photo mode: only the center messages stay
 
+      spotter.update(s);
       posLap.update(s);
       if (standingsOn) tower.update(s);
       timing.update(s);
@@ -81,6 +90,7 @@ export function createHud(ctx: UiCtx): HudView {
       minimap.setEnabled(s.hud.minimap);
       standingsOn = s.hud.standings;
       tower.el.style.display = standingsOn ? '' : 'none';
+      spotter.setEnabled(s.hud.spotter);
     },
 
     setVisible(v: boolean): void {

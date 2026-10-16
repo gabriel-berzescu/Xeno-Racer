@@ -51,6 +51,7 @@ import { FOG_TABLE_SIZE } from './atmosphere';
 import { solveEnvironment, type EnvSolution } from './environment';
 import { FinalEffect, SpeedEffect } from './effects-post';
 import { ParticlePass, particleUniforms, ShaftsPass } from './post';
+import { MirrorSystem, type MirrorFrame } from './mirrors';
 import { DropletPass, makeWiperFeed, type WiperFeed } from './wet/droplets';
 import { SSRPass } from './wet/ssr';
 import { installShaderPatches, XR_LAMPS, xrFogUniform, xrLampColUniform, xrLampUniform, xrLampUpUniform } from './shaderPatches';
@@ -135,6 +136,14 @@ export interface XenoRenderSystem extends RenderSystem {
    * distance to the focus (the default; a hood camera can sit as close to the car's centre as a cockpit eye).
    */
   setCockpitView(on: boolean | null): void;
+  /**
+   * The rear-view mirrors for this frame (the game calls it every frame, like setCockpitView): real glass in the cockpit
+   * view, the HUD strip in the hood and bumper views, nothing when off. See src/render/mirrors.ts. Attaching a car's
+   * mirrors (the first call with a new `rig`) swaps in the glass shader, so call it before precompile().
+   */
+  setMirrors(f: MirrorFrame): void;
+  /** The HUD mirror strip is on screen (or fading in): the DOM HUD keeps its toasts clear of it. */
+  readonly mirrorStrip: boolean;
 }
 
 interface Tier {
@@ -233,6 +242,12 @@ class RenderSystemImpl implements XenoRenderSystem {
   private readonly lampV = new Vector3();
   /** Set when an environment change swapped the shadow configuration (every shadow-receiving program differs). */
   private shadowProgramsChanged = false;
+  /** The lamps updateLamps picked (how many; their heads are in lampIx), so a mirror camera can re-express them in its own view. */
+  private lampN = 0;
+  private lampLit = false;
+  /** True during the hidden warm-up frame (renderNow). */
+  private warming = false;
+  private readonly mirrors: MirrorSystem;
 
   private readonly hemi = new HemisphereLight(0xffffff, 0x444444, 1);
   private readonly fog = new FogExp2(0x9fb4c8, 0.0002);
@@ -300,6 +315,7 @@ class RenderSystemImpl implements XenoRenderSystem {
     this.scene.add(this.sun.group);
     this.scene.add(this.hemi);
     this.particleScene.name = 'xr.particles';
+    this.mirrors = new MirrorSystem(r, this.scene, this.particleScene, { setView: (cam) => this.setLampView(cam), time: (name) => this.timeBegin(name) });
 
     this.pmrem = new PMREMGenerator(r);
 
@@ -355,7 +371,11 @@ class RenderSystemImpl implements XenoRenderSystem {
       // the programs synchronously, so the target only has to be set around the calls.
       this.compileTarget ??= new WebGLRenderTarget(1, 1, { depthBuffer: false });
       r.setRenderTarget(this.compileTarget);
-      const pending = [r.compileAsync(this.scene, this.camera), r.compileAsync(this.particleScene, this.camera)];
+      const pending = [r.compileAsync(this.scene, this.camera), r.compileAsync(this.particleScene, this.camera), r.compileAsync(this.mirrors.flareScene, this.camera)];
+      // the HUD mirror strip is the one thing drawn straight to the canvas (after the post chain), so it is compiled for it
+      r.setRenderTarget(null);
+      const hud = this.mirrors.compileScene;
+      pending.push(r.compileAsync(hud.scene, hud.camera));
       r.setRenderTarget(prev);
       await Promise.all(pending);
       // A program looks up its uniform and attribute locations the first time something is drawn with it: one synchronous
@@ -373,7 +393,14 @@ class RenderSystemImpl implements XenoRenderSystem {
 
   renderNow(camera: PerspectiveCamera, dt: number, speed: number): void {
     this.lastStart = 0;
-    this.render(camera, dt, speed);
+    // the hidden warm-up frame draws every mirror once too, so their targets and passes exist before the race
+    this.mirrors.forceNext();
+    this.warming = true;
+    try {
+      this.render(camera, dt, speed);
+    } finally {
+      this.warming = false;
+    }
   }
 
   applyGraphics(g: GraphicsSettings): void {
@@ -387,6 +414,14 @@ class RenderSystemImpl implements XenoRenderSystem {
 
   setCockpitView(on: boolean | null): void {
     this.cockpitView = on;
+  }
+
+  setMirrors(f: MirrorFrame): void {
+    this.mirrors.setFrame(f);
+  }
+
+  get mirrorStrip(): boolean {
+    return this.mirrors.stripShown;
   }
 
   resize(width: number, height: number): void {
@@ -519,6 +554,11 @@ class RenderSystemImpl implements XenoRenderSystem {
     this.renderer.info.reset();
     this.beginGpu();
     this.composer.render(dt);
+    // The mirrors after the picture: this frame's shadow maps are done (no mirror pass draws them again) and the glass in
+    // the next picture shows what is drawn here, a frame behind, which a mirror does not show.
+    this.mirrors.setWeather(this.env.rain);
+    this.mirrors.render(camera, dt, this.stats.height, this.pixelRatio, this.cssW, this.cssH);
+    this.mirrors.drawStrip(this.cssW, this.cssH, this.pixelRatio);
     this.endGpu();
 
     const info = this.renderer.info.render;
@@ -542,6 +582,7 @@ class RenderSystemImpl implements XenoRenderSystem {
     this.renderPass.dispose();
     this.particlePass.dispose();
     this.compileTarget?.dispose();
+    this.mirrors.dispose();
     this.composer.dispose();
     this.sky.dispose();
     this.sun.dispose();
@@ -604,6 +645,7 @@ class RenderSystemImpl implements XenoRenderSystem {
     const g = this.graphics;
     this.tier = tierFor(g.quality);
     this.sky.setQuality(this.tier.skyHigh);
+    this.mirrors.setTier(g.quality);
 
     this.configureShadows();
 
@@ -727,6 +769,7 @@ class RenderSystemImpl implements XenoRenderSystem {
     }
     if (this.shaftsBlend) effects.push(this.shaftsBlend);
     this.finalEffect = new FinalEffect();
+    this.mirrors.bindGrade(this.finalEffect);
     effects.push(this.finalEffect);
     const passA = new EffectPass(this.camera, ...effects);
     passA.encodeOutput = false;
@@ -818,12 +861,14 @@ class RenderSystemImpl implements XenoRenderSystem {
     const lamps = this.lampHeads;
     const dark = this.solution ? this.solution.darkness : 0;
     if (!lamps || dark <= 0.45) {
+      this.lampLit = false;
       if (col.w !== 0) {
         col.set(0, 0, 0, 0);
         for (const sl of slots) sl.w = 0;
       }
       return;
     }
+    this.lampLit = true;
     // same switch-on and colour as the wet road's own lamp lighting (track/scene/wet.ts)
     const k = Math.min(1, (dark - 0.45) / 0.4);
     col.set(7.5 * k, 6.1 * k, 4.4 * k, 1);
@@ -848,7 +893,21 @@ class RenderSystemImpl implements XenoRenderSystem {
       dist[j] = d2;
       idx[j] = i;
     }
+    this.lampN = n;
+    this.setLampView(camera);
+  }
+
+  /**
+   * Express the lamps updateLamps picked in `camera`'s view space (the lamp slots are view-space uniforms). The mirror passes
+   * call it for their own cameras, and updateLamps again for the main one afterwards.
+   */
+  private setLampView(camera: PerspectiveCamera): void {
+    const lamps = this.lampHeads;
+    if (!this.lampLit || !lamps) return;
+    const slots = xrLampUniform.value;
+    const idx = this.lampIx;
     const v = this.lampV;
+    const n = this.lampN;
     for (let j = 0; j < XR_LAMPS; j++) {
       if (j < n) {
         v.set(lamps[idx[j]], lamps[idx[j] + 1], lamps[idx[j] + 2]).applyMatrix4(camera.matrixWorldInverse);
@@ -865,7 +924,8 @@ class RenderSystemImpl implements XenoRenderSystem {
     camera.getWorldPosition(this._camPos);
     const d = this._camPos.distanceTo(this.focus);
     const interior = d < 3.4;
-    p.enabled = rain > 0.02 && interior;
+    // (the hidden warm-up frame runs the pass wherever the camera is, so its program is built behind the loading screen)
+    p.enabled = rain > 0.02 && (interior || this.warming);
     if (!p.enabled) return;
     p.rain = rain;
     p.speed = speed;
@@ -1063,6 +1123,19 @@ class RenderSystemImpl implements XenoRenderSystem {
       orig(...args);
       t.gl.endQuery(t.ext.TIME_ELAPSED_EXT);
       t.pending.push({ q, name: tagged.__xrName ?? name });
+    };
+  }
+
+  /** While profiling, start a GPU timer named `name` and hand back the function that stops it (null otherwise). */
+  private timeBegin(name: string): (() => void) | null {
+    const t = this.gpu;
+    if (!this.profiling || !t || t.pending.length > 24) return null;
+    const q = t.free.pop() ?? t.gl.createQuery();
+    if (!q) return null;
+    t.gl.beginQuery(t.ext.TIME_ELAPSED_EXT, q);
+    return () => {
+      t.gl.endQuery(t.ext.TIME_ELAPSED_EXT);
+      t.pending.push({ q, name });
     };
   }
 

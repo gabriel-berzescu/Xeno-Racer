@@ -10,6 +10,7 @@ import type { PartBuilder } from '../parts';
 import { dent, roundPoly, strip2 } from '../shapes';
 import { sdCylinderX, sdEllipseRot2, sdEllipsoid, sdPolygon2, sdRoundBox, sdRoundRect2, smax, smin, ssub } from '../sdf';
 import { addDiffuserStrakes, addWing, airfoilPoly } from '../aero';
+import { addDoorMirrors } from '../mirrorParts';
 import { frontZ, rearZ, topY } from './probe';
 
 export const makePrototype: BlueprintFactory = (s) => {
@@ -249,13 +250,8 @@ export const makePrototype: BlueprintFactory = (s) => {
         b.cylinder([x, 0.52, zTail + 0.06], [x, 0.52, zTail + 0.05], 0.036, 0.036, 20, true);
       }
     }
-    // mirrors on stalks off the fenders
-    for (const sg of [-1, 1]) {
-      b.setPart(PART.carbon);
-      b.ellipsoid([sg * 0.74, 0.96 * hk, 0.62], 0.065, 0.04, 0.09, 16, 10);
-      b.setPart(PART.plastic);
-      b.cylinder([sg * 0.62, 0.84 * hk, 0.58], [sg * 0.72, 0.94 * hk, 0.62], 0.011, 0.014, 8, false);
-    }
+    // mirrors: housing, stalk and glass face, set where the live mirror glass sits (carvis/mirrorLayout.ts)
+    addDoorMirrors(b, s);
     // roof scoop (air box)
     {
       b.setPart(PART.carbon);

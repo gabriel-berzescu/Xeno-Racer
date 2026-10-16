@@ -16,7 +16,7 @@ export const DEFAULT_SETTINGS: Settings = {
   controls: { steerDeadzone: 0.08, steerLinearity: 1.6, pedalDeadzone: 0.04, speedSensitivity: 0.6, steerSpeed: 1, vibration: true, invertLookY: false },
   assists: { abs: true, tcs: 'low', esc: true, autoShift: true, steeringAssist: 0.35, autoClutch: true },
   units: 'kmh',
-  hud: { minimap: true, telemetry: false, ghost: true, standings: true },
+  hud: { minimap: true, telemetry: false, ghost: true, standings: true, mirror: 'auto', spotter: true },
   camera: { fov: 62, defaultMode: 'chase', shake: 0.6 },
   damage: 'visual',
   playerName: 'Gabriel',
@@ -69,6 +69,7 @@ export function loadSettings(): Settings {
       const s = keepKnownChoices(merge(structuredClone(DEFAULT_SETTINGS), JSON.parse(raw)));
       // a mode this build does not know (saved by a newer one) falls back to the default
       if (s.damage !== 'off' && s.damage !== 'visual') s.damage = DEFAULT_SETTINGS.damage;
+      if (s.hud.mirror !== 'auto' && s.hud.mirror !== 'off') s.hud.mirror = DEFAULT_SETTINGS.hud.mirror;
       return s;
     }
   } catch {

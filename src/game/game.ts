@@ -40,7 +40,7 @@ import { DEFAULT_SETTINGS, loadSettings, saveSettings } from '../core/settings';
 import type { AudioSystem, CameraRig, CarSound, CarVisual, EffectsSystem, InputSystem, RenderSystem, TrackScene, UISystem } from '../core/systems';
 import { createInputSystem } from '../input';
 import { PhysicsWorld, SteeringFilter, type Vehicle } from '../physics';
-import { createCameraRig, createEffects, createRenderSystem, lightningStrength, type XenoRenderSystem } from '../render';
+import { createCameraRig, createEffects, createRenderSystem, lightningStrength, type MirrorFrame, type XenoRenderSystem } from '../render';
 import { TRACKS, buildTrackScene, loadTrackRuntime } from '../track';
 import { createUI } from '../ui';
 import { GhostRecorder, ghostPose, loadBestLaps, loadGhost, recordKey, saveBestLap, saveGhost, type GhostLap } from './records';
@@ -49,6 +49,8 @@ import { RaceSession, type Entrant } from './session';
 import { DRIVER_NAMES, opponentLivery } from './liveries';
 import type { ContactOther } from '../core/damage';
 import { ReplayPlayer, ReplayRecorder } from './replay';
+import { makeSpotter, updateSpotter, type SpotterBody, type SpotterState } from './spotter';
+import { collectHeadlamps, makeMirrorLamps } from './headlamps';
 
 export const VERSION = '0.9.0';
 
@@ -129,6 +131,17 @@ export class Game {
   private replay: { player: ReplayPlayer; t: number; target: number } | null = null;
   /** Frame-time samples for perfStats(): [frame interval ms, CPU ms spent in frame()]. */
   private perfSamples: number[] = [];
+  /** Proximity spotter: the smoothed state, what the HUD is handed, and each car's footprint for it (see src/game/spotter.ts). */
+  private spotter: SpotterState = makeSpotter();
+  private readonly spotOut = { left: 0, right: 0, leftAt: 0, rightAt: 0 };
+  private spotList: SpotterBody[] = [];
+  private spotCars: RaceCar[] | null = null;
+  /** Each car's lamp light output (damage: head left, head right, tail left, tail right), for the glare in the mirrors. */
+  private lampOutputs: Array<Readonly<Float32Array> | undefined> = [];
+  /** What the mirrors are told every frame (one object, rewritten in place). */
+  private readonly mirrorFrame: MirrorFrame = { mode: 'off', rig: null, hud: false };
+  /** The lit headlamps of the cars behind, for the glare in the mirrors at night (see src/game/headlamps.ts). */
+  private readonly mirrorLamps = makeMirrorLamps();
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -329,6 +342,7 @@ export class Game {
       this.effects?.unregisterCar(c.vehicle.id);
     }
     this.cars = [];
+    this.mirrorsOff();
     this.player = null;
     this.session = null;
     this.world = null;
@@ -608,6 +622,8 @@ export class Game {
    */
   private async warmUp(focus: RaceCar, token: number): Promise<boolean> {
     const xr = this.render as XenoRenderSystem;
+    // the player's mirror glass gets its shader before the scene is compiled, so the cockpit's first frame builds nothing
+    xr.setMirrors({ mode: 'off', rig: focus.visual.mirrors ?? null, hud: false });
     await xr.precompile();
     if (token !== this.loadToken) return false;
     const st = focus.vehicle.state;
@@ -872,6 +888,7 @@ export class Game {
       // keep the last scene alive behind the loading screen
       if (this.world && this.camera) this.updateAttract(dt);
     }
+    if (this.phase !== 'race') this.mirrorsOff();
     this.audio.update(dt);
     if (this.perfSamples.length < 20000) this.perfSamples.push(dt * 1000, performance.now() - cpu0);
   }
@@ -963,6 +980,7 @@ export class Game {
     if (this.paused || this.resultsShown) {
       this.ui.handleInput(input);
       if (this.paused) {
+        this.driveMirrors(false);
         this.drawWorld(0, 0);
         return;
       }
@@ -1064,6 +1082,8 @@ export class Game {
     this.trackScene?.update(dt, this.camera.camera);
     this.trackScene?.setStartLights(session.phase === 'countdown' ? session.lights : session.phase === 'racing' && world.time - session.startTime < 3 ? 6 : null);
     this.audio.setListener(this.camera.camera, pv.state.velocity);
+    this.updateSpotter(dt, input.lookBack);
+    this.driveMirrors(input.lookBack);
     this.render.render(this.camera.camera, dt, pv.state.speed);
     // the cockpit wiper: its swish and thunks follow the windscreen pass's own clock, so they land on the blade you see
     setWiper(this.audio, (this.render as XenoRenderSystem).wiper);
@@ -1193,6 +1213,7 @@ export class Game {
 
   private updateReplay(dt: number, input: InputFrame): void {
     const r = this.replay!;
+    this.mirrorsOff();
     if (input.nav.back || input.pause) {
       this.stopReplay();
       return;
@@ -1298,7 +1319,85 @@ export class Game {
       showTelemetry: this.showTelemetry,
       hudVisible: this.hudVisible,
       championship: this.hudChampionship,
+      spotter: this.settings.hud.spotter ? this.spotOut : null,
+      mirror: (this.render as XenoRenderSystem).mirrorStrip,
     };
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Proximity spotter and mirrors
+  // ───────────────────────────────────────────────────────────────────────────
+
+  /** Every car's footprint for the spotter. The states are the vehicles' own, so the list only changes with the field. */
+  private spotBodies(): SpotterBody[] {
+    if (this.spotCars !== this.cars || this.spotList.length !== this.cars.length) {
+      this.spotCars = this.cars;
+      this.spotList = this.cars.map((c) => {
+        const st = c.vehicle.state;
+        return { position: st.position, quaternion: st.quaternion, velocity: st.velocity, halfLength: c.def.visual.length / 2, halfWidth: c.def.visual.width / 2 };
+      });
+      this.lampOutputs = this.cars.map((c) => c.visual.damage?.lamps);
+    }
+    return this.spotList;
+  }
+
+  /** Fold the field into the spotter's two sides. It speaks only while the screen's left and right are the car's. */
+  private updateSpotter(dt: number, lookBack: boolean): void {
+    const player = this.player;
+    const session = this.session;
+    if (!player || !session) return;
+    const bodies = this.spotBodies();
+    const me = bodies[this.cars.indexOf(player)];
+    if (!me) return;
+    const mode = this.camera.mode;
+    // not in the TV or orbit cameras (the screen's left is anybody's), and not while looking back
+    const driversView = mode !== 'tv' && mode !== 'orbit' && !lookBack;
+    const on = this.settings.hud.spotter && driversView && session.phase === 'racing' && !this.resultsShown && !this.replay;
+    updateSpotter(this.spotter, me, bodies, dt, on);
+    const o = this.spotOut;
+    o.left = this.spotter.left.level;
+    o.right = this.spotter.right.level;
+    o.leftAt = this.spotter.left.at;
+    o.rightAt = this.spotter.right.at;
+  }
+
+  /**
+   * Tell the render system what the mirrors do this frame: real glass in the cockpit, the HUD strip in the hood and
+   * bumper views (not while looking back, where the camera already faces the road behind), nothing in the others or
+   * with the setting off.
+   */
+  private driveMirrors(lookBack: boolean): void {
+    const player = this.player;
+    const f = this.mirrorFrame;
+    const cam = this.camera.mode;
+    f.rig = player?.visual.mirrors ?? null;
+    f.mode =
+      !player || this.replay || this.resultsShown || this.settings.hud.mirror === 'off' ? 'off' : cam === 'cockpit' ? 'real' : (cam === 'hood' || cam === 'bumper') && !lookBack ? 'virtual' : 'off';
+    // the strip is part of the HUD: it goes with the H key, the pause menu and the start sequence
+    f.hud = this.hudVisible && !this.paused && this.session?.phase !== 'countdown';
+    // the lamps of the cars that face us glare in the glass once it is dark enough for them to be lit
+    const lamps = this.mirrorLamps;
+    lamps.n = 0;
+    if (f.mode !== 'off' && player) {
+      const head = Math.min(1, Math.max(0, ((this.render as XenoRenderSystem).env.darkness - 0.25) / 0.35));
+      if (head > 0.01) {
+        const bodies = this.spotBodies();
+        const at = this.cars.indexOf(player);
+        if (bodies[at]) collectHeadlamps(lamps, bodies, at, bodies[at].position, head, this.lampOutputs);
+      }
+    }
+    f.lamps = lamps;
+    (this.render as XenoRenderSystem).setMirrors(f);
+  }
+
+  private mirrorsOff(): void {
+    const f = this.mirrorFrame;
+    if (f.mode === 'off' && f.rig === null && !f.hud) return;
+    f.mode = 'off';
+    f.rig = null;
+    f.hud = false;
+    f.lamps = null;
+    (this.render as XenoRenderSystem).setMirrors(f);
   }
 
   /** Debug helper: average frames per second. */

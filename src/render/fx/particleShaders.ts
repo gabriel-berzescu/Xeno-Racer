@@ -19,6 +19,8 @@ uniform vec3 uGroundAmb;
 uniform vec3 uFogColor;
 uniform float uFogDensity;
 uniform float uFogLin;
+uniform vec2 uNearFade;
+uniform float uAlphaMul;
 
 const float PI = 3.14159265359;
 
@@ -110,7 +112,7 @@ void main() {
   float sceneZ = sceneViewDepth();
   a *= smoothstep(0.0, vR * uSoftness, sceneZ - fragZ);
   // fade when very close to the camera so a puff never fills the lens
-  a *= smoothstep(0.3, 3.6, depthV);
+  a *= smoothstep(uNearFade.x, uNearFade.y, depthV) * uAlphaMul;
   if (a < 0.003) discard;
 
   // pseudo volume: gentle sphere normal roughened by the noise, lit by sun + sky
@@ -168,7 +170,7 @@ void main() {
   float depthV = -vView.z;
   float fragZ = depthV - vR * z * 0.9;
   a *= smoothstep(0.0, vR * uSoftness, sceneViewDepth() - fragZ);
-  a *= smoothstep(0.3, 3.6, depthV);
+  a *= smoothstep(uNearFade.x, uNearFade.y, depthV) * uAlphaMul;
   if (a < 0.002) discard;
 
   vec3 amb = mix(uGroundAmb, uSkyAmb, 0.7);

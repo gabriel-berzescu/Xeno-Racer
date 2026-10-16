@@ -9,6 +9,7 @@ import type { PartBuilder } from '../parts';
 import { dent, roundPoly, strip2 } from '../shapes';
 import { sdCylinderX, sdEllipseRot2, sdEllipsoid, sdPolygon2, sdRoundBox, sdRoundRect2, sdSegment2, smax, smin, smoothstep, ssub } from '../sdf';
 import { addDiffuserStrakes } from '../aero';
+import { addDoorMirrors } from '../mirrorParts';
 import { frontZ, rearZ, sdBlade, sideX, topY } from './probe';
 
 export const makeGT: BlueprintFactory = (s) => {
@@ -204,15 +205,8 @@ export const makeGT: BlueprintFactory = (s) => {
       b.setPart(PART.plastic);
       b.cylinder([x, 0.33, zTail + 0.09], [x, 0.33, zTail + 0.08], 0.041, 0.041, 20, true);
     }
-    // mirrors
-    for (const sg of [-1, 1]) {
-      b.setPart(PART.body);
-      b.ellipsoid([sg * 0.98, 0.99, 0.3], 0.085, 0.052, 0.12, 20, 12);
-      b.setPart(PART.carbon);
-      b.ellipsoid([sg * 1.0, 0.99, 0.28], 0.075, 0.045, 0.098, 20, 12);
-      b.setPart(PART.plastic);
-      b.cylinder([sg * 0.8, 0.93, 0.32], [sg * 0.95, 0.975, 0.3], 0.014, 0.018, 8, false);
-    }
+    // mirrors: housing, stalk and glass face, set where the live mirror glass sits (carvis/mirrorLayout.ts)
+    addDoorMirrors(b, s);
   };
 
   return {

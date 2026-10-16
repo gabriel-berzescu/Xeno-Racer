@@ -20,7 +20,7 @@
  *    Visual wheel orientation = chassisQuat * rotY(steerAngle) * rotX(spin).
  *  - Physics runs at a fixed rate (1000 Hz by default); everything else runs per rendered frame.
  */
-import type { Quaternion, Vector3 } from 'three';
+import type { Object3D, Quaternion, Vector3 } from 'three';
 import type { VehicleSpec } from '../physics/spec';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -282,6 +282,46 @@ export interface CarVisualSpec {
   seat: { x: number; y: number; z: number };
 }
 
+/**
+ * A piece of live mirror glass on the player's car (src/carvis/mirrors.ts), drawn into by the render system's mirror pass
+ * (src/render/mirrors.ts). The car builds the meshes (a flat plane, local +Z the face the driver sees, local +X its right,
+ * UV 0..1 over the glass) with a placeholder material and keeps them hidden outside the cockpit view; the render system
+ * swaps in the glass shader.
+ */
+export interface CarMirrorGlass {
+  /** 'reflect': a mirror, shows the road behind reflected in the glass plane. 'camera': a display showing the rear camera. */
+  kind: 'reflect' | 'camera';
+  mesh: Object3D;
+  /** Half the glass width and height (m). */
+  halfW: number;
+  halfH: number;
+  /** Field of view factor of a reflecting glass: 1 = flat, > 1 = convex (wider view, everything smaller), across and up. */
+  convex: number;
+  convexY: number;
+}
+
+export interface CarMirrors {
+  glass: CarMirrorGlass[];
+  /** The rear camera (child of the car root): looks out of the tail along its own -Z. Feeds the dash display and the HUD mirror. */
+  rearCamera: Object3D;
+  /** Set by the render system: the glass is drawn into this frame. While false the car keeps its glass hidden (the cockpit shows the plain glass face of the body). */
+  live: boolean;
+  /** Interior parts every mirror leaves out (seats, headrests, the driver, the wheel): a mirror looks back from in front of them, and a view full of headrests is no view. */
+  hide: Object3D[];
+  /** The player's own car is drawn in the mirrors with its cheaper body: for every mirror pass `hide` (the full-detail body) goes out and `show` (the coarse level) comes in. */
+  lowDetail: { hide: Object3D[]; show: Object3D[] };
+}
+
+/**
+ * The lit headlamps of the cars that face the player, for the glare in the mirrors at night (the game fills it every frame,
+ * src/game/headlamps.ts; the render system draws it, src/render/mirrorFlares.ts): x, y, z and strength (0..1) per lamp, the
+ * first `n` entries used.
+ */
+export interface MirrorLamps {
+  data: Float32Array;
+  n: number;
+}
+
 export interface Livery {
   primary: string; // hex '#rrggbb'
   secondary: string;
@@ -448,13 +488,19 @@ export type CameraMode = 'chase' | 'chase-far' | 'hood' | 'bumper' | 'cockpit' |
  */
 export type DamageMode = 'off' | 'visual';
 
+/**
+ * Rear-view mirrors. 'auto': real glass that reflects the road behind in the cockpit view, a HUD mirror strip at the
+ * top of the screen in the hood and bumper views. 'off': no mirror view is rendered at all.
+ */
+export type MirrorMode = 'auto' | 'off';
+
 export interface Settings {
   graphics: GraphicsSettings;
   audio: AudioSettings;
   controls: ControlSettings;
   assists: Assists;
   units: 'kmh' | 'mph';
-  hud: { minimap: boolean; telemetry: boolean; ghost: boolean; standings: boolean };
+  hud: { minimap: boolean; telemetry: boolean; ghost: boolean; standings: boolean; mirror: MirrorMode; spotter: boolean };
   camera: { fov: number; defaultMode: CameraMode; shake: number };
   damage: DamageMode;
   playerName: string;
@@ -680,6 +726,15 @@ export interface HudState {
   hudVisible: boolean;
   /** Set during a championship round ("Round 2 / 4"). The game keeps one object for the whole race. */
   championship?: { name: string; round: number; rounds: number } | null;
+  /**
+   * Cars alongside or closing within a car length, per side of the player's car: `left` / `right` 0 = nobody near ..
+   * 1 = touching (already smoothed, safe to draw as it is), `leftAt` / `rightAt` where along the car it is, -1 = behind
+   * .. +1 = ahead. Null = hidden: the setting is off, or the view is not the driver's (the TV and orbit cameras, where
+   * the screen's left is not the car's), or the race has not started.
+   */
+  spotter?: { left: number; right: number; leftAt: number; rightAt: number } | null;
+  /** The HUD mirror strip is on screen at the top centre: toasts and banners step below it. */
+  mirror?: boolean;
 }
 
 /** Minimap geometry, sent once per track. */

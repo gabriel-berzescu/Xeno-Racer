@@ -15,6 +15,7 @@ import type {
   AudioSettings,
   CameraMode,
   CarDefinition,
+  CarMirrors,
   ChampionshipDef,
   ChampionshipView,
   ControlSettings,
@@ -144,6 +145,8 @@ export interface CarVisual {
    * the game sets the mode from Settings.damage, listens to `onEvent` for the replay and drives `replay()` during one.
    */
   readonly damage?: CarDamageControl;
+  /** The mirror glass of the player's car (cockpit view) and its rear camera; the render system's mirror pass draws into them. */
+  readonly mirrors?: CarMirrors;
   dispose(): void;
 }
 /** export function createCarVisual(def: CarDefinition, livery: Livery, quality: QualityLevel): Promise<CarVisual> */

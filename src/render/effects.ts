@@ -175,7 +175,7 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
     fog: false,
   };
   const U = particleUniforms;
-  const shared = { uDepth: U.uDepth, uHasDepth: U.uHasDepth, uResolution: U.uResolution, uNearFar: U.uNearFar, uSunDir: U.uSunDir, uSunLight: U.uSunLight, uSkyAmb: U.uSkyAmb, uGroundAmb: U.uGroundAmb, uFogColor: U.uFogColor, uFogDensity: U.uFogDensity, uFogLin: U.uFogLin };
+  const shared = { uDepth: U.uDepth, uHasDepth: U.uHasDepth, uResolution: U.uResolution, uNearFar: U.uNearFar, uSunDir: U.uSunDir, uSunLight: U.uSunLight, uSkyAmb: U.uSkyAmb, uGroundAmb: U.uGroundAmb, uFogColor: U.uFogColor, uFogDensity: U.uFogDensity, uFogLin: U.uFogLin, uNearFade: U.uNearFade, uAlphaMul: U.uAlphaMul };
 
   const puffMat = new ShaderMaterial({
     ...baseMat,

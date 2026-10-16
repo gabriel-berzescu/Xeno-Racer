@@ -27,6 +27,11 @@ export const particleUniforms = {
   uFogLin: { value: 0 },
   /** Exposure-aware flare: how much night glow to add to emissive particles. */
   uExposure: { value: 1 },
+  /** Distances (view depth, m) over which smoke and spray fade in from the camera, so a puff never fills the lens. A mirror
+   *  looks back along the plume of its own car and raises them. */
+  uNearFade: { value: new Vector2(0.3, 3.6) },
+  /** Opacity scale of smoke and spray (1 = as emitted). */
+  uAlphaMul: { value: 1 },
 };
 
 /**
