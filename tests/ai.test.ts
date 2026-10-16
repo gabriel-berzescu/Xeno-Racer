@@ -1,6 +1,6 @@
 /**
- * AI validation: an AI car must lap every track cleanly at a sensible pace.
- * Run: npx vitest run tests/ai.test.ts   (writes .cache/ai-laps.txt)
+ * AI validation: an AI car must lap every track cleanly at a sensible pace, and a pack of them must race cleanly in the rain.
+ * Run: npx vitest run tests/ai.test.ts   (writes .cache/ai-laps-{dry,storm}.txt)
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { Matrix4, Vector3 } from 'three';
@@ -10,6 +10,7 @@ import { CARS, getCar } from '../src/cars';
 import type { Difficulty, TrackPoint } from '../src/core/contracts';
 import { PhysicsWorld } from '../src/physics';
 import { TRACKS, loadTrackRuntime } from '../src/track';
+import { runPack } from './probes/pack-race';
 
 const DT = 1 / 60;
 
@@ -85,3 +86,24 @@ describe('AI driver', () => {
     expect(fails).toEqual([]);
   }, 600000);
 });
+
+describe('AI pack racing in the rain', () => {
+  // A mixed 12-car grid of pros on the Brennwald Ring in standing water. With the old drivers and drive-line aids this is
+  // where the pack went off: cars that braked for the one ahead locked up (ABS could not let a wheel go on the kerb, the
+  // clutch dragged the driven axle), slid across the road and had to be reset.
+  it('a mixed grid keeps to the road on Brennwald in a storm', () => {
+    let off = 0;
+    let resets = 0;
+    const seeds = [0, 1, 2];
+    for (const seed of seeds) {
+      const r = runPack('brennwald', 'mixed', 'pro', 12, 1, false, { seed, wetness: 1 });
+      expect(r.finished).toBe(12);
+      off += r.offTrack;
+      resets += r.resets;
+    }
+    // (the old drivers: 14 s per race and a reset in two races of three)
+    expect(resets).toBe(0);
+    expect(off / seeds.length).toBeLessThan(9);
+  }, 300000);
+});
+

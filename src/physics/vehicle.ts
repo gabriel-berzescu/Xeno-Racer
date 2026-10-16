@@ -34,6 +34,16 @@ const SLIP_VMIN = 3;
 const STATIC_SAG = 0.38;
 /** Road-wheel steering rack speed (rad/s). */
 const RACK_SPEED = 4.2;
+/**
+ * Lowest brake pressure ABS holds on a locking wheel. It must be able to let go completely: a wheel locked on a
+ * kerb or wet grass carries only a fraction of what a dry caliper at even 20 % would put on it, and stays locked.
+ */
+const ABS_MIN_PRESSURE = 0;
+/**
+ * Back-torque limit of the clutch (a slipper clutch) as a share of the grip torque of the driven tyres: engine braking and the
+ * clutch dump of a clumsy downshift cannot drag the driven axle into a lock that ABS (brake pressure only) cannot cure.
+ */
+const SLIPPER_GRIP_SHARE = 0.5;
 
 const clamp = (x: number, lo: number, hi: number) => (x < lo ? lo : x > hi ? hi : x);
 const clamp01 = (x: number) => (x < 0 ? 0 : x > 1 ? 1 : x);
@@ -108,6 +118,8 @@ class WheelSim {
   rollingTorque = 0;
   brakeTorque = 0;
   absFactor = 1;
+  /** Friction force (N) the tyre could give at its peak right now (mu * load), for the driveline back-torque limit. */
+  peakF = 0;
   escBrake = 0;
   skid = 0;
   tempC: number;
@@ -689,6 +701,7 @@ export class Vehicle {
       const rho = Math.sqrt(sx * sx + sy * sy);
       const ratio = shapeRatio(rho, wh.shape);
       const F = mu * wh.load;
+      wh.peakF = F;
       wh.fx = F * ratio * sx * 1.08;
       wh.fy = -F * ratio * sy;
       wh.implicitD = (wh.radius * wh.radius * F * ratio * 1.08) / tire.peakSlipRatio / denom;
@@ -731,7 +744,7 @@ export class Vehicle {
       if (as.abs && brake > 0.05 && wh.contact && Math.abs(wh.vLong) > 2) {
         const lockSlip = -wh.kappa * Math.sign(wh.vLong);
         const pk = wh.tire.peakSlipRatio;
-        if (lockSlip > pk * 1.35) wh.absFactor = Math.max(0.2, wh.absFactor - dt * 16);
+        if (lockSlip > pk * 1.35) wh.absFactor = Math.max(ABS_MIN_PRESSURE, wh.absFactor - dt * 16);
         else if (lockSlip < pk * 0.95) wh.absFactor = Math.min(1, wh.absFactor + dt * 7);
         if (wh.absFactor < 0.97) absOn = true;
       } else wh.absFactor = 1;
@@ -971,6 +984,13 @@ export class Vehicle {
     let lc = 0;
     const lb0 = [0, 0, 0, 0];
     const capC = clutchCap * dt;
+    // (forward gears only) the clutch slips before the driveline can drag the driven tyres past a share of their grip
+    let capOver = capC;
+    if (G > 0) {
+      let tq = 0;
+      for (const wh of wheels) if (wh.driveWeight > 0 && wh.contact) tq += wh.peakF * wh.radius;
+      capOver = Math.min(capC, ((SLIPPER_GRIP_SHARE * tq) / G) * dt);
+    }
     const fl = wheels[0];
     const fr = wheels[1];
     const rl = wheels[2];
@@ -1001,7 +1021,7 @@ export class Vehicle {
         }
         const delta = this.omegaE - G * carrier;
         let nl = lc + delta / kInv;
-        nl = nl < -capC ? -capC : nl > capC ? capC : nl;
+        nl = nl < -capOver ? -capOver : nl > capC ? capC : nl;
         const dl = nl - lc;
         lc = nl;
         this.omegaE -= dl / Ie;

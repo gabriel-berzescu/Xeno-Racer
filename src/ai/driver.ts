@@ -2,14 +2,24 @@
  * AI racing driver. Uses the same CarControls as the player.
  *
  * - Steering: path tracking on the racing line (curvature feedforward + lateral / heading feedback
- *   over a speed-dependent preview), with yaw-rate damping and countersteer for real slides.
- * - Speed: the line's speed profile with anticipation, corrected for driving off the line.
+ *   over a speed-dependent preview), with yaw-rate damping and countersteer for real slides. The curvature it asks
+ *   for never exceeds what the tyres can give, so a car that has run wide cannot pile on steering and slide wider.
+ * - Speed: the line's speed profile with anticipation, corrected for driving off the line. A throttle governor lifts
+ *   while the front tyres push or the driven tyres slide, and in the wet a car that is catching up on the plan does
+ *   not get full power in the middle of a corner.
  * - Traffic: plans a lateral offset from the racing line around nearby cars — gives room to cars
- *   alongside, commits to a passing side, follows at a time gap when there's no way by.
+ *   alongside, commits to a passing side, follows at a time gap when there's no way by. On a slippery road the
+ *   following is gentle and kinematic (it brakes in proportion to the deceleration it needs, with the car ahead's
+ *   braking added, never in a panic; only a pass that is still inside the other car's lane is held to the firm gap
+ *   law), lane changes slow down while the tyres are busy, and passes keep clear of kerbs, grass and gravel at the
+ *   edge of the asphalt.
+ * - Weather: everything that depends on the water on the road (speed profile, racing line, grip estimates, the wet
+ *   racecraft) is derived from one number, set at construction and changed with setWetness(), which moves the driver to
+ *   the new conditions over a couple of seconds instead of jumping.
  * - Asks for a reset when stuck or facing the wrong way.
  */
 import { Vector3 } from 'three';
-import type { CarControls, CarDefinition, Difficulty, TrackPoint, TrackRuntime, VehicleState } from '../core/contracts';
+import type { CarControls, CarDefinition, Difficulty, GroundSample, SurfaceType, TrackPoint, TrackRuntime, VehicleState } from '../core/contracts';
 import { SURFACES, wetGripFactor } from '../physics/surfaces';
 import { computeRacingLine, computeSpeedProfile, type RacingLine, type SpeedProfile } from './racing-line';
 
@@ -33,29 +43,130 @@ export const SKILL: Record<Difficulty, Skill> = {
   alien: { gripUse: 0.965, brakeUse: 0.94, pace: 1, wander: 0.06, reaction: [0.14, 0.22], mistakeEvery: 0, mistakeSize: 0 },
 };
 
+const G = 9.81;
+const RHO = 1.225;
+
+// ── tuning ────────────────────────────────────────────────────────────────────
+/** Water on the track at which the cautious behaviours are fully on is 1 / WET_RAMP (rain, 0.75, is past it). */
+const WET_RAMP = 1.5;
+/** setWetness: seconds over which the speed profile, the racing line and the wet parameters move to the new conditions. */
+const WET_BLEND_SECONDS = 2;
+/** How far (m) beyond the asphalt edge the car's side may reach when passing, at 0 and at full water on a slippery edge. */
+const EDGE_ALLOW_DRY = 0.2;
+const EDGE_WET_MARGIN = 0.9;
+/** Ground beyond the edge that keeps less than this share of the wet grip of asphalt counts as slippery. */
+const SLIPPERY_RATIO = 0.8;
+/** The slowest a lane change gets (share of its normal lateral speed) while the tyres are fully busy, on a wet road. */
+const LATERAL_RATE_MIN = 0.15;
+/** The steering never asks for more lateral acceleration than this share of the grip (plus the bank's help). */
+const CURVATURE_GRIP = 1.05;
+/** Throttle gain (per m/s of speed deficit) in the middle of a corner on a wet road, instead of the normal 0.35. */
+const THROTTLE_GAIN_CORNER_WET = 0.03;
+/** Slip angle / combined-slip thresholds (multiples of the tyre's peak) where the throttle governor starts and finishes lifting. */
+const GOV_FRONT: [number, number] = [1.2, 2.0];
+const GOV_REAR: [number, number] = [0.9, 1.6];
+const GOV_DRIVEN: [number, number] = [1.2, 1.6];
+/** On a dry road wheelspin only counts for the governor together with sideways slip: from this share of the peak slip angle, fading in over the span. */
+const GOV_SPIN_FROM = 0.1;
+const GOV_SPIN_SPAN = 0.3;
+const GOV_MIN = 0.15;
+const GOV_RELEASE = 4;
+/** Following: share of the tyres' deceleration used to settle behind a car, and the time gap (s) held (more in the wet). */
+const FOLLOW_COMFORT = 0.5;
+const FOLLOW_TIME_GAP = 0.3;
+const FOLLOW_TIME_GAP_WET = 0.3;
+const FOLLOW_REACTION = 0.3;
+const FOLLOW_SOFT_GAIN = 0.04;
+/** Braking for a car in the way: dead band (m/s^2), margin on the deceleration it takes, and the weight of the car's own braking. */
+const BRAKE_DEAD_BAND = 0.4;
+const BRAKE_MARGIN = 1.15;
+const LEADER_BRAKE_WEIGHT = 1;
+
 const _tp: TrackPoint = { s: 0, d: 0, segment: 0, widthLeft: 0, widthRight: 0, wallLeft: 0, wallRight: 0, tx: 0, tz: 1, lx: 1, lz: 0, y: 0 };
 const _f = new Vector3();
 const _l = new Vector3();
+const _gs: GroundSample = { height: 0, normal: new Vector3(0, 1, 0), surface: 'asphalt' };
+const _hp = new Vector3();
+
+/** How much wet grip a surface keeps compared with wet asphalt (an average road tyre). */
+function wetGripRatio(surface: SurfaceType): number {
+  const a = SURFACES.asphalt;
+  const sp = SURFACES[surface];
+  return (sp.grip * Math.min(1.15, 0.7 * sp.wet)) / (a.grip * Math.min(1.15, 0.7 * a.wet));
+}
+
+/** Throttle factor from 1 (below the first threshold) down to GOV_MIN (past the second). */
+function fade(u: number, t: [number, number]): number {
+  return Math.max(GOV_MIN, Math.min(1, (t[1] - u) / (t[1] - t[0])));
+}
+
+const smooth01 = (x: number) => x * x * (3 - 2 * x);
+const clampWetness = (w: number | undefined) => (w === undefined || !(w > 0) ? 0 : w > 1 ? 1 : w);
+
+const hazardCache = new Map<string, Uint8Array>();
+/**
+ * For every point of the racing line: is the ground just beyond the asphalt edge slippery in the wet (kerb, grass, gravel,
+ * sand: bit 0 = left, bit 1 = right)? Tarmac run-offs and concrete are not, so a car may use the whole width there.
+ */
+function edgeHazards(track: TrackRuntime, line: RacingLine): Uint8Array {
+  const key = `${track.info.id}:${track.length.toFixed(1)}:${line.n}`;
+  let h = hazardCache.get(key);
+  if (h) return h;
+  h = new Uint8Array(line.n);
+  for (let i = 0; i < line.n; i++) {
+    const sa = i * line.step;
+    const j = Math.min(track.count - 1, Math.round(sa / track.spacing));
+    track.pointAt(sa, track.widthLeft[j] + 0.5, _hp);
+    track.groundAt(_hp.x, _hp.z, _gs);
+    if (wetGripRatio(_gs.surface) < SLIPPERY_RATIO) h[i] |= 1;
+    track.pointAt(sa, -(track.widthRight[j] + 0.5), _hp);
+    track.groundAt(_hp.x, _hp.z, _gs);
+    if (wetGripRatio(_gs.surface) < SLIPPERY_RATIO) h[i] |= 2;
+  }
+  hazardCache.set(key, h);
+  return h;
+}
 
 export interface AIDriverOptions {
   difficulty: Difficulty;
   /** Per-driver variation seed. */
   seed: number;
-  /** Water on the track (0..1): slower corners, earlier braking, wheels kept off the kerbs. */
+  /** Water on the track (0..1): slower corners, earlier braking, wheels kept off the kerbs, gentler racecraft. */
   wetness?: number;
 }
 
 export class AIDriver {
-  readonly line: RacingLine;
-  readonly profile: SpeedProfile;
   readonly skill: Skill;
   /** Set when the car is stuck or facing the wrong way; the game resets it to the track. */
   needsReset = false;
   /** Current track position (updated every update). */
   s = 0;
-  /** Asphalt grip factor for the weather (1 when dry). */
-  private readonly wetMu: number;
   d = 0;
+
+  // ── weather: all derived from the wetness (see applyWetness / setWetness) ──
+  /** Water on the track the driver is working with now (0..1). While setWetness is blending it is somewhere between the old and the new. */
+  private wetness = 0;
+  /** Asphalt grip factor for the weather (1 when dry). */
+  private wetMu = 1;
+  /** 0 on a dry road, 1 once the road is wet enough for the cautious behaviours to be fully on. */
+  private wetF = 0;
+  private readonly tireWet: number;
+  /** Peak friction coefficient of the weaker axle (dry), downforce acceleration per (m/s)^2, braking acceleration at full pedal. */
+  private readonly gripMu: number;
+  private readonly cDown: number;
+  private readonly brakeGain: number;
+  private readonly alphaPkF: number;
+  private readonly alphaPkR: number;
+  private readonly rearDriven: boolean;
+  /** Slippery ground beyond the asphalt edge along the line (bit 0 left, bit 1 right); all clear on a dry road. */
+  private hazard!: Uint8Array;
+  private hazardMask: Uint8Array | null = null;
+  private hazardNone: Uint8Array | null = null;
+  /** The gentle, kinematic following law (for slippery roads); a dry road keeps the firm gap law. */
+  private softFollow = false;
+  private govern = 1;
+  /** Grip usage (0..1+) of the last update: measured acceleration over what the tyres can give. */
+  usage = 0;
 
   private hint = -1;
   private offset = 0;
@@ -66,10 +177,20 @@ export class AIDriver {
   private readonly paceJitter: number;
   private readonly halfWidth: number;
   private time = 0;
-  debug = '';
-  /** Traffic planner state for probes. */
+  /** Final speed target and traffic cap of the last update (m/s), for probes. */
+  dbgVT = 0;
+  dbgCap = Infinity;
+  private dbgSteer = { lineD: 0, dDes: 0, ey: 0, epsi: 0, kff: 0, kappa: 0, yawErr: 0, delta: 0, Lp: 0 };
+  /** Steering state of the last update, for probes. */
+  get debug(): string {
+    const d = this.dbgSteer;
+    return `lineD=${d.lineD.toFixed(2)} dDes=${d.dDes.toFixed(2)} ey=${d.ey.toFixed(2)} epsi=${d.epsi.toFixed(3)} kff=${(d.kff * 1000).toFixed(2)} kap=${(d.kappa * 1000).toFixed(2)} yawErr=${d.yawErr.toFixed(3)} delta=${d.delta.toFixed(3)} Lp=${d.Lp.toFixed(1)}`;
+  }
+  /** Traffic planner state of the last update, for probes. */
   get debugTraffic(): string {
-    return `off=${this.offset.toFixed(2)} plan=${this.planTarget.toFixed(2)} env=[${this.envLo.toFixed(1)},${this.envHi.toFixed(1)}] ${this.dbgPlan}`;
+    let dbg = `side=[${this.dbgSideLo.toFixed(1)},${this.dbgSideHi.toFixed(1)}] ob=`;
+    for (let k = 0; k < this.nOb; k++) dbg += `(${this.obLo[k].toFixed(1)}..${this.obHi[k].toFixed(1)} g${this.obGap[k].toFixed(0)} room${this.obRoomLo[k].toFixed(1)}/${this.obRoomHi[k].toFixed(1)} side${this.others.get(this.obId[k])?.side})`;
+    return `off=${this.offset.toFixed(2)} plan=${this.planTarget.toFixed(2)} env=[${this.envLo.toFixed(1)},${this.envHi.toFixed(1)}] ${dbg} cap=${this.dbgCap === Infinity ? '-' : (this.dbgCap * 3.6).toFixed(0)}`;
   }
   private readonly up = new Vector3();
 
@@ -85,13 +206,159 @@ export class AIDriver {
     this.rng = ((opts.seed * 2654435761) ^ 0x9e3779b9) >>> 0 || 1;
     this.skill = base;
     this.halfWidth = def.visual.width / 2;
-    const wet = opts.wetness ?? 0;
-    // in the wet, painted kerbs are ice: keep the wheels on the asphalt
-    this.line = computeRacingLine(track, { edgeMargin: this.halfWidth - 0.25 + (wet > 0 ? 0.45 : 0) });
-    this.profile = computeSpeedProfile(track, this.line, def, { gripUse: base.gripUse, brakeUse: base.brakeUse, wetness: wet });
-    const tireWet = Math.min(def.physics.tireFront.wetGrip ?? 0.72, def.physics.tireRear.wetGrip ?? 0.72);
-    this.wetMu = wetGripFactor(wet, tireWet, SURFACES.asphalt, 0);
+    const wet = clampWetness(opts.wetness);
+    this.tireWet = Math.min(def.physics.tireFront.wetGrip ?? 0.72, def.physics.tireRear.wetGrip ?? 0.72);
+    this.lineCur = this.racingLine(wet > 0);
+    this.lineLam = this.lineLamTo = wet > 0 ? 1 : 0;
+    this.profCur = this.profileFor(this.lineCur, wet);
+    this.wetFrom = this.wetTo = wet;
+    this.applyWetness(wet);
     this.mistakeIn = this.nextMistake();
+    const ph = def.physics;
+    this.gripMu = Math.min(ph.tireFront.mu, ph.tireRear.mu);
+    this.cDown = (0.5 * RHO * (ph.aero.liftAreaFront + ph.aero.liftAreaRear)) / ph.chassis.mass;
+    this.brakeGain = ((2 * ph.brakes.frontTorque) / ph.tireFront.radius + (2 * ph.brakes.rearTorque) / ph.tireRear.radius) / ph.chassis.mass;
+    this.alphaPkF = ph.tireFront.peakSlipAngle;
+    this.alphaPkR = ph.tireRear.peakSlipAngle;
+    this.rearDriven = ph.drivetrain.layout !== 'FWD';
+  }
+
+  // ── weather ─────────────────────────────────────────────────────────────────
+  /** The racing line in use: the dry or the wet one, or a mix of the two while the weather is changing. */
+  get line(): RacingLine {
+    return this.lineCur;
+  }
+  /** The speed profile in use (on its way to the new one while the weather is changing). */
+  get profile(): SpeedProfile {
+    return this.profCur;
+  }
+  private lineCur!: RacingLine;
+  private profCur!: SpeedProfile;
+  /** The two lines the driver can follow (cached per track and car width, computed when first needed) and a scratch mix of them. */
+  private lineDry: RacingLine | null = null;
+  private lineWet: RacingLine | null = null;
+  private lineMix: RacingLine | null = null;
+  /** Share of the wet line in the line in use (0..1), and where it is heading. */
+  private lineLam = 0;
+  private lineLamTo = 0;
+  /** The blend towards a new wetness: where it started, where it ends, how far along it is (0..1) and how long it takes (s). */
+  private wetFrom = 0;
+  private wetTo = 0;
+  private blendT = 1;
+  private blendSpan = WET_BLEND_SECONDS;
+  private profFrom: Float32Array | null = null;
+  private profTo: Float32Array | null = null;
+
+  /** Racing line for a dry road or a wet one: in the wet, painted kerbs are ice, so the line keeps the wheels on the asphalt. */
+  private racingLine(wet: boolean): RacingLine {
+    if (wet) return (this.lineWet ??= computeRacingLine(this.track, { edgeMargin: this.halfWidth - 0.25 + 0.45 }));
+    return (this.lineDry ??= computeRacingLine(this.track, { edgeMargin: this.halfWidth - 0.25 + 0 }));
+  }
+
+  private profileFor(line: RacingLine, wet: number): SpeedProfile {
+    return computeSpeedProfile(this.track, line, this.def, { gripUse: this.skill.gripUse, brakeUse: this.skill.brakeUse, wetness: wet });
+  }
+
+  /** Everything the driver works out from the water on the road, except the line and the profile. */
+  private applyWetness(w: number): void {
+    this.wetness = w;
+    this.wetF = Math.min(1, w * WET_RAMP);
+    this.softFollow = this.wetF >= 0.5;
+    this.wetMu = wetGripFactor(w, this.tireWet, SURFACES.asphalt, 0);
+    if (w > 0) this.hazard = this.hazardMask ??= edgeHazards(this.track, this.lineCur);
+    else this.hazard = this.hazardNone ??= new Uint8Array(this.lineCur.n);
+  }
+
+  /**
+   * The water on the track has changed (0 = dry .. 1 = standing water): work out the speed profile, the racing line, the
+   * grip and braking estimates and the wet-weather racecraft for it, as a driver built at that wetness would. The
+   * driver moves to the new conditions over `blendSeconds` of its own time (advanced by update()), so a car in the middle
+   * of a corner does not see its target speed or its line jump; 0 makes the change at once.
+   *
+   * Cost: one speed profile, about 1 to 2 ms per car (3 ms at worst; 1 000 to 1 700 points, not cached) and about 0.01 ms
+   * per update() while it blends, plus the racing line the first time the driver needs the other weather's line (about
+   * 0.1 to 0.2 s per track and car width, cached and shared by every car of that width; prepareWeather() does it in advance).
+   */
+  setWetness(w: number, blendSeconds = WET_BLEND_SECONDS): void {
+    const wet = clampWetness(w);
+    if (!Number.isFinite(blendSeconds)) blendSeconds = WET_BLEND_SECONDS;
+    if (wet === this.wetTo) {
+      if (blendSeconds <= 0) this.finishBlend();
+      return;
+    }
+    const lineTo = this.racingLine(wet > 0);
+    const profTo = this.profileFor(lineTo, wet).v;
+    // (a change that interrupts a blend starts from where the driver is now)
+    this.profFrom ??= new Float32Array(profTo.length);
+    this.profFrom.set(this.profCur.v);
+    this.profTo = profTo;
+    this.wetFrom = this.wetness;
+    this.wetTo = wet;
+    this.lineLamTo = wet > 0 ? 1 : 0;
+    this.blendT = 0;
+    this.blendSpan = blendSeconds;
+    if (blendSeconds <= 0) this.finishBlend();
+  }
+
+  /**
+   * Computes (and caches) the racing line of the other weather, so that a later setWetness() across dry and wet costs
+   * only the speed profile. Worth calling while a race loads if the weather may change during it.
+   */
+  prepareWeather(): void {
+    this.racingLine(false);
+    this.racingLine(true);
+  }
+
+  /** The conditions the driver is heading for are reached: line, profile and parameters are exactly those of a driver built there. */
+  private finishBlend(): void {
+    if (this.profTo) this.profCur.v.set(this.profTo);
+    this.profTo = null;
+    this.blendT = 1;
+    this.lineLam = this.lineLamTo;
+    this.lineCur = this.lineLam > 0 ? this.lineWet! : this.lineDry!;
+    this.wetFrom = this.wetTo;
+    this.applyWetness(this.wetTo);
+  }
+
+  private advanceBlend(dt: number): void {
+    const step = dt / Math.max(1e-3, this.blendSpan);
+    this.blendT += step;
+    if (this.blendT >= 1) {
+      this.finishBlend();
+      return;
+    }
+    const a = smooth01(this.blendT);
+    const v = this.profCur.v;
+    const from = this.profFrom!;
+    const to = this.profTo!;
+    for (let i = 0; i < v.length; i++) v[i] = from[i] + (to[i] - from[i]) * a;
+    // the line moves from one weather's to the other's (from wherever it was, if the change interrupted another)
+    this.lineLam = this.lineLamTo > this.lineLam ? Math.min(this.lineLamTo, this.lineLam + step) : Math.max(this.lineLamTo, this.lineLam - step);
+    if (this.lineLam <= 0) this.lineCur = this.lineDry!;
+    else if (this.lineLam >= 1) this.lineCur = this.lineWet!;
+    else this.mixLines(smooth01(this.lineLam));
+    this.applyWetness(this.wetFrom + (this.wetTo - this.wetFrom) * a);
+  }
+
+  /** The line in use as a blend of the dry line (a = 0) and the wet line (a = 1). */
+  private mixLines(a: number): void {
+    const A = this.lineDry!;
+    const B = this.lineWet!;
+    const m = (this.lineMix ??= { n: A.n, step: A.step, d: new Float32Array(A.n), x: new Float32Array(A.n), z: new Float32Array(A.n), k: new Float32Array(A.n), ds: new Float32Array(A.n) });
+    for (let i = 0; i < A.n; i++) {
+      m.d[i] = A.d[i] + (B.d[i] - A.d[i]) * a;
+      m.x[i] = A.x[i] + (B.x[i] - A.x[i]) * a;
+      m.z[i] = A.z[i] + (B.z[i] - A.z[i]) * a;
+      m.k[i] = A.k[i] + (B.k[i] - A.k[i]) * a;
+      m.ds[i] = A.ds[i] + (B.ds[i] - A.ds[i]) * a;
+    }
+    this.lineCur = m;
+  }
+
+  /** What the tyres can give in any horizontal direction at speed v (m/s^2): wet grip, aquaplaning and downforce included. */
+  private gripAccel(v: number): number {
+    const wetF = this.wetness > 0 ? wetGripFactor(this.wetness, this.tireWet, SURFACES.asphalt, v) : 1;
+    return this.gripMu * wetF * (G + this.cDown * v * v);
   }
 
   /** Target speed at track position s (m/s), with this driver's pace. */
@@ -140,6 +407,7 @@ export class AIDriver {
   }
 
   update(dt: number, me: VehicleState, others: readonly VehicleState[], c: CarControls, racing: boolean): void {
+    if (this.blendT < 1) this.advanceBlend(dt);
     const tr = this.track;
     const line = this.line;
     const def = this.def;
@@ -167,6 +435,12 @@ export class AIDriver {
     }
     this.updateMistakes(dt, Math.max(0, me.forwardSpeed));
 
+    // ── how much of the tyres' grip is in use right now (measured accelerations vs what they can give) ──
+    const aGrip = this.gripAccel(v);
+    const aLatM = Math.abs(me.localAccel.x);
+    const aLongM = me.localAccel.z;
+    this.usage = Math.min(1.3, Math.hypot(aLatM, aLongM) / Math.max(aGrip, 2));
+
     // ── traffic: plan a lateral offset (relative to the racing line) around the cars nearby ──
     const lineD = this.lineOffsetAt(s);
     const myOff = _tp.d - lineD;
@@ -177,18 +451,20 @@ export class AIDriver {
     const myTz = _tp.tz;
     const wander = this.skill.wander * Math.sin(this.time * 0.35 + this.wanderPhase);
     this.offsetEnvelope(s, v);
-    const speedCap = this.planTraffic(s, v, myOff, wander, me, others);
-    // move the offset toward the plan: low-pass, then a lateral rate limit
+    const speedCap = this.planTraffic(s, v, myOff, wander, me, others, aGrip);
+    // move the offset toward the plan: low-pass, then a lateral rate limit. On a wet road a lane change is cornering
+    // too: it slows down while the tyres are busy (unless a car beside leaves no choice)
     const kOff = 1 - Math.exp(-dt * 2.2);
     const want = this.offset + (this.planTarget - this.offset) * kOff;
-    const rate = (1.2 + 0.05 * v) * dt;
+    let latScale = 1;
+    if (this.wetF > 0 && !this.forceMove) latScale = 1 - this.wetF * (1 - Math.max(LATERAL_RATE_MIN, Math.min(1, 1.25 - this.usage * this.usage * 1.1)));
+    const rate = (1.2 + 0.05 * v) * dt * latScale;
     this.offset += Math.max(-rate, Math.min(rate, want - this.offset));
 
     // ── steering: path following on the (offset) racing line ──
     // Curvature feedforward from the line just ahead, plus feedback on lateral and course error
     // over a preview distance (a linearised pure pursuit that doesn't cut the inside of corners).
     const L = def.physics.chassis.wheelbase;
-    const halfW = this.halfWidth;
     const dDes = lineD + Math.max(this.envLo, Math.min(this.envHi, this.offset));
     const ey = myD - dDes; // + = left of the planned path
     const fl = tr.wrapS(s) / line.step;
@@ -224,7 +500,17 @@ export class AIDriver {
     kff /= 3;
     kff /= Math.max(0.5, 1 - kff * offEff);
     const Lp = 7 + 0.5 * v;
-    const kappa = kff - (2 * ey) / (Lp * Lp) - (2 * Math.sin(epsi)) / Lp;
+    let kappa = kff - (2 * ey) / (Lp * Lp) - (2 * Math.sin(epsi)) / Lp;
+    if (v > 12) {
+      // never ask for more lateral acceleration than the tyres can give (the bank helps): a car that has run wide
+      // would otherwise pile on steering and slide even wider. (The line's own curvature always passes.)
+      const bank = tr.bank[Math.min(tr.count - 1, _tp.segment)];
+      const help = Math.max(0, -Math.sign(kappa) * Math.sin(bank)) * G;
+      const aLong = Math.min(Math.abs(aLongM), aGrip * 0.9);
+      const aMax = Math.sqrt(Math.max(0, aGrip * aGrip - aLong * aLong)) * CURVATURE_GRIP + help;
+      const kLim = Math.max(aMax / (v * v), Math.abs(kff) * 1.02);
+      kappa = Math.max(-kLim, Math.min(kLim, kappa));
+    }
     // kinematic angle + the slip angle the front tires need for this lateral acceleration
     const ph = def.physics;
     const aLat = v * v * kappa;
@@ -243,7 +529,16 @@ export class AIDriver {
       if (Math.abs(beta) > 0.04) delta += 0.55 * (beta - 0.04 * Math.sign(beta));
     }
     const maxSteer = def.physics.chassis.maxSteer;
-    this.debug = `lineD=${lineD.toFixed(2)} dDes=${dDes.toFixed(2)} ey=${ey.toFixed(2)} epsi=${epsi.toFixed(3)} kff=${(kff * 1000).toFixed(2)} kap=${(kappa * 1000).toFixed(2)} yawErr=${(kappa * v - yawRate).toFixed(3)} delta=${delta.toFixed(3)} Lp=${Lp.toFixed(1)}`;
+    const dbg = this.dbgSteer;
+    dbg.lineD = lineD;
+    dbg.dDes = dDes;
+    dbg.ey = ey;
+    dbg.epsi = epsi;
+    dbg.kff = kff;
+    dbg.kappa = kappa;
+    dbg.yawErr = kappa * v - yawRate;
+    dbg.delta = delta;
+    dbg.Lp = Lp;
     c.steer = Math.max(-1, Math.min(1, -delta / maxSteer));
     c.handbrake = 0;
 
@@ -257,17 +552,69 @@ export class AIDriver {
       const allowed = Math.sqrt(va * va + 2 * brakeCap * Math.max(0, ahead - v * 0.12));
       if (allowed < vT) vT = allowed;
     }
-    if (speedCap < vT) vT = speedCap;
+    // (the gentle following law keeps the traffic cap apart: it is a spacing target, not a speed the car must hit; only a
+    // pass that is still inside the other car's lane is held to a hard gap)
+    if (!this.softFollow && speedCap < vT) vT = speedCap;
+    if (this.softFollow && this.capHard < vT) vT = this.capHard;
     // off the asphalt: back off a bit
     if (myD > myWL + 0.5 || myD < -myWR - 0.5) vT *= 0.8;
+    this.dbgVT = vT;
+    this.dbgCap = speedCap;
     const e = vT - v;
+    let thr: number;
+    let brk: number;
     if (e >= 0) {
-      c.throttle = Math.min(1, 0.3 + 0.35 * e);
-      c.brake = 0;
+      // on a wet road a car catching up on the plan does not get full power in the middle of a corner: the driven axle
+      // is already using its grip to turn, and it is what spins
+      let gain = 0.35;
+      if (this.wetF > 0) {
+        const lat = Math.min(1, Math.max(0, (aLatM / aGrip - 0.3) / 0.4));
+        gain = 0.35 + (THROTTLE_GAIN_CORNER_WET - 0.35) * lat * lat * (3 - 2 * lat) * this.wetF;
+      }
+      thr = Math.min(1, 0.3 + gain * e);
+      brk = 0;
     } else {
-      c.throttle = Math.max(0, 0.3 + 0.35 * e);
-      c.brake = e < -0.8 ? Math.min(1, (-e - 0.8) * 0.22) : 0;
+      thr = Math.max(0, 0.3 + 0.35 * e);
+      brk = e < -0.8 ? Math.min(1, (-e - 0.8) * 0.22) : 0;
     }
+    if (this.softFollow && speedCap < Infinity) {
+      // the traffic cap is a spacing target: lift for it, and brake in proportion to the excess (gently), never in a panic
+      const eC = speedCap - v;
+      if (eC < 0) {
+        thr = Math.min(thr, Math.max(0, 0.3 + 0.35 * eC));
+        if (eC < -0.3) brk = Math.max(brk, Math.min(1, (-eC - 0.3) * FOLLOW_SOFT_GAIN));
+      }
+    }
+    if (this.brakeReq > 0) {
+      brk = Math.max(brk, this.brakeReq);
+      thr = 0;
+    }
+    // governor: lift while an axle is sliding past its peak (front = understeer, driven rear = oversteer) or the driven
+    // tyres use more than they have (wheelspin on top of the sideways slip)
+    if (v > 8) {
+      const wh = me.wheels;
+      const uF = Math.max(Math.abs(wh[0].slipAngle), Math.abs(wh[1].slipAngle)) / this.alphaPkF;
+      const uR = Math.max(Math.abs(wh[2].slipAngle), Math.abs(wh[3].slipAngle)) / this.alphaPkR;
+      let gNow = fade(uF, GOV_FRONT);
+      if (this.rearDriven) gNow = Math.min(gNow, fade(uR, GOV_REAR));
+      const dT = this.rearDriven ? def.physics.tireRear : def.physics.tireFront;
+      const tk = Math.tan(dT.peakSlipAngle);
+      let rho = 0;
+      for (let i = this.rearDriven ? 2 : 0; i < (this.rearDriven ? 4 : 2); i++) {
+        const w = wh[i];
+        const lam = Math.abs(Math.tan(w.slipAngle)) / tk;
+        // (wheelspin on its own, in a launch or on a straight, is for the traction control on a dry road; on a wet road
+        // the car does not lean on it and the whole slip counts)
+        const sw = Math.min(1, Math.max(0, (lam - GOV_SPIN_FROM) / GOV_SPIN_SPAN));
+        const gate = this.wetF + (1 - this.wetF) * sw * sw * (3 - 2 * sw);
+        rho = Math.max(rho, Math.hypot((w.slipRatio / dT.peakSlipRatio) * gate, lam));
+      }
+      gNow = Math.min(gNow, fade(rho, GOV_DRIVEN));
+      this.govern = gNow < this.govern ? gNow : Math.min(gNow, this.govern + GOV_RELEASE * dt);
+      thr *= this.govern;
+    } else this.govern = 1;
+    c.throttle = thr;
+    c.brake = brk;
     // big slide: ease off
     let slip = 0;
     for (const w of me.wheels) slip = Math.max(slip, Math.abs(w.slipAngle));
@@ -293,6 +640,7 @@ export class AIDriver {
     this.mistakeMul = 1;
     this.mistakeLeft = 0;
     this.hint = -1;
+    this.govern = 1;
   }
 
   /** Target speed at s when driving `off` meters beside the racing line: tighter radius on the inside. */
@@ -317,19 +665,28 @@ export class AIDriver {
    * doesn't flicker. Returns a speed cap for following when there is no gap.
    */
   private planTarget = 0;
-  private dbgPlan = '';
-  /** Per-car tracking of the others: projection hint, last offset, lateral rate, committed pass side. */
-  private readonly others = new Map<number, { hint: number; off: number; rate: number; t: number; side: number }>();
+  /** Pedal the traffic ahead demands (0..1): the deceleration needed to match the speed of a car in the way before the gap is gone. */
+  private brakeReq = 0;
+  /** Speed cap (m/s) of the firm gap law for a pass that is still inside the other car's lane (gentle following only). */
+  private capHard = Infinity;
+  /** Per-car tracking of the others: projection hint, last offset, lateral rate, committed pass side, how hard it brakes. */
+  private readonly others = new Map<number, { hint: number; off: number; rate: number; t: number; side: number; brk: number }>();
   private readonly obLo = new Float64Array(16);
   private readonly obHi = new Float64Array(16);
   private readonly obGap = new Float64Array(16);
   private readonly obV = new Float64Array(16);
+  private readonly obBrk = new Float64Array(16);
   private readonly obTtc = new Float64Array(16);
   private readonly obId = new Int32Array(16);
   private readonly obRoomLo = new Float64Array(16);
   private readonly obRoomHi = new Float64Array(16);
+  private nOb = 0;
+  private dbgSideLo = 0;
+  private dbgSideHi = 0;
   private envLo = 0;
   private envHi = 0;
+  /** A car alongside is closer than the safe separation: the move away from it is not optional. */
+  private forceMove = false;
   /**
    * Offsets (from the racing line) that keep the car on the asphalt over the preview distance.
    * Edge limits further ahead are relaxed by a slope, so an offset path blends into the edge
@@ -341,16 +698,28 @@ export class AIDriver {
     const W = 10 + 1.0 * v;
     let lo = -Infinity;
     let hi = Infinity;
+    const allow = this.edgeAllow();
     for (let x = 0; x <= W; x += 4) {
       const sa = tr.wrapS(s + x);
       const j = Math.min(tr.count - 1, Math.round(sa / tr.spacing));
       const ld = this.lineOffsetAt(sa);
       const slack = 0.05 * x;
-      hi = Math.min(hi, Math.max(0, tr.widthLeft[j] - halfW + 0.2 - ld) + slack);
-      lo = Math.max(lo, Math.min(0, -(tr.widthRight[j] - halfW + 0.2) - ld) - slack);
+      const hz = this.hazardAt(sa);
+      hi = Math.min(hi, Math.max(0, tr.widthLeft[j] - halfW + (hz & 1 ? allow : EDGE_ALLOW_DRY) - ld) + slack);
+      lo = Math.max(lo, Math.min(0, -(tr.widthRight[j] - halfW + (hz & 2 ? allow : EDGE_ALLOW_DRY)) - ld) - slack);
     }
     this.envLo = lo;
     this.envHi = hi;
+  }
+
+  /** Slippery ground beyond the edge at s (bit 0 left, bit 1 right). */
+  private hazardAt(s: number): number {
+    return this.hazard[Math.floor(this.track.wrapS(s) / this.line.step + 0.5) % this.line.n];
+  }
+
+  /** How far the car's side may reach past the asphalt edge where the ground beyond is slippery (m; negative = stay inside): in the wet it is ice. */
+  private edgeAllow(): number {
+    return EDGE_ALLOW_DRY - EDGE_WET_MARGIN * this.wetF;
   }
 
   /** Tightest offset limits (no slack) over [s, s + dist]: the room a pass actually has. */
@@ -361,18 +730,20 @@ export class AIDriver {
     const halfW = this.halfWidth;
     let lo = -Infinity;
     let hi = Infinity;
+    const allow = this.edgeAllow();
     for (let x = 0; x <= dist; x += 4) {
       const sa = tr.wrapS(s + x);
       const j = Math.min(tr.count - 1, Math.round(sa / tr.spacing));
       const ld = this.lineOffsetAt(sa);
-      hi = Math.min(hi, Math.max(0, tr.widthLeft[j] - halfW + 0.2 - ld));
-      lo = Math.max(lo, Math.min(0, -(tr.widthRight[j] - halfW + 0.2) - ld));
+      const hz = this.hazardAt(sa);
+      hi = Math.min(hi, Math.max(0, tr.widthLeft[j] - halfW + (hz & 1 ? allow : EDGE_ALLOW_DRY) - ld));
+      lo = Math.max(lo, Math.min(0, -(tr.widthRight[j] - halfW + (hz & 2 ? allow : EDGE_ALLOW_DRY)) - ld));
     }
     this.roomLo = lo;
     this.roomHi = hi;
   }
 
-  private planTraffic(s: number, v: number, myOff: number, wander: number, me: VehicleState, others: readonly VehicleState[]): number {
+  private planTraffic(s: number, v: number, myOff: number, wander: number, me: VehicleState, others: readonly VehicleState[], aGrip: number): number {
     const tr = this.track;
     const halfW = this.halfWidth;
     const len = this.def.visual.length;
@@ -381,6 +752,8 @@ export class AIDriver {
     const offHi = this.envHi;
     let sideLo = offLo;
     let sideHi = offHi;
+    let carLo = -Infinity;
+    let carHi = Infinity;
     let alongsideAheadV = Infinity;
     let alongsideLevelV = Infinity;
     let nOb = 0;
@@ -388,7 +761,7 @@ export class AIDriver {
       if (o.id === me.id) continue;
       let rec = this.others.get(o.id);
       if (!rec) {
-        rec = { hint: -1, off: 0, rate: 0, t: -1, side: 0 };
+        rec = { hint: -1, off: 0, rate: 0, t: -1, side: 0, brk: 0 };
         this.others.set(o.id, rec);
       }
       rec.hint = tr.project(o.position.x, o.position.z, _tp, rec.hint);
@@ -400,6 +773,8 @@ export class AIDriver {
       const tdt = this.time - rec.t;
       if (rec.t >= 0 && tdt > 0 && tdt < 0.2) rec.rate += ((oOff - rec.off) / tdt - rec.rate) * Math.min(1, tdt * 8);
       else rec.rate = 0;
+      // how hard it is braking right now (filtered): a leader on the brakes closes the gap faster than its speed says
+      rec.brk += (Math.max(0, -o.localAccel.z) - rec.brk) * Math.min(1, Math.max(0, tdt) * 6);
       rec.off = oOff;
       rec.t = this.time;
       if (ds < -(len + 12) || ds > 90) {
@@ -411,8 +786,13 @@ export class AIDriver {
       const behindReach = len + 0.6 + Math.max(0, vO - v) * 0.7;
       if ((ds >= 0 && ds < len + 0.6) || (ds < 0 && ds > -behindReach)) {
         if (Math.abs(oOff - myOff) < sep * 0.8 && ds < -len * 0.7) continue; // directly behind us: their problem
-        if (oOff >= myOff) sideHi = Math.min(sideHi, oOff - sep);
-        else sideLo = Math.max(sideLo, oOff + sep);
+        if (oOff >= myOff) {
+          sideHi = Math.min(sideHi, oOff - sep);
+          carHi = Math.min(carHi, oOff - sep);
+        } else {
+          sideLo = Math.max(sideLo, oOff + sep);
+          carLo = Math.max(carLo, oOff + sep);
+        }
         if (ds > 0) alongsideAheadV = Math.min(alongsideAheadV, vO);
         if (ds > -len * 0.6) alongsideLevelV = Math.min(alongsideLevelV, vO);
         continue;
@@ -435,6 +815,7 @@ export class AIDriver {
       this.obHi[nOb] = Math.max(oOff, pred) + sep;
       this.obGap[nOb] = gap;
       this.obV[nOb] = vO;
+      this.obBrk[nOb] = rec.brk;
       this.obTtc[nOb] = ttc;
       this.obId[nOb] = o.id;
       // the room we'd have to get alongside: from here until we overlap it (once alongside, the
@@ -444,10 +825,16 @@ export class AIDriver {
       this.obRoomHi[nOb] = this.roomHi;
       nOb++;
     }
+    this.nOb = nOb;
 
     let cap = Infinity;
+    this.brakeReq = 0;
+    this.capHard = Infinity;
     const lo = sideLo;
     const hi = sideHi;
+    this.dbgSideLo = lo;
+    this.dbgSideHi = hi;
+    this.forceMove = myOff > carHi + 0.1 || myOff < carLo - 0.1;
     const prev = this.planTarget;
     if (lo > hi) {
       // squeezed between cars (or a car and the track edge): hold the lane; the car behind yields,
@@ -510,22 +897,62 @@ export class AIDriver {
     }
     // follow anything still in our path (current offset or planned one)
     const target = this.planTarget;
-    let dbg = `side=[${lo.toFixed(1)},${hi.toFixed(1)}] ob=`;
-    for (let k = 0; k < nOb; k++) dbg += `(${this.obLo[k].toFixed(1)}..${this.obHi[k].toFixed(1)} g${this.obGap[k].toFixed(0)} room${this.obRoomLo[k].toFixed(1)}/${this.obRoomHi[k].toFixed(1)} side${this.others.get(this.obId[k])!.side})`;
-    this.dbgPlan = dbg;
     for (let k = 0; k < nOb; k++) {
       const tk = Math.max(this.obRoomLo[k], Math.min(this.obRoomHi[k], target));
+      const vO = this.obV[k];
+      if (this.softFollow) {
+        const lo = this.obLo[k];
+        const hi = this.obHi[k];
+        const clrMe = Math.max(lo - myOff, myOff - hi) + 0.25;
+        const clrTk = Math.max(lo - tk, tk - hi);
+        if (clrMe > 0 && clrTk >= 0) continue; // clear of its lane
+        const gap = this.obGap[k];
+        const vOp = Math.max(0, vO);
+        if (clrTk >= 0) {
+          // the plan takes us round it, but we are still inside its lane: a pass that fails for lack of room must not end
+          // in a panic stop on the asphalt edge, so until we are out of the lane the firm gap law applies
+          this.capHard = Math.min(this.capHard, this.gapCap(gap, vOp, this.obTtc[k]));
+          continue;
+        }
+        const closing = v - vOp;
+        if (closing > 0.3) {
+          // the deceleration that matches its speed just before the safe gap is gone, plus what it is braking by itself
+          // (brake in proportion, not in a panic)
+          const d = gap - (1.5 + 0.06 * vOp) - closing * 0.25;
+          const aReq = (closing * closing) / (2 * Math.max(d, 0.4)) + LEADER_BRAKE_WEIGHT * this.obBrk[k];
+          if (aReq > BRAKE_DEAD_BAND) this.brakeReq = Math.max(this.brakeReq, Math.min(1, (BRAKE_MARGIN * aReq) / this.brakeGain));
+        }
+        cap = Math.min(cap, this.followCap(gap, vOp, aGrip));
+        continue;
+      }
       // (a quarter metre of the safety margin may be used before we count as being in its path)
       const inPath = (myOff > this.obLo[k] + 0.25 && myOff < this.obHi[k] - 0.25) || (tk > this.obLo[k] && tk < this.obHi[k]);
       if (!inPath) continue;
-      const vO = this.obV[k];
-      const desired = 2.5 + 0.3 * Math.max(0, vO);
-      let c = vO + (this.obGap[k] - desired) * 0.9;
-      if (this.obTtc[k] < 0.8) c = Math.min(c, vO - 1);
-      cap = Math.min(cap, Math.max(0, c));
+      cap = Math.min(cap, this.gapCap(this.obGap[k], vO, this.obTtc[k]));
     }
-    this.dbgPlan += ` cap=${cap === Infinity ? "-" : (cap * 3.6).toFixed(0)}`;
     return cap;
+  }
+
+  /** The firm gap law: the speed from which a fixed gap (2.5 m + 0.3 s) behind a car that is in the way can still be held. */
+  private gapCap(gap: number, vO: number, ttc: number): number {
+    const desired = 2.5 + 0.3 * Math.max(0, vO);
+    let c = vO + (gap - desired) * 0.9;
+    if (ttc < 0.8) c = Math.min(c, vO - 1);
+    return Math.max(0, c);
+  }
+
+  /**
+   * Speed cap for a car `gap` metres ahead doing vO: the highest speed from which a comfortable brake (a share of what
+   * the tyres can give, so less in the wet) still brings us to its speed before we are closer than the hold gap.
+   */
+  private followCap(gap: number, vO: number, aGrip: number): number {
+    const wetLoss = this.wetness > 0 ? 1 - Math.min(1, this.wetMu) : 0;
+    const tau = FOLLOW_TIME_GAP + FOLLOW_TIME_GAP_WET * wetLoss;
+    const gHold = 2.2 + tau * vO;
+    const b = Math.max(2, FOLLOW_COMFORT * aGrip);
+    const tR = FOLLOW_REACTION;
+    if (gap > gHold) return vO + b * (Math.sqrt(tR * tR + (2 * (gap - gHold)) / b) - tR);
+    return vO - Math.min(4, 0.8 * (gHold - gap));
   }
 
   // ── line sampling helpers ──────────────────────────────────────────────────
