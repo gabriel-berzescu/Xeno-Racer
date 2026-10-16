@@ -175,30 +175,45 @@ function disposeGeoSet(s: GeoSet): void {
   }
 }
 
+// scratch for laying the headlight glow on the road
+const _gP = new Vector3();
+const _gN = new Vector3();
+const _gF = new Vector3();
+const _gX = new Vector3();
+const _gM = new Matrix4();
+const _gI = new Matrix4();
+const _gT = new Vector3();
+const _gS = new Vector3(6.5, 15, 1);
+
 // shared, tiny resources
 let glowTex: CanvasTexture | null = null;
 function groundGlowTexture(): CanvasTexture {
   if (glowTex) return glowTex;
+  const W = 64;
+  const H = 256;
   const c = document.createElement('canvas');
-  c.width = 64;
-  c.height = 256;
+  c.width = W;
+  c.height = H;
   const g = c.getContext('2d')!;
-  // canvas top maps to the plane edge nearest the car: brightest at the nose, fading to nothing ahead
-  const grad = g.createLinearGradient(0, 0, 0, 256);
-  grad.addColorStop(0, 'rgba(255,244,220,0.5)');
-  grad.addColorStop(0.3, 'rgba(255,240,210,0.26)');
-  grad.addColorStop(0.7, 'rgba(255,236,200,0.07)');
-  grad.addColorStop(1, 'rgba(255,235,200,0)');
-  g.fillStyle = grad;
-  g.fillRect(0, 0, 64, 256);
-  // soft lateral falloff
-  g.globalCompositeOperation = 'destination-in';
-  const lat = g.createLinearGradient(0, 0, 64, 0);
-  lat.addColorStop(0, 'rgba(0,0,0,0)');
-  lat.addColorStop(0.5, 'rgba(0,0,0,1)');
-  lat.addColorStop(1, 'rgba(0,0,0,0)');
-  g.fillStyle = lat;
-  g.fillRect(0, 0, 64, 256);
+  // canvas top maps to the plane edge nearest the car. A beam: it fades in just past the nose, widens as it reaches ahead and
+  // dies away at the sides and the far end. (A plain gradient was brightest along the near edge, and that edge, three car widths
+  // wide, showed as a hard bright line across the road beside the nose.)
+  const img = g.createImageData(W, H);
+  for (let y = 0; y < H; y++) {
+    const v = (y + 0.5) / H;
+    const along = Math.min(1, v / 0.07) ** 2 * (1 - v) ** 1.7;
+    const half = 0.3 + 0.7 * Math.min(1, v * 2.2);
+    for (let x = 0; x < W; x++) {
+      const u = Math.abs((x + 0.5) / W - 0.5) * 2;
+      const across = Math.max(0, 1 - (u / half) ** 2) ** 1.5;
+      const i = (y * W + x) * 4;
+      img.data[i] = 255;
+      img.data[i + 1] = 240;
+      img.data[i + 2] = 212;
+      img.data[i + 3] = Math.round(255 * 0.62 * along * across);
+    }
+  }
+  g.putImageData(img, 0, 0);
   glowTex = new CanvasTexture(c);
   return glowTex;
 }
@@ -400,6 +415,34 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
   glow.visible = false;
   glow.frustumCulled = false;
   root.add(glow);
+  const glowZ = layout.zNose + 7.2;
+  /**
+   * Lay the glow on the road under the front tyres, not on the body: under braking the nose dives, and over a crest or into a
+   * sag the road ahead bends away from the chassis, so a plane fixed to the body sank into the asphalt and was cut off along a
+   * straight line (hard-edged boxes of light on Porto Vela's hills). Same place along the road, on the front contact plane.
+   */
+  const layGlow = (state: VehicleState): void => {
+    const wl = state.wheels[0];
+    const wr = state.wheels[1];
+    if (!wl || !wr || !wl.contact || !wr.contact) {
+      glow.position.set(0, 0.05, glowZ);
+      glow.rotation.set(-Math.PI / 2, 0, 0);
+      glow.scale.copy(_gS);
+      glow.updateMatrixWorld(true);
+      return;
+    }
+    _gN.copy(wl.contactNormal).add(wr.contactNormal).normalize();
+    _gP.set(0, 0, glowZ).applyMatrix4(root.matrixWorld);
+    _gF.copy(wl.contactPoint).add(wr.contactPoint).multiplyScalar(0.5);
+    _gP.addScaledVector(_gN, 0.06 - _gT.subVectors(_gP, _gF).dot(_gN));
+    _gF.set(0, 0, 1).applyQuaternion(root.quaternion);
+    _gF.addScaledVector(_gN, -_gF.dot(_gN)).normalize().negate();
+    _gX.crossVectors(_gF, _gN);
+    _gM.makeBasis(_gX, _gF, _gN).setPosition(_gP).scale(_gS);
+    _gM.premultiply(_gI.copy(root.matrixWorld).invert());
+    _gM.decompose(glow.position, glow.quaternion, glow.scale);
+    glow.updateMatrixWorld(true);
+  };
 
   // ── crash damage ───────────────────────────────────────────────────────────
   // The model (src/core/damage.ts) is a fold over the car's hit events; here it is fed from the VehicleState, drawn
@@ -640,6 +683,7 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
       // (on a wet road the lamps' light skids away as reflection instead of pooling: a much fainter decal)
       if (showGlow) (glow.material as MeshBasicMaterial).opacity = head * 0.8 * (1 - 0.7 * env.wetness) * 0.5 * (lampOut.x + lampOut.y);
       root.updateMatrixWorld(true);
+      if (showGlow) layGlow(state);
     },
     setLivery(l: Livery): void {
       applyLivery(l);

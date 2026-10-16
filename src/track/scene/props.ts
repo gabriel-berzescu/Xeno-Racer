@@ -685,11 +685,19 @@ function buildLamps(ctx: Ctx, group: THREE.Group): void {
   const pools = new THREE.InstancedMesh(poolG, poolM, list.length);
   const poolSize = Math.min(22, Math.max(14, H * 1.7));
   const poolK = ctx.rt.def.paved ? 0.62 : 1;
+  // each pool lies on the slope under its lamp: laid level on a climbing or cambered street, half of it sank under the asphalt and
+  // the rest showed as a hard-edged box of light
+  const nrm = new THREE.Vector3();
+  const tilt = new THREE.Quaternion();
   list.forEach((l, i) => {
     const px = l.x - l.ox * (A * 3.4);
     const pz = l.z - l.oz * (A * 3.4);
-    const py = ctx.rt.heightXZ(px, pz) + 0.05;
-    m4.compose(new THREE.Vector3(px, py, pz), new THREE.Quaternion(), new THREE.Vector3(poolSize, 1, poolSize));
+    const h = (x: number, z: number) => ctx.rt.heightXZ(x, z);
+    const e = poolSize * 0.35;
+    nrm.set((h(px - e, pz) - h(px + e, pz)) / (2 * e), 1, (h(px, pz - e) - h(px, pz + e)) / (2 * e)).normalize();
+    tilt.setFromUnitVectors(up, nrm);
+    const py = h(px, pz) + 0.05;
+    m4.compose(new THREE.Vector3(px, py, pz), tilt, new THREE.Vector3(poolSize, 1, poolSize));
     pools.setMatrixAt(i, m4);
   });
   pools.frustumCulled = false;
