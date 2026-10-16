@@ -64,6 +64,12 @@ export const LINE = {
   rowStep: 2,
   /** How much of the road it covers where it is there at all (the alpha), and the brightness it is given on the screen (before the grade). */
   alpha: 0.66,
+  /**
+   * The same on a winter circuit. Snow is five times as bright as asphalt: where the headlights and the floodlights fall on it it is far
+   * past what the screen can show, and a ribbon that lets a third of that through comes out a pale ghost of its colour. On the lake the
+   * ice shows the sky in it, and the ribbon has the same trouble.
+   */
+  alphaWinter: 0.9,
   gain: 1,
   /** The share of the scene's haze the line takes. */
   fog: 0.4,
@@ -144,10 +150,13 @@ export class DrivingLine {
   private readonly wet: Float32Array;
   private mode: LineMode = 'full';
   private readonly rgb = new Float32Array(3);
+  /** How much of the road it covers (see LINE.alpha): more on the snow of a winter circuit. */
+  private readonly alpha: number;
 
   constructor(track: TrackRuntime, src: LineSource, seat: Seat) {
     this.track = track;
     this.src = src;
+    this.alpha = track.info.winter ? LINE.alphaWinter : LINE.alpha;
     this.count = Math.max(8, Math.round(track.length / LINE.rowStep));
     this.ds = track.length / this.count;
     this.dry = this.edges(src.dry);
@@ -280,7 +289,7 @@ export class DrivingLine {
       }
       const u = lineUrgency(speed, src.targetAt(sRow), dist, brake, top);
       lineColor(u, rgb);
-      const a = LINE.alpha * lineFade(dist, range, lead) * lineShows(this.mode, u);
+      const a = this.alpha * lineFade(dist, range, lead) * lineShows(this.mode, u);
       const c = j * 8;
       col[c] = col[c + 4] = rgb[0] * gain;
       col[c + 1] = col[c + 5] = rgb[1] * gain;

@@ -8,6 +8,8 @@ import { Quaternion, Vector3 } from 'three';
 import { DrivingGuide } from '../src/ai';
 import { lineSurfaces } from '../src/ai/racing-line';
 import { getCar } from '../src/cars';
+import { createDrivingLine } from '../src/render';
+import { LINE } from '../src/render/drivingLine';
 import type { GroundSample, TrackPoint } from '../src/core/contracts';
 import { trackCondition, WeatherDirector, makePlan } from '../src/game/weather';
 import { PhysicsWorld } from '../src/physics';
@@ -378,5 +380,18 @@ describe('Isvik Circuit driving guide', () => {
     expect(least).toBeLessThan(0.98);
     // and the line is the one line: the snowbank is no place for a wheel, wet or not
     expect(snowing.wet).toBe(snowing.dry);
+  });
+
+  it('is painted more opaque than on asphalt: snow in the headlights is far brighter than the road a ribbon is made for', () => {
+    const line = createDrivingLine(rt, dry, 0);
+    line.setMode('full');
+    line.show(true);
+    line.update(500, 40, 1);
+    const colour = line.mesh.geometry.getAttribute('aColor').array as Float32Array;
+    let top = 0;
+    for (let j = 0; j < line.rows; j++) top = Math.max(top, colour[j * 8 + 3]);
+    expect(top).toBeCloseTo(LINE.alphaWinter, 6);
+    expect(LINE.alphaWinter).toBeGreaterThan(LINE.alpha);
+    line.dispose();
   });
 });

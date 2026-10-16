@@ -148,7 +148,8 @@ purpose. Nothing else changes for the other four circuits: a road circuit gets t
 - **Driving guide** (`src/ai/guide.ts`, the driving line and the braking assist): the winter driver's line and profile for the human's car: the studded tyres
   (`fitCar`), the grip under each point of the line (`ProfileJob.surfaceFactor`: packed snow, the ice of the lake, the fresh snow lying on it as the road's
   "water"), the line that keeps off the snowbanks. What the car can brake at is that of the ground it is on (`DrivingGuide.brakeAt(speed, s)`,
-  `brakeGripAt`), so the colours go amber and red where a car on snow or ice has to brake, not where one on asphalt would.
+  `brakeGripAt`), so the colours go amber and red where a car on snow or ice has to brake, not where one on asphalt would. The ribbon itself is more opaque on a
+  winter circuit (`LINE.alphaWinter`, 0.9 against 0.66): snow in the headlights is far brighter than asphalt, and a thinner ribbon came out a pale ghost of its colour.
 
 ## Driving aids: the driving line and the braking assist
 
