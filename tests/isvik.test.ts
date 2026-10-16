@@ -12,6 +12,11 @@ import { PhysicsWorld } from '../src/physics';
 import { TRACKS, loadTrackRuntime } from '../src/track';
 import type { TrackRuntimeImpl } from '../src/track/runtime';
 import { forecastLabel, formatConditions, weatherLabel } from '../src/ui/format';
+import { runPack } from './probes/pack-race';
+import { DEFAULT_SETTINGS } from '../src/core/settings';
+import { SteeringFilter } from '../src/physics';
+import { makeVehicleState } from '../sandbox/audio/drive-sim';
+import type { SurfaceType } from '../src/core/contracts';
 
 const rt = loadTrackRuntime('isvik') as TrackRuntimeImpl;
 const info = TRACKS.find((t) => t.info.id === 'isvik')!.info;
@@ -263,5 +268,52 @@ describe('Isvik Circuit in the menus, the HUD and the weather', () => {
       events.push(...done.drain());
     }
     expect(events.map((e) => e.notice.title)).toEqual(['Skies are clearing', 'The snow has stopped']);
+  });
+});
+
+describe('Isvik Circuit pack racing', () => {
+  // A mixed 12-car grid of pros from a standing start, on dry packed snow and in a snowfall. With the first drivers it went wrong
+  // on the outside of the long right-hand sweepers: a car that had run out to the edge to pass slid on into the deep snow and the
+  // bank (a wall hit in one race of five, and a reset, dry; in the snow two of five).
+  it('keeps to the road: no wall hits and no resets, dry and in the snow', () => {
+    for (const wetness of [0, 1]) {
+      for (const seed of [0, 3]) {
+        const r = runPack('isvik', 'mixed', 'pro', 12, 1, false, { seed, wetness });
+        expect(r.finished, `finished, seed ${seed} wet ${wetness}`).toBe(12);
+        expect(r.walls, `wall hits, seed ${seed} wet ${wetness}`).toBe(0);
+        expect(r.resets, `resets, seed ${seed} wet ${wetness}`).toBe(0);
+        expect(r.offTrack / 12, `seconds off the road per car, seed ${seed} wet ${wetness}`).toBeLessThan(1);
+        expect(r.hardContacts, `hard hits between cars, seed ${seed} wet ${wetness}`).toBeLessThan(6);
+      }
+    }
+  }, 600000);
+});
+
+describe('The stick on snow', () => {
+  it('asks for less steering angle on snow and ice than on asphalt at the same speed, and the same on every other surface as before', () => {
+    const def = getCar('vanta-gt');
+    const controls = DEFAULT_SETTINGS.controls;
+    const full = (surface: SurfaceType, kmh: number): number => {
+      const st = makeVehicleState();
+      st.forwardSpeed = kmh / 3.6;
+      st.speed = kmh / 3.6;
+      for (const w of st.wheels) {
+        w.contact = true;
+        w.surface = surface;
+      }
+      const f = new SteeringFilter();
+      let out = 0;
+      for (let i = 0; i < 120; i++) out = f.update(1, 1 / 60, st, def, controls);
+      return out;
+    };
+    for (const kmh of [60, 90, 120]) {
+      const asphalt = full('asphalt', kmh);
+      expect(full('snow', kmh)).toBeLessThan(asphalt);
+      expect(full('ice', kmh)).toBeLessThan(full('snow', kmh) + 1e-9);
+      expect(full('grass', kmh)).toBeCloseTo(asphalt, 9);
+      expect(full('gravel', kmh)).toBeCloseTo(asphalt, 9);
+    }
+    // at a walking pace nothing limits the stick
+    expect(full('snow', 20)).toBeCloseTo(full('asphalt', 20), 6);
   });
 });

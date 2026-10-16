@@ -98,6 +98,9 @@ const GOV_MIN = 0.15;
 const SLIDE_FROM = 0.3;
 const SLIDE_FULL = 0.5;
 const GOV_RELEASE = 4;
+/** Winter: the angle (rad) between the nose and the way the car travels from which it counts as a spin and the driver brakes, and where the braking is complete. */
+const SPIN_FROM = 0.52;
+const SPIN_FULL = 0.85;
 /** Following: share of the tyres' deceleration used to settle behind a car, and the time gap (s) held (more in the wet). */
 const FOLLOW_COMFORT = 0.5;
 const FOLLOW_TIME_GAP = 0.3;
@@ -734,6 +737,9 @@ export class AIDriver {
       thr *= this.govern;
     } else this.govern = 1;
     c.throttle = thr * (1 - bigSlide);
+    // a car that is not drifting but spinning (its nose has come round beyond 30 degrees to the way it travels) brakes, and the ABS keeps the wheels turning:
+    // on snow it takes a long way to stop, and every metre of it is a metre nearer the bank
+    if (this.winter && v > 4) brk = Math.max(brk, 0.85 * smooth01(Math.min(1, Math.max(0, (Math.abs(slideAng) - SPIN_FROM) / (SPIN_FULL - SPIN_FROM)))));
     c.brake = brk;
     // big slide: ease off
     let slip = 0;

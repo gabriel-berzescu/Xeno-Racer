@@ -1409,7 +1409,8 @@ export class Game {
           d.autopilot.onReset();
         }
       } else if (!this.resultsShown) {
-        c.steer = d.steering.update(f.steer, dt, dv.state, d.car.def, this.settings.controls);
+        // (the car as it is fitted for the track: on a winter circuit, with its studded tyres)
+        c.steer = d.steering.update(f.steer, dt, dv.state, dv.def, this.settings.controls);
         c.throttle = f.throttle;
         c.brake = f.brake;
         c.handbrake = f.handbrake;

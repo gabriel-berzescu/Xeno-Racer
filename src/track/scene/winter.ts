@@ -13,7 +13,9 @@ import { buildBuildings } from './winterProps';
 import { buildCrowds, buildPoles, buildReeds } from './winterDetail';
 import { makeSnowGround, noIceMask } from './snow';
 
-const CHUNK = 120;
+/** The banks are made in chunks of this many metres of road, one row of the mesh every ROW_STEP of them (the lumps are tens of metres long). */
+const CHUNK = 240;
+const ROW_STEP = 2;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Snowbanks
@@ -59,11 +61,11 @@ export function buildSnowbanks(ctx: Ctx, mat: THREE.Material): THREE.Group {
       while (j + 1 < N && isBank(j + 1)) j++;
       for (let a = i; a < j; a += CHUNK) {
         const b = Math.min(j, a + CHUNK);
-        const rows = b - a + 1;
+        const rows = Math.ceil((b - a) / ROW_STEP) + 1;
         const pos = new Float32Array(rows * cols * 3);
         const col = new Float32Array(rows * cols * 3);
         for (let r = 0; r < rows; r++) {
-          const k = a + r;
+          const k = Math.min(b, a + r * ROW_STEP);
           const s = k * rt.spacing;
           const wall = S.wall[k];
           const ox = sgn * rt.HLX[k];

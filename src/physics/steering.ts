@@ -5,7 +5,10 @@
  * "normal" steering in console sims. Counter-steer help lives in the vehicle (assists.steeringAssist).
  */
 import { Vector3 } from 'three';
-import type { CarDefinition, ControlSettings, VehicleState } from '../core/contracts';
+import type { CarDefinition, ControlSettings, SurfaceType, VehicleState } from '../core/contracts';
+import { SURFACES } from './surfaces';
+
+const winterSurface = (s: SurfaceType): boolean => s === 'snow' || s === 'ice' || s === 'deepsnow';
 
 const _left = new Vector3();
 
@@ -25,8 +28,12 @@ export class SteeringFilter {
     const ch = def.physics.chassis;
     const tf = def.physics.tireFront;
     const v = Math.abs(state.forwardSpeed);
+    // the grip of the snow or the ice under the front wheels (half that of asphalt on packed snow, and the angle the tyres can use falls with it)
+    const wf = state.wheels[0];
+    const wg = state.wheels[1];
+    const ground = wf.contact && wg.contact && winterSurface(wf.surface) && winterSurface(wg.surface) ? 0.5 * (SURFACES[wf.surface].grip + SURFACES[wg.surface].grip) : 1;
     // road-wheel angle that saturates the front tires at this speed: kinematic + peak slip
-    const gripAngle = (ch.wheelbase * tf.mu * 9.81) / Math.max(v * v, 1) + tf.peakSlipAngle * 1.35;
+    const gripAngle = (ch.wheelbase * tf.mu * ground * 9.81) / Math.max(v * v, 1) + tf.peakSlipAngle * 1.35;
     const limit = Math.min(1, gripAngle / ch.maxSteer);
     let scale = 1 + (limit - 1) * controls.speedSensitivity;
     // never limit counter-steer: when the car slides, the stick may ask for as much angle as the
