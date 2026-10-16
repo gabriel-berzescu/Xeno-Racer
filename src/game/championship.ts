@@ -21,12 +21,14 @@ import type {
   ChampionshipView,
   Difficulty,
   EnvironmentSettings,
+  Forecast,
   Livery,
   RaceConfig,
   TimeOfDay,
   TrackInfo,
   Weather,
 } from '../core/contracts';
+import { sanitizeForecast } from '../core/forecast';
 import { opponentLivery } from './liveries';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -43,15 +45,24 @@ const PLAYER_COLOR = '#16e0bd';
 /** Chip colour for an opponent whose saved colour is unusable. */
 const FALLBACK_COLOR = '#8a93a3';
 
-/** The calendar is fixed: three circuits, six very different days, a thunderstorm to finish. */
-export const CALENDAR: readonly { trackId: string; environment: EnvironmentSettings }[] = [
+/**
+ * The calendar is fixed: four circuits, eight very different days. Porto Vela's night round starts dry under cloud and the rain
+ * comes during the race (when and how hard is fixed for the season, so a restart repeats it); a thunderstorm to finish.
+ */
+export const CALENDAR: readonly { trackId: string; environment: EnvironmentSettings; forecast?: Forecast }[] = [
   { trackId: 'aurelia', environment: { timeOfDay: 'golden', weather: 'clear' } },
   { trackId: 'kuroyama', environment: { timeOfDay: 'morning', weather: 'cloudy' } },
+  { trackId: 'portovela', environment: { timeOfDay: 'dusk', weather: 'clear' } },
   { trackId: 'brennwald', environment: { timeOfDay: 'morning', weather: 'clear' } },
-  { trackId: 'aurelia', environment: { timeOfDay: 'night', weather: 'clear' } },
   { trackId: 'kuroyama', environment: { timeOfDay: 'dusk', weather: 'rain' } },
+  { trackId: 'aurelia', environment: { timeOfDay: 'night', weather: 'clear' } },
+  { trackId: 'portovela', environment: { timeOfDay: 'night', weather: 'cloudy' }, forecast: 'rainLater' },
   { trackId: 'brennwald', environment: { timeOfDay: 'noon', weather: 'storm' } },
 ];
+
+/** The weather change a round really runs at this many laps (a one-lap race is over before it would come). */
+export const roundForecast = (r: { environment: EnvironmentSettings; forecast?: Forecast }, laps: number): Forecast =>
+  sanitizeForecast(r.forecast, r.environment.weather, 'race', laps);
 
 export const LENGTHS: readonly ChampionshipLength[] = ['short', 'standard', 'long'];
 const LENGTH_FACTOR: Record<ChampionshipLength, number> = { short: 0.5, standard: 1, long: 2 };
@@ -73,6 +84,7 @@ export function championshipDef(tracks: readonly TrackInfo[]): ChampionshipDef {
       return {
         trackId: c.trackId,
         environment: { ...c.environment },
+        ...(c.forecast ? { forecast: c.forecast } : {}),
         laps: { short: lapsFor(base, 'short'), standard: lapsFor(base, 'standard'), long: lapsFor(base, 'long') },
       };
     }),
@@ -103,6 +115,9 @@ export interface ChampionshipRound {
   trackId: string;
   environment: EnvironmentSettings;
   laps: number;
+  /** A change of weather during the round, and the seed that fixes when and how hard (the same all season). */
+  forecast?: Forecast;
+  forecastSeed?: number;
 }
 
 export interface RoundEntry {
@@ -217,12 +232,16 @@ export function buildOpponents(n: number, car: CarDefinition, player: { name: st
   return out;
 }
 
+/** A round's weather seed, from the season's: every season brings its rain at its own moment. */
+const forecastSeedFor = (seed: number, round: number): number => 1 + (Math.abs(Math.floor(seed * 7919 + (round + 1) * 104729)) % 2147483646);
+
 export function createChampionship(o: CreateOptions): ChampionshipState {
   const setup = sanitizeSetup(o.setup);
-  const calendar: ChampionshipRound[] = CALENDAR.map((c) => ({
+  const calendar: ChampionshipRound[] = CALENDAR.map((c, i) => ({
     trackId: c.trackId,
     environment: { ...c.environment },
     laps: lapsFor(o.tracks.find((t) => t.id === c.trackId)?.defaultLaps ?? LAPS_FALLBACK, setup.length),
+    ...(c.forecast && c.forecast !== 'stable' ? { forecast: c.forecast, forecastSeed: forecastSeedFor(o.seed, i) } : {}),
   }));
   const name = o.playerName.trim() || 'You';
   const drivers: ChampionshipDriver[] = [
@@ -446,6 +465,7 @@ export function roundConfig(state: ChampionshipState, round: number): RaceConfig
     opponents: state.drivers.length - 1,
     difficulty: state.setup.difficulty,
     environment: { ...r.environment },
+    ...(roundForecast(r, r.laps) !== 'stable' ? { forecast: r.forecast, forecastSeed: r.forecastSeed ?? forecastSeedFor(state.seed, round) } : {}),
     startPosition: slot <= 0 ? 'pole' : slot >= info.grid.length - 1 ? 'back' : 'middle',
     championship: info,
   };
@@ -469,6 +489,7 @@ export function buildView(state: ChampionshipState, playerName?: string): Champi
       round: r,
       trackId: c.trackId,
       environment: { ...c.environment },
+      ...(roundForecast(c, c.laps) !== 'stable' ? { forecast: c.forecast } : {}),
       laps: c.laps,
       done: !!res,
       winner: win ? { ...(names.get(win.id) as { name: string; isPlayer: boolean }) } : null,
@@ -560,7 +581,13 @@ export function sanitizeState(raw: unknown): ChampionshipState | null {
   for (const c of raw.calendar) {
     const env = isObj(c) ? sanitizeEnvironment(c.environment) : null;
     if (!isObj(c) || typeof c.trackId !== 'string' || c.trackId.length === 0 || !env) return null;
-    calendar.push({ trackId: c.trackId, environment: env, laps: clampInt(num(c.laps, LAPS_FALLBACK), 1, LAPS_MAX) });
+    const round: ChampionshipRound = { trackId: c.trackId, environment: env, laps: clampInt(num(c.laps, LAPS_FALLBACK), 1, LAPS_MAX) };
+    // (a season saved before the weather could change has no forecasts and keeps its own calendar)
+    if (c.forecast === 'rainLater' || c.forecast === 'clearing') {
+      round.forecast = c.forecast;
+      round.forecastSeed = clampInt(num(c.forecastSeed, calendar.length + 1), 1, 2147483646);
+    }
+    calendar.push(round);
   }
 
   if (!Array.isArray(raw.drivers) || raw.drivers.length < 2 || raw.drivers.length > MAX_OPPONENTS + 1) return null;

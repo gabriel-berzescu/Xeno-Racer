@@ -26,6 +26,7 @@ import {
   POINTS,
   recordRound,
   roundConfig,
+  roundForecast,
   sanitizeState,
   saveChampionship,
   scoreRound,
@@ -41,6 +42,7 @@ const TRACK_INFO: TrackInfo[] = [
   { id: 'aurelia', name: 'Aurelia Ring', location: 'X', description: '', difficulty: 3, defaultLaps: 3, defaultTimeOfDay: 'golden', lengthHint: 4795, color: '#16e0bd' },
   { id: 'kuroyama', name: 'Kuroyama Pass', location: 'Y', description: '', difficulty: 4, defaultLaps: 2, defaultTimeOfDay: 'morning', lengthHint: 5250, color: '#ff2e63' },
   { id: 'brennwald', name: 'Brennwald Ring', location: 'Z', description: '', difficulty: 4, defaultLaps: 3, defaultTimeOfDay: 'golden', lengthHint: 6843, color: '#ffb02e' },
+  { id: 'portovela', name: 'Porto Vela', location: 'W', description: '', difficulty: 4, defaultLaps: 3, defaultTimeOfDay: 'dusk', lengthHint: 3960, color: '#3fa9ff' },
 ];
 const CAR = CARS[0];
 const PLAYER_LIVERY: Livery = { ...CAR.defaultLivery, driver: 'Gabriel' };
@@ -126,17 +128,19 @@ describe('calendar and race length', () => {
     expect(lapsFor(40, 'long')).toBeLessThanOrEqual(50);
   });
 
-  it('is the Xeno Cup: six rounds over the three circuits, each in different conditions', () => {
-    expect(CALENDAR.map((c) => [c.trackId, c.environment.timeOfDay, c.environment.weather])).toEqual([
-      ['aurelia', 'golden', 'clear'],
-      ['kuroyama', 'morning', 'cloudy'],
-      ['brennwald', 'morning', 'clear'],
-      ['aurelia', 'night', 'clear'],
-      ['kuroyama', 'dusk', 'rain'],
-      ['brennwald', 'noon', 'storm'],
+  it('is the Xeno Cup: eight rounds over the four circuits, each in different conditions', () => {
+    expect(CALENDAR.map((c) => [c.trackId, c.environment.timeOfDay, c.environment.weather, c.forecast ?? 'stable'])).toEqual([
+      ['aurelia', 'golden', 'clear', 'stable'],
+      ['kuroyama', 'morning', 'cloudy', 'stable'],
+      ['portovela', 'dusk', 'clear', 'stable'],
+      ['brennwald', 'morning', 'clear', 'stable'],
+      ['kuroyama', 'dusk', 'rain', 'stable'],
+      ['aurelia', 'night', 'clear', 'stable'],
+      ['portovela', 'night', 'cloudy', 'rainLater'],
+      ['brennwald', 'noon', 'storm', 'stable'],
     ]);
     // every circuit twice, never twice in a row, never the same conditions twice
-    for (const id of ['aurelia', 'kuroyama', 'brennwald']) expect(CALENDAR.filter((c) => c.trackId === id)).toHaveLength(2);
+    for (const id of ['aurelia', 'kuroyama', 'brennwald', 'portovela']) expect(CALENDAR.filter((c) => c.trackId === id)).toHaveLength(2);
     for (let i = 1; i < CALENDAR.length; i++) expect(CALENDAR[i].trackId).not.toBe(CALENDAR[i - 1].trackId);
     expect(new Set(CALENDAR.map((c) => `${c.environment.timeOfDay}/${c.environment.weather}`)).size).toBe(CALENDAR.length);
   });
@@ -147,6 +151,16 @@ describe('calendar and race length', () => {
     }
   });
 
+  it('only changes the weather where the round can run it at every race length', () => {
+    const def = championshipDef(TRACK_INFO);
+    for (const [i, c] of CALENDAR.entries()) {
+      if (!c.forecast) continue;
+      for (const laps of Object.values(def.rounds[i].laps)) expect(roundForecast(c, laps)).toBe(c.forecast);
+    }
+    // a one-lap race is over before the weather would change
+    expect(roundForecast({ environment: { timeOfDay: 'night', weather: 'cloudy' }, forecast: 'rainLater' }, 1)).toBe('stable');
+  });
+
   it('only schedules tracks that exist', () => {
     const ids = TRACKS.map((t) => t.info.id);
     for (const c of CALENDAR) expect(ids).toContain(c.trackId);
@@ -155,10 +169,13 @@ describe('calendar and race length', () => {
   it('describes the calendar for the setup screen, laps per race length included', () => {
     const def = championshipDef(TRACK_INFO);
     expect(def.name).toBe('Xeno Cup');
-    expect(def.rounds).toHaveLength(6);
+    expect(def.rounds).toHaveLength(8);
     expect(def.rounds[0]).toMatchObject({ trackId: 'aurelia', laps: { short: 2, standard: 3, long: 6 } });
     expect(def.rounds[1]).toMatchObject({ trackId: 'kuroyama', laps: { short: 1, standard: 2, long: 4 } });
-    expect(def.rounds[2]).toMatchObject({ trackId: 'brennwald', laps: { short: 2, standard: 3, long: 6 } });
+    expect(def.rounds[2]).toMatchObject({ trackId: 'portovela', laps: { short: 2, standard: 3, long: 6 } });
+    expect(def.rounds[3]).toMatchObject({ trackId: 'brennwald', laps: { short: 2, standard: 3, long: 6 } });
+    expect(def.rounds[6].forecast).toBe('rainLater');
+    expect(def.rounds.filter((r) => r.forecast)).toHaveLength(1);
     expect(def.points).toEqual([...POINTS]);
     expect(def.fastestLapPoint).toBe(1);
     // the def is a copy: editing it must not touch the rules
@@ -177,11 +194,13 @@ describe('creating a championship', () => {
   it('builds the fixed calendar with laps from the track defaults and the chosen length', () => {
     const s = make();
     expect(s.name).toBe('Xeno Cup');
-    expect(s.calendar.map((c) => [c.trackId, c.laps])).toEqual([['aurelia', 3], ['kuroyama', 2], ['brennwald', 3], ['aurelia', 3], ['kuroyama', 2], ['brennwald', 3]]);
+    expect(s.calendar.map((c) => [c.trackId, c.laps])).toEqual([
+      ['aurelia', 3], ['kuroyama', 2], ['portovela', 3], ['brennwald', 3], ['kuroyama', 2], ['aurelia', 3], ['portovela', 3], ['brennwald', 3],
+    ]);
     expect(s.calendar[4].environment).toEqual({ timeOfDay: 'dusk', weather: 'rain' });
-    expect(s.calendar[5].environment).toEqual({ timeOfDay: 'noon', weather: 'storm' });
-    expect(make({ length: 'long' }).calendar.map((c) => c.laps)).toEqual([6, 4, 6, 6, 4, 6]);
-    expect(make({ length: 'short' }).calendar.map((c) => c.laps)).toEqual([2, 1, 2, 2, 1, 2]);
+    expect(s.calendar[7].environment).toEqual({ timeOfDay: 'noon', weather: 'storm' });
+    expect(make({ length: 'long' }).calendar.map((c) => c.laps)).toEqual([6, 4, 6, 6, 4, 6, 6, 6]);
+    expect(make({ length: 'short' }).calendar.map((c) => c.laps)).toEqual([2, 1, 2, 2, 1, 2, 2, 2]);
     expect(s.results).toEqual([]);
     expect(nextRound(s)).toBe(0);
     expect(isComplete(s)).toBe(false);
@@ -301,9 +320,9 @@ describe('standings', () => {
     expect(t.map((r) => r.position)).toEqual([1, 2, 3, 4]);
     expect(t.map((r) => r.gap)).toEqual([0, 0, 17, 17]);
     const rival = t.find((r) => r.id === a1)!;
-    expect(rival.roundPoints).toEqual([26, 18, null, null, null, null]);
-    expect(rival.roundPositions).toEqual([1, 2, null, null, null, null]);
-    expect(rival.roundFastest).toEqual([true, false, false, false, false, false]);
+    expect(rival.roundPoints).toEqual([26, 18, null, null, null, null, null, null]);
+    expect(rival.roundPositions).toEqual([1, 2, null, null, null, null, null, null]);
+    expect(rival.roundFastest).toEqual([true, false, false, false, false, false, false, false]);
   });
 
   it('breaks a tie on points by countback: the driver with more wins is ahead', () => {
@@ -368,7 +387,7 @@ describe('standings', () => {
     s = recordRound(s, finishers([p, a3, a2, a1]));
     expect(computeStandings(s, 0).every((r) => r.points === 0)).toBe(true);
     expect(computeStandings(s, 1)[0].id).toBe(a1);
-    expect(computeStandings(s, 1)[0].roundPoints).toEqual([26, null, null, null, null, null]);
+    expect(computeStandings(s, 1)[0].roundPoints).toEqual([26, null, null, null, null, null, null, null]);
     expect(computeStandings(s, 1)[0].move).toBeNull();
     expect(computeStandings(s, 99)).toEqual(computeStandings(s));
     expect(computeStandings(s, -3)).toEqual(computeStandings(s, 0));
@@ -441,13 +460,44 @@ describe('grids and round configs', () => {
     const c = roundConfig(s, 1);
     expect(c).toMatchObject({ mode: 'race', trackId: 'kuroyama', carId: CAR.id, laps: 2, opponents: 3, difficulty: 'alien' });
     expect(c.environment).toEqual({ timeOfDay: 'morning', weather: 'cloudy' });
-    expect(c.championship).toMatchObject({ name: 'Xeno Cup', round: 2, rounds: 6 });
+    expect(c.championship).toMatchObject({ name: 'Xeno Cup', round: 2, rounds: 8 });
+    expect(c.forecast).toBeUndefined();
     expect(c.championship!.grid.map((g) => g.id)).toEqual(gridOrder(s, 1));
     const opp = c.championship!.grid.find((g) => !g.isPlayer)!;
     const d = s.drivers.find((x) => x.id === opp.id)!;
     expect(opp).toMatchObject({ name: d.name, livery: d.livery, seed: d.seed });
     expect(c.championship!.grid.find((g) => g.isPlayer)).toMatchObject({ id: PLAYER_ID, name: 'Gabriel' });
     expect(c.livery).toEqual(SETUP.livery);
+  });
+
+  it('brings the rain to the Porto Vela night round at a moment fixed for the season', () => {
+    const s = make();
+    const r = s.calendar[6];
+    expect(r).toMatchObject({ trackId: 'portovela', forecast: 'rainLater' });
+    expect(s.calendar.filter((x) => x.forecast)).toHaveLength(1);
+    const c = roundConfig(s, 6);
+    expect(c).toMatchObject({ trackId: 'portovela', forecast: 'rainLater', environment: { timeOfDay: 'night', weather: 'cloudy' } });
+    // a restart repeats it; another season has its own
+    expect(roundConfig(s, 6).forecastSeed).toBe(c.forecastSeed);
+    expect(Number.isInteger(c.forecastSeed) && (c.forecastSeed ?? 0) >= 1).toBe(true);
+    const seeds = new Set([1, 2, 3, 4, 5].map((seed) => roundConfig(make({}, seed), 6).forecastSeed));
+    expect(seeds.size).toBe(5);
+    // it survives a save
+    expect(sanitizeState(JSON.parse(JSON.stringify(s)))?.calendar[6]).toEqual(r);
+    // a one-lap round cannot run it
+    const one = { ...s, calendar: s.calendar.map((x) => ({ ...x, laps: 1 })) };
+    expect(roundConfig(one, 6).forecast).toBeUndefined();
+    expect(buildView(one).rounds[6].forecast).toBeUndefined();
+    expect(buildView(s).rounds[6].forecast).toBe('rainLater');
+  });
+
+  it('keeps the calendar of a season saved before Porto Vela', () => {
+    const s = make();
+    const calendar = s.calendar.filter((c) => c.trackId !== 'portovela').map((c) => ({ trackId: c.trackId, environment: c.environment, laps: c.laps }));
+    const back = sanitizeState(JSON.parse(JSON.stringify({ ...s, calendar })));
+    expect(back?.calendar.map((c) => c.trackId)).toEqual(['aurelia', 'kuroyama', 'brennwald', 'kuroyama', 'aurelia', 'brennwald']);
+    expect(back?.calendar.every((c) => c.forecast === undefined)).toBe(true);
+    expect(roundConfig(back!, 5).championship).toMatchObject({ rounds: 6 });
   });
 
   it('derives the config start position from the player slot', () => {
@@ -498,7 +548,7 @@ describe('a whole season', () => {
     const s = play(7);
     const v = buildView(s);
     expect(v.complete).toBe(true);
-    expect(v.done).toBe(6);
+    expect(v.done).toBe(8);
     const mine = s.results.map((r) => r.entries.find((e) => e.id === PLAYER_ID)!);
     expect(v.season.points).toBe(mine.reduce((sum, e) => sum + e.points, 0));
     expect(v.season.wins).toBe(mine.filter((e) => e.position === 1).length);
@@ -521,7 +571,7 @@ describe('view model', () => {
     expect(v.done).toBe(1);
     expect(v.complete).toBe(false);
     expect(v.opponents).toBe(3);
-    expect(v.rounds).toHaveLength(6);
+    expect(v.rounds).toHaveLength(8);
     expect(v.rounds[0]).toMatchObject({ round: 0, trackId: 'aurelia', laps: 3, done: true, playerPosition: 2, playerPoints: 18 });
     expect(v.rounds[0].winner).toEqual({ name: s.drivers[1].name, isPlayer: false });
     expect(v.rounds[0].fastestLap).toEqual({ name: s.drivers[3].name, time: 81.5, isPlayer: false });
@@ -639,9 +689,10 @@ describe('persistence', () => {
 
   it('knows whether this build can race a saved season', () => {
     const s = make();
-    expect(isPlayable(s, ['aurelia', 'kuroyama', 'brennwald'], [CAR.id])).toBe(true);
-    expect(isPlayable(s, ['aurelia', 'kuroyama'], [CAR.id])).toBe(false); // a track has gone
-    expect(isPlayable(s, ['aurelia', 'kuroyama', 'brennwald'], ['other-car'])).toBe(false); // so has the car
+    const all = ['aurelia', 'kuroyama', 'brennwald', 'portovela'];
+    expect(isPlayable(s, all, [CAR.id])).toBe(true);
+    expect(isPlayable(s, ['aurelia', 'kuroyama', 'brennwald'], [CAR.id])).toBe(false); // a track has gone
+    expect(isPlayable(s, all, ['other-car'])).toBe(false); // so has the car
   });
 
   it('never lets negative or non-numeric points into the table', () => {

@@ -306,6 +306,7 @@ export class StandingsScreen extends BaseScreen {
     this.calHead.textContent = v.complete ? 'Calendar' : `Calendar  ·  Next: round ${v.done + 1}`;
     // more than four rounds only fit the panel as slimmer cards
     this.cal.classList.toggle('compact', v.rounds.length > 4);
+    this.cal.classList.toggle('tight', v.rounds.length > 6);
     v.rounds.forEach((r, i) => this.cal.appendChild(this.card(r, i, v)));
     // the season's rules, as a reminder
     const car = this.ctx.deps.cars.find((c) => c.id === v.carId);
@@ -343,7 +344,7 @@ export class StandingsScreen extends BaseScreen {
       { cls: `cc ${state}` + (r.winner?.isPlayer ? ' won' : ''), style: { '--d': String(380 + i * 70), '--tx': '50px', '--accent': track?.color ?? '#16e0bd' } },
       h('i', 'cc-accent'),
       badge,
-      h('div', 'cc-main', h('div', 'cc-name', track?.name ?? r.trackId), h('div', 'cc-sub', conditionChips(r.environment, true), h('span', 'cc-laps', lapsLabel(r.laps))), r.done ? h('div', 'cc-won', won) : null),
+      h('div', 'cc-main', h('div', 'cc-name', track?.name ?? r.trackId), h('div', 'cc-sub', conditionChips(r.environment, true, r.forecast), h('span', 'cc-laps', lapsLabel(r.laps))), r.done ? h('div', 'cc-won', won) : null),
       right,
     );
   }

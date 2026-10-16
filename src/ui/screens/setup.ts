@@ -1,4 +1,5 @@
 import { WEATHER_WATER, type ChampionshipRoundDef, type Forecast, type InputFrame, type MinimapTrack, type RaceMode, type TrackInfo } from '../../core/contracts';
+import { sanitizeForecast } from '../../core/forecast';
 import type { ScreenId } from '../../core/systems';
 import type { UiCtx } from '../ctx';
 import { clearEl, h } from '../dom';
@@ -17,6 +18,8 @@ import { BaseScreen } from './base';
 const STEP_LABEL: Record<SetupStep, string> = { track: 'Track', car: 'Car', race: 'Race' };
 const STEP_TITLE: Record<SetupStep, string> = { track: 'Choose your track', car: 'Choose your car', race: 'Race setup' };
 /** A championship's first step is its fixed calendar, not a choice of track. */
+/** The change of weather a calendar round runs at this many laps (none in a one-lap race). */
+const roundChange = (r: ChampionshipRoundDef, laps: number): Forecast => sanitizeForecast(r.forecast, r.environment.weather, 'race', laps);
 const CHAMP_STEP_LABEL: Record<SetupStep, string> = { track: 'Calendar', car: 'Car', race: 'Season' };
 const CHAMP_STEP_TITLE: Record<SetupStep, string> = { track: 'The calendar', car: 'Choose your car', race: 'Season setup' };
 
@@ -259,13 +262,14 @@ export class SetupScreen extends BaseScreen {
     const entries: { t: TrackInfo; round: ChampionshipRoundDef | null }[] = def
       ? def.rounds.map((round) => ({ t: tracks.find((x) => x.id === round.trackId) ?? tracks[0], round }))
       : tracks.map((t) => ({ t, round: null }));
+    this.trackList.classList.toggle('compact', entries.length > 6);
     const rows: FocusRow[] = entries.map(({ t, round }, i) => {
       const card = h(
         'div',
         { cls: 'track-card focusable in', style: { '--d': String(160 + i * 60), '--tx': '-60px', '--accent': t.color } },
         h('i', 'tc-accent'),
         h('span', 'tc-idx', round ? 'R' + (i + 1) : String(i + 1).padStart(2, '0')),
-        h('div', 'tc-main', h('div', 'tc-name', t.name), h('div', 'tc-place', round ? formatConditions(round.environment) : t.location)),
+        h('div', 'tc-main', h('div', 'tc-name', t.name), h('div', 'tc-place', round ? formatConditions(round.environment, roundChange(round, round.laps[this.state.champ.length])) : t.location)),
         h('div', 'tc-side', pips(t.difficulty, 5, t.difficulty >= 4), h('div', 'tc-len', round ? lapsLabel(round.laps[this.state.champ.length]) : formatLength(t.lengthHint, this.units()))),
       );
       card.addEventListener('pointermove', (e) => {
@@ -622,7 +626,7 @@ export class SetupScreen extends BaseScreen {
     def.rounds.forEach((r, i) => {
       const t = this.ctx.deps.tracks.find((x) => x.id === r.trackId);
       this.csRounds.appendChild(
-        h('div', 'cs-round', h('span', 'n', 'R' + (i + 1)), h('div', 'cs-main', h('b', null, t?.name ?? r.trackId), h('em', null, formatConditions(r.environment))), h('span', 'cs-laps t-num', lapsLabel(r.laps[c.length]))),
+        h('div', 'cs-round', h('span', 'n', 'R' + (i + 1)), h('div', 'cs-main', h('b', null, t?.name ?? r.trackId), h('em', null, formatConditions(r.environment, roundChange(r, r.laps[c.length])))), h('span', 'cs-laps t-num', lapsLabel(r.laps[c.length]))),
       );
     });
     this.csCar.textContent = `${this.car().name}  ·  ${LIVERY_PRESETS[this.state.liveryIndex].name}`;

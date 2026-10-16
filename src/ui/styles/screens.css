@@ -136,6 +136,13 @@
 .track-card.is-focus .tc-accent { opacity: 1; }
 .track-card.is-focus .tc-idx { color: var(--teal); }
 .track-card.is-focus .tc-place { color: var(--muted); }
+/* a calendar of more than six rounds: shorter cards, so all of it stands above the prompts */
+.track-list.compact { gap: 8px; }
+.track-list.compact .track-card { height: 86px; }
+.track-list.compact .tc-idx { font-size: 22px; }
+.track-list.compact .tc-name { font-size: 40px; }
+.track-list.compact .tc-place { margin-top: 6px; font-size: 20px; }
+.track-list.compact .tc-side { gap: 8px; }
 
 .track-detail { min-width: 0; padding: 30px 34px 34px; }
 .map-wrap { position: relative; width: 576px; height: 330px; margin: 0 auto 22px; background: radial-gradient(70% 80% at 50% 45%, rgba(22, 224, 189, 0.07), transparent 75%), rgba(0, 0, 0, 0.28); border: 1px solid var(--line); }
@@ -372,6 +379,20 @@
 .st-cal.compact .cc-pos { font-size: 34px; }
 .st-cal.compact .cc-pts { font-size: 19px; }
 .st-cal.compact .cc-next { font-size: 20px; }
+/* more than six rounds */
+.st-cal.compact.tight { gap: 6px; padding-top: 2px; }
+.st-cal.compact.tight .cc { padding: 7px 18px 7px 0; }
+.st-cal.compact.tight .cc-accent { margin: -7px 0; }
+.st-cal.compact.tight .cc-n { width: 40px; height: 40px; font-size: 23px; }
+.st-cal.compact.tight .cc-n .ico { width: 20px; height: 20px; }
+.st-cal.compact.tight .cc-name { font-size: 27px; }
+.st-cal.compact.tight .cc-sub { margin-top: 4px; }
+.st-cal.compact.tight .chip.sm { padding: 3px 10px 3px 12px; font-size: 14px; }
+.st-cal.compact.tight .cc-laps { font-size: 16px; }
+.st-cal.compact.tight .cc-won { margin-top: 3px; font-size: 15px; }
+.st-cal.compact.tight .cc-pos { font-size: 30px; }
+.st-cal.compact.tight .cc-pts { font-size: 17px; }
+.st-cal.compact.tight .cc-next { font-size: 18px; }
 
 /* ── championship: champion / final standings ──────────────────────────────── */
 

@@ -90,7 +90,7 @@ export class LoadingScreen extends BaseScreen {
     this.kicker.textContent = ch ? `${ch.name}  ·  Round ${ch.round} / ${ch.rounds}` : 'LOADING';
     this.facts.textContent = track
       ? ch && cfg
-        ? `${formatLength(track.lengthHint, this.ctx.settings.units)}  ·  ${lapsLabel(cfg.laps)}  ·  ${formatConditions(cfg.environment)}`
+        ? `${formatLength(track.lengthHint, this.ctx.settings.units)}  ·  ${lapsLabel(cfg.laps)}  ·  ${formatConditions(cfg.environment, cfg.forecast)}`
         : `${formatLength(track.lengthHint, this.ctx.settings.units)}  ·  ${cfg?.mode === 'race' ? cfg.laps + (cfg.laps === 1 ? ' lap' : ' laps') : cfg?.mode === 'timeTrial' ? 'Time trial' : 'Free roam'}${cfg?.forecast ? '  ·  ' + formatConditions(cfg.environment, cfg.forecast) : ''}`
       : '';
     clearEl(this.rounds);

@@ -622,6 +622,8 @@ export interface ChampionshipSetup {
 export interface ChampionshipRoundDef {
   trackId: string;
   environment: EnvironmentSettings;
+  /** The weather changes during this round (it runs at two laps or more). */
+  forecast?: Forecast;
   /** Laps of this round for every race length. */
   laps: Record<ChampionshipLength, number>;
 }
@@ -669,6 +671,8 @@ export interface ChampionshipRoundView {
   round: number;
   trackId: string;
   environment: EnvironmentSettings;
+  /** The weather changes during this round. */
+  forecast?: Forecast;
   laps: number;
   done: boolean;
   winner: { name: string; isPlayer: boolean } | null;
