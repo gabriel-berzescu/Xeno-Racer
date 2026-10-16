@@ -169,7 +169,7 @@ function standRows(ctx: Ctx, def: StandDef, i0: number, i1: number): Row[] {
   return rows;
 }
 
-function buildStand(ctx: Ctx, def: StandDef, bufs: Bufs, mats: PropMats): void {
+function buildStand(ctx: Ctx, def: StandDef, bufs: Bufs, mats: PropMats, atlas: BarrierMaterials['atlas']): void {
   const rt = ctx.rt;
   const sMid = markToIndex(ctx, def.at);
   const half = Math.round(def.length / rt.spacing / 2);
@@ -191,6 +191,36 @@ function buildStand(ctx: Ctx, def: StandDef, bufs: Bufs, mats: PropMats): void {
   risers.push({ q0: R * depth, y0: yTop, q1: R * depth, y1: -3.5, n: [1, 0], v0: yTop, v1: -3.5 });
   extrude(buf(bufs, 'seat'), rows, treads, 1 / 8, 1, false);
   extrude(buf(bufs, 'concrete'), rows, risers, 1, 1, false);
+  // the back wall: two tiers of big advertising panels, one 12 m panel per six rows
+  if (def.rearAds) {
+    const ab = buf(bufs, 'ads');
+    const qRear = R * depth + 0.05;
+    const span = 6;
+    const tiers: [number, number][] = [[1.4, 4.6], [5.4, 8.6]];
+    let kk = 0;
+    for (let r0 = 0; r0 + span < rows.length; r0 += span, kk++) {
+      tiers.forEach(([yb, yt], ti) => {
+        const brand = (kk * 5 + ti * 7 + 1) % atlas.count;
+        const u0 = (brand % atlas.cols) / atlas.cols;
+        const u1 = ((brand % atlas.cols) + 1) / atlas.cols;
+        const v1 = 1 - Math.floor(brand / atlas.cols) / atlas.rows;
+        const v0 = 1 - (Math.floor(brand / atlas.cols) + 1) / atlas.rows;
+        const ra = rows[r0];
+        const rb = rows[r0 + span];
+        const ids: number[] = [];
+        for (const [row, yy, u, v] of [[ra, yb, u0, v0], [rb, yb, u1, v0], [rb, yt, u1, v1], [ra, yt, u0, v1]] as const) {
+          ids.push(ab.v(row.x + row.ox * qRear, row.y + yy, row.z + row.oz * qRear, row.ox, 0, row.oz, u, v));
+        }
+        const P = ab.pos;
+        _a.set(P[ids[0] * 3], P[ids[0] * 3 + 1], P[ids[0] * 3 + 2]);
+        _b.set(P[ids[1] * 3], P[ids[1] * 3 + 1], P[ids[1] * 3 + 2]);
+        _c.set(P[ids[2] * 3], P[ids[2] * 3 + 1], P[ids[2] * 3 + 2]);
+        _n.crossVectors(_b.sub(_a), _c.sub(_a));
+        if (_n.x * ra.ox + _n.z * ra.oz >= 0) ab.quad(ids[0], ids[1], ids[2], ids[3]);
+        else ab.quad(ids[0], ids[3], ids[2], ids[1]);
+      });
+    }
+  }
   // crowd: a standing strip per row
   const cb = buf(bufs, 'crowd');
   for (let r = 0; r < R; r++) {
@@ -564,28 +594,36 @@ function buildMarshals(ctx: Ctx, bufs: Bufs, flags: FlagSys, flagTex: THREE.Text
 
 function buildLamps(ctx: Ctx, group: THREE.Group): void {
   const sc = ctx.rt.def.scenery;
-  if (!sc?.lamps || !sc.lamps.length) return;
+  if (!sc?.lamps?.length && !ctx.extraLamps?.length) return;
   const rt = ctx.rt;
-  const list: { x: number; y: number; z: number; ox: number; oz: number }[] = [];
-  for (const L of sc.lamps) {
+  const H = sc?.lamps?.[0].height ?? 13;
+  const A = sc?.lamps?.[0].arm ?? 2.2;
+  const list: { x: number; y: number; z: number; ox: number; oz: number }[] = [...(ctx.extraLamps ?? [])];
+  // no lamp mast where a stone arch crosses the street
+  const archS = (sc?.city?.arches ?? []).map((a) => [resolveMark(rt.plan.marks, rt.length, a.at), (a.depth ?? 5.5) / 2 + 3] as const);
+  for (const L of sc?.lamps ?? []) {
     let i0 = markToIndex(ctx, L.from);
     let i1 = markToIndex(ctx, L.to);
     if (i1 <= i0) i1 += rt.count;
     const stepI = Math.max(1, Math.round(L.spacing / rt.spacing));
-    for (let i = i0; i <= i1; i += stepI) {
-      for (const sgn of (L.side === 'B' ? [1, -1] : [L.side === 'L' ? 1 : -1]) as (1 | -1)[]) {
+    let n = 0;
+    for (let i = i0; i <= i1; i += stepI, n++) {
+      const sides = (L.side === 'B' ? (L.stagger ? [n % 2 ? 1 : -1] : [1, -1]) : [L.side === 'L' ? 1 : -1]) as (1 | -1)[];
+      for (const sgn of sides) {
         const S = sgn > 0 ? rt.L : rt.R;
         const k = ((i % rt.count) + rt.count) % rt.count;
-        const r = rowAtD(rt, sgn, k, S.wall[k] + 1.6);
+        const r = rowAtD(rt, sgn, k, S.wall[k] + (L.gap ?? 1.6));
+        if (archS.some(([aS, aD]) => Math.abs(rt.wrapS(i * rt.spacing - aS + rt.length / 2) - rt.length / 2) < aD)) continue;
+        if (ctx.camSpots?.some(([cx, cz]) => (cx - r.x) * (cx - r.x) + (cz - r.z) * (cz - r.z) < 22 * 22)) continue;
         list.push({ x: r.x, y: r.y, z: r.z, ox: r.ox, oz: r.oz });
       }
     }
   }
   if (!list.length) return;
-  const poleG = new THREE.CylinderGeometry(0.09, 0.14, 13, 8);
-  poleG.translate(0, 6.5, 0);
-  const headG = new THREE.BoxGeometry(2.2, 0.14, 0.55);
-  headG.translate(1.1, 13.0, 0); // arm extends toward +x (local); rotated to face the track
+  const poleG = new THREE.CylinderGeometry(0.09, 0.14, H, 8);
+  poleG.translate(0, H / 2, 0);
+  const headG = new THREE.BoxGeometry(A, 0.14, 0.55);
+  headG.translate(A / 2, H, 0); // arm extends toward +x (local); rotated to face the track
   const poleM = new THREE.MeshStandardMaterial({ color: 0x8a8f94, metalness: 0.7, roughness: 0.5 });
   const headM = new THREE.MeshStandardMaterial({ color: 0xdcdcdc, roughness: 0.4, emissive: 0xfff0d0, emissiveIntensity: 0 });
   const poles = new THREE.InstancedMesh(poleG, poleM, list.length);
@@ -607,9 +645,9 @@ function buildLamps(ctx: Ctx, group: THREE.Group): void {
   // lamp-head positions for the render module's lit rain / spray (read from the scene graph, no import needed)
   const lampHeads = new Float32Array(list.length * 3);
   list.forEach((l, i) => {
-    lampHeads[i * 3] = l.x - l.ox * 1.1;
-    lampHeads[i * 3 + 1] = l.y + 12.95;
-    lampHeads[i * 3 + 2] = l.z - l.oz * 1.1;
+    lampHeads[i * 3] = l.x - l.ox * (A / 2);
+    lampHeads[i * 3 + 1] = l.y + H - 0.05;
+    lampHeads[i * 3 + 2] = l.z - l.oz * (A / 2);
   });
   group.userData.xrLamps = lampHeads;
   ctx.lamps = lampHeads;
@@ -623,7 +661,14 @@ function buildLamps(ctx: Ctx, group: THREE.Group): void {
   const g = c.getContext('2d')!;
   const gr = g.createRadialGradient(64, 64, 2, 64, 64, 64);
   gr.addColorStop(0, 'rgba(255,240,212,1)');
-  gr.addColorStop(0.45, 'rgba(255,230,192,0.45)');
+  if (ctx.rt.def.paved) {
+    // (a city's lamps stand close together and the pool is painted flat over the asphalt: a tighter, fainter pool, or the road under a
+    // lamp turns into a beige plate with no texture)
+    gr.addColorStop(0.3, 'rgba(255,232,196,0.42)');
+    gr.addColorStop(0.62, 'rgba(255,225,186,0.1)');
+  } else {
+    gr.addColorStop(0.45, 'rgba(255,230,192,0.45)');
+  }
   gr.addColorStop(1, 'rgba(255,220,180,0)');
   g.fillStyle = gr;
   g.fillRect(0, 0, 128, 128);
@@ -638,11 +683,13 @@ function buildLamps(ctx: Ctx, group: THREE.Group): void {
   poolM.blendSrcAlpha = THREE.ZeroFactor;
   poolM.blendDstAlpha = THREE.OneFactor;
   const pools = new THREE.InstancedMesh(poolG, poolM, list.length);
+  const poolSize = Math.min(22, Math.max(14, H * 1.7));
+  const poolK = ctx.rt.def.paved ? 0.62 : 1;
   list.forEach((l, i) => {
-    const px = l.x - l.ox * 7.5;
-    const pz = l.z - l.oz * 7.5;
+    const px = l.x - l.ox * (A * 3.4);
+    const pz = l.z - l.oz * (A * 3.4);
     const py = ctx.rt.heightXZ(px, pz) + 0.05;
-    m4.compose(new THREE.Vector3(px, py, pz), new THREE.Quaternion(), new THREE.Vector3(22, 1, 22));
+    m4.compose(new THREE.Vector3(px, py, pz), new THREE.Quaternion(), new THREE.Vector3(poolSize, 1, poolSize));
     pools.setMatrixAt(i, m4);
   });
   pools.frustumCulled = false;
@@ -652,7 +699,7 @@ function buildLamps(ctx: Ctx, group: THREE.Group): void {
   ctx.envListeners.push((env: EnvironmentState) => {
     // in the rain the lamps stay quiet until it is really dark (a storm at noon only switches them on)
     // (a wet road is lit by the lamps themselves in its shader, with reflections: no painted pools there)
-    poolM.opacity = env.wetness > 0 ? 0 : (0.55 * Math.max(0, env.darkness - 0.25)) / 0.75;
+    poolM.opacity = env.wetness > 0 ? 0 : (0.55 * poolK * Math.max(0, env.darkness - 0.25)) / 0.75;
     pools.visible = poolM.opacity > 0.01;
   });
 }
@@ -902,25 +949,44 @@ function buildRoadSigns(ctx: Ctx, bufs: Bufs): void {
 function buildTvCameras(ctx: Ctx): { position: THREE.Vector3; s: number }[] {
   const rt = ctx.rt;
   const out: { position: THREE.Vector3; s: number }[] = [];
+  // in a city the catch fences stand 5.4 m high right in front of the lens: the cameras look over them from a platform at the fence
+  // line, high enough that the near lane is seen over the top of the mesh, not through it (from 7.4 m, 2.2 m back, the near half of
+  // the road was behind the wire); farther back they would be inside the blocks, looking at a flank wall
+  const over = rt.def.paved ? 9.2 : 0;
+  const back = rt.def.paved ? 0.8 : 6;
   const add = (s: number, d: number, h: number) => {
     const p = new THREE.Vector3();
     rt.pointAt(s, d, p);
-    p.y += h;
+    p.y += Math.max(h, over);
     out.push({ position: p, s: rt.wrapS(s) });
   };
   // behind a wide run-off a camera at head height sees mostly gravel, with the road a thin strip at a grazing
   // angle: like a real circuit's camera platforms, the farther from the road, the higher it stands
   const lift = (base: number, S: typeof rt.L, k: number) => Math.min(9, base + 0.18 * Math.max(0, S.wall[k] - S.W[k] - 8));
+  // a camera beside a tunnel would stand inside the hill: it moves out to the mouth, looking into the portal
+  const clear = (s: number) => {
+    for (const [a, b] of rt.tunnelSpans) if (s > a - 22 && s < b + 22) return s - a < b - s ? a - 24 : b + 24;
+    return s;
+  };
   // outside of the larger corners, looking at the apex
   const cs = rt.corners.filter((c) => c.angle > 0.35);
   const nCorner = Math.min(12, cs.length);
   for (let j = 0; j < nCorner; j++) {
     const c = cs[Math.floor((j * cs.length) / nCorner)];
-    const sA = (c.sArcA + c.sArcB) / 2 - 20;
+    const sA = clear((c.sArcA + c.sArcB) / 2 - 20);
     const k = Math.round(rt.wrapS(sA) / rt.spacing) % rt.count;
     const sgn = c.dir > 0 ? -1 : 1;
     const S = sgn > 0 ? rt.L : rt.R;
-    add(sA, sgn * (S.wall[k] + 6), lift(3.2, S, k));
+    add(sA, sgn * (S.wall[k] + back), lift(3.2, S, k));
+  }
+  // the platforms the track asks for by mark
+  for (const mk of rt.def.scenery?.tvMarks ?? []) {
+    const s = clear(resolveMark(rt.plan.marks, rt.length, mk));
+    const k = Math.round(rt.wrapS(s) / rt.spacing) % rt.count;
+    const bend = rt.curvature[k];
+    const sgn: 1 | -1 = Math.abs(bend) > 2e-3 ? (bend > 0 ? -1 : 1) : rt.L.wall[k] >= rt.R.wall[k] ? 1 : -1;
+    const S = sgn > 0 ? rt.L : rt.R;
+    add(s, sgn * (S.wall[k] + back), lift(3.2, S, k));
   }
   // start straight cameras
   const k0 = 0;
@@ -929,7 +995,20 @@ function buildTvCameras(ctx: Ctx): { position: THREE.Vector3; s: number }[] {
   // 1.6 m out from the wall): from farther out every pole between here and the grid crosses the picture
   const k160 = Math.round(160 / rt.spacing) % rt.count;
   add(160, rt.L.wall[k160] + 0.3, 8.5);
-  add(rt.length * 0.5, rt.R.wall[Math.floor(rt.count / 2)] * -1 - 5, 3);
+  add(rt.length * 0.5, -(rt.R.wall[Math.floor(rt.count / 2)] + Math.min(5, back)), 3);
+  // inside a tunnel the cars are out of sight of every camera outside (the hill is in the way): cameras hang from the crown of the
+  // tube, about a hundred metres apart, looking along the road
+  for (const [a, b] of rt.tunnelSpans) {
+    const n = Math.max(1, Math.round((b - a) / 110));
+    for (let j = 0; j < n; j++) {
+      const s = a + ((b - a) * (j + 0.5)) / n;
+      const k = Math.round(rt.wrapS(s) / rt.spacing) % rt.count;
+      const p = new THREE.Vector3();
+      rt.pointAt(s, (rt.L.wall[k] - rt.R.wall[k]) / 2, p);
+      p.y += 4.6;
+      out.push({ position: p, s: rt.wrapS(s) });
+    }
+  }
   out.sort((a, b) => a.s - b.s);
   // long straights and fast sweepers between corner cameras: a camera covers ~220 m of road coming
   // toward it, so a gap much longer than that gets evenly spaced trackside cameras, on the side with more room
@@ -941,10 +1020,10 @@ function buildTvCameras(ctx: Ctx): { position: THREE.Vector3; s: number }[] {
     const n = Math.ceil(gap / 260) - 1;
     for (let j = 1; j <= n; j++) fill.push(a + (gap * j) / (n + 1));
   }
-  for (const sF of fill.slice(0, 24)) {
+  for (const sF of fill.slice(0, 24).map(clear)) {
     const k = Math.round(rt.wrapS(sF) / rt.spacing) % rt.count;
     const left = rt.L.wall[k] >= rt.R.wall[k];
-    add(sF, left ? rt.L.wall[k] + 6 : -(rt.R.wall[k] + 6), lift(3.4, left ? rt.L : rt.R, k));
+    add(sF, left ? rt.L.wall[k] + back : -(rt.R.wall[k] + back), lift(3.4, left ? rt.L : rt.R, k));
   }
   out.sort((a, b) => a.s - b.s);
   // keep each camera's view of its stretch of road clear of trees: corridors from the camera to
@@ -978,12 +1057,22 @@ function buildTvCameras(ctx: Ctx): { position: THREE.Vector3; s: number }[] {
       return false;
     });
   }
+  // a camera platform is ground nobody builds on (a city's lots would otherwise swallow the cameras standing behind the barriers)
+  if (rt.def.paved) {
+    ctx.camSpots = out.map((c) => [c.position.x, c.position.z]);
+    for (const cam of out) {
+      const cx = cam.position.x;
+      const cz = cam.position.z;
+      ctx.reserved.push((x, z, m) => (x - cx) * (x - cx) + (z - cz) * (z - cz) < (3 + m) * (3 + m));
+    }
+  }
   return out;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function buildProps(ctx: Ctx, barrierMats: BarrierMaterials, roadMats: TrackMaterials): PropResult {
+  const tvCameras = buildTvCameras(ctx);
   const group = new THREE.Group();
   group.name = 'props';
   const sc = ctx.rt.def.scenery;
@@ -1002,7 +1091,7 @@ export function buildProps(ctx: Ctx, barrierMats: BarrierMaterials, roadMats: Tr
   yellow.colorSpace = THREE.SRGBColorSpace;
   ctx.disposables.push(yellow);
 
-  for (const st of sc?.stands ?? []) buildStand(ctx, st, bufs, mats);
+  for (const st of sc?.stands ?? []) buildStand(ctx, st, bufs, mats, barrierMats.atlas);
   buildPits(ctx, bufs, mats, roadMats);
   const setLights = buildGantry(ctx, bufs, mats, group);
   buildMarshals(ctx, bufs, flags, yellow);
@@ -1073,5 +1162,5 @@ export function buildProps(ctx: Ctx, barrierMats: BarrierMaterials, roadMats: Tr
     mesh.name = `prop_${key}`;
     group.add(mesh);
   }
-  return { group, setStartLights: setLights, tvCameras: buildTvCameras(ctx) };
+  return { group, setStartLights: setLights, tvCameras };
 }

@@ -7,6 +7,10 @@ import type { TrackScene, TrackSceneOptions } from '../../core/systems';
 import type { TrackRuntimeImpl } from '../runtime';
 import { newCtx, qualityParams, yieldFrame } from './ctx';
 import { buildBarriers, makeBarrierMaterials } from './barriers';
+import { buildCity } from './city';
+import { buildHarbour } from './harbour';
+import { buildHarbourProps } from './harbourProps';
+import { buildStreet } from './street';
 import { makeMaterials } from './materials';
 import { buildProps } from './props';
 import { buildRockCuts, buildTunnels } from './rocks';
@@ -49,9 +53,24 @@ export async function buildTrackScene(rt: TrackRuntimeImpl, opts: TrackSceneOpti
   root.add(buildBarriers(ctx, barrierMats));
   await yieldFrame();
 
+  // the harbour first: its dressing registers the quay lamps that the props build with the street lamps
+  const harbour = buildHarbour(ctx);
+  if (harbour) {
+    root.add(harbour.group);
+    const hp = buildHarbourProps(ctx, harbour.quays);
+    if (hp) root.add(hp.group);
+  }
+
   ctx.progress(0.27, 'buildings');
   const props = buildProps(ctx, barrierMats, mats);
   root.add(props.group);
+  await yieldFrame();
+
+  ctx.progress(0.29, 'city');
+  const city = buildCity(ctx);
+  if (city) root.add(city.group);
+  const street = buildStreet(ctx);
+  if (street) root.add(street);
   await yieldFrame();
 
   ctx.progress(0.3, 'terrain');

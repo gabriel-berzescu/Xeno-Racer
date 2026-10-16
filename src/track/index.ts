@@ -8,10 +8,11 @@ import { buildRuntime } from './build';
 import { aurelia } from './defs/aurelia';
 import { brennwald } from './defs/brennwald';
 import { kuroyama } from './defs/kuroyama';
+import { portovela } from './defs/portovela';
 import type { TrackRuntimeImpl } from './runtime';
 import type { TrackDef } from './types';
 
-const DEFS: Record<string, TrackDef> = { aurelia, kuroyama, brennwald };
+const DEFS: Record<string, TrackDef> = { aurelia, kuroyama, brennwald, portovela };
 
 export const TRACKS: TrackEntry[] = Object.values(DEFS).map((d) => ({ info: d.info }));
 

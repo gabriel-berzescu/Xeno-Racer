@@ -84,7 +84,7 @@ export async function buildTerrainTiles(ctx: Ctx, mats: TrackMaterials): Promise
     }
   }
   for (const [key, g] of groups) {
-    const mesh = mergeTiles(g.parts, mats);
+    const mesh = mergeTiles(g.parts, mats, !!ctx.urban);
     mesh.name = `tile_${g.size}_${key}`;
     group.add(mesh);
   }
@@ -96,11 +96,12 @@ interface TileData {
   nor: Float32Array;
   uv: Float32Array;
   col: Float32Array;
+  urb: Float32Array;
   idx: number[];
   verts: number;
 }
 
-function mergeTiles(parts: TileData[], mats: TrackMaterials): THREE.Mesh {
+function mergeTiles(parts: TileData[], mats: TrackMaterials, urban: boolean): THREE.Mesh {
   let nv = 0;
   let ni = 0;
   for (const p of parts) {
@@ -111,6 +112,7 @@ function mergeTiles(parts: TileData[], mats: TrackMaterials): THREE.Mesh {
   const nor = new Float32Array(nv * 3);
   const uv = new Float32Array(nv * 2);
   const col = new Float32Array(nv * 3);
+  const urb = new Float32Array(nv);
   const idx = nv > 65535 ? new Uint32Array(ni) : new Uint16Array(ni);
   let vo = 0;
   let io = 0;
@@ -119,6 +121,7 @@ function mergeTiles(parts: TileData[], mats: TrackMaterials): THREE.Mesh {
     nor.set(p.nor.subarray(0, p.verts * 3), vo * 3);
     uv.set(p.uv.subarray(0, p.verts * 2), vo * 2);
     col.set(p.col.subarray(0, p.verts * 3), vo * 3);
+    urb.set(p.urb.subarray(0, p.verts), vo);
     for (let k = 0; k < p.idx.length; k++) idx[io + k] = p.idx[k] + vo;
     io += p.idx.length;
     vo += p.verts;
@@ -128,6 +131,7 @@ function mergeTiles(parts: TileData[], mats: TrackMaterials): THREE.Mesh {
   geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
   geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  if (urban) geo.setAttribute('aUrban', new THREE.BufferAttribute(urb, 1));
   geo.setIndex(new THREE.BufferAttribute(idx, 1));
   geo.computeBoundingSphere();
   geo.computeBoundingBox();
@@ -183,6 +187,7 @@ function buildTile(ctx: Ctx, t: Tile, dmin: number): TileData | null {
   const nor = new Float32Array(total * 3);
   const uv = new Float32Array(total * 2);
   const col = new Float32Array(total * 3).fill(1);
+  const urb = new Float32Array(total);
   const idx: number[] = [];
   const setV = (k: number, x: number, y: number, z: number, nx: number, ny: number, nz: number) => {
     pos[k * 3] = x;
@@ -201,6 +206,7 @@ function buildTile(ctx: Ctx, t: Tile, dmin: number): TileData | null {
       const hz = (H[hi - ne] - H[hi + ne]) / (2 * c);
       const inv = 1 / Math.sqrt(hx * hx + 1 + hz * hz);
       setV(jz * nv + jx, t.x0 + jx * c, H[hi], t.z0 + jz * c, hx * inv, inv, hz * inv);
+      if (ctx.urban) urb[jz * nv + jx] = ctx.urban(t.x0 + jx * c, t.z0 + jz * c);
     }
   }
   // quads
@@ -227,6 +233,7 @@ function buildTile(ctx: Ctx, t: Tile, dmin: number): TileData | null {
     for (let k = 0; k < indices.length; k++) {
       const v = indices[k];
       setV(sk, pos[v * 3], pos[v * 3 + 1] - skirt, pos[v * 3 + 2], nor[v * 3], nor[v * 3 + 1], nor[v * 3 + 2]);
+      urb[sk] = urb[v];
       sk++;
     }
     for (let k = 0; k + 1 < indices.length; k++) {
@@ -253,5 +260,5 @@ function buildTile(ctx: Ctx, t: Tile, dmin: number): TileData | null {
   edge(north, true);
   edge(west, true);
   edge(east, false);
-  return { pos, nor, uv, col, idx, verts: sk };
+  return { pos, nor, uv, col, urb, idx, verts: sk };
 }

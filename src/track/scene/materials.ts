@@ -2,6 +2,7 @@
  * Shared materials. PBR textures + small shader patches (onBeforeCompile) for tile-breaking, road paint and splatting.
  */
 import * as THREE from 'three';
+import { resolveMark } from '../plan';
 import type { Ctx } from './ctx';
 import { makeTerrainMaterial } from './terrainMat';
 import type { PbrSet } from './textures';
@@ -63,6 +64,31 @@ uniform float uLen;
 uniform float uRich;
 uniform float uCenter;
 uniform vec4 uGrid;     // slot row pitch, stagger, lateral offset, slot count
+#ifdef XR_CITY_MARKS
+uniform sampler2D uMk;  // per 0.25 m of s: r = kind (zebra / box junction), g = position along it, b = its length / 64
+uniform float uMkLen;
+uniform vec4 uPts[16];  // arrows and manhole covers: s, d, kind (1 manhole, 2 straight, 3 left, 4 right), radius
+float segMask(vec2 q, vec2 a, vec2 b, float w) {
+  vec2 pa = q - a;
+  vec2 ba = b - a;
+  float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
+  return 1.0 - smoothstep(w - 0.03, w, length(pa - ba * h));
+}
+float triMask(vec2 q, vec2 a, vec2 b, vec2 c) {
+  vec2 v0 = c - a;
+  vec2 v1 = b - a;
+  vec2 v2 = q - a;
+  float d00 = dot(v0, v0);
+  float d01 = dot(v0, v1);
+  float d11 = dot(v1, v1);
+  float d20 = dot(v2, v0);
+  float d21 = dot(v2, v1);
+  float den = d00 * d11 - d01 * d01;
+  float u = (d11 * d20 - d01 * d21) / den;
+  float v = (d00 * d21 - d01 * d20) / den;
+  return step(0.0, u) * step(0.0, v) * step(u + v, 1.0);
+}
+#endif
 varying vec4 vTrack;
 varying float vLine;
 varying vec3 vWPos;
@@ -184,6 +210,57 @@ function roadFragment(markings: boolean): string {
 `
       : ''
   }
+#ifdef XR_CITY_MARKS
+  {
+    vec4 mk = texture2D(uMk, vec2(tS / uMkLen, 0.5));
+    float ee = fwidth(tD) * 1.2 + 0.002;
+    if (edgeDist > 0.5 && mk.r > 0.1) {
+      if (mk.r < 0.35) {
+        // a pedestrian crossing: white bars along the road, 0.5 m wide every metre
+        float ph = fract(tD * 0.9 + 0.25);
+        float bar = smoothstep(0.0, ee, ph) * (1.0 - smoothstep(0.5, 0.5 + ee, ph));
+        gPaint = max(gPaint, bar * 0.96);
+      } else if (mk.r < 0.65) {
+        // a yellow box junction: a border and diagonal hatching
+        float bl = mk.b * 64.0;
+        float m = mk.g * bl;
+        float inner = min(m, bl - m);
+        float border = 1.0 - smoothstep(0.1, 0.17, inner);
+        float hh = abs(fract((tD + m) / 1.7) - 0.5);
+        float hatch = smoothstep(0.44, 0.47, hh) * step(0.2, inner) * step(0.75, edgeDist);
+        float yel = max(border, hatch);
+        gPaint = max(gPaint, yel * 0.9);
+        paintCol = mix(paintCol, vec3(0.78, 0.6, 0.05), yel);
+      }
+    }
+    for (int i = 0; i < 16; i++) {
+      vec4 pt = uPts[i];
+      if (pt.z < 0.5) break;
+      vec2 q = vec2(tD - pt.y, tS - pt.x);
+      if (abs(q.y) > 8.0 || abs(q.x) > 4.0) continue;
+      if (pt.z < 1.5) {
+        // a manhole cover: dark iron in a lighter ring
+        float dm = length(q);
+        float disc = 1.0 - smoothstep(pt.w - 0.02, pt.w, dm);
+        float ring = 1.0 - smoothstep(0.012, 0.03, abs(dm - pt.w * 0.82));
+        albedo = mix(albedo, vec3(0.045, 0.045, 0.05) * (0.8 + 0.4 * ring), disc);
+        gPatch = max(gPatch, disc);
+      } else {
+        // a lane arrow: a shaft, an optional bend to one side and a head
+        float turn = pt.z > 3.5 ? 1.0 : (pt.z > 2.5 ? -1.0 : 0.0);
+        vec2 a = vec2(0.0, 0.0);
+        vec2 b = vec2(0.0, 3.4);
+        vec2 c = turn == 0.0 ? b : b + vec2(turn * -1.2, 1.3);
+        vec2 dir = normalize(c - b + vec2(0.0, turn == 0.0 ? 1.0 : 0.0));
+        vec2 prp = vec2(-dir.y, dir.x);
+        float m = max(segMask(q, a, b, 0.14), segMask(q, b, c, 0.14));
+        vec2 tip = c + dir * 1.25;
+        m = max(m, triMask(q, tip, c + prp * 0.55, c - prp * 0.55));
+        gPaint = max(gPaint, m * 0.92 * step(0.5, edgeDist));
+      }
+    }
+  }
+#endif
   gPaint = clamp(gPaint, 0.0, 1.0);
   gWet = 0.0;
   gPuddle = 0.0;
@@ -246,6 +323,40 @@ if (gWet > 0.001) {
 }
 `;
 
+/** The marking strip of a city: one RGBA texel per 0.25 m of s for the crossings and box junctions, plus the points for arrows and manholes. */
+function makeCityMarks(ctx: Ctx): { tex: THREE.DataTexture; pts: THREE.Vector4[] } {
+  const rt = ctx.rt;
+  const n = Math.ceil(rt.length / 0.25);
+  const data = new Uint8Array(n * 4);
+  const pts: THREE.Vector4[] = Array.from({ length: 16 }, () => new THREE.Vector4(0, 0, 0, 0));
+  let k = 0;
+  const sOf = (m: import('../types').Mark): number => resolveMark(rt.plan.marks, rt.length, m);
+  const fill = (s0: number, len: number, kind: number): void => {
+    for (let i = Math.floor(s0 / 0.25); i <= Math.ceil((s0 + len) / 0.25); i++) {
+      const s = i * 0.25;
+      if (s < s0 || s > s0 + len || i < 0 || i >= n) continue;
+      data[i * 4] = kind;
+      data[i * 4 + 1] = Math.round(((s - s0) / len) * 255);
+      data[i * 4 + 2] = Math.min(255, Math.round((len / 64) * 255));
+      data[i * 4 + 3] = 255;
+    }
+  };
+  for (const mk of rt.def.scenery?.markings ?? []) {
+    const s = sOf(mk.at);
+    if (mk.kind === 'zebra') fill(s - 1.6, 3.2, 64);
+    else if (mk.kind === 'box') fill(s, mk.len ?? 14, 128);
+    else if (k < pts.length) {
+      pts[k++].set(s, mk.d, mk.kind === 'manhole' ? 1 : mk.turn === 1 ? 3 : mk.turn === -1 ? 4 : 2, mk.kind === 'manhole' ? 0.36 : 0);
+    }
+  }
+  const tex = new THREE.DataTexture(data, n, 1, THREE.RGBAFormat);
+  tex.magFilter = tex.minFilter = THREE.NearestFilter;
+  tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.needsUpdate = true;
+  ctx.disposables.push(tex);
+  return { tex, pts };
+}
+
 export function makeRoadMaterial(ctx: Ctx, tile: number, markings: boolean): THREE.MeshStandardMaterial {
   const mat = pbr(ctx, ctx.tex.asphalt, tile, { color: 0xffffff, envMapIntensity: 0.9 });
   mat.name = markings ? 'road' : 'runoffAsphalt';
@@ -253,6 +364,9 @@ export function makeRoadMaterial(ctx: Ctx, tile: number, markings: boolean): THR
   // the road lights itself from the lamps (painted pools when dry, roadLamps when wet): no global lamp light
   mat.defines = { ...(mat.defines ?? {}), XR_NO_LAMPS: '' };
   const rt = ctx.rt;
+  // a city's painted crossings, box junctions, arrows and manhole covers (only on the marked road, not the runoff asphalt)
+  const cityMarks = markings && rt.def.scenery?.markings?.length ? makeCityMarks(ctx) : null;
+  if (cityMarks) mat.defines.XR_CITY_MARKS = '';
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uNoise = { value: ctx.tex.noise };
     shader.uniforms.uCracks = { value: ctx.tex.cracks };
@@ -261,6 +375,11 @@ export function makeRoadMaterial(ctx: Ctx, tile: number, markings: boolean): THR
     shader.uniforms.uRich = { value: ctx.q.rich ? 1 : 0 };
     shader.uniforms.uCenter = { value: rt.def.centerLine ? 1 : 0 };
     shader.uniforms.uGrid = { value: new THREE.Vector4(8, 4, 3.2, rt.grid.length) };
+    if (cityMarks) {
+      shader.uniforms.uMk = { value: cityMarks.tex };
+      shader.uniforms.uMkLen = { value: rt.length };
+      shader.uniforms.uPts = { value: cityMarks.pts };
+    }
     shader.uniforms.uWet = ctx.wet.uWet;
     shader.uniforms.uRain = ctx.wet.uRain;
     shader.uniforms.uWTime = ctx.wet.uWTime;
@@ -279,7 +398,7 @@ export function makeRoadMaterial(ctx: Ctx, tile: number, markings: boolean): THR
       .replace('#include <aomap_fragment>', WET_ENV_OCCLUSION)
       .replace('#include <opaque_fragment>', '#include <opaque_fragment>\n gl_FragColor.a = 1.0 - gGloss;');
   };
-  mat.customProgramCacheKey = () => (markings ? 'road-marked-v4' : 'road-plain-v4');
+  mat.customProgramCacheKey = () => (markings ? 'road-marked-v4' : 'road-plain-v4') + (cityMarks ? '-city' : '');
   // the shader handles wetness itself (puddles, ripples, gloss flag); only the reflection strength follows here
   mat.userData.wetShader = true;
   const envBase = mat.envMapIntensity;

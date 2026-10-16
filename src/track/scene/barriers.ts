@@ -49,6 +49,13 @@ export function makeBarrierMaterials(ctx: Ctx): BarrierMaterials {
   const ft = makeFenceTexture();
   ft.repeat.set(1, 1);
   const fence = new THREE.MeshStandardMaterial({ map: ft, color: 0xcfd3d6, metalness: 0.6, roughness: 0.5, transparent: false, alphaTest: 0.35, side: THREE.DoubleSide });
+  // a city is fenced on both sides of every street, so the mesh is a large part of the picture: duller (galvanised, weathered), or the sun
+  // low along a street turns it into a wall of glare
+  if (ctx.rt.def.paved) {
+    fence.color.setHex(0xa4a9ac);
+    fence.metalness = 0.3;
+    fence.roughness = 0.65;
+  }
   const fencePost = new THREE.MeshStandardMaterial({ color: 0x8c9296, metalness: 0.7, roughness: 0.5 });
   ctx.disposables.push(tt.map, tt.bump, cmap, cnor, crough, atlas.map, ft);
   ctx.nightGlow.push({ mat: ads, day: 0, night: 0.55 });

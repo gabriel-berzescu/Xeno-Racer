@@ -148,8 +148,26 @@ export interface Tilt {
   soft: number;
 }
 
+/** An axis-aligned rectangle on the harbour map (east, north in metres): [east0, north0, east1, north1]. */
+export type MapRect = readonly [number, number, number, number];
+
+/**
+ * A harbour: the sea as rectangles on the map (east, north; the map frame of the layout: east = -x, north = +z), with the land that
+ * stands in it (piers, moles). The terrain drops into water inside and is levelled to the quay height around it.
+ */
+export interface SeaDef {
+  /** Water surface and quay top elevation (m). */
+  level: number;
+  quay: number;
+  water: MapRect[];
+  land: MapRect[];
+  /** How far from the water's edge the ground is levelled to the quay (m). */
+  levelled: number;
+}
+
 export interface TerrainParams {
   seed: number;
+  sea?: SeaDef;
   /** Large-scale slopes (mountain flanks, ridges). */
   tilts?: Tilt[];
   /** Mean ground level near the track (m). */
@@ -177,6 +195,15 @@ export interface TerrainParams {
 export interface TunnelDef {
   from: Mark;
   to: Mark;
+  /** Colour the lining is multiplied by (default white: the grey tiled lining under cold lamps). */
+  lining?: number;
+  /** Portal concrete colour (default a sooty grey). A portal of its own colour is floodlit: it keeps a glow after dark. */
+  portal?: number;
+  /**
+   * The ground over the tube is at least this high above the road (m) with a gently varying crown, instead of the rough crown that
+   * stands out of the ground (default): for a hill the terrain already makes (trees and a castle stand on it).
+   */
+  cover?: number;
 }
 
 export interface TrackDef {
@@ -204,6 +231,8 @@ export interface TrackDef {
   centerLine?: boolean;
   /** Mown stripes in the grass beside the track (default true). */
   mowing?: boolean;
+  /** Pavement instead of grass beyond the barriers (a city: the sidewalks). */
+  paved?: boolean;
   tunnels?: TunnelDef[];
   zones: Zone[];
   sectors: [Mark, Mark];
@@ -216,7 +245,7 @@ export interface TrackDef {
 // Scenery (visual only; no effect on the physics)
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type SpeciesId = 'oak' | 'poplar' | 'pine' | 'birch';
+export type SpeciesId = 'oak' | 'poplar' | 'pine' | 'birch' | 'palm';
 
 export interface VegetationDef {
   species: [SpeciesId, number][];
@@ -245,12 +274,70 @@ export interface StandDef {
   gap: number;
   rows: number;
   roof?: boolean;
+  /** Advertising panels on the back wall (a stand seen from the other side, on a quay). */
+  rearAds?: boolean;
   /** Seat tier height/depth (m). */
   rise?: number;
   depth?: number;
 }
 
+/** A hand-placed landmark on the harbour map (east, north in metres; yaw in degrees, 0 = facing north): see scene/landmarks.ts. */
+export interface LandmarkDef {
+  kind: 'cathedral' | 'castle' | 'lighthouse';
+  /** On the map (east, north): `yaw` is then the compass direction the front faces. */
+  e?: number;
+  n?: number;
+  /** Or on the road by mark, `d` metres to the left: `yaw` then turns the front away from the direction of travel (default 90). */
+  at?: Mark;
+  d?: number;
+  yaw?: number;
+  /** Uniform scale (default 1). */
+  scale?: number;
+}
+
+/** A city lining the circuit: building rows along the streets, a skyline of blocks on the hillsides, palms and street furniture. */
+export interface CityDef {
+  seed?: number;
+  /** Stretches of the circuit with no buildings beside the road (the quay, the tunnel hill ...). */
+  open?: { from: Mark; to: Mark; side: SideSel }[];
+  /** Pavement between the barrier and the facades (m): min, max. Default [3.2, 6]. */
+  sidewalk?: [number, number];
+  /** Storeys by stretch (default 3 to 6, in neighbourhoods). */
+  floors?: { from: Mark; to: Mark; min: number; max: number; side?: SideSel }[];
+  /** Rows of buildings behind the front row (default 2). */
+  rows?: number;
+  /** Distant blocks on the hillsides: how far from the circuit they reach (m) and how dense (0..1). */
+  skyline?: { reach: number; density: number };
+  /** Bunting strung across the road between two poles at these marks. */
+  bunting?: Mark[];
+  /** Palms along the streets. */
+  palms?: { from: Mark; to: Mark; side: SideSel; spacing: number; /** Distance behind the barrier (m). */ gap?: number }[];
+  /** Clumps of trees on open hillsides: an ellipse centred on the road at a mark, `along` the road and `across` it (half-extents, m). */
+  groves?: { at: Mark; along: number; across: number; count: number; species: [SpeciesId, number][]; /** Ground this far above the road or more (m). */ minRise?: number }[];
+  /** Stone arches across the street (a passage between two blocks) at these marks, `depth` m along the road (default 5.5). */
+  arches?: { at: Mark; depth?: number }[];
+  landmarks?: LandmarkDef[];
+}
+
+/** The harbour's dressing: boats at the quays, cranes, a lighthouse (positions on the map, see TerrainParams.sea). */
+export interface HarbourDef {
+  boats?: number;
+  /** Cranes on the quays: map position and heading (degrees). */
+  cranes?: { e: number; n: number; yaw?: number; scale?: number }[];
+}
+
+/** City road markings painted by the road shader (see makeRoadMaterial). Positions are marks along the circuit; `d` is the lateral offset (m, + = left). */
+export type MarkingDef =
+  | { kind: 'zebra'; at: Mark }
+  | { kind: 'box'; at: Mark; len?: number }
+  | { kind: 'arrow'; at: Mark; d: number; turn?: -1 | 0 | 1 }
+  | { kind: 'manhole'; at: Mark; d: number };
+
 export interface SceneryDef {
+  /** Pedestrian crossings, yellow box junctions, lane arrows and manhole covers on the road. */
+  markings?: MarkingDef[];
+  city?: CityDef;
+  harbour?: HarbourDef;
   vegetation?: VegetationDef;
   /** Stand rock faces on the uphill side of the road. */
   rockCuts?: boolean;
@@ -262,12 +349,24 @@ export interface SceneryDef {
   /** Corners that get a marshal post on the outside. */
   marshals?: string[];
   /** Lamp posts along the pit straight / at corners. */
-  lamps?: { from: Mark; to: Mark; spacing: number; side: 'L' | 'R' | 'B' }[];
+  lamps?: {
+    from: Mark;
+    to: Mark;
+    spacing: number;
+    side: 'L' | 'R' | 'B';
+    /** Pole height (m, default 13: a floodlight mast; city lamps are about 9) and arm length (default 2.2). All stretches share the first one's. */
+    height?: number;
+    arm?: number;
+    /** Distance of the pole behind the barrier (m, default 1.6). */
+    gap?: number;
+    /** On both sides: alternate between them instead of facing pairs. */
+    stagger?: boolean;
+  }[];
   /** Large advertising boards [corner name, side, offset]. */
   boards?: { at: Mark; side: 'L' | 'R'; gap: number; brand: number }[];
   /** Braking-distance boards before corners (metres before the corner start). */
   brakeBoards?: { corner: string; dist: number[] }[];
-  /** TV camera marks (default: auto from the corners). */
+  /** Extra TV camera platforms at these marks, beside the automatic ones (the corners, the start straight, long gaps): outside of a bend, else on the side with more room. */
   tvMarks?: Mark[];
   /**
    * Mountain-road signage. `chevrons`: yellow alignment boards on the outside of these corners (joined hairpin pairs

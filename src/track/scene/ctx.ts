@@ -73,6 +73,14 @@ export interface Ctx {
   reserved: Array<(x: number, z: number, margin: number) => boolean>;
   /** Like `reserved`, but only for tall scenery (trees): TV camera sightlines to the road. */
   viewReserved: Array<(x: number, z: number, margin: number) => boolean>;
+  /** How built-up the ground is at (x, z), 0..1 (a city: the terrain shader turns grass into streets and yards there). */
+  urban?: (x: number, z: number) => number;
+  /** Where the TV cameras stand (x, z): nothing is built or planted within a few metres of them. */
+  camSpots?: [number, number][];
+  /** Lamp posts added by other builders (the harbour's quay masts): head position and the outward direction of the arm's far side. */
+  extraLamps?: { x: number; y: number; z: number; ox: number; oz: number }[];
+  /** Trees placed by hand (palms along the streets ...): merged into the one tree system by buildTrees. */
+  extraTrees?: Partial<Record<import('../types').SpeciesId, import('./trees').Inst[]>>;
   /** Samples where a rock cut face replaces the barrier (per side). */
   rockFlags?: { L: Uint8Array; R: Uint8Array };
   progress: (f: number, label: string) => void;

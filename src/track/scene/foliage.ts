@@ -8,7 +8,7 @@
 import * as THREE from 'three';
 import { mulberry32 } from '../math';
 
-export type FoliageKind = 'broad' | 'pine' | 'poplar';
+export type FoliageKind = 'broad' | 'pine' | 'poplar' | 'palm';
 
 export const TILE = 256;
 /** Atlas layout: [cluster A | cluster B | bark]. */
@@ -43,6 +43,14 @@ const PAL: Record<FoliageKind, Pal> = {
     light: ['#1b4426', '#204c2a', '#265531'],
     hi: ['#33603c', '#3b6a43', '#44744b'],
     rib: 'rgba(0,0,0,0)',
+  },
+  // date palms: yellower, drier greens than the broadleaves
+  palm: {
+    dark: ['#1a3410', '#203c12', '#264416'],
+    mid: ['#3a6a1c', '#41731f', '#497c22'],
+    light: ['#62902c', '#6c9a30', '#76a236'],
+    hi: ['#9bbd45', '#a5c34c', '#b0c957'],
+    rib: 'rgba(214,226,150,0.5)',
   },
 };
 
@@ -220,7 +228,86 @@ function pineFrond(g: CanvasRenderingContext2D, ox: number, rnd: () => number, p
   g.restore();
 }
 
+/** A date-palm frond: a rib along +x (the base at the left) with feathery leaflets swept toward the tip, hanging down on both sides. */
+function palmFrond(g: CanvasRenderingContext2D, ox: number, rnd: () => number, pal: Pal, curl: number): void {
+  g.save();
+  g.beginPath();
+  g.rect(ox, 0, TILE, TILE);
+  g.clip();
+  const x0 = ox + 6;
+  const x1 = ox + TILE - 8;
+  const cy = TILE / 2;
+  const ribY = (t: number) => cy + curl * 9 * Math.sin(t * Math.PI);
+  g.lineCap = 'round';
+  g.strokeStyle = '#5b6a2a';
+  g.lineWidth = 3.2;
+  g.beginPath();
+  g.moveTo(x0, ribY(0));
+  for (let k = 1; k <= 16; k++) g.lineTo(x0 + ((x1 - x0) * k) / 16, ribY(k / 16));
+  g.stroke();
+  const N = 46;
+  const passes: [string[], number, number][] = [
+    [pal.dark, 3.4, 1.0],
+    [pal.mid, 2.7, 0.94],
+    [pal.light, 1.9, 0.8],
+    [pal.hi, 1.2, 0.58],
+  ];
+  for (const [cols, width, lenMul] of passes) {
+    g.lineWidth = width;
+    for (let i = 0; i < N; i++) {
+      const t = (i + rnd()) / N;
+      if (t < 0.04) continue;
+      const bx = x0 + (x1 - x0) * t;
+      const by = ribY(t);
+      // long in the middle, short at the base and tip
+      const env = Math.pow(Math.sin(Math.PI * Math.min(1, t * 1.06)), 0.7);
+      for (const side of [-1, 1]) {
+        if (lenMul < 0.7 && rnd() < 0.5) continue;
+        const L = (14 + 100 * env) * lenMul * (0.8 + rnd() * 0.36);
+        // swept toward the tip, and spreading sideways
+        const ang = 0.95 - 0.5 * t + (rnd() - 0.5) * 0.18;
+        const ex = bx + Math.sin(ang) * L * 0.55 + 4;
+        const ey = by + side * Math.cos(ang * 0.7) * L * 0.82;
+        g.strokeStyle = cols[(rnd() * cols.length) | 0];
+        g.beginPath();
+        g.moveTo(bx, by);
+        g.quadraticCurveTo(bx + (ex - bx) * 0.4, by + (ey - by) * 0.8, ex, ey + side * 6 * env);
+        g.stroke();
+      }
+    }
+  }
+  // the tip: a few short leaflets closing the end
+  g.strokeStyle = pal.mid[1];
+  g.lineWidth = 2.2;
+  for (let k = 0; k < 7; k++) {
+    g.beginPath();
+    g.moveTo(x1 - 24, ribY(0.96));
+    g.lineTo(x1 + (rnd() - 0.2) * 4, ribY(1) + (k - 3) * 3.4);
+    g.stroke();
+  }
+  g.restore();
+}
+
 function barkTile(g: CanvasRenderingContext2D, ox: number, rnd: () => number, kind: FoliageKind): void {
+  if (kind === 'palm') {
+    // palm trunk: pale grey-brown with scar rings every 7 px and fibrous streaks
+    g.fillStyle = '#6f6352';
+    g.fillRect(ox, 0, TILE, TILE);
+    for (let i = 0; i < 700; i++) {
+      const x = ox + rnd() * TILE;
+      const y = rnd() * TILE;
+      const v = Math.floor(70 + rnd() * 50);
+      g.fillStyle = `rgba(${v},${Math.floor(v * 0.88)},${Math.floor(v * 0.7)},0.4)`;
+      g.fillRect(x, y, 1 + rnd() * 1.6, 6 + rnd() * 22);
+    }
+    for (let y = 3; y < TILE; y += 7) {
+      g.fillStyle = 'rgba(38,30,22,0.55)';
+      g.fillRect(ox, y, TILE, 1.6 + rnd() * 1.4);
+      g.fillStyle = 'rgba(150,138,118,0.28)';
+      g.fillRect(ox, y + 2.6, TILE, 1.0);
+    }
+    return;
+  }
   g.fillStyle = kind === 'pine' ? '#3f2d22' : kind === 'poplar' ? '#4f4a3f' : '#35291e';
   g.fillRect(ox, 0, TILE, TILE);
   for (let i = 0; i < 520; i++) {
@@ -237,12 +324,15 @@ function barkTile(g: CanvasRenderingContext2D, ox: number, rnd: () => number, ki
 export function makeLeafAtlas(kind: FoliageKind, aniso = 8): THREE.DataTexture {
   const [c, g] = mk(TILE * TILES, TILE);
   g.clearRect(0, 0, c.width, c.height);
-  const seed = kind === 'broad' ? 11 : kind === 'pine' ? 23 : 37;
+  const seed = kind === 'broad' ? 11 : kind === 'pine' ? 23 : kind === 'palm' ? 53 : 37;
   const rnd = mulberry32(seed);
   const pal = PAL[kind];
   if (kind === 'pine') {
     pineFrond(g, 0, rnd, pal, 0.6);
     pineFrond(g, TILE, rnd, pal, -0.5);
+  } else if (kind === 'palm') {
+    palmFrond(g, 0, rnd, pal, 0.8);
+    palmFrond(g, TILE, rnd, pal, -0.6);
   } else {
     broadCluster(g, 0, rnd, pal, kind === 'poplar' ? 0.8 : 1);
     broadCluster(g, TILE, rnd, pal, kind === 'poplar' ? 0.8 : 1);
@@ -255,7 +345,9 @@ export function makeLeafAtlas(kind: FoliageKind, aniso = 8): THREE.DataTexture {
 
 /** Billboard tiles are square (256 px = one tree height); the quad width per species is BB_WIDTH (in tree heights). */
 export const BB_T = 256;
-export const BB_WIDTH = { broad: 1.0, poplar: 0.62, pine: 0.7 } as const;
+export const BB_WIDTH = { broad: 1.0, poplar: 0.62, pine: 0.7, palm: 0.86 } as const;
+/** Tiles in the billboard atlas: [broad | poplar | pine | palm]. */
+export const BB_TILES = 4;
 
 function dab(g: CanvasRenderingContext2D, x: number, y: number, r: number, fill: string, rnd: () => number): void {
   g.fillStyle = fill;
@@ -343,9 +435,70 @@ function pineBillboard(g: CanvasRenderingContext2D, dw: number, rnd: () => numbe
   }
 }
 
-/** Atlas of whole-tree silhouettes: [broad | poplar | pine], square tiles, unit tree height = 256 px. */
+/** A palm seen from the side: a gently curved trunk and a starburst of drooping fronds. */
+function palmBillboard(g: CanvasRenderingContext2D, dw: number, rnd: () => number, pal: Pal): void {
+  const cx = dw / 2;
+  const topY = 50;
+  const lean = 12;
+  // trunk: curved, tapering, with a few ring marks
+  g.fillStyle = '#6a5f4e';
+  g.beginPath();
+  g.moveTo(cx - 4.6, BB_T);
+  g.quadraticCurveTo(cx - 5 + lean * 0.2, BB_T * 0.6, cx + lean - 2.6, topY + 4);
+  g.lineTo(cx + lean + 2.6, topY + 4);
+  g.quadraticCurveTo(cx + 5 + lean * 0.2, BB_T * 0.6, cx + 4.6, BB_T);
+  g.closePath();
+  g.fill();
+  g.strokeStyle = 'rgba(40,32,24,0.5)';
+  g.lineWidth = 1.2;
+  for (let y = topY + 12; y < BB_T - 6; y += 9) {
+    const t = (y - topY) / (BB_T - topY);
+    const x = cx + lean * (1 - t) * 0.9;
+    g.beginPath();
+    g.moveTo(x - 4 - t * 1.6, y);
+    g.lineTo(x + 4 + t * 1.6, y);
+    g.stroke();
+  }
+  const hx = cx + lean;
+  // fronds: arching out and drooping
+  const fronds = 15;
+  for (let k = 0; k < fronds; k++) {
+    const a = (k / (fronds - 1)) * Math.PI;
+    const dir = Math.cos(a);
+    const rise = Math.sin(a);
+    const R = (74 + rnd() * 22) * (0.8 + 0.2 * Math.abs(dir) + 0.2 * rise);
+    const tipX = hx + dir * R;
+    const tipY = topY - rise * R * 0.4 + (1 - rise) * R * 0.62 + 8;
+    const cpX = hx + dir * R * 0.55;
+    const cpY = topY - rise * R * 0.78 - 8;
+    for (const [w, col] of [[7.5, pal.dark[0]], [5.2, pal.mid[1]], [2.4, pal.light[1]]] as const) {
+      g.strokeStyle = col;
+      g.lineWidth = w;
+      g.lineCap = 'round';
+      g.beginPath();
+      g.moveTo(hx, topY);
+      g.quadraticCurveTo(cpX, cpY, tipX, tipY);
+      g.stroke();
+    }
+    // leaflet fringe along the frond
+    for (let i = 1; i < 9; i++) {
+      const t = i / 9;
+      const px = (1 - t) * (1 - t) * hx + 2 * t * (1 - t) * cpX + t * t * tipX;
+      const py = (1 - t) * (1 - t) * topY + 2 * t * (1 - t) * cpY + t * t * tipY;
+      const pool = rnd() < 0.5 ? pal.light : pal.mid;
+      dab(g, px, py + 3, 3.4 + rnd() * 2.8, pool[(rnd() * pool.length) | 0], rnd);
+    }
+  }
+  // the crown boss
+  g.fillStyle = '#4d3b1c';
+  g.beginPath();
+  g.arc(hx, topY + 3, 6, 0, Math.PI * 2);
+  g.fill();
+}
+
+/** Atlas of whole-tree silhouettes: [broad | poplar | pine | palm], square tiles, unit tree height = 256 px. */
 export function makeBillboardAtlas(aniso = 4): THREE.DataTexture {
-  const [c, g] = mk(BB_T * 3, BB_T);
+  const [c, g] = mk(BB_T * BB_TILES, BB_T);
   g.clearRect(0, 0, c.width, c.height);
   const rnd = mulberry32(777);
   inTile(g, 0, BB_WIDTH.broad, (dw) =>
@@ -390,7 +543,8 @@ export function makeBillboardAtlas(aniso = 4): THREE.DataTexture {
     );
   });
   inTile(g, 2, BB_WIDTH.pine, (dw) => pineBillboard(g, dw, rnd, PAL.pine));
-  return toDataTexture(c, 3, aniso);
+  inTile(g, 3, BB_WIDTH.palm, (dw) => palmBillboard(g, dw, rnd, PAL.palm));
+  return toDataTexture(c, BB_TILES, aniso);
 }
 
 // ── grass tufts ──────────────────────────────────────────────────────────────────

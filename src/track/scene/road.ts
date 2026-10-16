@@ -190,7 +190,8 @@ function sideStrips(ctx: Ctx, mats: TrackMaterials, i0: number, i1: number, sgn:
     // beyond the wall: uniform cells
     for (let k = 0; k <= nOut; k++) setU(uWall + (outer * k) / nOut);
     // the band boundary vertex between band1 and band2 is the first vertex of band 2; between band 2 and outside the wall vertex
-    for (let c = 0; c < J; c++) row.cell[c] = c < n1 ? S.b1S[i] : c < n1 + n2 ? S.b2S[i] : 3;
+    const beyond = rt.def.paved ? 2 : 3;
+    for (let c = 0; c < J; c++) row.cell[c] = c < n1 ? S.b1S[i] : c < n1 + n2 ? S.b2S[i] : beyond;
     rows.push(row);
   }
   // vertex caches per buffer
@@ -220,7 +221,9 @@ function sideStrips(ctx: Ctx, mats: TrackMaterials, i0: number, i1: number, sgn:
     let m = 1;
     if (toWall < 1.6 && toWall > -0.5) m *= 0.84 + 0.16 * smootherstep(-0.5, 1.6, toWall);
     if (cellSurf === 6) m *= 0.95;
-    buf.color(m, m, m);
+    // sidewalks: a warmer, lighter stone than the runoff concrete, with the paving's own joints from the texture
+    if (rt.def.paved && u > uWall - 0.01) buf.color(m * 1.1, m * 1.04, m * 0.92);
+    else buf.color(m, m, m);
     if (key === 'terrainStrip') {
       buf.surface(cellSurf === 6 ? 1 : cellSurf === 5 ? 0.6 : 0);
       // distance beyond the asphalt edge: drives the mown stripes in the terrain shader (grass bands only)

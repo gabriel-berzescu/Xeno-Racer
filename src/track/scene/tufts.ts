@@ -169,6 +169,9 @@ ${GRASS_MACRO_GLSL}`,
       const wall = tp.d >= 0 ? tp.wallLeft : tp.wallRight;
       const beyond = Math.abs(tp.d) - wall; // metres beyond the barrier line (negative = between road and barrier)
       if (beyond > 62 || Math.abs(beyond) < 0.5) continue;
+      // a city: the sidewalks and the built-up ground grow no grass
+      if (rt.def.paved && beyond < 12) continue;
+      if (ctx.urban && ctx.urban(px, pz) > 0.15) continue;
       // density: managed (mown) ground near the circuit stays short; wild verges grow right up to the barriers
       let k: number;
       if (mown) k = smoothstep(7, 26, beyond);

@@ -12,6 +12,10 @@ varying vec3 vWPos;
 varying vec3 vWNormal;
 varying float vSurf;
 varying float vEdge;
+#ifdef XR_URBAN
+attribute float aUrban;
+varying float vUrban;
+#endif
 `;
 
 const FRAG_DECL = /* glsl */ `
@@ -39,6 +43,9 @@ varying vec3 vWPos;
 varying vec3 vWNormal;
 varying float vSurf;
 varying float vEdge;
+#ifdef XR_URBAN
+varying float vUrban;
+#endif
 float gWRock;
 float gWDirt;
 float gWMoss;
@@ -124,6 +131,14 @@ const FRAG_MAP = /* glsl */ `
     cCan *= mix(1.0, 0.55 + 0.9 * mix(gN4.r, gN5.g, 0.5), smoothstep(150.0, 650.0, camDist));
     col = mix(col, cCan, cw);
   }
+#ifdef XR_URBAN
+  // a built-up area: packed earth, paving and yards instead of meadow
+  if (vUrban > 0.001) {
+    vec3 cUrban = vec3(0.34, 0.31, 0.27) * (0.8 + 0.4 * gN2.r) * (0.9 + 0.2 * gN3.g);
+    col = mix(col, cUrban, vUrban * 0.9);
+    gWGrass *= 1.0 - vUrban * 0.5;
+  }
+#endif
   // wet ground is darker: grass a little, bare earth and rock a lot
   col *= mix(1.0, 0.74 * gWGrass + 0.6 * gWRock + 0.5 * gWDirt + 0.68 * gWMoss, uWet);
   diffuseColor.rgb *= col;
@@ -175,6 +190,15 @@ const LOOKS: Record<string, TerrainLook> = {
     rockTint: [0.62, 0.66, 0.6],
     canopy: [0.92, 90, 650, 0],
     canopyCol: [0.05, 0.085, 0.05],
+  },
+  // a Mediterranean hillside: sun-dried scrub and pale ground, little rock; the far hills are olive and pine, lighter than a forest
+  portovela: {
+    tint: [1.5, 1.55, 1.25],
+    rockRange: [0.3, 0.6],
+    dirtSlope: [0.2, 0.5, 0.5],
+    rockTint: [1.1, 1.0, 0.85],
+    canopy: [0.55, 300, 1400, 1],
+    canopyCol: [0.075, 0.095, 0.045],
   },
   // deep forest: the far hills are almost all canopy (a little broken up), darker and bluer than the meadow tracks
   brennwald: {
@@ -231,14 +255,16 @@ export function makeTerrainMaterial(ctx: Ctx): THREE.MeshStandardMaterial {
     shader.uniforms.uWet = ctx.wet.uWet;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\n' + VERT_DECL)
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\n vWPos = (modelMatrix * vec4(transformed, 1.0)).xyz; vWNormal = normalize(mat3(modelMatrix) * objectNormal); vSurf = aSurf; vEdge = aEdge;');
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\n vWPos = (modelMatrix * vec4(transformed, 1.0)).xyz; vWNormal = normalize(mat3(modelMatrix) * objectNormal); vSurf = aSurf; vEdge = aEdge;\n#ifdef XR_URBAN\n vUrban = aUrban;\n#endif');
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', '#include <common>\n' + FRAG_DECL + GRASS_MACRO_GLSL)
       .replace('#include <map_fragment>', FRAG_MAP)
       .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = mix(0.95, 0.8, gWRock) * (1.0 - 0.16 * uWet);')
       .replace('#include <normal_fragment_maps>', FRAG_NORMAL);
   };
-  mat.customProgramCacheKey = () => 'terrain-splat-v9-' + ctx.q.splatLayers;
+  // a city's ground carries a built-up measure per vertex (see city.ts); the other circuits do not pay for it
+  if (ctx.rt.def.scenery?.city) mat.defines = { ...(mat.defines ?? {}), XR_URBAN: '' };
+  mat.customProgramCacheKey = () => 'terrain-splat-v11-' + ctx.q.splatLayers;
   mat.userData.wetShader = true;
   return mat;
 }

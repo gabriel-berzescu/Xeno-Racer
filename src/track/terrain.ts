@@ -4,12 +4,23 @@
  * Pure math (headless).
  */
 import { Noise2, smoothstep } from './math';
-import type { TerrainParams } from './types';
+import type { MapRect, TerrainParams } from './types';
 
 export interface TerrainFn {
   (x: number, z: number): number;
-  /** Water surface elevation (if the track has a lake). */
+  /** Water surface elevation (if the track has a lake or a sea). */
   lakeLevel: number | null;
+  /** Signed distance (m) from (x, z) to the sea's edge: negative in the water, positive on land; Infinity without a sea. */
+  seaDistance: (x: number, z: number) => number;
+}
+
+/** Signed distance to an axis-aligned rectangle (negative inside). */
+export function rectDistance(e: number, n: number, r: MapRect): number {
+  const hx = (r[2] - r[0]) / 2;
+  const hy = (r[3] - r[1]) / 2;
+  const dx = Math.abs(e - (r[0] + r[2]) / 2) - hx;
+  const dy = Math.abs(n - (r[1] + r[3]) / 2) - hy;
+  return Math.hypot(Math.max(dx, 0), Math.max(dy, 0)) + Math.min(Math.max(dx, dy), 0);
 }
 
 export interface TerrainBounds {
@@ -29,6 +40,16 @@ export function makeTerrain(p: TerrainParams, b: TerrainBounds): TerrainFn {
   const bumps = p.bumps ?? [];
   const tilts = p.tilts ?? [];
   const mt = p.mountains;
+  const sea = p.sea;
+  // the sea on the layout's map (east = -x, north = +z): water minus the land standing in it
+  const seaDistance = (x: number, z: number): number => {
+    if (!sea) return Infinity;
+    let w = Infinity;
+    for (const r of sea.water) w = Math.min(w, rectDistance(-x, z, r));
+    let l = Infinity;
+    for (const r of sea.land) l = Math.min(l, rectDistance(-x, z, r));
+    return Math.max(w, -l);
+  };
 
   const fn = ((x: number, z: number): number => {
     let h = p.base;
@@ -79,8 +100,23 @@ export function makeTerrain(p: TerrainParams, b: TerrainBounds): TerrainFn {
         h += mt.amp * k * k * base + 0.18 * mt.amp * k * (0.5 + 0.5 * n1.noise(x / (mt.scale * 3), z / (mt.scale * 3)));
       }
     }
+    if (sea) {
+      const sd = seaDistance(x, z);
+      // (a far hill that reaches the water comes down to it over twice its height, in a slope and not a cliff)
+      const lev = Math.max(sea.levelled, 2.2 * (h - sea.quay));
+      if (sd < lev) {
+        // the ground is levelled to the quay around the water, and drops into a basin (a little deeper away from the quay)
+        const k = 1 - smoothstep(0, lev, sd);
+        h += (sea.quay - h) * k;
+        if (sd < 2) {
+          const m = 1 - smoothstep(-2, 2, sd);
+          h += (sea.level - 3 - Math.min(-sd, 60) * 0.1 - h) * m;
+        }
+      }
+    }
     return h;
   }) as TerrainFn;
-  fn.lakeLevel = lake ? lake.level : null;
+  fn.lakeLevel = lake ? lake.level : sea ? sea.level : null;
+  fn.seaDistance = seaDistance;
   return fn;
 }

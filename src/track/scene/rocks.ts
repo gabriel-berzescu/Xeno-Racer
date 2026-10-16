@@ -194,16 +194,23 @@ export function buildTunnels(ctx: Ctx, portalMaterial: THREE.Material, terrainMa
   group.name = 'tunnels';
   const lamp = lampTexture();
   ctx.disposables.push(lamp);
-  // unlit (the sun must not reach inside): the lamp strips and a dim lining colour are painted into the map
-  const lining = new THREE.MeshBasicMaterial({ map: lamp, color: 0xffffff, side: THREE.DoubleSide });
-  // weathered portal concrete: darker than the barrier concrete, with sooty vertex colours around the opening
-  const portalMat = (portalMaterial as THREE.MeshStandardMaterial).clone();
-  portalMat.color.setHex(0x8e8f8c);
-  portalMat.vertexColors = true;
-  portalMat.name = 'portal';
-  ctx.disposables.push(lining, portalMat);
   const NR = 18;
   for (const td of defs) {
+    // unlit (the sun must not reach inside): the lamp strips and a dim lining colour are painted into the map
+    const lining = new THREE.MeshBasicMaterial({ map: lamp, color: td.lining ?? 0xffffff, side: THREE.DoubleSide });
+    // weathered portal concrete: darker than the barrier concrete, with sooty vertex colours around the opening
+    const portalMat = (portalMaterial as THREE.MeshStandardMaterial).clone();
+    portalMat.color.setHex(td.portal ?? 0x8e8f8c);
+    portalMat.vertexColors = true;
+    portalMat.name = 'portal';
+    ctx.disposables.push(lining, portalMat);
+    if (td.portal !== undefined) {
+      portalMat.emissive.setHex(td.portal);
+      portalMat.emissiveIntensity = 0.06;
+      ctx.envListeners.push((env) => {
+        portalMat.emissiveIntensity = 0.06 + 0.3 * env.darkness;
+      });
+    }
     const i0 = Math.round(((rt.plan.marks.get(typeof td.from === 'string' ? td.from : td.from[0]) ?? 0) + (typeof td.from === 'string' ? 0 : td.from[1])) / rt.spacing);
     const i1 = Math.round(((rt.plan.marks.get(typeof td.to === 'string' ? td.to : td.to[0]) ?? 0) + (typeof td.to === 'string' ? 0 : td.to[1])) / rt.spacing);
     const buf = new GeoBuf();
@@ -272,9 +279,13 @@ export function buildTunnels(ctx: Ctx, portalMaterial: THREE.Material, terrainMa
           const u = Math.abs(d - dMid);
           const sm = Math.min(1, Math.max(0, (u - (a + 0.5)) / 8.5));
           // an irregular crown (not a flat loaf): low-frequency variation along and across the tunnel
-          const crown = 8.8 + 2.6 * Math.sin(i * rt.spacing * 0.043 + 1.3) + 1.7 * Math.sin(i * rt.spacing * 0.117 + d * 0.21) + 0.9 * Math.sin(d * 0.37 + i * 0.05);
+          const crown =
+            td.cover !== undefined
+              ? td.cover + 0.7 * Math.sin(i * rt.spacing * 0.117 + d * 0.21) + 0.5 * Math.sin(d * 0.37 + i * 0.05)
+              : 8.8 + 2.6 * Math.sin(i * rt.spacing * 0.043 + 1.3) + 1.7 * Math.sin(i * rt.spacing * 0.117 + d * 0.21) + 0.9 * Math.sin(d * 0.37 + i * 0.05);
           const lift = Math.max(0, roadY + crown - base) * (1 - sm * sm * (3 - 2 * sm));
-          const y = base + lift;
+          // (half a metre under the lift: where the cap only meets the ground it hides under it instead of fighting it)
+          const y = base + lift - 0.5;
           if (ri === 0 && Math.abs(d - dMid) < a) capFront = Math.max(capFront, y - roadY);
           if (ri === rowsC.length - 1 && Math.abs(d - dMid) < a) capBack = Math.max(capBack, y - roadY);
           cb.v(tmp.x, y, tmp.z, 0, 1, 0, tmp.x, tmp.z);

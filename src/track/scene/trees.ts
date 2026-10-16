@@ -15,7 +15,7 @@ import { Noise2, mulberry32, smoothstep } from '../math';
 import type { SpeciesId, VegetationDef } from '../types';
 import type { Ctx } from './ctx';
 import { yieldFrame } from './ctx';
-import { BB_WIDTH, makeBillboardAtlas, makeLeafAtlas, tileU, type FoliageKind } from './foliage';
+import { BB_TILES, BB_WIDTH, makeBillboardAtlas, makeLeafAtlas, tileU, type FoliageKind } from './foliage';
 
 export interface Inst {
   x: number;
@@ -170,6 +170,44 @@ function cardBasis(normal: THREE.Vector3, half: number, aspect: number, roll: nu
   ay.copy(ry).multiplyScalar(half * aspect);
 }
 
+/**
+ * One palm frond: a ribbon along an arching curve (rising at `e0` radians, drooping by `droop` of its length), `width` across,
+ * rolled a little about its axis. Cut out by the frond tile of the atlas; the lighting normals lean up and out (soft crown).
+ */
+function palmFrond(b: TreeBuf, root: [number, number, number], az: number, e0: number, len: number, width: number, droop: number, tile: number, shade: number): void {
+  const S = 6;
+  const dx = Math.cos(az);
+  const dz = Math.sin(az);
+  const roll = (Math.sin(az * 3.1) * 0.5 + 0.2) * 0.6;
+  const [u0, u1] = CLUSTER_U[tile];
+  const base = b.n;
+  for (let j = 0; j <= S; j++) {
+    const t = j / S;
+    const r = len * t * Math.cos(e0 * (1 - 0.35 * t));
+    const y = len * (Math.sin(e0) * t - droop * 0.6 * t * t);
+    // direction of the ribbon at t (for the sideways vector) is horizontal-perpendicular to the azimuth
+    const px = root[0] + dx * r;
+    const py = root[1] + y;
+    const pz = root[2] + dz * r;
+    const wx = -dz * (width / 2);
+    const wz = dx * (width / 2);
+    // the ribbon rolls about its axis: one edge rises, the other falls
+    const rise = Math.sin(roll) * (width / 2);
+    const nx = dx * 0.35;
+    const nz = dz * 0.35;
+    const light = shade * (0.62 + 0.38 * t);
+    for (const side of [-1, 1]) {
+      const ny = 0.9;
+      const l = Math.hypot(nx, ny, nz);
+      b.v(px + wx * side, py + rise * side, pz + wz * side, nx / l, ny / l, nz / l, u0 + (u1 - u0) * t, side < 0 ? 0.02 : 0.98, light);
+    }
+  }
+  for (let j = 0; j < S; j++) {
+    const a = base + j * 2;
+    b.idx.push(a, a + 1, a + 3, a, a + 3, a + 2);
+  }
+}
+
 /** Dark low-poly ellipsoid inside a crown: what you see through the gaps between cards (depth instead of sky). */
 function core(b: TreeBuf, cx: number, cy: number, cz: number, rx: number, ry: number, rz: number, rings: number, segs: number, shade: number): void {
   const [u0, u1] = CLUSTER_U[0];
@@ -269,6 +307,24 @@ export function treeGeometry(species: SpeciesId, seed: number, detail = 1, close
       ref.copy(crown);
       card(b, ctr, ax, ay, ref, (p) => ao * (0.8 + 0.2 * clamp01((p.y - cyy) * 1.5 + 0.5)), rnd() < 0.5 ? 0 : 1, rnd() < 0.5, rnd() < 0.5, 0.85);
     }
+  } else if (species === 'palm') {
+    // date palm: a slender, slightly curved trunk (ringed bark) under a starburst of arching, drooping fronds
+    const lean: [number, number] = [(rnd() - 0.5) * 0.1, (rnd() - 0.5) * 0.1];
+    const th = 0.86;
+    trunk(b, th, 0.022, 0.012, close ? 9 : 6, close ? 8 : 5, lean);
+    const hx = lean[0];
+    const hz = lean[1];
+    const nF = Math.max(8, Math.round((close ? 17 : 13) * Math.min(1.1, detail + 0.2)));
+    const nU = close ? 6 : 4;
+    for (let k = 0; k < nF + nU; k++) {
+      const upright = k >= nF;
+      const a = (k / (upright ? nU : nF)) * Math.PI * 2 + rnd() * 0.5 + (upright ? 0.4 : 0);
+      const e0 = upright ? 1.1 + rnd() * 0.25 : 0.12 + rnd() * 0.5;
+      const len = (upright ? 0.17 : 0.26 + rnd() * 0.09) * (close ? 1 : 1.04);
+      palmFrond(b, [hx, th, hz], a, e0, len, upright ? 0.075 : 0.11, upright ? 0.15 : 0.6 + 0.5 * rnd(), rnd() < 0.5 ? 0 : 1, 0.78 + 0.22 * rnd());
+    }
+    // a boss of dates under the crown
+    for (let k = 0; k < 4; k++) core(b, hx + (rnd() - 0.5) * 0.03, th - 0.012, hz + (rnd() - 0.5) * 0.03, 0.014, 0.02, 0.014, 2, 5, 0.13);
   } else if (species === 'poplar') {
     trunk(b, 0.26, 0.016, 0.01, close ? 8 : 6, 2);
     crown.set(0, 0.58, 0);
@@ -457,7 +513,7 @@ function foliageMaterial(tex: THREE.Texture, fade: [number, number, number, numb
 
 function scatter(ctx: Ctx, veg: VegetationDef): Record<SpeciesId, Inst[]> {
   const rt = ctx.rt;
-  const out: Record<SpeciesId, Inst[]> = { oak: [], poplar: [], pine: [], birch: [] };
+  const out: Record<SpeciesId, Inst[]> = { oak: [], poplar: [], pine: [], birch: [], palm: [] };
   const rnd = mulberry32(rt.def.seed ^ 0x7f4a7c15);
   const noise = new Noise2(rt.def.seed + 5);
   const noise2 = new Noise2(rt.def.seed + 17);
@@ -558,8 +614,8 @@ export function instantiateTrees(inst: Record<SpeciesId, Inst[]>, tier: number, 
   const cell0 = 96;
   const cellC = 64;
   const cellB = 512;
-  const kinds: SpeciesId[] = ['oak', 'poplar', 'pine'];
-  const atlasKind: Record<string, FoliageKind> = { oak: 'broad', poplar: 'poplar', pine: 'pine' };
+  const kinds: SpeciesId[] = ['oak', 'poplar', 'pine', 'palm'];
+  const atlasKind: Record<string, FoliageKind> = { oak: 'broad', poplar: 'poplar', pine: 'pine', palm: 'palm' };
   const m4 = new THREE.Matrix4();
   const q = new THREE.Quaternion();
   const sc = new THREE.Vector3();
@@ -662,7 +718,7 @@ export function instantiateTrees(inst: Record<SpeciesId, Inst[]>, tier: number, 
     const g = geoB.clone();
     const rect = new Float32Array(arr.length * 4);
     const mesh = new THREE.InstancedMesh(g, bbMat, arr.length);
-    const widthOf = [BB_WIDTH.broad, BB_WIDTH.poplar, BB_WIDTH.pine];
+    const widthOf = [BB_WIDTH.broad, BB_WIDTH.poplar, BB_WIDTH.pine, BB_WIDTH.palm];
     arr.forEach((e, i) => {
       q.setFromAxisAngle(up, e.t.yaw);
       const wm = widthOf[e.sp] * e.t.w;
@@ -672,10 +728,10 @@ export function instantiateTrees(inst: Record<SpeciesId, Inst[]>, tier: number, 
       mesh.setMatrixAt(i, m4);
       col.setRGB(e.t.tint * (1 + e.t.hue * 0.55), e.t.tint, e.t.tint * (1 - e.t.hue * 0.7));
       mesh.setColorAt(i, col);
-      const inset = 0.02 / 3;
-      rect[i * 4] = e.sp / 3 + inset;
+      const inset = 0.02 / BB_TILES;
+      rect[i * 4] = e.sp / BB_TILES + inset;
       rect[i * 4 + 1] = 0;
-      rect[i * 4 + 2] = 1 / 3 - inset * 2;
+      rect[i * 4 + 2] = 1 / BB_TILES - inset * 2;
       rect[i * 4 + 3] = 1;
     });
     g.setAttribute('aBB', new THREE.InstancedBufferAttribute(rect, 4));
@@ -719,8 +775,16 @@ export function instantiateTrees(inst: Record<SpeciesId, Inst[]>, tier: number, 
 
 export async function buildTrees(ctx: Ctx): Promise<THREE.Group | null> {
   const veg = ctx.rt.def.scenery?.vegetation;
-  if (!veg || ctx.q.trees < 0.05) return null;
-  const inst = scatter(ctx, veg);
+  const extra = ctx.extraTrees;
+  if ((!veg || ctx.q.trees < 0.05) && !extra) return null;
+  const inst: Record<SpeciesId, Inst[]> = veg && ctx.q.trees >= 0.05 ? scatter(ctx, veg) : { oak: [], poplar: [], pine: [], birch: [], palm: [] };
+  // hand-placed trees (palms along the streets) join the scattered ones; fewer of them on the lower tiers, like the forest
+  for (const sp of Object.keys(extra ?? {}) as SpeciesId[]) {
+    const list = extra![sp] ?? [];
+    const keep = Math.min(1, 0.4 + 0.6 * ctx.q.trees);
+    // (and, like the scattered trees, none in the TV cameras' sightlines)
+    inst[sp].push(...list.filter((t, i) => (i * 0.618) % 1 < keep && !ctx.viewReserved.some((r) => r(t.x, t.z, 4.5))));
+  }
   ctx.progress(0.7, 'trees');
   await yieldFrame();
   const sys = instantiateTrees(inst, ctx.q.tier, ctx.q.aniso, 100);

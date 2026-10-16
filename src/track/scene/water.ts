@@ -89,10 +89,24 @@ export function buildWater(ctx: Ctx): THREE.Object3D | null {
   geo.setIndex(idx);
   geo.computeBoundingSphere();
 
+  const mat = makeWaterMaterial(ctx, 23, 7.3);
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.renderOrder = 5;
+  mesh.name = 'lake';
+  mesh.receiveShadow = false;
+  ctx.disposables.push(geo);
+  return mesh;
+}
+
+/**
+ * The water surface material: two scrolling normal-mapped wave layers (the second on the clearcoat), environment reflections,
+ * rougher and greyer in the rain. `scale1` / `scale2` are the wavelengths (m) of the two layers.
+ */
+export function makeWaterMaterial(ctx: Ctx, scale1: number, scale2: number): THREE.MeshPhysicalMaterial {
   const n1 = makeWaterNormal(512);
   const n2 = makeWaterNormal(256);
-  n1.repeat.set(1 / 23, 1 / 23);
-  n2.repeat.set(1 / 7.3, 1 / 7.3);
+  n1.repeat.set(1 / scale1, 1 / scale1);
+  n2.repeat.set(1 / scale2, 1 / scale2);
   ctx.disposables.push(n1, n2);
   const mat = new THREE.MeshPhysicalMaterial({
     color: 0xffffff,
@@ -112,17 +126,13 @@ export function buildWater(ctx: Ctx): THREE.Object3D | null {
   });
   mat.name = 'water';
   mat.userData.wetShader = true; // the listener below handles the rain itself
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.renderOrder = 5;
-  mesh.name = 'lake';
-  mesh.receiveShadow = false;
   let tt = 0;
   ctx.updaters.push((dt) => {
     tt += dt;
     n1.offset.set(tt * 0.011, tt * 0.006);
     n2.offset.set(-tt * 0.017, tt * 0.013);
   });
-  ctx.disposables.push(mat, geo);
+  ctx.disposables.push(mat);
   ctx.envListeners.push((env) => {
     mat.opacity = 1;
     mat.envMapIntensity = 1.25 * (1 - 0.8 * env.darkness) + 0.15;
@@ -131,5 +141,5 @@ export function buildWater(ctx: Ctx): THREE.Object3D | null {
     mat.clearcoatNormalScale.set(0.4 + 0.6 * env.rain, 0.4 + 0.6 * env.rain);
     mat.roughness = 0.045 + 0.1 * env.rain;
   });
-  return mesh;
+  return mat;
 }

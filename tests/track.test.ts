@@ -7,6 +7,10 @@ import type { GroundSample, TrackFrame, TrackPoint } from '../src/core/contracts
 import { TRACKS, loadTrackRuntime } from '../src/track';
 import type { TrackRuntimeImpl } from '../src/track';
 import { mulberry32 } from '../src/track/math';
+import { portovela } from '../src/track/defs/portovela';
+import { emitArch, placeLandmark } from '../src/track/scene/landmarks';
+import { CityBuf } from '../src/track/scene/cityBuf';
+import { resolveMark } from '../src/track/plan';
 
 // ── per-track design limits ────────────────────────────────────────────────────
 interface Limits {
@@ -19,12 +23,16 @@ interface Limits {
   length: [number, number];
   /** Largest height step per 0.5 m allowed when walking away from the barrier (terrain steepness). */
   maxFieldStep: number;
+  /** Largest analytic-normal vs finite-difference mismatch on the curbs (default 0.2). On the inside of an R20 corner the ridge slope is amplified by the converging patch and the 0.4 m FD window smooths it more. */
+  maxNormalMismatch?: number;
 }
 const LIMITS: Record<string, Limits> = {
   aurelia: { minRadius: 29, maxGrade: 0.09, minCrestR: 450, minSagR: 200, maxBankDeg: 12, elev: [22, 38], length: [4400, 5100], maxFieldStep: 0.75 },
   kuroyama: { minRadius: 11, maxGrade: 0.11, minCrestR: 250, minSagR: 120, maxBankDeg: 9, elev: [60, 400], length: [5000, 6200], maxFieldStep: 1.6 },
   // forest GP circuit: 6.6 km, ~90 m of relief, a 450 m radius valley compression, ~1.4 km radius crests
   brennwald: { minRadius: 29, maxGrade: 0.105, minCrestR: 1000, minSagR: 380, maxBankDeg: 6, elev: [80, 110], length: [6300, 7100], maxFieldStep: 0.8 },
+  // harbour street circuit: 4 km, 43 m of relief, R14 hairpin, 8 % descent
+  portovela: { minRadius: 13, maxGrade: 0.09, minCrestR: 600, minSagR: 700, maxBankDeg: 3, elev: [38, 50], length: [3800, 4300], maxFieldStep: 1.2, maxNormalMismatch: 0.25 },
 };
 
 function newGround(): GroundSample {
@@ -277,13 +285,14 @@ describe.each(TRACKS.map((t) => t.info.id))('track %s', (id) => {
     console.info(`[track:${id}] min normal.y ${minNy.toFixed(4)} (${minAt}), worst normal/FD mismatch ${worstMismatch.toFixed(3)}`);
     expect(minNy, `min normal.y at ${minAt}`).toBeGreaterThanOrEqual(0.95);
     // ridges are 0.125 m ramps, so a 0.4 m FD window smooths them; the bound is loose but catches wrong derivatives
-    expect(worstMismatch).toBeLessThan(0.2);
+    expect(worstMismatch).toBeLessThan(lim.maxNormalMismatch ?? 0.2);
   });
 
   it('keeps a continuous barrier corridor, at least 2 m beyond the asphalt everywhere', () => {
     for (let i = 0; i < N; i++) {
-      expect(rt.wallLeft[i] - rt.widthLeft[i]).toBeGreaterThanOrEqual(2);
-      expect(rt.wallRight[i] - rt.widthRight[i]).toBeGreaterThanOrEqual(2);
+      // (both are float32: a runoff of exactly 2 m comes out a rounding step short where the wall offset crosses into a coarser binade)
+      expect(rt.wallLeft[i] - rt.widthLeft[i]).toBeGreaterThanOrEqual(2 - 1e-5);
+      expect(rt.wallRight[i] - rt.widthRight[i]).toBeGreaterThanOrEqual(2 - 1e-5);
       // the barrier line may angle away gently, never jump (<= 0.25 m of lateral movement per metre)
       expect(Math.abs(rt.wallLeft[i + 1] - rt.wallLeft[i])).toBeLessThan(0.25 * h);
       expect(Math.abs(rt.wallRight[i + 1] - rt.wallRight[i])).toBeLessThan(0.25 * h);
@@ -641,6 +650,205 @@ describe('Brennwald Ring layout', () => {
     expect(info.color.toLowerCase()).not.toBe('#16e0bd'); // Aurelia
     expect(info.color.toLowerCase()).not.toBe('#ff2e63'); // Kuroyama
     expect(info.location.length).toBeGreaterThan(10);
+    expect(info.difficulty).toBeGreaterThanOrEqual(1);
+    expect(info.difficulty).toBeLessThanOrEqual(5);
+    expect(['dawn', 'morning', 'noon', 'golden', 'dusk', 'night']).toContain(info.defaultTimeOfDay);
+  });
+});
+
+// ── Porto Vela: the layout brief, as numbers ─────────────────────────────────────────────────────────────────
+describe('Porto Vela layout', () => {
+  const rt = loadTrackRuntime('portovela') as TrackRuntimeImpl;
+  const info = TRACKS.find((t) => t.info.id === 'portovela')!.info;
+  const N = rt.count;
+  const h = rt.spacing;
+  const L = rt.length;
+  const corner = (name: string) => {
+    const c = rt.corners.find((k) => k.name === name);
+    expect(c, `corner ${name} exists`).toBeDefined();
+    return c!;
+  };
+  const deg = (c: { angle: number }) => (c.angle * 180) / Math.PI;
+
+  it('is a closed counter-clockwise loop of 3.8-4.2 km made of the named corners, in order', () => {
+    expect(rt.plan.closureError).toBeLessThan(0.01);
+    expect((rt.plan.totalTurn * 180) / Math.PI).toBeCloseTo(360, 1);
+    const order = ['Cais', 'Farol1', 'Farol2', 'Farol3', 'Mirante', 'Colina1', 'Colina2', 'Praca1', 'Praca2', 'Cantar1', 'Cantar2', 'Sea', 'Seb', 'Castelo', 'Escadas', 'Descida1', 'Descida2', 'MarinaR', 'MarinaL', 'Doca'];
+    expect(rt.corners.map((c) => c.name)).toEqual(order);
+    for (let i = 1; i < rt.corners.length; i++) expect(rt.corners[i].sStart).toBeGreaterThan(rt.corners[i - 1].sEnd - 1e-6);
+    expect(L).toBeGreaterThan(3800);
+    expect(L).toBeLessThan(4200);
+    expect(info.lengthHint).toBeGreaterThan(L - 60);
+    expect(info.lengthHint).toBeLessThan(L + 60);
+    expect(info.floodlit).toBe(true);
+  });
+
+  it('has the city-block corners, the hairpin and the harbourside chicane of the brief', () => {
+    // 90 degree blocks, taken at different speeds (radii 18 to 34 m), rights and lefts
+    const blocks = ['Cais', 'Mirante', 'Praca1', 'Praca2', 'Doca'];
+    for (const n of blocks) expect(Math.abs(deg(corner(n)) - 90)).toBeLessThan(1);
+    expect(corner('Praca1').dir).toBe(1);
+    expect(corner('Praca2').dir).toBe(-1);
+    const radii = blocks.map((n) => corner(n).radius);
+    expect(Math.min(...radii)).toBeLessThan(20);
+    expect(Math.max(...radii)).toBeGreaterThan(30);
+    // the tight hairpin: two joined halves that turn the street round (> 160 degrees, R < 16 m)
+    const sea = corner('Sea');
+    const seb = corner('Seb');
+    expect(seb.sStart - sea.sEnd).toBeLessThan(1);
+    expect(deg(sea) + deg(seb)).toBeGreaterThan(160);
+    expect(Math.max(sea.radius, seb.radius)).toBeLessThan(16);
+    // the harbourside chicane (right-left) and the last left before the line
+    expect(corner('MarinaR').dir).toBe(-1);
+    expect(corner('MarinaL').dir).toBe(1);
+    expect(corner('MarinaL').sStart - corner('MarinaR').sEnd).toBeLessThan(80);
+    expect(L - corner('Doca').sEnd).toBeLessThan(150);
+    // the fast waterfront straight runs from the line to the first corner, and is the longest stretch of the lap
+    expect(corner('Cais').sStart).toBeGreaterThan(600);
+    let longest = 0;
+    for (let i = 1; i < rt.corners.length; i++) longest = Math.max(longest, rt.corners[i].sStart - rt.corners[i - 1].sEnd);
+    expect(corner('Cais').sStart + (L - corner('Doca').sEnd)).toBeGreaterThan(longest);
+    // the fast uphill sweepers (the LMP prototype takes them flat out): radii of 110 m and more
+    for (const n of ['Farol1', 'Farol2', 'Farol3']) expect(corner(n).radius).toBeGreaterThanOrEqual(110);
+  });
+
+  it('climbs the hill and comes down again: 40 m of relief, 6 % up and 8 % down', () => {
+    let minY = Infinity;
+    let maxY = -Infinity;
+    let up = 0;
+    let down = 0;
+    for (let i = 0; i < N; i++) {
+      minY = Math.min(minY, rt.py[i]);
+      maxY = Math.max(maxY, rt.py[i]);
+      const g = rt.ty[i] / Math.hypot(rt.tx[i], rt.tz[i]);
+      up = Math.max(up, g);
+      down = Math.min(down, g);
+    }
+    expect(maxY - minY).toBeGreaterThan(38);
+    expect(maxY - minY).toBeLessThan(50);
+    expect(up).toBeGreaterThan(0.055);
+    expect(up).toBeLessThan(0.075);
+    expect(down).toBeLessThan(-0.075);
+    expect(down).toBeGreaterThan(-0.095);
+    // the quay is the lowest part, the old town the highest
+    expect(rt.py[0]).toBeLessThan(minY + 1.5);
+    const top = corner('Colina1');
+    expect(rt.py[Math.round((top.sArcA + top.sArcB) / 2 / h)]).toBeGreaterThan(maxY - 3);
+    // the long climb (Farol) gains most of it
+    const yAt = (s: number) => rt.py[Math.round(rt.wrapS(s) / h) % N];
+    expect(yAt(corner('Mirante').sStart) - yAt(corner('Cais').sEnd)).toBeGreaterThan(30);
+  });
+
+  it('has a tunnel on the Rua do Castelo, ending before the Escadas braking zone', () => {
+    expect(rt.tunnelSpans.length).toBe(1);
+    const [a, b] = rt.tunnelSpans[0];
+    expect(b - a).toBeGreaterThan(180);
+    expect(b - a).toBeLessThan(260);
+    expect(a).toBeGreaterThan(corner('Castelo').sEnd - 1);
+    expect(corner('Escadas').sStart - b).toBeGreaterThan(40);
+    expect(rt.tunnelMask[Math.round((a + b) / 2 / h)]).toBe(1);
+  });
+
+  it('has a hill over the tunnel, with the castle on its crest clear of the tube', () => {
+    const [a, b] = rt.tunnelSpans[0];
+    const v = new Vector3();
+    // the ground over the middle of the tube stands 8 m or more above the road: the terrain makes the hill, not the tunnel's cap
+    for (let s = a + 70; s <= b - 70; s += 10) {
+      for (const d of [-12, 0, 12]) {
+        rt.pointAt(s, d, v);
+        expect(rt.fieldHeight(v.x, v.z) - rt.py[Math.round(s / h)]).toBeGreaterThan(8);
+      }
+    }
+    const lm = portovela.scenery!.city!.landmarks!.find((l) => l.kind === 'castle')!;
+    const pl = placeLandmark(rt, lm)!;
+    // its floor level (10.5 m above `pl.y`) is the crest; its walls start 3 m under that, over the tube's crown (5.6 m above the road),
+    // or they would show inside the tunnel
+    expect(Math.abs(pl.y + 10.5 - rt.fieldHeight(pl.x, pl.z))).toBeLessThan(2.5);
+    const sMid = rt.wrapS((a + b) / 2);
+    expect(pl.y + 7.5).toBeGreaterThan(rt.py[Math.round(sMid / h)] + 6);
+  });
+
+  it('has stone arches across the street that clear the barriers, the catch fences and the cars', () => {
+    const arches = portovela.scenery!.city!.arches!;
+    expect(arches.length).toBeGreaterThan(0);
+    for (const a of arches) {
+      const s = rt.wrapS(resolveMark(rt.plan.marks, L, a.at));
+      const k = Math.round(s / h) % N;
+      const c = rt.pointAt(s, 0, new Vector3());
+      // on a straight, clear of the corners and the tunnel
+      expect(Math.abs(rt.curvature[k])).toBeLessThan(1 / 800);
+      for (const [t0, t1] of rt.tunnelSpans) expect(s < t0 - 30 || s > t1 + 30).toBe(true);
+      const buf = new CityBuf();
+      emitArch(buf, rt, s, a.depth);
+      expect(buf.pos.length).toBeGreaterThan(600);
+      let low = Infinity;
+      let top = -Infinity;
+      for (let i = 0; i < buf.pos.length; i += 3) {
+        expect(Number.isFinite(buf.pos[i] + buf.pos[i + 1] + buf.pos[i + 2])).toBe(true);
+        const u = (buf.pos[i] - c.x) * rt.HLX[k] + (buf.pos[i + 2] - c.z) * rt.HLZ[k];
+        // between the barriers (and the posts and the leaning fence beside them) there is nothing below 6 m
+        if (u > -rt.R.wall[k] - 0.3 && u < rt.L.wall[k] + 0.3) low = Math.min(low, buf.pos[i + 1] - c.y);
+        top = Math.max(top, buf.pos[i + 1] - c.y);
+      }
+      expect(low).toBeGreaterThanOrEqual(6.1);
+      expect(top).toBeLessThan(14);
+    }
+  });
+
+  it('is 9.5-14 m of asphalt between walls, with escape roads at the heavy braking zones and tyre walls on the outside of the corners', () => {
+    let widest = 0;
+    for (let i = 0; i < N; i++) {
+      const w = rt.widthLeft[i] + rt.widthRight[i];
+      expect(w).toBeGreaterThanOrEqual(9.4);
+      expect(w).toBeLessThanOrEqual(14.1);
+      widest = Math.max(widest, w);
+    }
+    expect(widest).toBeGreaterThan(13.5); // the boulevard widens before the first corner
+    // an escape road: the barrier stands 12+ m beyond the asphalt on the outside of the corner
+    const outsideWall = (c: { sStart: number; sEnd: number; dir: number }): number => {
+      let m = 0;
+      for (let s = c.sStart - 60; s < c.sEnd; s += 2) {
+        const i = Math.round(rt.wrapS(s) / h) % N;
+        m = Math.max(m, c.dir > 0 ? rt.wallRight[i] - rt.widthRight[i] : rt.wallLeft[i] - rt.widthLeft[i]);
+      }
+      return m;
+    };
+    const escapes = ['Cais', 'Mirante', 'Praca1', 'Sea', 'Escadas', 'MarinaR', 'Doca'].filter((n) => outsideWall(corner(n)) > 12);
+    expect(escapes.length).toBeGreaterThanOrEqual(5);
+    // concrete walls with catch fences almost everywhere, tyre walls at the impact points
+    let fence = 0;
+    let tyres = 0;
+    for (const S of [rt.L, rt.R]) {
+      for (let i = 0; i < N; i++) {
+        if (S.barrier[i] === 4) fence++;
+        if (S.barrier[i] === 2) tyres++;
+      }
+    }
+    expect((fence * h) / (2 * L)).toBeGreaterThan(0.4);
+    expect(tyres * h).toBeGreaterThan(500);
+  });
+
+  it('is a city: paved beyond the barriers, with buildings, lamps and a harbour defined', () => {
+    expect(rt.def.paved).toBe(true);
+    const sc = rt.def.scenery!;
+    expect(sc.city).toBeDefined();
+    expect(sc.city!.skyline!.reach).toBeGreaterThan(500);
+    expect(sc.lamps!.length).toBeGreaterThan(0);
+    expect(rt.def.terrain.sea).toBeDefined();
+    // the sea lies south of the waterfront (north < 0 on the map) and the straight is clear of it
+    const sea = rt.terrain.seaDistance;
+    for (let s = 0; s < 600; s += 50) {
+      const i = Math.round(s / h);
+      expect(sea(rt.px[i], rt.pz[i])).toBeGreaterThan(50);
+    }
+    expect(sea(-500, -300)).toBeLessThan(0); // in the bay
+    expect(sea(-500, 300)).toBeGreaterThan(0); // in the city
+  });
+
+  it('is distinguishable from the other circuits and fully described', () => {
+    for (const c of ['#16e0bd', '#ff2e63', '#ffb02e']) expect(info.color.toLowerCase()).not.toBe(c);
+    expect(info.location.length).toBeGreaterThan(10);
+    expect(info.description.length).toBeGreaterThan(100);
     expect(info.difficulty).toBeGreaterThanOrEqual(1);
     expect(info.difficulty).toBeLessThanOrEqual(5);
     expect(['dawn', 'morning', 'noon', 'golden', 'dusk', 'night']).toContain(info.defaultTimeOfDay);
