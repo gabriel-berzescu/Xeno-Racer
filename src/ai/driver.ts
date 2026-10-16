@@ -83,6 +83,9 @@ const GOV_DRIVEN: [number, number] = [1.2, 1.6];
 const GOV_SPIN_FROM = 0.1;
 const GOV_SPIN_SPAN = 0.3;
 const GOV_MIN = 0.15;
+/** Angle (rad) between the nose and the way the car travels from which it counts as a big slide (the wheels follow the travel, the throttle goes), and where that is complete. */
+const SLIDE_FROM = 0.3;
+const SLIDE_FULL = 0.5;
 const GOV_RELEASE = 4;
 /** Following: share of the tyres' deceleration used to settle behind a car, and the time gap (s) held (more in the wet). */
 const FOLLOW_COMFORT = 0.5;
@@ -605,6 +608,11 @@ export class AIDriver {
       const beta = Math.atan2(vLat, vLong) - Math.atan((bRear * yawRate) / vLong);
       if (Math.abs(beta) > 0.04) delta += 0.55 * (beta - 0.04 * Math.sign(beta));
     }
+    // a car that has let go (on snow it takes a long slide to get there, and the path it is asked for pulls the wheels the wrong way while it
+    // is in one): point the wheels along the way it is travelling and get off the throttle, whatever the path asks, until it bites again
+    const slideAng = me.speed > 5 ? Math.atan2(vLat, Math.max(vLong, 0.2 * me.speed)) : 0;
+    const bigSlide = smooth01(Math.min(1, Math.max(0, (Math.abs(slideAng) - SLIDE_FROM) / (SLIDE_FULL - SLIDE_FROM))));
+    if (bigSlide > 0) delta += (slideAng * 1.1 - delta) * bigSlide;
     const maxSteer = def.physics.chassis.maxSteer;
     const dbg = this.dbgSteer;
     dbg.lineD = lineD;
@@ -668,7 +676,7 @@ export class AIDriver {
     }
     // governor: lift while an axle is sliding past its peak (front = understeer, driven rear = oversteer) or the driven
     // tyres use more than they have (wheelspin on top of the sideways slip)
-    if (v > 8) {
+    if (v > 8 || me.speed > 8) {
       const wh = me.wheels;
       const uF = Math.max(Math.abs(wh[0].slipAngle), Math.abs(wh[1].slipAngle)) / this.alphaPkF;
       const uR = Math.max(Math.abs(wh[2].slipAngle), Math.abs(wh[3].slipAngle)) / this.alphaPkR;
@@ -690,7 +698,7 @@ export class AIDriver {
       this.govern = gNow < this.govern ? gNow : Math.min(gNow, this.govern + GOV_RELEASE * dt);
       thr *= this.govern;
     } else this.govern = 1;
-    c.throttle = thr;
+    c.throttle = thr * (1 - bigSlide);
     c.brake = brk;
     // big slide: ease off
     let slip = 0;

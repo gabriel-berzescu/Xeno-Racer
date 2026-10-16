@@ -17,6 +17,7 @@ import { buildRockCuts, buildTunnels } from './rocks';
 import { buildRoad } from './road';
 import { buildTerrainTiles } from './terrainTiles';
 import { buildTrees } from './trees';
+import { buildWinterScenery } from './winter';
 import { buildTufts } from './tufts';
 import { buildWater } from './water';
 import { loadTextures } from './textures';
@@ -75,6 +76,8 @@ export async function buildTrackScene(rt: TrackRuntimeImpl, opts: TrackSceneOpti
   }
   const street = buildStreet(ctx);
   if (street) root.add(street);
+  // a winter circuit's snowbanks, cabins, poles, reeds and crowds (after the props: they keep clear of the TV cameras)
+  if (rt.def.winter) root.add(buildWinterScenery(ctx, mats.terrain));
   await yieldFrame();
 
   ctx.progress(0.3, 'terrain');
@@ -88,11 +91,11 @@ export async function buildTrackScene(rt: TrackRuntimeImpl, opts: TrackSceneOpti
   ctx.progress(0.65, 'trees');
   const trees = await buildTrees(ctx);
   if (trees) root.add(trees);
-  const tufts = buildTufts(ctx);
+  const tufts = rt.def.winter ? null : buildTufts(ctx);
   if (tufts) root.add(tufts);
 
   // every plain material below the root gets a wetness-aware tint (the road and terrain shaders do their own)
-  tintScene(ctx, root);
+  if (!rt.def.winter) tintScene(ctx, root);
   ctx.progress(1, 'done');
 
   const scene: TrackScene = {

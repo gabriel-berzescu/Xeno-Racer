@@ -283,7 +283,7 @@ export interface TrackDef {
 // Scenery (visual only; no effect on the physics)
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type SpeciesId = 'oak' | 'poplar' | 'pine' | 'birch' | 'palm';
+export type SpeciesId = 'oak' | 'poplar' | 'pine' | 'birch' | 'palm' | 'spruce' | 'snowbirch';
 
 export interface VegetationDef {
   species: [SpeciesId, number][];
@@ -371,7 +371,23 @@ export type MarkingDef =
   | { kind: 'arrow'; at: Mark; d: number; turn?: -1 | 0 | 1 }
   | { kind: 'manhole'; at: Mark; d: number };
 
+/** The dressing of a winter circuit (src/track/scene/winter.ts): cabins, a paddock, spectators, the poles across the ice, the reeds of the shore. */
+export interface WinterSceneryDef {
+  /** A cluster of red wooden cabins at a mark, `gap` m behind the snowbank, spread `along` the road (half-length, m), in `rows` rows. */
+  cabins?: { at: Mark; side: 'L' | 'R'; gap: number; along: number; count: number; rows?: number; seed?: number }[];
+  /** The paddock: garages, tents, containers and a timing tower in a row behind the bank, `gap` m behind it. */
+  paddock?: { from: Mark; to: Mark; side: 'L' | 'R'; gap: number };
+  /** Spectators bundled up in their parkas, standing behind the snowbank. */
+  crowds?: { at: Mark; side: 'L' | 'R'; along: number; count: number; gap?: number }[];
+  /** Marker poles on the bank across the ice, every this many metres (default 22). */
+  poleEvery?: number;
+  /** Clumps of reeds along the shore of the lake. */
+  reeds?: number;
+}
+
 export interface SceneryDef {
+  /** A winter circuit's cabins, paddock, crowds, poles and reeds. */
+  winter?: WinterSceneryDef;
   /** Pedestrian crossings, yellow box junctions, lane arrows and manhole covers on the road. */
   markings?: MarkingDef[];
   city?: CityDef;

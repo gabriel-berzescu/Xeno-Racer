@@ -190,7 +190,7 @@ function sideStrips(ctx: Ctx, mats: TrackMaterials, i0: number, i1: number, sgn:
     // beyond the wall: uniform cells
     for (let k = 0; k <= nOut; k++) setU(uWall + (outer * k) / nOut);
     // the band boundary vertex between band1 and band2 is the first vertex of band 2; between band 2 and outside the wall vertex
-    const beyond = rt.def.paved ? 2 : 3;
+    const beyond = rt.def.paved ? 2 : rt.farSurf;
     for (let c = 0; c < J; c++) row.cell[c] = c < n1 ? S.b1S[i] : c < n1 + n2 ? S.b2S[i] : beyond;
     rows.push(row);
   }
@@ -225,9 +225,9 @@ function sideStrips(ctx: Ctx, mats: TrackMaterials, i0: number, i1: number, sgn:
     if (rt.def.paved && u > uWall - 0.01) buf.color(m * 1.1, m * 1.04, m * 0.92);
     else buf.color(m, m, m);
     if (key === 'terrainStrip') {
-      buf.surface(cellSurf === 6 ? 1 : cellSurf === 5 ? 0.6 : 0);
+      buf.surface(cellSurf === 6 ? 1 : cellSurf === 5 ? 0.6 : cellSurf === 7 ? 0.5 : 0);
       // distance beyond the asphalt edge: drives the mown stripes in the terrain shader (grass bands only)
-      buf.edge(rt.def.mowing === false || cellSurf === 6 || cellSurf === 5 ? -1 : Math.max(0.01, u));
+      buf.edge(rt.def.winter ? Math.max(0.01, u) : rt.def.mowing === false || cellSurf === 6 || cellSurf === 5 ? -1 : Math.max(0.01, u));
     }
     cache.set(id, v);
     return v;

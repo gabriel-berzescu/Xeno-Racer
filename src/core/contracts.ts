@@ -389,6 +389,11 @@ export type Weather = 'clear' | 'cloudy' | 'overcast' | 'rain' | 'storm';
 export interface EnvironmentSettings {
   timeOfDay: TimeOfDay;
   weather: Weather;
+  /**
+   * A winter circuit (`TrackInfo.winter`): the sun stays low all day, the ground is snow, 'rain' and 'storm' are snowfall and a
+   * blizzard, and the night sky carries an aurora. Set by the game from the track.
+   */
+  winter?: boolean;
 }
 
 /** Live environment info other modules may read (e.g. headlights on at night). */

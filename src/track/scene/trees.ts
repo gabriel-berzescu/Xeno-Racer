@@ -15,7 +15,7 @@ import { Noise2, mulberry32, smoothstep } from '../math';
 import type { SpeciesId, VegetationDef } from '../types';
 import type { Ctx } from './ctx';
 import { yieldFrame } from './ctx';
-import { BB_TILES, BB_WIDTH, makeBillboardAtlas, makeLeafAtlas, tileU, type FoliageKind } from './foliage';
+import { BB_TILES, BB_TILES_WINTER, BB_WIDTH, makeBillboardAtlas, makeLeafAtlas, tileU, type FoliageKind } from './foliage';
 
 export interface Inst {
   x: number;
@@ -325,45 +325,52 @@ export function treeGeometry(species: SpeciesId, seed: number, detail = 1, close
     }
     // a boss of dates under the crown
     for (let k = 0; k < 4; k++) core(b, hx + (rnd() - 0.5) * 0.03, th - 0.012, hz + (rnd() - 0.5) * 0.03, 0.014, 0.02, 0.014, 2, 5, 0.13);
-  } else if (species === 'poplar') {
-    trunk(b, 0.26, 0.016, 0.01, close ? 8 : 6, 2);
+  } else if (species === 'poplar' || species === 'snowbirch') {
+    // (a winter birch is bare: a long white trunk, a loose crown of twig sprays and no dark core)
+    const bare = species === 'snowbirch';
+    trunk(b, bare ? 0.5 : 0.26, bare ? 0.013 : 0.016, bare ? 0.007 : 0.01, close ? 8 : 6, 2);
     crown.set(0, 0.58, 0);
-    core(b, 0, 0.58, 0, 0.04, 0.28, 0.04, 3, 6, 0.25);
-    const nOuter = cnt(76);
-    const nInner = cnt(18);
+    if (!bare) core(b, 0, 0.58, 0, 0.04, 0.28, 0.04, 3, 6, 0.25);
+    else for (let i = 0; i < 5; i++) {
+      const a = rnd() * Math.PI * 2;
+      branch(b, [0, 0.42 + rnd() * 0.12, 0], [Math.cos(a) * 0.1, 0.66 + rnd() * 0.2, Math.sin(a) * 0.1], 0.006);
+    }
+    const nOuter = cnt(bare ? 46 : 76);
+    const nInner = cnt(bare ? 12 : 18);
     const GOLD = 2.399963;
     for (let i = 0; i < nOuter + nInner; i++) {
       const inner = i >= nOuter;
       const m = inner ? i - nOuter : i;
       const t = (m + 0.15 + 0.7 * rnd()) / (inner ? nInner : nOuter);
       const a = m * GOLD + rnd() * 0.5;
-      const hy = 0.17 + 0.8 * t;
-      const prof = Math.sin(Math.PI * Math.min(1, Math.max(0, (hy - 0.14) / 0.86)) ** 0.85);
-      const rad = (0.03 + 0.12 * prof) * (inner ? 0.5 : 0.8 + 0.24 * rnd());
+      const hy = bare ? 0.4 + 0.58 * t : 0.17 + 0.8 * t;
+      const prof = Math.sin(Math.PI * Math.min(1, Math.max(0, (hy - (bare ? 0.36 : 0.14)) / (bare ? 0.64 : 0.86))) ** 0.85);
+      const rad = (bare ? 0.04 + 0.19 * prof : 0.03 + 0.12 * prof) * (inner ? 0.5 : 0.8 + 0.24 * rnd());
       ctr.set(Math.cos(a) * rad, hy, Math.sin(a) * rad);
       nrm.set(Math.cos(a), 0.25, Math.sin(a)).normalize();
       nrm.add(randUnit(rnd, new THREE.Vector3()).multiplyScalar(0.55)).normalize();
-      cardBasis(nrm, (0.06 + rnd() * 0.03) * sz, 1.3, rnd() * Math.PI * 2, ax, ay);
+      cardBasis(nrm, (0.06 + rnd() * 0.03) * sz * (bare ? 1.7 : 1), bare ? 1 : 1.3, rnd() * Math.PI * 2, ax, ay);
       ref.set(0, hy - 0.02, 0);
       const shade = (inner ? 0.42 : 0.72 + 0.28 * (rad / 0.15)) * (0.92 + rnd() * 0.16);
       card(b, ctr, ax, ay, ref, (p) => shade * (0.82 + 0.18 * clamp01((p.y - 0.2) * 1.3)), rnd() < 0.5 ? 0 : 1, rnd() < 0.5, rnd() < 0.5, 0.7);
     }
   } else {
-    // pine / fir: whorls of drooping needle sprays hinged on the trunk
+    // pine / fir: whorls of drooping needle sprays hinged on the trunk (a spruce: more tiers, a narrower cone, heavier branches that sag under the snow)
+    const spruce = species === 'spruce';
     trunk(b, 0.96, 0.02, 0.004, close ? 8 : 6, 3);
-    const layers = Math.max(6, Math.round(11 * Math.min(1, detail + 0.15) * (close ? 1.5 : 1)));
+    const layers = Math.max(6, Math.round((spruce ? 15 : 11) * Math.min(1, detail + 0.15) * (close ? 1.5 : 1)));
     const tmpT = new THREE.Vector3();
     for (let l = 0; l < layers; l++) {
       const t = l / (layers - 1);
       const y = 0.12 + 0.85 * t;
-      const R = 0.3 * Math.pow(1 - t, 0.95) + 0.03;
-      const per = Math.max(4, Math.round((4.4 + 5.6 * (1 - t)) * Math.min(1.15, 0.55 + detail * 0.5) * (close ? 1.55 : 1)));
+      const R = (spruce ? 0.27 : 0.3) * Math.pow(1 - t, spruce ? 0.82 : 0.95) + 0.03;
+      const per = Math.max(4, Math.round((4.4 + 5.6 * (1 - t)) * Math.min(1.15, 0.55 + detail * 0.5) * (close ? 1.55 : 1) * (spruce ? 1.1 : 1)));
       for (let k = 0; k < per; k++) {
         const a = ((k + rnd() * 0.6) / per) * Math.PI * 2 + l * 0.9;
         const dx = Math.cos(a);
         const dz = Math.sin(a);
         const len = R * (1.25 + rnd() * 0.2);
-        const droop = len * (0.26 + 0.14 * (1 - t) + rnd() * 0.08);
+        const droop = len * ((spruce ? 0.34 : 0.26) + 0.14 * (1 - t) + rnd() * 0.08);
         const half = len * (0.46 + rnd() * 0.12) * (close ? 0.8 : 1);
         const root = ctr.set(0, y + (close ? (rnd() - 0.5) * 0.02 : 0), 0);
         ax.set(dx * len * 0.5, -droop * 0.5, dz * len * 0.5);
@@ -513,7 +520,7 @@ function foliageMaterial(tex: THREE.Texture, fade: [number, number, number, numb
 
 function scatter(ctx: Ctx, veg: VegetationDef): Record<SpeciesId, Inst[]> {
   const rt = ctx.rt;
-  const out: Record<SpeciesId, Inst[]> = { oak: [], poplar: [], pine: [], birch: [], palm: [] };
+  const out: Record<SpeciesId, Inst[]> = { oak: [], poplar: [], pine: [], birch: [], palm: [], spruce: [], snowbirch: [] };
   const rnd = mulberry32(rt.def.seed ^ 0x7f4a7c15);
   const noise = new Noise2(rt.def.seed + 5);
   const noise2 = new Noise2(rt.def.seed + 17);
@@ -546,6 +553,8 @@ function scatter(ctx: Ctx, veg: VegetationDef): Record<SpeciesId, Inst[]> {
       if (rnd() > p) continue;
       const y = rt.fieldHeight(px, pz);
       if (lakeLevel !== null && y < lakeLevel + 0.9) continue;
+      // (none on the ice of a frozen lake, and few on its shore)
+      if (rt.iceLake && rt.terrain.iceMask(px, pz) > 0.04) continue;
       const hx = (rt.fieldHeight(px + e, pz) - rt.fieldHeight(px - e, pz)) / (2 * e);
       const hz = (rt.fieldHeight(px, pz + e) - rt.fieldHeight(px, pz - e)) / (2 * e);
       if (Math.hypot(hx, hz) > veg.slopeMax) continue;
@@ -570,7 +579,7 @@ function scatter(ctx: Ctx, veg: VegetationDef): Record<SpeciesId, Inst[]> {
       if (lakeLevel !== null && y < lakeLevel + 6 && rnd() < 0.5) sp = 'poplar';
       let tint = 0.88 + rnd() * 0.24;
       let hue = (rnd() - 0.5) * 0.2;
-      let hmul = sp === 'poplar' ? 1.5 : sp === 'pine' ? 1.15 : 1;
+      let hmul = sp === 'poplar' ? 1.5 : sp === 'pine' ? 1.15 : sp === 'spruce' ? 1.25 : sp === 'snowbirch' ? 0.9 : 1;
       if (sp === 'birch') {
         // birches share the oak geometry: lighter, yellower and smaller
         sp = 'oak';
@@ -614,8 +623,11 @@ export function instantiateTrees(inst: Record<SpeciesId, Inst[]>, tier: number, 
   const cell0 = 96;
   const cellC = 64;
   const cellB = 512;
-  const kinds: SpeciesId[] = ['oak', 'poplar', 'pine', 'palm'];
-  const atlasKind: Record<string, FoliageKind> = { oak: 'broad', poplar: 'poplar', pine: 'pine', palm: 'palm' };
+  // (the species of a winter circuit stand after the others, in the billboard atlas too; a pine there is a snow-laden conifer like the spruce)
+  const winter = inst.spruce.length + inst.snowbirch.length > 0;
+  const bbTiles = winter ? BB_TILES_WINTER : BB_TILES;
+  const kinds: SpeciesId[] = ['oak', 'poplar', 'pine', 'palm', 'spruce', 'snowbirch'];
+  const atlasKind: Record<string, FoliageKind> = { oak: 'broad', poplar: 'poplar', pine: winter ? 'spruce' : 'pine', palm: 'palm', spruce: 'spruce', snowbirch: 'bare' };
   const m4 = new THREE.Matrix4();
   const q = new THREE.Quaternion();
   const sc = new THREE.Vector3();
@@ -633,7 +645,7 @@ export function instantiateTrees(inst: Record<SpeciesId, Inst[]>, tier: number, 
   let seedBase = seed;
 
   // far LOD: one atlas for the three silhouettes, three crossed quads per tree
-  const bbAtlas = makeBillboardAtlas(Math.min(aniso, 4));
+  const bbAtlas = makeBillboardAtlas(Math.min(aniso, 4), winter);
   const bbMat = foliageMaterial(bbAtlas, [r0 - FADE_BAND, r0, 1e8, 1e9], shared, true);
   const bbPrev = bbMat.onBeforeCompile;
   bbMat.onBeforeCompile = (shader, renderer) => {
@@ -718,7 +730,7 @@ export function instantiateTrees(inst: Record<SpeciesId, Inst[]>, tier: number, 
     const g = geoB.clone();
     const rect = new Float32Array(arr.length * 4);
     const mesh = new THREE.InstancedMesh(g, bbMat, arr.length);
-    const widthOf = [BB_WIDTH.broad, BB_WIDTH.poplar, BB_WIDTH.pine, BB_WIDTH.palm];
+    const widthOf = [BB_WIDTH.broad, BB_WIDTH.poplar, winter ? BB_WIDTH.spruce : BB_WIDTH.pine, BB_WIDTH.palm, BB_WIDTH.spruce, BB_WIDTH.bare];
     arr.forEach((e, i) => {
       q.setFromAxisAngle(up, e.t.yaw);
       const wm = widthOf[e.sp] * e.t.w;
@@ -728,10 +740,12 @@ export function instantiateTrees(inst: Record<SpeciesId, Inst[]>, tier: number, 
       mesh.setMatrixAt(i, m4);
       col.setRGB(e.t.tint * (1 + e.t.hue * 0.55), e.t.tint, e.t.tint * (1 - e.t.hue * 0.7));
       mesh.setColorAt(i, col);
-      const inset = 0.02 / BB_TILES;
-      rect[i * 4] = e.sp / BB_TILES + inset;
+      const inset = 0.02 / bbTiles;
+      // (a pine on a winter circuit is drawn as the spruce)
+      const tile = winter && e.sp === 2 ? 4 : e.sp;
+      rect[i * 4] = tile / bbTiles + inset;
       rect[i * 4 + 1] = 0;
-      rect[i * 4 + 2] = 1 / BB_TILES - inset * 2;
+      rect[i * 4 + 2] = 1 / bbTiles - inset * 2;
       rect[i * 4 + 3] = 1;
     });
     g.setAttribute('aBB', new THREE.InstancedBufferAttribute(rect, 4));
@@ -777,7 +791,7 @@ export async function buildTrees(ctx: Ctx): Promise<THREE.Group | null> {
   const veg = ctx.rt.def.scenery?.vegetation;
   const extra = ctx.extraTrees;
   if ((!veg || ctx.q.trees < 0.05) && !extra) return null;
-  const inst: Record<SpeciesId, Inst[]> = veg && ctx.q.trees >= 0.05 ? scatter(ctx, veg) : { oak: [], poplar: [], pine: [], birch: [], palm: [] };
+  const inst: Record<SpeciesId, Inst[]> = veg && ctx.q.trees >= 0.05 ? scatter(ctx, veg) : { oak: [], poplar: [], pine: [], birch: [], palm: [], spruce: [], snowbirch: [] };
   // hand-placed trees (palms along the streets) join the scattered ones; fewer of them on the lower tiers, like the forest
   for (const sp of Object.keys(extra ?? {}) as SpeciesId[]) {
     const list = extra![sp] ?? [];

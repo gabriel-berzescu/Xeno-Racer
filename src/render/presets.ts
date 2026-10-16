@@ -36,6 +36,8 @@ export interface TodPreset {
   /** Direction of the true sun when the light-casting body is the moon (degrees). */
   trueSunElDeg?: number;
   trueSunAzDeg?: number;
+  /** Northern lights in a clear sky (0..1): winter circuits only. */
+  aurora?: number;
 }
 
 export const TOD: Record<TimeOfDay, TodPreset> = {
@@ -45,6 +47,20 @@ export const TOD: Record<TimeOfDay, TodPreset> = {
   golden: { elDeg: 8.5, azDeg: 262, sunE: 3.4, skyGain: 2.8, exposure: 2.6, darkness: 0.05, stars: 0.0, moon: false, haze: 1.0, hemi: 0.45, env: 1.4, cloud: 0.36, warmth: 0.45 },
   dusk: { elDeg: 0.9, azDeg: 285, sunE: 3.0, skyGain: 3.2, exposure: 5.5, darkness: 0.55, stars: 0.25, moon: false, haze: 1.3, hemi: 0.6, env: 1.3, cloud: 0.36, warmth: 0.3 },
   night: { elDeg: 42, azDeg: 150, sunE: 0.62, skyGain: 0.7, exposure: 4.6, darkness: 1.0, stars: 1.0, moon: true, haze: 0.9, hemi: 0.6, env: 2.1, cloud: 0.16, warmth: -0.5, trueSunElDeg: -28, trueSunAzDeg: 330 },
+};
+
+/**
+ * The same six times of day on a winter circuit (far north in late winter): the sun never gets high, even at noon, and it hangs in the
+ * south-east, south, south-west; dusk is the blue hour, the sky pink and blue over a snow that gives its light back. Snow is five times
+ * as bright as grass, so the exposures are a good deal lower.
+ */
+export const TOD_WINTER: Record<TimeOfDay, TodPreset> = {
+  dawn: { elDeg: 0.8, azDeg: 120, sunE: 3.2, skyGain: 3.0, exposure: 2.3, darkness: 0.2, stars: 0.0, moon: false, haze: 1.5, hemi: 0.55, env: 1.35, cloud: 0.36, warmth: 0.5, aurora: 0.1 },
+  morning: { elDeg: 7, azDeg: 132, sunE: 3.5, skyGain: 2.7, exposure: 1.0, darkness: 0.0, stars: 0.0, moon: false, haze: 1.15, hemi: 0.4, env: 1.0, cloud: 0.36, warmth: 0.3 },
+  noon: { elDeg: 14, azDeg: 190, sunE: 3.7, skyGain: 2.6, exposure: 0.78, darkness: 0.0, stars: 0.0, moon: false, haze: 0.9, hemi: 0.38, env: 1.0, cloud: 0.36, warmth: 0.0 },
+  golden: { elDeg: 3.8, azDeg: 238, sunE: 3.4, skyGain: 2.8, exposure: 1.6, darkness: 0.05, stars: 0.0, moon: false, haze: 1.0, hemi: 0.45, env: 1.4, cloud: 0.36, warmth: 0.45 },
+  dusk: { elDeg: -1.6, azDeg: 252, sunE: 3.0, skyGain: 3.2, exposure: 3.4, darkness: 0.5, stars: 0.25, moon: false, haze: 1.2, hemi: 0.62, env: 1.3, cloud: 0.36, warmth: 0.1, aurora: 0.2 },
+  night: { elDeg: 38, azDeg: 150, sunE: 0.62, skyGain: 0.7, exposure: 3.5, darkness: 1.0, stars: 1.0, moon: true, haze: 0.9, hemi: 0.6, env: 2.1, cloud: 0.16, warmth: -0.5, trueSunElDeg: -28, trueSunAzDeg: 330, aurora: 1.0 },
 };
 
 export interface WeatherPreset {
@@ -95,6 +111,17 @@ export const WEATHER: Record<Weather, WeatherPreset> = {
   rain: { coverage: 1.0, soft: 0.5, cirrus: 0.0, sun: 0.04, sky: 0.52, mie: 3.6, overcast: 0.97, fog: 1.5, shadow: 0.0, exposure: 1.45, dark: 0.9, deck: 1, deckDark: 0.6, scud: 0.4, rainFog: 0.0007, darken: 0.14, glow: 0.13 },
   // Storm: the same ceiling, much darker and lower, hard rain, a few hundred metres of visibility.
   storm: { coverage: 1.0, soft: 0.6, cirrus: 0.0, sun: 0.02, sky: 0.36, mie: 4.2, overcast: 1.0, fog: 2.0, shadow: 0.0, exposure: 1.4, dark: 1.0, deck: 1, deckDark: 0.9, scud: 0.8, rainFog: 0.0016, darken: 0.4, glow: 0.08 },
+};
+
+/**
+ * The weathers of a winter circuit: the clear, cloudy and overcast skies are the ordinary ones; 'rain' is a snowfall (a low, soft white
+ * ceiling, a milky light from every side, the flakes thinning the view) and 'storm' a blizzard (the same, thicker, darker, a few hundred
+ * metres of sight).
+ */
+export const WEATHER_WINTER: Record<Weather, WeatherPreset> = {
+  ...WEATHER,
+  rain: { coverage: 1.0, soft: 0.5, cirrus: 0.0, sun: 0.06, sky: 0.66, mie: 3.0, overcast: 0.96, fog: 1.3, shadow: 0.0, exposure: 1.3, dark: 0.5, deck: 1, deckDark: 0.26, scud: 0.2, rainFog: 0.0011, darken: 0.03, glow: 0.14 },
+  storm: { coverage: 1.0, soft: 0.6, cirrus: 0.0, sun: 0.03, sky: 0.5, mie: 3.6, overcast: 1.0, fog: 2.2, shadow: 0.0, exposure: 1.4, dark: 0.75, deck: 1, deckDark: 0.5, scud: 0.55, rainFog: 0.0034, darken: 0.14, glow: 0.1 },
 };
 
 const DEG = Math.PI / 180;

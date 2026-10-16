@@ -4,7 +4,7 @@
  */
 import { WEATHER_WATER, type EnvironmentSettings } from '../core/contracts';
 import { computeSkyModel, FOG_TABLE_SIZE, type RGB, type SkyModel } from './atmosphere';
-import { directionFromAngles, TOD, WEATHER, type TodPreset, type WeatherPreset } from './presets';
+import { directionFromAngles, TOD, TOD_WINTER, WEATHER, WEATHER_WINTER, type TodPreset, type WeatherPreset } from './presets';
 
 const DEG = Math.PI / 180;
 
@@ -58,6 +58,8 @@ export interface EnvSolution {
   rainFog: number;
   /** How much of the moon shows (0 by day): the full disc in a clear night, a glow behind the deck in the rain. */
   moonVis: number;
+  /** Northern lights, 0..1: a winter circuit's clear night (and a hint at the blue hours), none under cloud. */
+  aurora: number;
 }
 
 const cache = new Map<string, EnvSolution>();
@@ -94,7 +96,7 @@ export function lightningStrength(distanceKm: number): number {
 }
 
 export function envKey(s: EnvironmentSettings): string {
-  return `${s.timeOfDay}/${s.weather}`;
+  return `${s.winter ? 'winter/' : ''}${s.timeOfDay}/${s.weather}`;
 }
 
 export async function solveEnvironment(settings: EnvironmentSettings, yieldFn?: () => Promise<void>): Promise<EnvSolution> {
@@ -102,8 +104,9 @@ export async function solveEnvironment(settings: EnvironmentSettings, yieldFn?: 
   const hit = cache.get(key);
   if (hit) return hit;
 
-  const tod = TOD[settings.timeOfDay];
-  const weather = WEATHER[settings.weather];
+  const winter = settings.winter === true;
+  const tod = (winter ? TOD_WINTER : TOD)[settings.timeOfDay];
+  const weather = (winter ? WEATHER_WINTER : WEATHER)[settings.weather];
   const el = tod.elDeg * DEG;
 
   const model = await computeSkyModel({ sunElevation: el, mieScale: weather.mie * (tod.haze > 1.2 ? 1.25 : 1) }, yieldFn);
@@ -147,8 +150,8 @@ export async function solveEnvironment(settings: EnvironmentSettings, yieldFn?: 
   const skyCos: RGB = [skyBase[0] + fill, skyBase[1] + fill * 0.86, skyBase[2] + fill * 0.7];
   const lightVec = scale(mul(lightColor, [1, 1, 1]), lightIntensity);
 
-  // Ground fill (below the horizon / environment lower hemisphere): grey-green albedo under sun + sky.
-  const albedo: RGB = [0.16, 0.17, 0.13];
+  // Ground fill (below the horizon / environment lower hemisphere): grey-green albedo under sun + sky; snow gives most of its light back
+  const albedo: RGB = winter ? [0.74, 0.8, 0.9] : [0.16, 0.17, 0.13];
   const ground: RGB = [
     albedo[0] * (skyCos[0] + (lightVec[0] * sinEl) / Math.PI),
     albedo[1] * (skyCos[1] + (lightVec[1] * sinEl) / Math.PI),
@@ -255,6 +258,7 @@ export async function solveEnvironment(settings: EnvironmentSettings, yieldFn?: 
     glow,
     rainFog: weather.rainFog * (0.8 + 0.2 * tod.haze),
     moonVis: tod.moon ? (deck > 0 ? 0.6 : 1 - weather.overcast * 0.85) : 0,
+    aurora: winter ? (tod.aurora ?? 0) * (1 - Math.min(1, weather.overcast * 1.1)) : 0,
   };
   cache.set(key, sol);
   return sol;
@@ -272,12 +276,13 @@ export function clearEnvironmentCache(): void {
  * Rain haze for a rain intensity: the presets' own pairs (rain 0.55 -> 0.0007 1/m, storm 1 -> 0.0016), straight lines between.
  * The haze is made by the rain falling, not by the clouds, so in a changing race it follows the rain and not the sky.
  */
-export function rainFogFor(rain: number): number {
+export function rainFogFor(rain: number, winter = false): number {
   const r = Math.min(1, Math.max(0, rain));
   const ra = WEATHER_WATER.rain.rain;
   const rb = WEATHER_WATER.storm.rain;
-  const fa = WEATHER.rain.rainFog;
-  const fb = WEATHER.storm.rainFog;
+  const table = winter ? WEATHER_WINTER : WEATHER;
+  const fa = table.rain.rainFog;
+  const fb = table.storm.rainFog;
   return r <= ra ? (fa * r) / ra : fa + ((fb - fa) * (r - ra)) / (rb - ra);
 }
 
@@ -382,7 +387,7 @@ export function blendInto(out: EnvSolution, dry: EnvSolution, wet: EnvSolution, 
   w.deck = c.deck;
   w.deckDark = mix(dw.deckDark, ww.deckDark, c.amb);
   w.scud = mix(dw.scud, ww.scud, c.amb);
-  w.rainFog = rainFogFor(rain);
+  w.rainFog = rainFogFor(rain, dry.settings.winter === true);
   w.darken = mix(dw.darken, ww.darken, c.amb);
   w.glow = mix(dw.glow, ww.glow, c.amb);
 
@@ -420,7 +425,8 @@ export function blendInto(out: EnvSolution, dry: EnvSolution, wet: EnvSolution, 
   mixRgb(dry.deckLo, wet.deckLo, c.amb, o.deckLo);
   mixRgb(dry.deckHi, wet.deckHi, c.amb, o.deckHi);
   mixRgb(dry.glow, wet.glow, c.amb, o.glow);
-  o.rainFog = rainFogFor(rain) * (0.8 + 0.2 * dry.tod.haze);
+  o.rainFog = rainFogFor(rain, dry.settings.winter === true) * (0.8 + 0.2 * dry.tod.haze);
+  o.aurora = mix(dry.aurora, wet.aurora, c.cloud);
   o.moonVis = mix(dry.moonVis, wet.moonVis, c.cloud);
   return o;
 }

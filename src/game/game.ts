@@ -413,7 +413,9 @@ export class Game {
 
   /** Load the track runtime + scene if it isn't the current one. */
   private async ensureTrack(trackId: string, env: RaceConfig['environment'], token: number, forecastTo: Weather | null = null): Promise<boolean> {
-    await (this.render as XenoRenderSystem).setEnvironment(env, forecastTo);
+    // (a winter circuit has its own light, its own ground and a snowfall for rain: the environment is told)
+    const winter = TRACKS.find((t) => t.info.id === trackId)?.info.winter === true;
+    await (this.render as XenoRenderSystem).setEnvironment(winter ? { ...env, winter } : env, forecastTo);
     if (token !== this.loadToken) return false;
     // the scene is reused for the same track, unless the quality or vegetation it was built with has changed since
     const built = `${trackId}|${this.settings.graphics.quality}|${this.settings.graphics.vegetation}`;

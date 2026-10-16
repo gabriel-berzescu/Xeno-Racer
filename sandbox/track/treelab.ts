@@ -21,7 +21,7 @@ export function buildTreeLab(quality: QualityLevel, env: EnvironmentState, q: UR
   const rows = (q.get('rows') ?? '16,28,45,70,105,150,220,330,480').split(',').map(Number);
   const h = parseFloat(q.get('h') ?? '14');
   const order: SpeciesId[] = ['oak', 'pine', 'poplar', 'oak', 'pine'];
-  const inst: Record<SpeciesId, Inst[]> = { oak: [], poplar: [], pine: [], birch: [], palm: [] };
+  const inst: Record<SpeciesId, Inst[]> = { oak: [], poplar: [], pine: [], birch: [], palm: [], spruce: [], snowbirch: [] };
   let k = 0;
   rows.forEach((z, ri) => {
     order.forEach((sp, j) => {

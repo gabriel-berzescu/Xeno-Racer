@@ -149,5 +149,37 @@ export const isvik: TrackDef = {
       { corner: 'Vand1a', dist: [200, 150, 100, 50] },
       { corner: 'Stranden', dist: [100, 50] },
     ],
+    winter: {
+      poleEvery: 22,
+      reeds: 900,
+      // the paddock on the left of the start straight: a timing tower, garages, tents, containers
+      paddock: { from: m('Malet/e'), to: m('main/m'), side: 'L', gap: 5 },
+      // the fishing village on the shore road, a few cabins by the hairpins
+      cabins: [
+        { at: m('Stranden/m'), side: 'R', gap: 2, along: 130, count: 10, rows: 2, seed: 3 },
+        { at: m('Kojan/m'), side: 'L', gap: 3, along: 110, count: 8, rows: 2, seed: 5 },
+        { at: m('Klippan/m'), side: 'R', gap: 3, along: 90, count: 5, rows: 2, seed: 8 },
+        { at: m('Vand2b'), side: 'R', gap: 8, along: 50, count: 3, rows: 1, seed: 11 },
+        { at: m('Furu/m'), side: 'L', gap: 20, along: 40, count: 2, rows: 1, seed: 13 },
+      ],
+      crowds: [
+        { at: m('main', 110), side: 'R', along: 150, count: 90 },
+        { at: m('Granen/m'), side: 'L', along: 60, count: 50 },
+        { at: m('Vand1b'), side: 'L', along: 50, count: 44 },
+        { at: m('Stranden/m'), side: 'L', along: 70, count: 36 },
+      ],
+    },
+    // spruce forest, a few Scots pines, bare birches on the edges; none on the ice
+    vegetation: {
+      species: [['spruce', 0.62], ['pine', 0.2], ['snowbirch', 0.18]],
+      density: 2.6,
+      forestThreshold: -0.25,
+      forestScale: 240,
+      clearance: 3.5,
+      ramp: 10,
+      reach: 240,
+      slopeMax: 1.0,
+      scale: 13,
+    },
   },
 };

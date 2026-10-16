@@ -701,7 +701,7 @@ export function buildCity(ctx: Ctx): CityResult | null {
   // the road (so not in the cut slopes at a tunnel's mouths), clear of the castle and of every lot
   if (cd.groves?.length) {
     const by: Partial<Record<SpeciesId, Inst[]>> = {};
-    const height: Record<SpeciesId, [number, number]> = { oak: [7, 11], poplar: [12, 17], pine: [9, 14], birch: [8, 11], palm: [9, 13] };
+    const height: Record<SpeciesId, [number, number]> = { oak: [7, 11], poplar: [12, 17], pine: [9, 14], birch: [8, 11], palm: [9, 13], spruce: [14, 20], snowbirch: [8, 11] };
     for (const gv of cd.groves) {
       const i0 = Math.round(resolveMark(rt.plan.marks, L, gv.at) / h) % N;
       const total = gv.species.reduce((a, [, w]) => a + w, 0);

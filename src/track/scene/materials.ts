@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { resolveMark } from '../plan';
 import type { Ctx } from './ctx';
+import { makeWinterMaterials } from './snow';
 import { makeTerrainMaterial } from './terrainMat';
 import type { PbrSet } from './textures';
 import { WET_HELPERS_GLSL, WET_UNIFORMS_GLSL } from './wet';
@@ -442,6 +443,8 @@ export function makeCurbTexture(): THREE.CanvasTexture {
 
 export function makeMaterials(ctx: Ctx): TrackMaterials {
   const rt = ctx.rt;
+  // a winter circuit: snow, ice and packed snow, all of it from snow.ts
+  if (rt.def.winter) return makeWinterMaterials(ctx);
   const tile = rt.length / Math.round(rt.length / 3.6);
   const road = makeRoadMaterial(ctx, tile, true);
   const runoffAsphalt = makeRoadMaterial(ctx, 3.6, false);
