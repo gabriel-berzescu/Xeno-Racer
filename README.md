@@ -1,9 +1,10 @@
 # Xeno-Racer
 
 A realistic racing game for the browser, built for a gamepad. A from-scratch vehicle simulation
-running at 1000 Hz, AI drivers that race wheel to wheel, three hand-built circuits, rain that you
-can feel through the tyres, procedurally sculpted cars, synthesized engine sound, and a TV
-director that films the race.
+running at 1000 Hz, AI drivers that race wheel to wheel, four hand-built circuits from a mountain
+pass to a floodlit harbour street circuit, rain that you can feel through the tyres, procedurally
+sculpted cars that crumple when they hit something, working mirrors, synthesized engine sound, and
+a TV director that films the race.
 
 ![Racing up Kuroyama Pass](docs/img/kuroyama.jpg)
 
@@ -42,10 +43,18 @@ window loses focus.
 
 - **Race:** up to 11 AI opponents in four skill levels (rookie, amateur, pro, alien). Start-light countdown, pole/middle/back grid slot, 1–50 laps, time of day and weather. Results come with a full replay.
 - **Time trial:** a rolling start, sector splits, and a live delta to your best lap, raced against the ghost of your personal best. Best laps and ghosts are saved per track and car.
-- **Championship:** the Xeno Cup, six rounds over the three circuits, each in different conditions (golden hour, a cloudy morning, a forest morning, night, dusk rain and a thunderstorm finale). Every race scores 25-18-15-12-10-8-6-4-2-1, plus a point for the fastest lap, with the standings and a calendar of winners after each round. Pick your car, difficulty, field (up to 11 opponents who keep their names and liveries all season), race length and how the grid is set. The season is saved after every round, so you can quit to the menu and carry on later, and it ends with a podium and your season summary.
+- **Championship:** the Xeno Cup, six rounds over Aurelia, Kuroyama and Brennwald, each in different conditions (golden hour, a cloudy morning, a forest morning, night, dusk rain and a thunderstorm finale). Every race scores 25-18-15-12-10-8-6-4-2-1, plus a point for the fastest lap, with the standings and a calendar of winners after each round. Pick your car, difficulty, field (up to 11 opponents who keep their names and liveries all season), race length and how the grid is set. The season is saved after every round, so you can quit to the menu and carry on later, and it ends with a podium and your season summary.
 - **Free roam:** the track to yourself.
 
 Opponents drive the same car as you, so the racing is about driving, not horsepower.
+
+## On track
+
+- **Damage:** a hit marks the car where it landed, in proportion to how hard it was. A tap leaves rubber and the other car's paint, a graze scrapes through to primer and bare metal (or frayed carbon), and a hard hit crushes a corner, buckles the bonnet, breaks a light and stars the glass. Every car takes it, the AI's too. Settings, Gameplay: Damage (Visual or Off).
+- **Mirrors:** in the cockpit, a working interior mirror and door mirrors (the LMP-X has a rear-camera screen on the dash); in the hood and bumper views, a mirror strip at the top of the screen. Headlights behind you glare in them at night and rain beads on them.
+- **Spotter:** the edge of the screen glows amber, then red, while a car is alongside you.
+- **Cameras:** chase, far chase, hood, bumper, cockpit, TV and orbit. The right stick looks around, and clicking it looks back.
+- **Replays:** every race can be watched again from start to finish, from any car and camera.
 
 ## Cars
 
@@ -64,7 +73,10 @@ All four are original designs, and their figures are measured in the simulation,
 - **Kuroyama Pass** (5.25 km) is a mountain road climbing 140 m through twelve switchback hairpins, with a ridge section, a tunnel and a fast descent. The road is narrow and guard-railed.
 - **Brennwald Ring** (6.84 km) is a fast, old-school circuit cut through pine and beech forest. It plunges 650 m downhill into the Kessel compression, climbs the steep Kesselwand and a kilometre-long uphill straight to a hairpin, then goes over a blind crest, through a fast double apex and a chicane before the line. 90 m of elevation change.
 
+- **Porto Vela** (3.96 km) is a floodlit street circuit through a Mediterranean harbour town, between concrete walls and catch fences. A 660 m quay straight ends in a heavy braking zone, then the road climbs through the old town past a cathedral at a tight hairpin, dives through a 210 m tunnel under the castle hill and comes down an 8 % descent to a chicane by the marina. The windows light up at dusk.
+
 ![The pack in the Brennwald forest](docs/img/brennwald.jpg)
+![Under the stone arch in Porto Vela at dusk](docs/img/portovela.jpg)
 
 Six times of day (dawn to night) and five weathers (clear, cloudy, overcast, rain and storm), all
 lit by a physically based sky.
@@ -80,11 +92,11 @@ Rain changes how the car drives as well as how it looks:
 - **AI drivers:** they brake earlier, carry less speed and stay off the kerbs.
 - **Visuals:** the sky closes into a low, dark cloud deck. The track darkens and shines, and puddles
   reflect the lights and ripple. Cars throw up spray and rooster tails. Droplets bead on the
-  paintwork and slide up the windscreen in the cockpit view.
+  paintwork and slide up the windscreen in the cockpit view, where the wiper sweeps them away.
 - **Storms:** visibility drops to a few hundred metres, and lightning lights up the clouds, with the
   thunder rolling in a moment later.
 - **Sound:** the rain patters or roars, drums on the roof from inside the car, and the tyres hiss
-  and spray.
+  and spray. In the cockpit the wiper motor whines and the blade thunks at each end of its sweep.
 - **Records:** wet best laps and ghosts are kept apart from dry ones.
 
 ![Kuroyama in the rain at dusk](docs/img/rain.jpg)
@@ -100,7 +112,7 @@ Rain changes how the car drives as well as how it looks:
   - **Drivetrain:** engine torque curves with turbo lag, a clutch and gearbox solved implicitly, and a limited-slip differential.
   - **Aero:** drag, downforce and slipstream.
   - **Driver aids:** ABS, traction control and stability control, plus a speed-sensitive steering filter tuned for a thumbstick.
-  - **Collisions:** car-to-car and car-to-wall, with sparks and scrapes.
+  - **Collisions:** car-to-car and car-to-wall, with sparks and scrapes. Every impact is reported with its closing speed, contact point and normal.
   - **Cost:** twelve cars cost about 0.6 ms per frame.
 - **AI** (`src/ai`) works in four layers:
   - A minimum-curvature racing line, with a speed profile from the friction circle, downforce and banking.
@@ -111,11 +123,11 @@ Rain changes how the car drives as well as how it looks:
   - **Lighting and post:** cascaded sun shadows, ambient occlusion, bloom, sun shafts, motion blur and AgX tone mapping. At night, unlit scenery shifts toward the blue-grey the eye sees in the dark.
   - **Weather:** a rain-deck sky, rain particles, wet materials, puddles with screen-space reflections, spray, windscreen droplets and lightning.
   - **Cars:** sculpted from signed distance fields, with liveries, working lights, interiors, and a driver who turns the wheel.
-  - **Mirrors:** the cockpit view has working rear-view mirrors, an interior mirror and two door mirrors (the LMP-X has a dash screen fed by a rear camera instead). Each is the scene drawn again from where the driver's eye would see it in the glass, into a small texture, so the view shifts with the head and a car alongside sits where it really is. The glass is part of the HDR scene, so bloom, tone mapping and the night grade treat it like the windscreen: headlights behind you glare in it, spray veils it, and in the wet beads of water cling to it. The hood and bumper views show the same rear camera as a strip at the top of the screen. The mirror passes reuse the frame's shadow maps and are compiled behind the loading screen, so they never build a shader mid-race. On the high preset they redraw every other frame and add about 0.6 ms of GPU time and 1 to 2 ms of CPU time per frame at 1080p (up to 1.4 ms of GPU in a dense forest in a storm, measured with the mirrors switched on and off in one session); the lower presets redraw less often. Settings, Gameplay: Rear-view mirrors (Auto or Off, which draws nothing).
-  - **Spotter:** the left or right edge of the screen glows amber, then red, while a car is alongside or closing within a car length, brighter the closer it is, in every driving camera. Settings, Gameplay: Car alongside indicator.
-  - **Tracks:** terrain, trees and props are all procedural, plus CC0 surface textures.
+  - **Damage:** dents, creases, scrapes, broken lamps and cracked glass are drawn by each car's own shaders from a small fixed set of uniforms, so a first hit never compiles a shader. `src/core/damage.ts` keeps each car's hits by zone for the mechanical damage to come, and replays rebuild the damage of every moment.
+  - **Mirrors:** each mirror is the scene drawn again from the driver's reflected eye into a small HDR texture, reusing the frame's shadow maps. They add about 0.6 ms of GPU and 1-2 ms of CPU time per frame at 1080p high, and less on the lower presets.
+  - **Tracks:** terrain, trees, buildings and props are all procedural, plus CC0 surface textures. Porto Vela's town is built from instanced blocks whose windows, shutters and shop fronts are drawn in the fragment shader.
   - **Performance:** the high preset renders 1080p in 7.5 to 10 ms on an RTX 3050 laptop GPU, depending on the track and the weather. Shaders are compiled behind the loading screen, not in the first frames of the race.
-- **Audio** (`src/audio`) synthesizes engines in AudioWorklets, with intake, exhaust, turbo whistle, backfires, tire squeal, wind, impacts and 3D positioning. It also synthesizes rain (outside and inside the car), rolling thunder, and wet-tyre hiss and spray.
+- **Audio** (`src/audio`) synthesizes engines in AudioWorklets, with intake, exhaust, turbo whistle, backfires, tire squeal, wind, impacts and 3D positioning. It also synthesizes rain (outside and inside the car), rolling thunder, wet-tyre hiss and spray, and the cockpit wiper, timed to the blade on screen.
 
 ![TV camera](docs/img/tv.jpg)
 ![Car select](docs/img/showroom.jpg)
@@ -134,7 +146,7 @@ npm run typecheck
 - `scripts/tour.mjs` scripts a play-through in headless Chrome. It can wait, press keys, take screenshots, evaluate code and collect perf stats. With `--init scripts/fixtures/fake-pad.js` it drives a fake F310.
 - `tests/probes/` holds diagnostics that only run on demand. For example, `PACKSET=1 npx vitest run tests/probes/pack.test.ts` runs the AI pack-racing benchmark.
 
-Dev URL flags: `?quick=race|timeTrial|freeRoam&track=aurelia|kuroyama|brennwald&car=vanta-gt&opp=7&laps=3&tod=night&weather=clear|cloudy|overcast|rain|storm&cam=tv&quality=low|medium|high|ultra&autopilot=1&ui=0`. `?quick=championship&car=&opp=&diff=&start=` starts a new Xeno Cup, and `&champlaps=1` makes every round that many laps (with `autopilot=1` it plays itself).
+Dev URL flags: `?quick=race|timeTrial|freeRoam&track=aurelia|kuroyama|brennwald|portovela&car=vanta-gt&opp=7&laps=3&tod=night&weather=clear|cloudy|overcast|rain|storm&cam=tv&quality=low|medium|high|ultra&autopilot=1&ui=0`. `?quick=championship&car=&opp=&diff=&start=` starts a new Xeno Cup, and `&champlaps=1` makes every round that many laps (with `autopilot=1` it plays itself).
 
 ## Credits
 
