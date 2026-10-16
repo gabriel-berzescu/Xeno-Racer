@@ -862,16 +862,19 @@ class RenderSystemImpl implements XenoRenderSystem {
     const dark = this.solution ? this.solution.darkness : 0;
     if (!lamps || dark <= 0.45) {
       this.lampLit = false;
-      if (col.w !== 0) {
-        col.set(0, 0, 0, 0);
-        for (const sl of slots) sl.w = 0;
+      if (col[3] !== 0) {
+        col.fill(0);
+        for (let j = 0; j < XR_LAMPS; j++) slots[4 * j + 3] = 0;
       }
       return;
     }
     this.lampLit = true;
     // same switch-on and colour as the wet road's own lamp lighting (track/scene/wet.ts)
     const k = Math.min(1, (dark - 0.45) / 0.4);
-    col.set(7.5 * k, 6.1 * k, 4.4 * k, 1);
+    col[0] = 7.5 * k;
+    col[1] = 6.1 * k;
+    col[2] = 4.4 * k;
+    col[3] = 1;
     // around the car being filmed (the subject of a TV shot can be far from the camera; in the chase and cockpit
     // views it is right there anyway)
     const cx = this.focus.x;
@@ -911,10 +914,14 @@ class RenderSystemImpl implements XenoRenderSystem {
     for (let j = 0; j < XR_LAMPS; j++) {
       if (j < n) {
         v.set(lamps[idx[j]], lamps[idx[j] + 1], lamps[idx[j] + 2]).applyMatrix4(camera.matrixWorldInverse);
-        slots[j].set(v.x, v.y, v.z, 46);
-      } else slots[j].w = 0;
+        slots[4 * j] = v.x;
+        slots[4 * j + 1] = v.y;
+        slots[4 * j + 2] = v.z;
+        slots[4 * j + 3] = 46;
+      } else slots[4 * j + 3] = 0;
     }
-    xrLampUpUniform.value.set(0, 1, 0).transformDirection(camera.matrixWorldInverse);
+    v.set(0, 1, 0).transformDirection(camera.matrixWorldInverse);
+    xrLampUpUniform.value.set([v.x, v.y, v.z]);
   }
 
   private updateDroplets(camera: PerspectiveCamera, dt: number, speed: number): void {

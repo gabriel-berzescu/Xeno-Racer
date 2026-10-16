@@ -25,7 +25,7 @@
  *
  * Both degrade to stock behaviour when their uniforms are never set (e.g. a custom ShaderMaterial).
  */
-import { ShaderChunk, ShaderLib, UniformsLib, Vector3, Vector4 } from 'three';
+import { ShaderChunk, ShaderLib, UniformsLib } from 'three';
 
 /**
  * vec4 xrFog[10]: [0] = (sunAz.x, sunAz.z, rain-haze extinction 1/m, mode: 0 off / 1 horizon table / 2 table + rain
@@ -39,12 +39,15 @@ export const MAX_CASCADES = 4;
 
 /** Street lamps that light every lit material (see installShaderPatches, 3.). */
 export const XR_LAMPS = 8;
-/** vec4 xrLamp[XR_LAMPS]: lamp head in VIEW space (xyz) and reach in m (w; 0 = unused slot). */
-export const xrLampUniform = { value: Array.from({ length: XR_LAMPS }, () => new Vector4()) };
+// The lamp uniforms are flat typed arrays, like xrFog and xrCsm: three copies a built-in material's uniforms when it builds
+// it (UniformsUtils.cloneUniforms), cloning every Vector (and every array of them), so a Vector value would stay frozen in
+// each material at whatever it held then, while a typed array is shared by reference and every update reaches them all.
+/** vec4 xrLamp[XR_LAMPS]: lamp head in VIEW space (xyz) and reach in m (w; 0 = unused slot), 4 floats per lamp. */
+export const xrLampUniform = { value: new Float32Array(4 * XR_LAMPS) };
 /** vec4 xrLampCol: radiance of a lamp (rgb), w = 1 while any lamp is lit. */
-export const xrLampColUniform = { value: new Vector4() };
+export const xrLampColUniform = { value: new Float32Array(4) };
 /** vec3 xrLampUp: world up in view space (the lamps shine down in a wide cone). */
-export const xrLampUpUniform = { value: new Vector3(0, 1, 0) };
+export const xrLampUpUniform = { value: new Float32Array([0, 1, 0]) };
 
 const LAMP_PARS = /* glsl */ `
 uniform vec4 xrLamp[ ${XR_LAMPS} ];
