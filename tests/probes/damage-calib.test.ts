@@ -6,13 +6,14 @@
  *                                                                      steering it takes to go straight (wheel angle, stick)
  *   DMGCAL=grip ...                                                    skidpad, top speed and 0-100 of the damaged car
  *   DMGCAL=lap  [DMGTRACK=aurelia] [DMGCARS=vanta-gt,lmp-x] ...        AI laps of a damaged car, lap time against the sound car
+ *   DMGCAL=sweep                                                       every car on every circuit, badly bent: clean AI laps?
  *
  * Output goes to .cache/damage-calib-<what>.txt.
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { Quaternion, Vector3 } from 'three';
-import { describe, it } from 'vitest';
-import { getCar } from '../../src/cars';
+import { describe, expect, it } from 'vitest';
+import { CARS, getCar } from '../../src/cars';
 import type { CarDefinition } from '../../src/core/contracts';
 import { MECH_TUNING, MechState, mechanicalEffects, type MechEffects } from '../../src/core/mechanical';
 import { DEFAULT_SETTINGS } from '../../src/core/settings';
@@ -176,6 +177,34 @@ describe('damage calibration', () => {
     mkdirSync('.cache', { recursive: true });
     writeFileSync('.cache/damage-calib-lap.txt', out.join('\n') + '\n');
     console.log(out.join('\n'));
+  }, 3600000);
+
+  it.skipIf(what !== 'sweep')('every car on every circuit, badly bent, stays clean (AI laps)', () => {
+    const out: string[] = [];
+    const fails: string[] = [];
+    const bent: [string, MechEffects][] = [
+      ['25deg 200 km/h', crash(3.699, 0, [3.699, 0, 0, 0])],
+      ['wrecked everywhere', state({ front: 1, rear: 1, wheels: [1, 1, 1, 1] })],
+      ['right flank and tail', state({ rear: 0.9, wheels: [0, 0.9, 0, 0.9] })],
+    ];
+    for (const trackId of ['aurelia', 'kuroyama', 'brennwald', 'portovela']) {
+      for (const car of CARS) {
+        const sound = damagedLaps(trackId, car.id, null, { laps: 2 });
+        const ref = sound.lapTimes[1];
+        for (const [name, fx] of bent) {
+          const r = damagedLaps(trackId, car.id, fx, { laps: 2 });
+          const lap = r.lapTimes[1];
+          const clean = r.resets === 0 && r.walls === 0 && r.off < 1 && r.lapTimes.length === 2;
+          if (!clean) fails.push(`${trackId}/${car.id}/${name}`);
+          out.push(`${trackId.padEnd(9)} ${car.id.padEnd(10)} ${name.padEnd(20)} ${fmtLap(lap)} (${lap - ref >= 0 ? '+' : ''}${(lap - ref).toFixed(2)} s, ${(((lap - ref) / ref) * 100).toFixed(1)} %)  walls ${r.walls} off ${r.off.toFixed(1)}s resets ${r.resets}${clean ? '' : '   <-- NOT CLEAN'}`);
+        }
+      }
+    }
+    out.push('', fails.length ? `not clean: ${fails.join(', ')}` : 'every one clean');
+    mkdirSync('.cache', { recursive: true });
+    writeFileSync('.cache/damage-calib-sweep.txt', out.join('\n') + '\n');
+    console.log(out.join('\n'));
+    expect(fails).toEqual([]);
   }, 3600000);
 
   it.skipIf(what !== 'grip')('grip, top speed and acceleration of a damaged car', () => {

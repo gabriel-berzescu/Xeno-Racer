@@ -899,6 +899,7 @@ export class Game {
   private applySettings(s: Settings): void {
     const prevQuality = this.settings.graphics.quality;
     const renamed = this.settings.playerName !== s.playerName;
+    const damageChanged = this.settings.damage !== s.damage;
     this.settings = structuredClone(s);
     saveSettings(this.settings);
     this.render.applyGraphics(s.graphics);
@@ -906,6 +907,8 @@ export class Game {
     this.input.setControls(s.controls);
     for (const c of this.cars) c.visual.damage?.setMode(s.damage);
     this.syncMechanical();
+    // (changed from the pause menu, where the HUD is not drawn: its last state is what the pause screen shows of the damage)
+    if (damageChanged && this.phase === 'race' && this.session && this.player && !this.replay && !this.resultsShown) this.ui.updateHud(this.buildHud(performance.now()));
     if (this.player) this.player.vehicle.assists = { ...s.assists };
     this.camera?.setFov(s.camera.fov);
     this.camera?.setShake(s.camera.shake);
