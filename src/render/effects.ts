@@ -49,6 +49,7 @@ import { makeTrail, SkidMarks, type SkidTrail } from './fx/skidmarks';
 import { BeamField, HaloField } from './wet/beams';
 import { LightCollector, lightUniforms } from './wet/lights';
 import { RainField } from './wet/rain';
+import { SnowField } from './wet/snowfall';
 
 interface QualityCaps {
   puffs: number;
@@ -285,7 +286,8 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
   drops.mesh.name = 'xr.fx.drops';
 
   // ── weather ──
-  const rain = new RainField(caps.rain);
+  // (snow on a winter circuit: flakes for the streaks, the same box and the same arguments)
+  const rain: RainField | SnowField = track.info.winter ? new SnowField(caps.rain) : new RainField(caps.rain);
   parent.add(rain.mesh);
   const lights = new LightCollector();
   // headlight beams and lamp halos in the rain (the lowest tier skips them)

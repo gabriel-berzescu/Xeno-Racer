@@ -1276,11 +1276,16 @@ class RenderSystemImpl implements XenoRenderSystem {
     xrLampUpUniform.value.set([v.x, v.y, v.z]);
   }
 
+  /** The rain that reaches the glass. Snow does not bead: the flakes that melt on a windscreen leave a few small drops, a third of what a rain of the same strength would. */
+  private glassRain(): number {
+    return this.env.settings.winter ? this.env.rain * 0.34 : this.env.rain;
+  }
+
   /** `focus` is the car the camera rides on, `cockpitHint` how the rain on the glass is seen (see ViewSpec.cockpit). */
   private updateDroplets(v: ViewState, camera: PerspectiveCamera, focus: Vector3, cockpitHint: boolean | null, dt: number, speed: number): void {
     const p = this.dropletPass;
     if (!p) return;
-    const rain = this.env.rain;
+    const rain = this.glassRain();
     // The glass wets within seconds of the first drops and dries more slowly than the rain stops: so the first drops are drops, and
     // the last ones do not vanish.
     v.glass += (rain - v.glass) * (1 - Math.exp(-dt / (rain > v.glass ? 2.5 : 16)));
@@ -1411,10 +1416,11 @@ class RenderSystemImpl implements XenoRenderSystem {
     env.rain = this.wx.rain;
     env.wetness = this.wx.wetness;
     // the rain is on the glass from the start (a changing weather starts with the glass as dry or as wet as its first weather)
+    const onGlass = this.glassRain();
     for (const v of this.views) {
-      v.glass = env.rain;
+      v.glass = onGlass;
       v.wiperOn = v.glass > 0.2;
-      v.wipeRain = env.rain;
+      v.wipeRain = onGlass;
       v.wipeWait = 0;
     }
     const e = sol.exposure;
