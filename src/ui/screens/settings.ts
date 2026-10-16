@@ -3,7 +3,7 @@ import type { ScreenId } from '../../core/systems';
 import { ControlsPane } from '../controls-pane';
 import type { UiCtx } from '../ctx';
 import { h } from '../dom';
-import { SETTINGS_TABS, type RowDef, type TabDef } from '../model';
+import { secondPlayerMatters, SETTINGS_TABS, type RowDef, type TabDef } from '../model';
 import { FocusList, type FocusRow } from '../nav';
 import { Osk } from '../osk';
 import { actionRow, Dialog, selectRow, sliderRow, TabBar, textRow, toggleRow, type RowHandle } from '../widgets';
@@ -21,6 +21,8 @@ export class SettingsScreen extends BaseScreen {
   readonly id = 'settings' as const;
   private readonly tabs: TabBar;
   private readonly views: TabView[] = [];
+  /** The tabs on show, as indexes of SETTINGS_TABS (the Assists tab of player 2 is there only while a second player matters), and the one open. */
+  private shown: number[] = [];
   private tabIndex = 0;
   private returnTo: ScreenId = 'main';
   private readonly rowsHost = h('div', 'set-rows');
@@ -37,7 +39,8 @@ export class SettingsScreen extends BaseScreen {
     this.dialog = new Dialog(ctx);
     this.osk = new Osk(ctx);
     this.controls = new ControlsPane(ctx);
-    this.tabs = new TabBar(ctx, SETTINGS_TABS.map((t) => ({ id: t.id, label: t.label })), (i) => this.showTab(i));
+    this.shown = this.tabsOnShow();
+    this.tabs = new TabBar(ctx, this.shown.map((i) => ({ id: SETTINGS_TABS[i].id, label: this.tabLabel(i) })), (i) => this.showTab(i));
     SETTINGS_TABS.forEach((def, i) => this.views.push(this.buildView(def, i)));
     this.side.append(this.help, this.controls.el);
     this.el.append(
@@ -128,6 +131,29 @@ export class SettingsScreen extends BaseScreen {
     return view;
   }
 
+  /** The tabs to show: all of them, but the one for player 2's aids only while a second player matters. */
+  private tabsOnShow(): number[] {
+    const two = secondPlayerMatters(this.ctx.players, this.ctx.split);
+    return SETTINGS_TABS.map((_, i) => i).filter((i) => two || !SETTINGS_TABS[i].split);
+  }
+
+  /** The label of a tab (with player 2's tab up, the first Assists tab says whose it is). */
+  private tabLabel(def: number): string {
+    return SETTINGS_TABS[def].id === 'assists' && this.shown.some((i) => SETTINGS_TABS[i].split) ? 'Assists P1' : SETTINGS_TABS[def].label;
+  }
+
+  /** The player-2 tab comes and goes with the controllers and the split screen: keep the tab bar, and the tab open, in step. */
+  private syncTabs(): void {
+    const next = this.tabsOnShow();
+    if (next.length === this.shown.length && next.every((v, i) => v === this.shown[i])) return;
+    const open = this.shown[this.tabIndex];
+    this.shown = next;
+    const at = next.indexOf(open);
+    this.tabs.setTabs(next.map((i) => this.tabLabel(i)));
+    this.tabs.setIndex(at >= 0 ? at : 0);
+    if (at !== this.tabIndex || at < 0) this.showTab(at >= 0 ? at : 0);
+  }
+
   private askReset(tabIdx: number): void {
     const def = SETTINGS_TABS[tabIdx];
     this.dialog.show({
@@ -146,7 +172,7 @@ export class SettingsScreen extends BaseScreen {
   // ── tabs ───────────────────────────────────────────────────────────────────
 
   private view(): TabView {
-    return this.views[this.tabIndex];
+    return this.views[this.shown[this.tabIndex]];
   }
 
   private showTab(i: number): void {
@@ -182,6 +208,7 @@ export class SettingsScreen extends BaseScreen {
     this.dialog.hide();
     this.osk.open = false;
     this.osk.el.classList.remove('on');
+    this.syncTabs();
     this.tabs.setIndex(0);
     this.showTab(0);
   }
@@ -195,6 +222,7 @@ export class SettingsScreen extends BaseScreen {
   }
 
   refresh(): void {
+    this.syncTabs();
     this.refreshValues();
   }
 

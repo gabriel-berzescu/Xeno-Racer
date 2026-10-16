@@ -7,6 +7,7 @@
  * Other modules must import from here only, never from the files behind it.
  */
 export { createCameraRig } from './cameraRig';
+export { createDrivingLine, LINE_LAYERS, type DrivingLine, type LineSource } from './drivingLine';
 export { createEffects } from './effects';
 export { createRenderSystem } from './renderSystem';
 export { lightningStrength } from './environment';

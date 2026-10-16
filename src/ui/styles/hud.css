@@ -117,10 +117,14 @@
 .ped-trk i { position: absolute; inset: 0; transform-origin: 50% 100%; transform: scaleY(0); }
 .ped.thr .ped-trk i { background: linear-gradient(0deg, #0fb99d, #3cf3d3); }
 .ped.brk .ped-trk i { background: linear-gradient(0deg, #c4163a, #ff5a7d); }
+.ped.brk .ped-trk i.assist { background: linear-gradient(0deg, #2f7fe0, #6cc0ff); }
 
 .sp-assists { left: 508px; top: 92px; display: flex; flex-direction: column; gap: 8px; }
 .pill { width: 52px; height: 30px; display: grid; place-items: center; font: 800 italic 19px / 1 var(--f-display); letter-spacing: 0.06em; color: rgba(238, 240, 243, 0.3); background: rgba(8, 10, 14, 0.78); clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%); }
 .pill.on { color: #1b1203; background: var(--warn); box-shadow: 0 0 18px rgba(255, 176, 32, 0.7); }
+/* the braking assist's cue: blue, like the other things the car does for you, above the pedals */
+.pill.ba { left: 40px; top: 24px; width: auto; height: 30px; padding: 0 18px 0 16px; font-size: 17px; letter-spacing: 0.1em; white-space: nowrap; opacity: 0; transition: opacity 0.12s; }
+.pill.ba.on { color: #04121f; background: var(--blue); box-shadow: 0 0 18px rgba(74, 168, 255, 0.7); opacity: 1; }
 
 /* ── center ────────────────────────────────────────────────────────────────── */
 

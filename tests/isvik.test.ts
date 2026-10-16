@@ -5,6 +5,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import { Quaternion, Vector3 } from 'three';
+import { DrivingGuide } from '../src/ai';
+import { lineSurfaces } from '../src/ai/racing-line';
 import { getCar } from '../src/cars';
 import type { GroundSample, TrackPoint } from '../src/core/contracts';
 import { trackCondition, WeatherDirector, makePlan } from '../src/game/weather';
@@ -315,5 +317,66 @@ describe('The stick on snow', () => {
     }
     // at a walking pace nothing limits the stick
     expect(full('snow', 20)).toBeCloseTo(full('asphalt', 20), 6);
+  });
+});
+
+describe('Isvik Circuit driving guide', () => {
+  // The driving line and the braking assist follow the AI's racing line and speed profile (src/ai/guide.ts). On a winter circuit that
+  // has to be the winter driver's: the car on its studded tyres, the grip of the packed snow and of the ice of the lake under every point
+  // of the line, and the fresh snow of a snowfall taken for what it is (a little less grip) and not for rain on asphalt (aquaplaning).
+  const vanta = getCar('vanta-gt');
+  const dry = new DrivingGuide(rt, vanta);
+  const surf = lineSurfaces(rt, dry.dry);
+  const lateralG = (name: string): number => {
+    let top = 0;
+    for (let i = 0; i < dry.dry.n; i++) if (surf.names[surf.at[i]] === name) top = Math.max(top, (dry.speeds[i] * dry.speeds[i] * Math.abs(dry.dry.k[i])) / 9.81);
+    return top;
+  };
+  const firstIce = (): number => {
+    for (let i = 0; i < dry.dry.n; i++) if (surf.names[surf.at[i]] === 'ice') return i * dry.dry.step;
+    throw new Error('no ice on the line');
+  };
+
+  it('asks of the tyres only what packed snow and ice give: 0.4 g in the corners on snow, a third of a g on the lake', () => {
+    const snow = lateralG('snow');
+    const ice = lateralG('ice');
+    // (on asphalt the same guide asks a g and more of the same car: Aurelia, in tests/driving-line.test.ts)
+    expect(snow).toBeGreaterThan(0.3);
+    expect(snow).toBeLessThan(0.5);
+    expect(ice).toBeGreaterThan(0.2);
+    expect(ice).toBeLessThan(0.42);
+    expect(ice).toBeLessThan(snow);
+  });
+
+  it('brakes at half the pace of asphalt on snow and less on ice, and sees the lake coming from as far as it needs to stop', () => {
+    const sIce = firstIce();
+    const onAsphalt = dry.brakeAt(40);
+    const onSnow = dry.brakeAt(40, sIce - 400);
+    const onIce = dry.brakeAt(40, sIce + 20);
+    expect(onSnow / onAsphalt).toBeGreaterThan(0.4);
+    expect(onSnow / onAsphalt).toBeLessThan(0.65);
+    expect(onIce).toBeLessThan(onSnow);
+    // 40 m/s: the guide looks 8 + 1.3 v = 60 m ahead for the worst of the ground it will brake on
+    expect(dry.brakeAt(40, sIce - 40)).toBeCloseTo(onIce, 6);
+    expect(dry.brakeAt(40, sIce - 120)).toBeCloseTo(onSnow, 6);
+    // a pedal with no ABS stops short of what the tyres can do on that ground: about 0.55 g of grip on snow, not the g of asphalt
+    expect(dry.brakeGripAt(40, sIce - 400)).toBeLessThan(6.5);
+    expect(dry.brakeGripAt(40, sIce - 400)).toBeGreaterThan(4);
+    expect(dry.brakeGripAt(40, sIce + 20)).toBeLessThan(dry.brakeGripAt(40, sIce - 400));
+  });
+
+  it('takes the fresh snow of a snowfall for a little less grip, not for rain: no aquaplaning, the top speed is the same', () => {
+    const snowing = new DrivingGuide(rt, vanta, { wetness: 1 });
+    expect(snowing.topSpeed).toBeCloseTo(dry.topSpeed, 9);
+    let least = Infinity;
+    for (let i = 0; i < dry.speeds.length; i++) {
+      expect(snowing.speeds[i]).toBeLessThanOrEqual(dry.speeds[i] + 1e-6);
+      least = Math.min(least, snowing.speeds[i] / dry.speeds[i]);
+    }
+    // (rain on Aurelia takes a fifth off the corners; a dusting of snow, 7 or 8 per cent)
+    expect(least).toBeGreaterThan(0.88);
+    expect(least).toBeLessThan(0.98);
+    // and the line is the one line: the snowbank is no place for a wheel, wet or not
+    expect(snowing.wet).toBe(snowing.dry);
   });
 });

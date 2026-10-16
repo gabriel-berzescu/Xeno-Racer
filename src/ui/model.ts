@@ -13,6 +13,7 @@ import type {
   Forecast,
   GraphicsSettings,
   Livery,
+  PlayerAssists,
   PlayersInfo,
   QualityLevel,
   RaceConfig,
@@ -25,6 +26,7 @@ import type {
   TrackInfo,
   Weather,
 } from '../core/contracts';
+import { applyAssistPreset, ASSIST_PRESETS, assistsOfSeat, matchAssistPreset, type AssistPreset } from '../core/aids';
 import { forecastAllowed, sanitizeForecast } from '../core/forecast';
 import { DEFAULT_SETTINGS, QUALITY_PRESETS } from '../core/settings';
 import { opponentLimit, SEAT_COLOR } from '../core/split';
@@ -547,7 +549,7 @@ export interface TextDef extends RowBase {
 }
 export type RowDef = SliderDef | ToggleDef | SelectDef | TextDef;
 
-export type SettingsTabId = 'graphics' | 'audio' | 'controls' | 'assists' | 'gameplay';
+export type SettingsTabId = 'graphics' | 'audio' | 'controls' | 'assists' | 'assists2' | 'gameplay';
 export interface TabDef {
   id: SettingsTabId;
   label: string;
@@ -555,6 +557,17 @@ export interface TabDef {
   showDesc: boolean;
   rows: RowDef[];
   reset(s: Settings): void;
+  /** The tab is there only while a second player matters (see secondPlayerMatters). */
+  split?: boolean;
+}
+
+/**
+ * Does a second human matter to the settings right now? They do while a split-screen race is on or a second player has joined, and
+ * while two controllers are plugged in (somebody is waiting for a turn): then the Assists have a tab for player 2, who may drive
+ * with other aids than player 1 (a manual gearbox and no help for one, everything on for a child).
+ */
+export function secondPlayerMatters(players: PlayersInfo, split: SplitLayout | null): boolean {
+  return players.joined || players.pads >= 2 || split !== null;
 }
 
 const opts = (pairs: [string, string][]): { value: string; label: string }[] => pairs.map(([value, label]) => ({ value, label }));
@@ -570,6 +583,49 @@ export function matchQuality(g: GraphicsSettings): QualityLevel | 'custom' {
 }
 
 const FPS_OPTIONS = [0, 30, 60, 75, 90, 120, 144, 165, 240];
+
+/** The preset words of the Assists tabs. */
+const PRESET_LABEL: Record<AssistPreset | 'custom', string> = { pro: 'Pro', standard: 'Standard', beginner: 'Beginner', custom: 'Custom' };
+
+/** The rows of the Assists tab of one human: player 1's `assists` or player 2's `assists2`. */
+function assistRows(seat: Seat): RowDef[] {
+  const A = (s: Settings): PlayerAssists => assistsOfSeat(s, seat);
+  return [
+    {
+      kind: 'select', id: 'preset', label: 'Preset',
+      desc: 'All the aids at once: Pro has none and a manual gearbox, Standard is the default, Beginner has everything on.',
+      options: (Object.keys(ASSIST_PRESETS) as AssistPreset[]).map((p) => ({ value: p, label: PRESET_LABEL[p] })),
+      get: (s) => matchAssistPreset(A(s)),
+      display: (s) => PRESET_LABEL[matchAssistPreset(A(s))],
+      set: (s, v) => { applyAssistPreset(A(s), v as AssistPreset); },
+    },
+    { kind: 'toggle', id: 'abs', label: 'ABS', desc: 'Stops the wheels locking under hard braking so you can still steer.', get: (s) => A(s).abs, set: (s, v) => { A(s).abs = v; } },
+    {
+      kind: 'select', id: 'tcs', label: 'Traction control', desc: 'Cuts power when the driven wheels spin. High keeps the car tidy; Off lets it light the tires.',
+      options: opts([['off', 'Off'], ['low', 'Low'], ['high', 'High']]),
+      get: (s) => A(s).tcs, set: (s, v) => { A(s).tcs = v as PlayerAssists['tcs']; },
+    },
+    { kind: 'toggle', id: 'esc', label: 'Stability control', desc: 'Brakes individual wheels to stop a spin before it starts.', get: (s) => A(s).esc, set: (s, v) => { A(s).esc = v; } },
+    { kind: 'toggle', id: 'autoShift', label: 'Automatic gearbox', desc: 'Shifts for you. Turn it off to use RB / LB (or B / X) as paddles.', get: (s) => A(s).autoShift, set: (s, v) => { A(s).autoShift = v; } },
+    {
+      kind: 'slider', id: 'steeringAssist', label: 'Steering assist', min: 0, max: 1, step: 0.05,
+      desc: 'Catches slides with automatic counter-steer and limits lock to what the tires can use.',
+      get: (s) => A(s).steeringAssist, set: (s, v) => { A(s).steeringAssist = v; }, fmt: pct,
+    },
+    { kind: 'toggle', id: 'autoClutch', label: 'Automatic clutch', desc: 'Handles the clutch for launches and gear changes. Nearly everyone on a gamepad wants this on.', get: (s) => A(s).autoClutch, set: (s, v) => { A(s).autoClutch = v; } },
+    {
+      kind: 'select', id: 'line', label: 'Driving line',
+      desc: 'Green to keep going, amber to lift or brake soon, red to brake now. Braking zones shows it only where you slow down.',
+      options: opts([['off', 'Off'], ['braking', 'Braking zones'], ['full', 'Full']]),
+      get: (s) => A(s).line, set: (s, v) => { A(s).line = v as PlayerAssists['line']; },
+    },
+    {
+      kind: 'toggle', id: 'brakeAssist', label: 'Braking assist',
+      desc: 'Brakes for you when you come into a corner too fast, and lifts the throttle. You still steer, and can always brake harder.',
+      get: (s) => A(s).brakeAssist, set: (s, v) => { A(s).brakeAssist = v; },
+    },
+  ];
+}
 
 export const SETTINGS_TABS: TabDef[] = [
   {
@@ -684,22 +740,15 @@ export const SETTINGS_TABS: TabDef[] = [
     label: 'Assists',
     showDesc: true,
     reset: (s) => { s.assists = structuredClone(DEFAULT_SETTINGS.assists); },
-    rows: [
-      { kind: 'toggle', id: 'abs', label: 'ABS', desc: 'Stops the wheels locking under hard braking so you can still steer.', get: (s) => s.assists.abs, set: (s, v) => { s.assists.abs = v; } },
-      {
-        kind: 'select', id: 'tcs', label: 'Traction control', desc: 'Cuts power when the driven wheels spin. High keeps the car tidy; Off lets it light the tires.',
-        options: opts([['off', 'Off'], ['low', 'Low'], ['high', 'High']]),
-        get: (s) => s.assists.tcs, set: (s, v) => { s.assists.tcs = v as Settings['assists']['tcs']; },
-      },
-      { kind: 'toggle', id: 'esc', label: 'Stability control', desc: 'Brakes individual wheels to stop a spin before it starts.', get: (s) => s.assists.esc, set: (s, v) => { s.assists.esc = v; } },
-      { kind: 'toggle', id: 'autoShift', label: 'Automatic gearbox', desc: 'Shifts for you. Turn it off to use RB / LB (or B / X) as paddles.', get: (s) => s.assists.autoShift, set: (s, v) => { s.assists.autoShift = v; } },
-      {
-        kind: 'slider', id: 'steeringAssist', label: 'Steering assist', min: 0, max: 1, step: 0.05,
-        desc: 'Catches slides with automatic counter-steer and limits lock to what the tires can use.',
-        get: (s) => s.assists.steeringAssist, set: (s, v) => { s.assists.steeringAssist = v; }, fmt: pct,
-      },
-      { kind: 'toggle', id: 'autoClutch', label: 'Automatic clutch', desc: 'Handles the clutch for launches and gear changes. Nearly everyone on a gamepad wants this on.', get: (s) => s.assists.autoClutch, set: (s, v) => { s.assists.autoClutch = v; } },
-    ],
+    rows: assistRows(0),
+  },
+  {
+    id: 'assists2',
+    label: 'Assists P2',
+    showDesc: true,
+    split: true,
+    reset: (s) => { s.assists2 = structuredClone(DEFAULT_SETTINGS.assists2); },
+    rows: assistRows(1),
   },
   {
     id: 'gameplay',

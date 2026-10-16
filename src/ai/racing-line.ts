@@ -187,6 +187,9 @@ export function lineSurfaces(track: TrackRuntime, line: RacingLine): LineSurface
   return hit;
 }
 
+/** The surface a road is made of, for the water on it: asphalt, or packed snow on a winter circuit (what fresh snow lies on). */
+export const roadSurface = (track: Pick<TrackRuntime, 'info'>): SurfaceProps => SURFACES[track.info.winter ? 'snow' : 'asphalt'];
+
 export interface ProfileOptions {
   /** Fraction of the car's real grip the driver dares to use (0.8 .. 1). */
   gripUse: number;
@@ -220,24 +223,40 @@ export function damageFactors(fx: MechEffects | null | undefined): { grip: numbe
   return { grip: 1 - SHARE * (1 - camber), aero: 1 - SHARE * (1 - Math.min(fx.aeroFront, fx.aeroRear)) };
 }
 
-/** Quasi-steady speed profile for one car on one line. */
-export function computeSpeedProfile(track: TrackRuntime, line: RacingLine, def: CarDefinition, o: ProfileOptions): SpeedProfile {
-  const n = line.n;
-  def = fitCar(def, track);
+/**
+ * What a car can do on a road, in the terms the speed profile works with: the tyres' grip with downforce, the water on the road and
+ * the damage the car carries, drag, power and the share of the car's weight on the driven axle. Shared by the profile and by
+ * everything that has to brake at the pace the profile does (the driving line's colours, the braking assist).
+ */
+export interface GripModel {
+  /** Peak grip coefficient the profile uses (the weaker axle's, with the driver's share of it, the wet and the damage). */
+  mu: number;
+  /** Downforce per (m/s)^2, as an acceleration. */
+  cDown: number;
+  /** Drag per (m/s)^2, as an acceleration. */
+  cDrag: number;
+  /** Power at the driven wheels (W) and the car's top speed (m/s). */
+  power: number;
+  vTop: number;
+  /** Share of the car's weight the driven axle carries (the traction the car has to put its power down with). */
+  drivenFrac: number;
+  mass: number;
+  /** Aquaplaning: the grip left at speed vv as a share of the grip at rest (1 on a dry road). */
+  aqua(vv: number): number;
+  /** Lateral acceleration the tyres can give at speed vv. */
+  latMax(vv: number): number;
+}
+
+export function gripModel(def: CarDefinition, o: ProfileOptions, road: SurfaceProps = SURFACES.asphalt): GripModel {
   const ph = def.physics;
   const m = ph.chassis.mass;
   const dmg = damageFactors(o.damage);
-  const surf = lineSurfaces(track, line);
-  // wet: the tires' wet grip on the surface under each point (water on asphalt, fresh snow on a winter road), and aquaplaning that
-  // grows with speed (relative to 0 m/s)
+  // wet: the tires' wet grip on the road (water on asphalt, fresh snow on packed snow), and aquaplaning that grows with speed (relative to 0 m/s)
   const wet = o.wetness ?? 0;
   const tireWet = Math.min(ph.tireFront.wetGrip ?? 0.72, ph.tireRear.wetGrip ?? 0.72);
-  const wet0s = surf.props.map((sp) => wetGripFactor(wet, tireWet, sp, 0));
-  const muTyre = Math.min(ph.tireFront.mu, ph.tireRear.mu);
-  // (the order of the products is the old one, so that a road of plain asphalt gives the very same profile as before)
-  const muAt = new Float64Array(n);
-  for (let i = 0; i < n; i++) muAt[i] = muTyre * 0.95 * o.gripUse * wet0s[surf.at[i]] * dmg.grip * surf.grip[i];
-  const aquaAt = (i: number, vv: number) => (wet > 0 ? wetGripFactor(wet, tireWet, surf.props[surf.at[i]], vv) / wet0s[surf.at[i]] : 1);
+  const wet0 = wetGripFactor(wet, tireWet, road, 0);
+  const aqua = (vv: number) => (wet > 0 ? wetGripFactor(wet, tireWet, road, vv) / wet0 : 1);
+  const mu = Math.min(ph.tireFront.mu, ph.tireRear.mu) * 0.95 * o.gripUse * wet0 * dmg.grip;
   const cDown = ((0.5 * RHO * (ph.aero.liftAreaFront + ph.aero.liftAreaRear)) / m) * dmg.aero;
   const cDrag = (0.5 * RHO * ph.aero.dragArea) / m;
   const power = peakPower(ph.engine).watts * ph.drivetrain.efficiency * 0.92;
@@ -245,57 +264,209 @@ export function computeSpeedProfile(track: TrackRuntime, line: RacingLine, def: 
   const a = ph.chassis.cgToFrontAxle;
   const L = ph.chassis.wheelbase;
   const drivenFrac = ph.drivetrain.layout === 'FWD' ? (L - a) / L * 0.92 : ph.drivetrain.layout === 'RWD' ? (a / L) * 1.1 : 1;
-  const v = new Float32Array(n);
-  const latMax = (i: number, vv: number) => muAt[i] * aquaAt(i, vv) * (G + cDown * vv * vv);
-  for (let i = 0; i < n; i++) {
-    const mu = muAt[i];
+  const latMax = (vv: number) => mu * aqua(vv) * (G + cDown * vv * vv);
+  return { mu, cDown, cDrag, power, vTop, drivenFrac, mass: m, aqua, latMax };
+}
+
+/**
+ * How a car brakes on a road: the pace the speed profile brakes at, what the tyres give at the very most, what drag does by itself
+ * and what a full pedal asks of the brakes. The driving line's colours and the braking assist are built on these.
+ */
+export interface BrakeModel {
+  /**
+   * Deceleration (m/s^2) the profile brakes at, in a straight line at speed vv: the share of the grip it uses, drag included. `k` is
+   * what the ground under the car does to the grip of the model (`ProfileJob.surfaceFactor`: 1 on asphalt, 0.5 on packed snow, 0.4 on ice).
+   */
+  profile(vv: number, k?: number): number;
+  /** The most the tyres can brake at at speed vv (m/s^2): all of their grip with the downforce, drag not included. `k` as above. */
+  grip(vv: number, k?: number): number;
+  /** Deceleration drag gives at speed vv (m/s^2). */
+  drag(vv: number): number;
+  /** Deceleration a full pedal gives if the tyres could take it (m/s^2): the brakes' own limit. */
+  pedal: number;
+  /** The car's top speed as the profile takes it (m/s). */
+  top: number;
+}
+
+export function brakeModel(def: CarDefinition, o: ProfileOptions, road: SurfaceProps = SURFACES.asphalt): BrakeModel {
+  const gm = gripModel(def, o, road);
+  const ph = def.physics;
+  // (the grip without the driver's margin: the profile's own mu has the 0.95 and the driver's share of the grip in it)
+  const muFull = gm.mu / (0.95 * o.gripUse);
+  return {
+    profile: (vv, k = 1) => {
+      const mu = gm.mu * k;
+      return (mu * 1.05 * G + mu * gm.cDown * vv * vv) * o.brakeUse * gm.aqua(vv) + gm.cDrag * vv * vv;
+    },
+    grip: (vv, k = 1) => muFull * k * gm.aqua(vv) * (G + gm.cDown * vv * vv),
+    drag: (vv) => gm.cDrag * vv * vv,
+    pedal: ((2 * ph.brakes.frontTorque) / ph.tireFront.radius + (2 * ph.brakes.rearTorque) / ph.tireRear.radius) / ph.chassis.mass,
+    top: gm.vTop,
+  };
+}
+
+/**
+ * The quasi-steady speed profile of one car on one line, worked out in slices: `advance(budget)` does that many steps of the work and
+ * says whether it is finished. It is the arithmetic computeSpeedProfile always had, in the same order, so a profile worked out in
+ * pieces is bit for bit the one worked out in one go (tests/aids.test.ts). A caller that must not stall a frame (the driving line,
+ * when the rain comes) gives it a share of every frame; the AI drivers, who want the answer now, call computeSpeedProfile.
+ */
+export class ProfileJob {
+  readonly speeds: Float32Array;
+  done = false;
+  private readonly n: number;
+  private readonly gm: GripModel;
+  private readonly brakeUse: number;
+  private readonly wet: number;
+  /**
+   * What multiplies the grip model's own grip (`GripModel.mu`) at each point of the line: the surface's grip (1 on asphalt, 0.5 on packed
+   * snow, 0.4 on ice) and what the water, or the fresh snow, does to that surface in comparison with the road's. 1 all round on asphalt.
+   */
+  readonly surfaceFactor: Float32Array;
+  private readonly muAt: Float64Array;
+  private readonly aquaAt: (i: number, vv: number) => number;
+  /** 0 = the corner speeds, 1 = a forward pass, 2 = a backward pass; `t` counts the steps of the stage and `pass` the passes made. */
+  private stage = 0;
+  private t = 0;
+  private pass = 0;
+
+  constructor(
+    private readonly track: TrackRuntime,
+    private readonly line: RacingLine,
+    def: CarDefinition,
+    o: ProfileOptions,
+  ) {
+    this.n = line.n;
+    // (on a winter circuit every car is on its studded tyres)
+    def = fitCar(def, track);
+    const road = roadSurface(track);
+    this.gm = gripModel(def, o, road);
+    this.brakeUse = o.brakeUse;
+    this.wet = o.wetness ?? 0;
+    this.speeds = new Float32Array(this.n);
+    // the grip under each point: the surface's own, and what the water (fresh snow on a winter road) does to it
+    const surf = lineSurfaces(track, line);
+    const ph = def.physics;
+    const tireWet = Math.min(ph.tireFront.wetGrip ?? 0.72, ph.tireRear.wetGrip ?? 0.72);
+    const wet = this.wet;
+    const wetRoad = wetGripFactor(wet, tireWet, road, 0);
+    const wet0s = surf.props.map((sp) => wetGripFactor(wet, tireWet, sp, 0));
+    this.surfaceFactor = new Float32Array(this.n);
+    this.muAt = new Float64Array(this.n);
+    for (let i = 0; i < this.n; i++) {
+      // (a road of one surface is the road's own: x / x is exactly 1, so the profile of a circuit of plain asphalt is the one it always was)
+      const k = surf.at[i];
+      this.surfaceFactor[i] = (wet0s[k] / wetRoad) * surf.grip[i];
+      this.muAt[i] = this.gm.mu * (wet0s[k] / wetRoad) * surf.grip[i];
+    }
+    this.aquaAt = (i, vv) => (wet > 0 ? wetGripFactor(wet, tireWet, surf.props[surf.at[i]], vv) / wet0s[surf.at[i]] : 1);
+  }
+
+  /** The profile (finished, or as far as it has got). */
+  get profile(): SpeedProfile {
+    return { v: this.speeds };
+  }
+
+  /** Run to the end. */
+  finish(): SpeedProfile {
+    this.advance(Infinity);
+    return this.profile;
+  }
+
+  /** Do up to `budget` steps of the work (a step is one point of the line in one pass, about 40 ns); true when the profile is finished. */
+  advance(budget: number): boolean {
+    const n = this.n;
+    let left = budget;
+    while (!this.done && left > 0) {
+      if (this.stage === 0) {
+        const end = Math.min(n, this.t + left);
+        left -= end - this.t;
+        for (; this.t < end; this.t++) this.corner(this.t);
+        if (this.t < n) break;
+        this.stage = 1;
+        this.t = 0;
+      } else if (this.stage === 1) {
+        // forward: traction & power
+        const end = Math.min(2 * n, this.t + left);
+        left -= end - this.t;
+        for (; this.t < end; this.t++) this.forward(this.t);
+        if (this.t < 2 * n) break;
+        this.stage = 2;
+        this.t = 2 * n;
+      } else {
+        // backward: braking
+        const end = Math.max(0, this.t - left);
+        left -= this.t - end;
+        for (; this.t > end; this.t--) this.backward(this.t);
+        if (this.t > 0) break;
+        if (++this.pass >= 3) this.done = true;
+        else {
+          this.stage = 1;
+          this.t = 0;
+        }
+      }
+    }
+    return this.done;
+  }
+
+  /** The speed a corner allows at line point i. */
+  private corner(i: number): void {
+    const { track, line, gm } = this;
     const k = Math.abs(line.k[i]);
     // bank helps (or hurts) the corner: positive bank raises the left edge, good for right turns
     const j = Math.min(track.count - 1, Math.round((i * line.step) / track.spacing));
     const bankHelp = -Math.sign(line.k[i]) * Math.sin(track.bank[j]) * G;
     // closed form for a constant mu; one fixed-point pass picks up the aquaplaning at that speed
+    const mu = this.muAt[i];
     let muC = mu;
-    let vmax = vTop;
-    for (let it = 0; it < (wet > 0 ? 2 : 1); it++) {
-      const den = k - muC * cDown;
-      vmax = den > 1e-6 ? Math.sqrt(Math.max(1, muC * G + bankHelp) / den) : vTop;
-      muC = mu * aquaAt(i, Math.min(vmax, vTop));
+    let vmax = gm.vTop;
+    for (let it = 0; it < (this.wet > 0 ? 2 : 1); it++) {
+      const den = k - muC * gm.cDown;
+      vmax = den > 1e-6 ? Math.sqrt(Math.max(1, muC * G + bankHelp) / den) : gm.vTop;
+      muC = mu * this.aquaAt(i, Math.min(vmax, gm.vTop));
     }
-    v[i] = Math.min(vTop, vmax);
+    this.speeds[i] = Math.min(gm.vTop, vmax);
   }
-  // friction-circle remainder for longitudinal acceleration at speed vv on curvature k at line point i
-  const longAvail = (i: number, vv: number, k: number, cap: number) => {
+
+  /** Friction-circle remainder for longitudinal acceleration at speed vv on curvature k at line point i. */
+  private longAvail(i: number, vv: number, k: number, cap: number): number {
     const lat = vv * vv * Math.abs(k);
-    const lm = latMax(i, vv);
+    const lm = this.muAt[i] * this.aquaAt(i, vv) * (G + this.gm.cDown * vv * vv);
     const r = lat / lm;
     return r >= 1 ? 0 : cap * Math.sqrt(1 - r * r);
-  };
-  for (let pass = 0; pass < 3; pass++) {
-    // forward: traction & power
-    for (let t = 0; t < 2 * n; t++) {
-      const i = t % n;
-      const b = (i + 1) % n;
-      const vi = v[i];
-      const mu = muAt[i];
-      const trac = (mu * 1.05 * G * drivenFrac + mu * cDown * vi * vi * drivenFrac) * aquaAt(i, vi);
-      const pow = power / (m * Math.max(vi, 3));
-      const acc = longAvail(i, vi, line.k[i], Math.min(trac, pow)) - cDrag * vi * vi - 0.12;
-      const vn = Math.sqrt(Math.max(0, vi * vi + 2 * acc * line.ds[i]));
-      if (vn < v[b]) v[b] = vn;
-    }
-    // backward: braking
-    for (let t = 2 * n; t > 0; t--) {
-      const i = t % n;
-      const p = (i - 1 + n) % n;
-      const vi = v[i];
-      const mu = muAt[i];
-      const cap = (mu * 1.05 * G + mu * cDown * vi * vi) * o.brakeUse * aquaAt(i, vi);
-      const dec = longAvail(i, vi, line.k[i], cap) + cDrag * vi * vi;
-      const vp = Math.sqrt(vi * vi + 2 * dec * line.ds[p]);
-      if (vp < v[p]) v[p] = vp;
-    }
   }
-  return { v };
+
+  private forward(t: number): void {
+    const { n, line, gm } = this;
+    const v = this.speeds;
+    const i = t % n;
+    const b = (i + 1) % n;
+    const vi = v[i];
+    const mu = this.muAt[i];
+    const trac = (mu * 1.05 * G * gm.drivenFrac + mu * gm.cDown * vi * vi * gm.drivenFrac) * this.aquaAt(i, vi);
+    const pow = gm.power / (gm.mass * Math.max(vi, 3));
+    const acc = this.longAvail(i, vi, line.k[i], Math.min(trac, pow)) - gm.cDrag * vi * vi - 0.12;
+    const vn = Math.sqrt(Math.max(0, vi * vi + 2 * acc * line.ds[i]));
+    if (vn < v[b]) v[b] = vn;
+  }
+
+  private backward(t: number): void {
+    const { n, line, gm } = this;
+    const v = this.speeds;
+    const i = t % n;
+    const p = (i - 1 + n) % n;
+    const vi = v[i];
+    const mu = this.muAt[i];
+    const cap = (mu * 1.05 * G + mu * gm.cDown * vi * vi) * this.brakeUse * this.aquaAt(i, vi);
+    const dec = this.longAvail(i, vi, line.k[i], cap) + gm.cDrag * vi * vi;
+    const vp = Math.sqrt(vi * vi + 2 * dec * line.ds[p]);
+    if (vp < v[p]) v[p] = vp;
+  }
+}
+
+/** Quasi-steady speed profile for one car on one line. */
+export function computeSpeedProfile(track: TrackRuntime, line: RacingLine, def: CarDefinition, o: ProfileOptions): SpeedProfile {
+  return new ProfileJob(track, line, def, o).finish();
 }
 
 /** Estimated lap time for a profile (s). */
