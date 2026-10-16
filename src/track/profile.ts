@@ -136,6 +136,8 @@ export interface SideChannels {
 export interface Channels {
   L: SideChannels;
   R: SideChannels;
+  /** Surface code of the road itself per sample (asphalt unless the track is a winter circuit: packed snow, ice on a frozen lake). */
+  road: Uint8Array;
 }
 
 function newSide(N: number): SideChannels {
@@ -200,8 +202,16 @@ function sidesFor(sel: SideSel, ch: Channels): SideChannels[] {
 }
 
 export function buildChannels(def: TrackDef, marks: Map<string, number>, corners: CornerInfo[], N: number, spacing: number, L: number): Channels {
-  const ch: Channels = { L: newSide(N), R: newSide(N) };
+  const ch: Channels = { L: newSide(N), R: newSide(N), road: new Uint8Array(N + 1) };
   const painter: Painter = { N, spacing, L };
+  ch.road.fill(SURF_CODE[def.winter?.road ?? (def.winter ? 'snow' : 'asphalt')]);
+  for (const p of def.winter?.patches ?? []) {
+    const code = SURF_CODE[p.surf];
+    forRange(painter, resolveMark(marks, L, p.from), resolveMark(marks, L, p.to), (i) => {
+      ch.road[i] = code;
+    });
+  }
+  ch.road[N] = ch.road[0];
   const sides: [SideChannels, Band[], BarrierKind][] = [
     [ch.L, def.defaults.bandsL, def.defaults.barrierL],
     [ch.R, def.defaults.bandsR, def.defaults.barrierR],
@@ -340,12 +350,15 @@ export function buildChannels(def: TrackDef, marks: Map<string, number>, corners
     }
     // gravel bed depression fractions, smoothed along s so the depth never steps
     {
+      // (a bed of gravel sits 4 cm low; loose snow, a car's wheels sink into, 7 cm)
       const GRAVEL = SURF_CODE.gravel;
+      const DEEP = SURF_CODE.deepsnow;
+      const bowlOf = (code: number) => (code === GRAVEL ? 1 : code === DEEP ? 1.75 : 0);
       const f1 = new Float64Array(N);
       const f2 = new Float64Array(N);
       for (let i = 0; i < N; i++) {
-        f1[i] = c.b1S[i] === GRAVEL ? 1 : 0;
-        f2[i] = c.b2S[i] === GRAVEL ? 1 : 0;
+        f1[i] = bowlOf(c.b1S[i]);
+        f2[i] = bowlOf(c.b2S[i]);
       }
       const rb = Math.max(1, Math.round(6 / spacing));
       boxBlurPeriodic(f1, N, rb, 2);

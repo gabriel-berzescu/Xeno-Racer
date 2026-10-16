@@ -11,6 +11,7 @@ import { portovela } from '../src/track/defs/portovela';
 import { emitArch, placeLandmark } from '../src/track/scene/landmarks';
 import { CityBuf } from '../src/track/scene/cityBuf';
 import { resolveMark } from '../src/track/plan';
+import { SURF_NAME } from '../src/track/types';
 
 // ── per-track design limits ────────────────────────────────────────────────────
 interface Limits {
@@ -33,6 +34,8 @@ const LIMITS: Record<string, Limits> = {
   brennwald: { minRadius: 29, maxGrade: 0.105, minCrestR: 1000, minSagR: 380, maxBankDeg: 6, elev: [80, 110], length: [6300, 7100], maxFieldStep: 0.8 },
   // harbour street circuit: 4 km, 43 m of relief, R14 hairpin, 8 % descent
   portovela: { minRadius: 13, maxGrade: 0.09, minCrestR: 600, minSagR: 700, maxBankDeg: 3, elev: [38, 50], length: [3800, 4300], maxFieldStep: 1.2, maxNormalMismatch: 0.25 },
+  // winter circuit: 4.3 km, 13 m of relief with a dead flat frozen lake, R25 switchbacks, no banking
+  isvik: { minRadius: 24, maxGrade: 0.045, minCrestR: 300, minSagR: 300, maxBankDeg: 0.5, elev: [9, 16], length: [3900, 4500], maxFieldStep: 1.2 },
 };
 
 function newGround(): GroundSample {
@@ -169,7 +172,14 @@ describe.each(TRACKS.map((t) => t.info.id))('track %s', (id) => {
     }
   });
 
-  it('groundAt agrees with pointAt on the road and reports asphalt', () => {
+  /** What the road is made of at s: asphalt, or on a winter circuit packed snow with ice on the frozen lake. */
+  const roadAt = (s: number): string => {
+    const f = rt.wrapS(s) / h;
+    const i = Math.min(N - 1, Math.floor(f));
+    return SURF_NAME[rt.roadSurf[f - i < 0.5 ? i : i + 1]];
+  };
+
+  it('groundAt agrees with pointAt on the road and reports its surface', () => {
     const rnd = mulberry32(7);
     const out = new Vector3();
     const g = newGround();
@@ -181,7 +191,7 @@ describe.each(TRACKS.map((t) => t.info.id))('track %s', (id) => {
       rt.pointAt(s, d, out);
       hint = rt.groundAt(out.x, out.z, g, hint);
       expect(g.height).toBeCloseTo(out.y, 4);
-      expect(g.surface).toBe('asphalt');
+      expect(g.surface).toBe(roadAt(s));
     }
   });
 
@@ -327,7 +337,7 @@ describe.each(TRACKS.map((t) => t.info.id))('track %s', (id) => {
     expect(worst, `closest approach at ${at}`).toBeGreaterThan(20);
   });
 
-  it('has a starting grid of >= 12 slots on asphalt behind the line', () => {
+  it('has a starting grid of >= 12 slots on the road behind the line', () => {
     expect(rt.grid.length).toBeGreaterThanOrEqual(12);
     const f = newFrame();
     const g = newGround();
@@ -343,7 +353,7 @@ describe.each(TRACKS.map((t) => t.info.id))('track %s', (id) => {
       const iseg = Math.floor(slot.s / h);
       expect(Math.abs(slot.d) + 1.1).toBeLessThan(Math.min(rt.widthLeft[iseg], rt.widthRight[iseg]));
       rt.groundAt(slot.position.x, slot.position.z, g);
-      expect(g.surface).toBe('asphalt');
+      expect(g.surface).toBe(roadAt(slot.s));
       expect(slot.position.y).toBeCloseTo(g.height, 3);
       q.copy(slot.quaternion);
       fwd.set(0, 0, 1).applyQuaternion(q);

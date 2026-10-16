@@ -17,8 +17,8 @@ import { clamp, hermite, hermiteSlope, smootherstep, smoothstep } from './math';
 import type { CornerInfo, PlanResult } from './plan';
 import type { Channels, SideChannels } from './profile';
 import type { TerrainFn } from './terrain';
-import type { TrackDef } from './types';
-import { CURB_RAMP_MAX, RIDGE_PERIOD, SURF_NAME, curbRamp } from './types';
+import type { LakeDef, TrackDef } from './types';
+import { BAR_SOFT, CURB_RAMP_MAX, RIDGE_PERIOD, SURF_CODE, SURF_NAME, curbRamp } from './types';
 
 export { RIDGE_PERIOD, CURB_RAMP_MAX };
 const XFADE_START = 1.5; // metres beyond the barrier face where the profile starts blending into the terrain
@@ -73,6 +73,8 @@ export interface RuntimeParts {
   ch: Channels;
   crown: number;
   terrain: TerrainFn;
+  /** The frozen lake of a winter circuit, placed in the world. */
+  iceLake?: LakeDef | null;
   info: TrackInfo;
   sectors: [number, number];
 }
@@ -124,6 +126,12 @@ export class TrackRuntimeImpl implements TrackRuntime {
   readonly KAP: Float64Array;
   readonly L: SideArrays;
   readonly R: SideArrays;
+  /** Surface code of the road itself per sample (asphalt; on a winter circuit packed snow, with ice on a frozen lake). */
+  readonly roadSurf: Uint8Array;
+  /** Surface code of the ground beyond the barriers (grass; deep snow on a winter circuit). */
+  readonly farSurf: number;
+  /** The frozen lake of a winter circuit, placed in the world (null without one). */
+  readonly iceLake: LakeDef | null;
 
   private readonly N: number;
   private readonly crown: number;
@@ -242,6 +250,9 @@ export class TrackRuntimeImpl implements TrackRuntime {
     };
     this.L = mkSide(p.ch.L, p.WL, 1);
     this.R = mkSide(p.ch.R, p.WR, -1);
+    this.roadSurf = p.ch.road;
+    this.farSurf = SURF_CODE[p.def.winter?.ground ?? (p.def.winter ? 'deepsnow' : 'grass')];
+    this.iceLake = p.iceLake ?? null;
 
     // Frames
     let minX = Infinity;
@@ -543,6 +554,8 @@ export class TrackRuntimeImpl implements TrackRuntime {
     out.widthRight = this.R.W[i] * om + this.R.W[j] * t;
     out.wallLeft = this.L.wall[i] * om + this.L.wall[j] * t;
     out.wallRight = this.R.wall[i] * om + this.R.wall[j] * t;
+    out.softLeft = BAR_SOFT[this.L.barrier[i]];
+    out.softRight = BAR_SOFT[this.R.barrier[i]];
     let tx = this.HTX[i] * om + this.HTX[j] * t;
     let tz = this.HTZ[i] * om + this.HTZ[j] * t;
     const inv = 1 / Math.sqrt(tx * tx + tz * tz);
@@ -583,7 +596,7 @@ export class TrackRuntimeImpl implements TrackRuntime {
       this._h = yc + d * tb - cc * q * q;
       this._hd = tb - (2 * cc * d) / (w * w);
       this._hs = mc + d * dtb;
-      this._surf = 0;
+      this._surf = this.roadSurf[t < 0.5 ? i : j];
       return this._h;
     }
     const u = ad - w;
@@ -634,7 +647,7 @@ export class TrackRuntimeImpl implements TrackRuntime {
       const u1 = u - cw;
       if (u1 < b1) surf = S.b1S[i];
       else if (u1 < b1 + b2) surf = S.b2S[i];
-      else surf = 3;
+      else surf = this.farSurf;
       // gravel beds sit slightly lower than the surroundings (smooth fractions: never a step)
       const f1 = S.bowl1[i] * om + S.bowl1[j] * t;
       const f2 = S.bowl2[i] * om + S.bowl2[j] * t;
@@ -658,7 +671,7 @@ export class TrackRuntimeImpl implements TrackRuntime {
       const hf = this.fieldHeight(x, z);
       this._h = ext + (hf - ext) * wgt;
       this._fd = true;
-      this._surf = 3;
+      this._surf = this.farSurf;
       this._hs = dsx;
       this._hd = sgn * doff;
       return this._h;

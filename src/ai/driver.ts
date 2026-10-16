@@ -21,8 +21,9 @@
 import { Vector3 } from 'three';
 import type { CarControls, CarDefinition, Difficulty, GroundSample, SurfaceType, TrackPoint, TrackRuntime, VehicleState } from '../core/contracts';
 import { cloneEffects, isNeutral, type MechEffects } from '../core/mechanical';
-import { SURFACES, wetGripFactor } from '../physics/surfaces';
-import { computeRacingLine, computeSpeedProfile, damageFactors, type RacingLine, type SpeedProfile } from './racing-line';
+import { fitCar } from '../physics/compound';
+import { SURFACES, wetGripFactor, type SurfaceProps } from '../physics/surfaces';
+import { computeRacingLine, computeSpeedProfile, damageFactors, lineSurfaces, type LineSurfaces, type RacingLine, type SpeedProfile } from './racing-line';
 
 export interface Skill {
   gripUse: number;
@@ -46,6 +47,13 @@ export const SKILL: Record<Difficulty, Skill> = {
 
 const G = 9.81;
 const RHO = 1.225;
+/**
+ * What a driver on a winter circuit adds to the share of the grip it uses (SKILL.gripUse). A studded tyre peaks wide and falls off
+ * gently, so the quickest way round is at and a little over the peak, the car just sliding in the fast corners and caught with the
+ * wheel: measured with a lone car (Isvik, all four cars), the lap time falls as the share rises up to a total of about 1.0 to 1.03,
+ * and rises again beyond it, with the car running at 20 to 40 degrees of body slip.
+ */
+const WINTER_GRIP_USE = 0.06;
 
 // ── tuning ────────────────────────────────────────────────────────────────────
 /** Water on the track at which the cautious behaviours are fully on is 1 / WET_RAMP (rain, 0.75, is past it). */
@@ -93,11 +101,10 @@ const _l = new Vector3();
 const _gs: GroundSample = { height: 0, normal: new Vector3(0, 1, 0), surface: 'asphalt' };
 const _hp = new Vector3();
 
-/** How much wet grip a surface keeps compared with wet asphalt (an average road tyre). */
-function wetGripRatio(surface: SurfaceType): number {
-  const a = SURFACES.asphalt;
+/** How much wet grip a surface keeps compared with the wet road itself (asphalt, or packed snow on a winter circuit): an average road tyre. */
+function wetGripRatio(surface: SurfaceType, road: SurfaceProps = SURFACES.asphalt): number {
   const sp = SURFACES[surface];
-  return (sp.grip * Math.min(1.15, 0.7 * sp.wet)) / (a.grip * Math.min(1.15, 0.7 * a.wet));
+  return (sp.grip * Math.min(1.15, 0.7 * sp.wet)) / (road.grip * Math.min(1.15, 0.7 * road.wet));
 }
 
 /** Throttle factor from 1 (below the first threshold) down to GOV_MIN (past the second). */
@@ -114,6 +121,7 @@ const hazardCache = new Map<string, Uint8Array>();
  * sand: bit 0 = left, bit 1 = right)? Tarmac run-offs and concrete are not, so a car may use the whole width there.
  */
 function edgeHazards(track: TrackRuntime, line: RacingLine): Uint8Array {
+  const road = SURFACES[track.info.winter ? 'snow' : 'asphalt'];
   const key = `${track.info.id}:${track.length.toFixed(1)}:${line.n}`;
   let h = hazardCache.get(key);
   if (h) return h;
@@ -123,10 +131,10 @@ function edgeHazards(track: TrackRuntime, line: RacingLine): Uint8Array {
     const j = Math.min(track.count - 1, Math.round(sa / track.spacing));
     track.pointAt(sa, track.widthLeft[j] + 0.5, _hp);
     track.groundAt(_hp.x, _hp.z, _gs);
-    if (wetGripRatio(_gs.surface) < SLIPPERY_RATIO) h[i] |= 1;
+    if (wetGripRatio(_gs.surface, road) < SLIPPERY_RATIO) h[i] |= 1;
     track.pointAt(sa, -(track.widthRight[j] + 0.5), _hp);
     track.groundAt(_hp.x, _hp.z, _gs);
-    if (wetGripRatio(_gs.surface) < SLIPPERY_RATIO) h[i] |= 2;
+    if (wetGripRatio(_gs.surface, road) < SLIPPERY_RATIO) h[i] |= 2;
   }
   hazardCache.set(key, h);
   return h;
@@ -203,11 +211,23 @@ export class AIDriver {
   }
   private readonly up = new Vector3();
 
+  /** The car as it is fitted for this track (winter tyres on a winter circuit). */
+  readonly def: CarDefinition;
+  /** The surface the road is made of at each point of the line (the grip under the car: ice on a frozen lake is not packed snow). */
+  private readonly surfaces: LineSurfaces;
+  /** The road's own surface: asphalt, or packed snow on a winter circuit: what the water (fresh snow) acts on. */
+  private readonly road: SurfaceProps;
+  /** A winter circuit: the road is slippery all the time (the cautious racecraft of a wet road is on whatever the snow), the line keeps off the edge. */
+  private readonly winter: boolean;
+
   constructor(
     readonly track: TrackRuntime,
-    readonly def: CarDefinition,
+    def: CarDefinition,
     opts: AIDriverOptions,
   ) {
+    this.def = def = fitCar(def, track);
+    this.winter = track.info.winter === true;
+    this.road = SURFACES[this.winter ? 'snow' : 'asphalt'];
     const base = SKILL[opts.difficulty];
     const r = fract(Math.sin(opts.seed * 12.9898) * 43758.5453);
     this.paceJitter = 1 - 0.018 * r;
@@ -218,6 +238,7 @@ export class AIDriver {
     const wet = clampWetness(opts.wetness);
     this.tireWet = Math.min(def.physics.tireFront.wetGrip ?? 0.72, def.physics.tireRear.wetGrip ?? 0.72);
     this.lineCur = this.racingLine(wet > 0);
+    this.surfaces = lineSurfaces(track, this.lineCur);
     this.lineLam = this.lineLamTo = wet > 0 ? 1 : 0;
     this.profCur = this.profileFor(this.lineCur, wet);
     this.wetFrom = this.wetTo = wet;
@@ -260,21 +281,26 @@ export class AIDriver {
 
   /** Racing line for a dry road or a wet one: in the wet, painted kerbs are ice, so the line keeps the wheels on the asphalt. */
   private racingLine(wet: boolean): RacingLine {
+    // (on a winter circuit the snowbank is no place for a wheel: the line keeps off the edge, wet or not, and the two lines are one)
+    if (this.winter) {
+      this.lineWet ??= computeRacingLine(this.track, { edgeMargin: this.halfWidth - 0.25 + 0.45 });
+      return (this.lineDry ??= this.lineWet);
+    }
     if (wet) return (this.lineWet ??= computeRacingLine(this.track, { edgeMargin: this.halfWidth - 0.25 + 0.45 }));
     return (this.lineDry ??= computeRacingLine(this.track, { edgeMargin: this.halfWidth - 0.25 + 0 }));
   }
 
   private profileFor(line: RacingLine, wet: number): SpeedProfile {
-    return computeSpeedProfile(this.track, line, this.def, { gripUse: this.skill.gripUse, brakeUse: this.skill.brakeUse, wetness: wet, damage: this.dmg });
+    return computeSpeedProfile(this.track, line, this.def, { gripUse: this.skill.gripUse + (this.track.info.winter ? WINTER_GRIP_USE : 0), brakeUse: this.skill.brakeUse, wetness: wet, damage: this.dmg });
   }
 
   /** Everything the driver works out from the water on the road, except the line and the profile. */
   private applyWetness(w: number): void {
     this.wetness = w;
-    this.wetF = Math.min(1, w * WET_RAMP);
+    this.wetF = this.winter ? 1 : Math.min(1, w * WET_RAMP);
     this.softFollow = this.wetF >= 0.5;
-    this.wetMu = wetGripFactor(w, this.tireWet, SURFACES.asphalt, 0);
-    if (w > 0) this.hazard = this.hazardMask ??= edgeHazards(this.track, this.lineCur);
+    this.wetMu = wetGripFactor(w, this.tireWet, this.road, 0);
+    if (w > 0 || this.winter) this.hazard = this.hazardMask ??= edgeHazards(this.track, this.lineCur);
     else this.hazard = this.hazardNone ??= new Uint8Array(this.lineCur.n);
   }
 
@@ -394,8 +420,21 @@ export class AIDriver {
 
   /** What the tyres can give in any horizontal direction at speed v (m/s^2): wet grip, aquaplaning and downforce included. */
   private gripAccel(v: number): number {
-    const wetF = this.wetness > 0 ? wetGripFactor(this.wetness, this.tireWet, SURFACES.asphalt, v) : 1;
+    const wetF = this.wetness > 0 ? wetGripFactor(this.wetness, this.tireWet, this.road, v) : 1;
     return this.gripMu * this.dmgGrip * wetF * (G + this.cDown * this.dmgAero * v * v);
+  }
+
+  /** The grip of the surface under the racing line at track position s, relative to asphalt (1 on a road of asphalt). */
+  private surfGrip(s: number): number {
+    const g = this.surfaces.grip;
+    return g[Math.floor(this.track.wrapS(s) / this.line.step + 0.5) % g.length];
+  }
+
+  /** The least grip under the line from here up to `dist` m ahead: what a driver has to brake for. */
+  private surfGripAhead(s: number, dist: number): number {
+    let m = this.surfGrip(s);
+    for (let x = this.line.step; x <= dist; x += this.line.step) m = Math.min(m, this.surfGrip(s + x));
+    return m;
   }
 
   /** Target speed at track position s (m/s), with this driver's pace. */
@@ -473,7 +512,8 @@ export class AIDriver {
     this.updateMistakes(dt, Math.max(0, me.forwardSpeed));
 
     // ── how much of the tyres' grip is in use right now (measured accelerations vs what they can give) ──
-    const aGrip = this.gripAccel(v);
+    const sGrip = this.surfGrip(s);
+    const aGrip = this.gripAccel(v) * sGrip;
     const aLatM = Math.abs(me.localAccel.x);
     const aLongM = me.localAccel.z;
     this.usage = Math.min(1.3, Math.hypot(aLatM, aLongM) / Math.max(aGrip, 2));
@@ -551,7 +591,7 @@ export class AIDriver {
     // kinematic angle + the slip angle the front tires need for this lateral acceleration
     const ph = def.physics;
     const aLat = v * v * kappa;
-    const muG = 9.81 * ph.tireFront.mu * this.wetMu;
+    const muG = 9.81 * ph.tireFront.mu * this.wetMu * sGrip;
     let delta = Math.atan(L * kappa) + ph.tireFront.peakSlipAngle * Math.max(-1.2, Math.min(1.2, aLat / muG)) * 0.85;
     // yaw-rate tracking: steer against yaw rate that differs from what the path asks for
     // (gentler at hairpin speeds, where the loop through the tires would otherwise ring)
@@ -582,7 +622,7 @@ export class AIDriver {
     // ── speed: track the profile slightly ahead; brake early for slower points ahead ──
     let vT = this.targetSpeedOff(s + v * 0.3 + 2, this.offset);
     // anticipate: the slowest requirement within the next ~1.2 s, discounted by distance
-    const brakeCap = 9.81 * Math.min(def.physics.tireFront.mu, def.physics.tireRear.mu) * this.dmgGrip * this.wetMu * this.skill.brakeUse * 0.9;
+    const brakeCap = 9.81 * Math.min(def.physics.tireFront.mu, def.physics.tireRear.mu) * this.dmgGrip * this.wetMu * this.skill.brakeUse * 0.9 * this.surfGripAhead(s, 8 + v * 1.3);
     for (let k = 1; k <= 6; k++) {
       const ahead = v * 0.2 * k + 4;
       const va = this.targetSpeedOff(s + ahead, this.offset);

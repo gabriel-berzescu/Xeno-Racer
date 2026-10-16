@@ -6,10 +6,12 @@
  * three-pass solution: corner speed from the lateral friction limit (with downforce), then forward
  * (traction/power) and backward (braking) integration under a friction circle.
  */
-import type { CarDefinition, TrackRuntime } from '../core/contracts';
+import type { CarDefinition, GroundSample, SurfaceType, TrackRuntime } from '../core/contracts';
 import type { MechEffects } from '../core/mechanical';
+import { Vector3 } from 'three';
+import { fitCar } from '../physics/compound';
 import { peakPower } from '../physics/engine';
-import { SURFACES, wetGripFactor } from '../physics/surfaces';
+import { SURFACES, wetGripFactor, type SurfaceProps } from '../physics/surfaces';
 
 const G = 9.81;
 const RHO = 1.225;
@@ -143,6 +145,48 @@ function curvature3(ax: number, az: number, bx: number, bz: number, cx: number, 
   return den > 1e-9 ? (2 * cross) / den : 0;
 }
 
+/**
+ * The surface under the racing line at each of its points (0 = the road's own: asphalt, or on a winter circuit packed snow and ice),
+ * and what the table of surfaces says about each: the profile of a circuit whose road is not all one surface (the ice of a frozen
+ * lake) works with the grip under each point. A circuit of plain asphalt costs nothing: one entry, every point on it.
+ */
+export interface LineSurfaces {
+  /** Index into `props` per line point. */
+  at: Uint8Array;
+  props: SurfaceProps[];
+  names: SurfaceType[];
+  /** Grip multiplier of the surface under each point (1 on asphalt). */
+  grip: Float32Array;
+}
+
+const surfCache = new Map<string, LineSurfaces>();
+const _sp = new Vector3();
+const _sg: GroundSample = { height: 0, normal: new Vector3(0, 1, 0), surface: 'asphalt' };
+
+export function lineSurfaces(track: TrackRuntime, line: RacingLine): LineSurfaces {
+  const key = `${track.info.id}:${track.length.toFixed(1)}:${line.n}:${line.d[0].toFixed(3)}:${line.d[line.n >> 1].toFixed(3)}`;
+  let hit = surfCache.get(key);
+  if (hit) return hit;
+  const names: SurfaceType[] = [];
+  const at = new Uint8Array(line.n);
+  const grip = new Float32Array(line.n);
+  for (let i = 0; i < line.n; i++) {
+    // (the point on the line itself, and the surface the wheels see: the line stays inside the asphalt, so the road's)
+    _sp.set(line.x[i], 0, line.z[i]);
+    track.groundAt(line.x[i], line.z[i], _sg);
+    let k = names.indexOf(_sg.surface);
+    if (k < 0) {
+      names.push(_sg.surface);
+      k = names.length - 1;
+    }
+    at[i] = k;
+    grip[i] = SURFACES[_sg.surface].grip;
+  }
+  hit = { at, names, props: names.map((n) => SURFACES[n]), grip };
+  surfCache.set(key, hit);
+  return hit;
+}
+
 export interface ProfileOptions {
   /** Fraction of the car's real grip the driver dares to use (0.8 .. 1). */
   gripUse: number;
@@ -179,15 +223,21 @@ export function damageFactors(fx: MechEffects | null | undefined): { grip: numbe
 /** Quasi-steady speed profile for one car on one line. */
 export function computeSpeedProfile(track: TrackRuntime, line: RacingLine, def: CarDefinition, o: ProfileOptions): SpeedProfile {
   const n = line.n;
+  def = fitCar(def, track);
   const ph = def.physics;
   const m = ph.chassis.mass;
   const dmg = damageFactors(o.damage);
-  // wet: the tires' wet grip on asphalt, and aquaplaning that grows with speed (relative to 0 m/s)
+  const surf = lineSurfaces(track, line);
+  // wet: the tires' wet grip on the surface under each point (water on asphalt, fresh snow on a winter road), and aquaplaning that
+  // grows with speed (relative to 0 m/s)
   const wet = o.wetness ?? 0;
   const tireWet = Math.min(ph.tireFront.wetGrip ?? 0.72, ph.tireRear.wetGrip ?? 0.72);
-  const wet0 = wetGripFactor(wet, tireWet, SURFACES.asphalt, 0);
-  const aqua = (vv: number) => (wet > 0 ? wetGripFactor(wet, tireWet, SURFACES.asphalt, vv) / wet0 : 1);
-  const mu = Math.min(ph.tireFront.mu, ph.tireRear.mu) * 0.95 * o.gripUse * wet0 * dmg.grip;
+  const wet0s = surf.props.map((sp) => wetGripFactor(wet, tireWet, sp, 0));
+  const muTyre = Math.min(ph.tireFront.mu, ph.tireRear.mu);
+  // (the order of the products is the old one, so that a road of plain asphalt gives the very same profile as before)
+  const muAt = new Float64Array(n);
+  for (let i = 0; i < n; i++) muAt[i] = muTyre * 0.95 * o.gripUse * wet0s[surf.at[i]] * dmg.grip * surf.grip[i];
+  const aquaAt = (i: number, vv: number) => (wet > 0 ? wetGripFactor(wet, tireWet, surf.props[surf.at[i]], vv) / wet0s[surf.at[i]] : 1);
   const cDown = ((0.5 * RHO * (ph.aero.liftAreaFront + ph.aero.liftAreaRear)) / m) * dmg.aero;
   const cDrag = (0.5 * RHO * ph.aero.dragArea) / m;
   const power = peakPower(ph.engine).watts * ph.drivetrain.efficiency * 0.92;
@@ -196,8 +246,9 @@ export function computeSpeedProfile(track: TrackRuntime, line: RacingLine, def: 
   const L = ph.chassis.wheelbase;
   const drivenFrac = ph.drivetrain.layout === 'FWD' ? (L - a) / L * 0.92 : ph.drivetrain.layout === 'RWD' ? (a / L) * 1.1 : 1;
   const v = new Float32Array(n);
-  const latMax = (vv: number) => mu * aqua(vv) * (G + cDown * vv * vv);
+  const latMax = (i: number, vv: number) => muAt[i] * aquaAt(i, vv) * (G + cDown * vv * vv);
   for (let i = 0; i < n; i++) {
+    const mu = muAt[i];
     const k = Math.abs(line.k[i]);
     // bank helps (or hurts) the corner: positive bank raises the left edge, good for right turns
     const j = Math.min(track.count - 1, Math.round((i * line.step) / track.spacing));
@@ -208,14 +259,14 @@ export function computeSpeedProfile(track: TrackRuntime, line: RacingLine, def: 
     for (let it = 0; it < (wet > 0 ? 2 : 1); it++) {
       const den = k - muC * cDown;
       vmax = den > 1e-6 ? Math.sqrt(Math.max(1, muC * G + bankHelp) / den) : vTop;
-      muC = mu * aqua(Math.min(vmax, vTop));
+      muC = mu * aquaAt(i, Math.min(vmax, vTop));
     }
     v[i] = Math.min(vTop, vmax);
   }
-  // friction-circle remainder for longitudinal acceleration at speed vv on curvature k
-  const longAvail = (vv: number, k: number, cap: number) => {
+  // friction-circle remainder for longitudinal acceleration at speed vv on curvature k at line point i
+  const longAvail = (i: number, vv: number, k: number, cap: number) => {
     const lat = vv * vv * Math.abs(k);
-    const lm = latMax(vv);
+    const lm = latMax(i, vv);
     const r = lat / lm;
     return r >= 1 ? 0 : cap * Math.sqrt(1 - r * r);
   };
@@ -225,9 +276,10 @@ export function computeSpeedProfile(track: TrackRuntime, line: RacingLine, def: 
       const i = t % n;
       const b = (i + 1) % n;
       const vi = v[i];
-      const trac = (mu * 1.05 * G * drivenFrac + mu * cDown * vi * vi * drivenFrac) * aqua(vi);
+      const mu = muAt[i];
+      const trac = (mu * 1.05 * G * drivenFrac + mu * cDown * vi * vi * drivenFrac) * aquaAt(i, vi);
       const pow = power / (m * Math.max(vi, 3));
-      const acc = longAvail(vi, line.k[i], Math.min(trac, pow)) - cDrag * vi * vi - 0.12;
+      const acc = longAvail(i, vi, line.k[i], Math.min(trac, pow)) - cDrag * vi * vi - 0.12;
       const vn = Math.sqrt(Math.max(0, vi * vi + 2 * acc * line.ds[i]));
       if (vn < v[b]) v[b] = vn;
     }
@@ -236,8 +288,9 @@ export function computeSpeedProfile(track: TrackRuntime, line: RacingLine, def: 
       const i = t % n;
       const p = (i - 1 + n) % n;
       const vi = v[i];
-      const cap = (mu * 1.05 * G + mu * cDown * vi * vi) * o.brakeUse * aqua(vi);
-      const dec = longAvail(vi, line.k[i], cap) + cDrag * vi * vi;
+      const mu = muAt[i];
+      const cap = (mu * 1.05 * G + mu * cDown * vi * vi) * o.brakeUse * aquaAt(i, vi);
+      const dec = longAvail(i, vi, line.k[i], cap) + cDrag * vi * vi;
       const vp = Math.sqrt(vi * vi + 2 * dec * line.ds[p]);
       if (vp < v[p]) v[p] = vp;
     }

@@ -6,7 +6,7 @@ import { PlanSampler, buildPlan, resolveMark } from './plan';
 import { buildChannels, buildElevation, interpKeys } from './profile';
 import { TrackRuntimeImpl } from './runtime';
 import { makeTerrain } from './terrain';
-import type { TrackDef } from './types';
+import type { LakeDef, TrackDef } from './types';
 
 export function buildRuntime(def: TrackDef): TrackRuntimeImpl {
   const plan = buildPlan(def.plan, def.dir);
@@ -85,12 +85,33 @@ export function buildRuntime(def: TrackDef): TrackRuntimeImpl {
     });
     terrainParams = { ...def.terrain, bumps: [...(def.terrain.bumps ?? []), ...extra] };
   }
-  const terrain = makeTerrain(terrainParams, {
-    cx: (minX + maxX) / 2,
-    cz: (minZ + maxZ) / 2,
-    halfW: (maxX - minX) / 2,
-    halfH: (maxZ - minZ) / 2,
-  });
+  // a frozen lake placed by mark: its ellipse lies along the road at that mark (the tangent is (sin phi, cos phi))
+  let iceLake: LakeDef | null = null;
+  const fz = def.terrain.frozen;
+  if (fz) {
+    const i = Math.min(N - 1, Math.round(resolveMark(plan.marks, L, fz.at) / spacing));
+    const d = fz.d ?? 0;
+    iceLake = {
+      x: X[i] + Math.cos(PHI[i]) * d,
+      z: Z[i] - Math.sin(PHI[i]) * d,
+      rx: fz.along,
+      rz: fz.across,
+      rot: Math.atan2(Math.cos(PHI[i]), Math.sin(PHI[i])),
+      level: fz.level,
+      depth: 0,
+      shore: fz.shore,
+    };
+  }
+  const terrain = makeTerrain(
+    terrainParams,
+    {
+      cx: (minX + maxX) / 2,
+      cz: (minZ + maxZ) / 2,
+      halfW: (maxX - minX) / 2,
+      halfH: (maxZ - minZ) / 2,
+    },
+    iceLake,
+  );
 
   const sectors: [number, number] = [resolveMark(plan.marks, L, def.sectors[0]), resolveMark(plan.marks, L, def.sectors[1])];
 
@@ -109,8 +130,9 @@ export function buildRuntime(def: TrackDef): TrackRuntimeImpl {
     WL,
     WR,
     ch,
-    crown: def.crown ?? 0.015,
+    crown: def.crown ?? (def.winter ? 0 : 0.015),
     terrain,
+    iceLake,
     info: def.info,
     sectors,
   });

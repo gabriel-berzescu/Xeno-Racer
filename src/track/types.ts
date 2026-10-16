@@ -9,11 +9,11 @@
  */
 import type { TrackInfo } from '../core/contracts';
 
-export type Surf = 'asphalt' | 'curb' | 'concrete' | 'grass' | 'gravel' | 'sand' | 'dirt';
-export const SURF_CODE: Record<Surf, number> = { asphalt: 0, curb: 1, concrete: 2, grass: 3, gravel: 4, sand: 5, dirt: 6 };
-export const SURF_NAME: Surf[] = ['asphalt', 'curb', 'concrete', 'grass', 'gravel', 'sand', 'dirt'];
+export type Surf = 'asphalt' | 'curb' | 'concrete' | 'grass' | 'gravel' | 'sand' | 'dirt' | 'snow' | 'ice' | 'deepsnow';
+export const SURF_CODE: Record<Surf, number> = { asphalt: 0, curb: 1, concrete: 2, grass: 3, gravel: 4, sand: 5, dirt: 6, snow: 7, ice: 8, deepsnow: 9 };
+export const SURF_NAME: Surf[] = ['asphalt', 'curb', 'concrete', 'grass', 'gravel', 'sand', 'dirt', 'snow', 'ice', 'deepsnow'];
 
-export type BarrierKind = 'none' | 'armco' | 'tires' | 'concrete' | 'fence' | 'guardrail' | 'rock' | 'cable' | 'hedge' | 'tunnel';
+export type BarrierKind = 'none' | 'armco' | 'tires' | 'concrete' | 'fence' | 'guardrail' | 'rock' | 'cable' | 'hedge' | 'tunnel' | 'snowbank';
 export const BAR_CODE: Record<BarrierKind, number> = {
   none: 0,
   armco: 1,
@@ -25,8 +25,11 @@ export const BAR_CODE: Record<BarrierKind, number> = {
   cable: 7,
   hedge: 8,
   tunnel: 9,
+  snowbank: 10, // a heap of ploughed snow: a soft barrier that slows a car and does not bounce it
 };
-export const BAR_NAME: BarrierKind[] = ['none', 'armco', 'tires', 'concrete', 'fence', 'guardrail', 'rock', 'cable', 'hedge', 'tunnel'];
+export const BAR_NAME: BarrierKind[] = ['none', 'armco', 'tires', 'concrete', 'fence', 'guardrail', 'rock', 'cable', 'hedge', 'tunnel', 'snowbank'];
+/** How soft a barrier is by kind code (TrackPoint.softLeft / softRight): 0 = a wall, 1 = a snowbank. */
+export const BAR_SOFT: readonly number[] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
 
 export type CurbKind = 'none' | 'apex' | 'exit' | 'chicane';
 export const CURB_CODE: Record<CurbKind, number> = { none: 0, apex: 1, exit: 2, chicane: 3 };
@@ -136,6 +139,37 @@ export interface LakeDef {
   shore: number;
 }
 
+/**
+ * A frozen lake: a flat plateau at `level` (the ice) in an ellipse laid along the road at a mark; the ground blends into it over
+ * `shore` metres. The road that crosses it is at `level` too (the elevation of the lake stretch is flat), and its surface is ice
+ * (`WinterDef.patches`).
+ */
+export interface FrozenLakeDef {
+  /** The middle of the lake: this mark of the circuit, `d` m to its left. */
+  at: Mark;
+  d?: number;
+  /** Half-axes (m) of the ellipse along the road at the mark, and across it. */
+  along: number;
+  across: number;
+  /** Ice surface elevation (m). */
+  level: number;
+  /** Shore softness (m). */
+  shore: number;
+}
+
+/**
+ * A winter circuit: the road is packed snow with stretches of something else (the ice of a frozen lake), the ground beyond the
+ * barriers is deep snow. The physics reads the surfaces; the scene builds snow, ice and snowbanks (src/track/scene/winter.ts).
+ */
+export interface WinterDef {
+  /** The surface of the road (default packed snow). */
+  road?: Surf;
+  /** Stretches of the road with another surface (ice). */
+  patches?: { from: Mark; to: Mark; surf: Surf }[];
+  /** The ground beyond the barriers (default deep snow). */
+  ground?: Surf;
+}
+
 /** Linear tilt with soft floor/ceiling: contributes smoothClamp(h0 + gx (x - x0) + gz (z - z0), lo, hi). */
 export interface Tilt {
   x0: number;
@@ -179,6 +213,8 @@ export interface TerrainParams {
   detailAmp: number;
   detailScale: number;
   lake?: LakeDef;
+  /** A frozen lake (see FrozenLakeDef), placed by mark. */
+  frozen?: FrozenLakeDef;
   bumps?: TerrainBump[];
   /** Bumps placed by track mark (resolved after the plan is built): lateral offset d, radius r, height h. */
   bumpsAt?: { at: Mark; d?: number; r: number; h: number }[];
@@ -234,6 +270,8 @@ export interface TrackDef {
   /** Pavement instead of grass beyond the barriers (a city: the sidewalks). */
   paved?: boolean;
   tunnels?: TunnelDef[];
+  /** A winter circuit: snow, ice and snowbanks (the info says so too: `TrackInfo.winter`). */
+  winter?: WinterDef;
   zones: Zone[];
   sectors: [Mark, Mark];
   terrain: TerrainParams;

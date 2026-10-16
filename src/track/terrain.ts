@@ -4,7 +4,7 @@
  * Pure math (headless).
  */
 import { Noise2, smoothstep } from './math';
-import type { MapRect, TerrainParams } from './types';
+import type { LakeDef, MapRect, TerrainParams } from './types';
 
 export interface TerrainFn {
   (x: number, z: number): number;
@@ -12,6 +12,8 @@ export interface TerrainFn {
   lakeLevel: number | null;
   /** Signed distance (m) from (x, z) to the sea's edge: negative in the water, positive on land; Infinity without a sea. */
   seaDistance: (x: number, z: number) => number;
+  /** How much of a frozen lake the ground at (x, z) is: 1 on the ice plateau .. 0 on the land (a ragged shore between); 0 without a frozen lake. */
+  iceMask: (x: number, z: number) => number;
 }
 
 /** Signed distance to an axis-aligned rectangle (negative inside). */
@@ -30,13 +32,15 @@ export interface TerrainBounds {
   halfH: number;
 }
 
-export function makeTerrain(p: TerrainParams, b: TerrainBounds): TerrainFn {
+export function makeTerrain(p: TerrainParams, b: TerrainBounds, ice?: LakeDef | null): TerrainFn {
   const n1 = new Noise2(p.seed);
   const n2 = new Noise2(p.seed * 31 + 7);
   const n3 = new Noise2(p.seed * 131 + 11);
   const lake = p.lake;
   const cosR = lake ? Math.cos(lake.rot) : 1;
   const sinR = lake ? Math.sin(lake.rot) : 0;
+  const cosI = ice ? Math.cos(ice.rot) : 1;
+  const sinI = ice ? Math.sin(ice.rot) : 0;
   const bumps = p.bumps ?? [];
   const tilts = p.tilts ?? [];
   const mt = p.mountains;
@@ -49,6 +53,20 @@ export function makeTerrain(p: TerrainParams, b: TerrainBounds): TerrainFn {
     let l = Infinity;
     for (const r of sea.land) l = Math.min(l, rectDistance(-x, z, r));
     return Math.max(w, -l);
+  };
+
+  // a frozen lake: 1 on the flat ice, falling to 0 over the ragged shore (an ellipse whose outline is warped by noise)
+  const iceMask = (x: number, z: number): number => {
+    if (!ice) return 0;
+    const dx = x - ice.x;
+    const dz = z - ice.z;
+    const wqx = dx + 40 * n3.noise(x / 210 + 2.2, z / 210 + 6.6) + 18 * n3.noise(x / 70, z / 70);
+    const wqz = dz + 40 * n3.noise(x / 210 - 8.1, z / 210 + 4.4) + 18 * n3.noise(x / 70 + 4, z / 70 - 5);
+    const u = (wqx * cosI + wqz * sinI) / ice.rx;
+    const v = (-wqx * sinI + wqz * cosI) / ice.rz;
+    const q = Math.sqrt(u * u + v * v);
+    const shoreW = ice.shore / Math.min(ice.rx, ice.rz);
+    return 1 - smoothstep(1 - shoreW, 1 + shoreW, q);
   };
 
   const fn = ((x: number, z: number): number => {
@@ -89,6 +107,11 @@ export function makeTerrain(p: TerrainParams, b: TerrainBounds): TerrainFn {
         h = h + (bowl - h) * m;
       }
     }
+    if (ice) {
+      // the ice is a plateau: dead flat at its level inside, the ground blends into it over the shore
+      const m = iceMask(x, z);
+      if (m > 0) h += (ice.level - h) * m;
+    }
     if (mt) {
       const dx = Math.max(0, Math.abs(x - b.cx) - b.halfW);
       const dz = Math.max(0, Math.abs(z - b.cz) - b.halfH);
@@ -118,5 +141,6 @@ export function makeTerrain(p: TerrainParams, b: TerrainBounds): TerrainFn {
   }) as TerrainFn;
   fn.lakeLevel = lake ? lake.level : sea ? sea.level : null;
   fn.seaDistance = seaDistance;
+  fn.iceMask = iceMask;
   return fn;
 }
