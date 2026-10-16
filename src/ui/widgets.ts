@@ -332,6 +332,8 @@ export interface StepperBinding {
   desc?: string;
   min: number;
   max: number;
+  /** The largest value right now, when it can change (the opponents a grid has room for follow the number of players); `max` otherwise. */
+  limit?(): number;
   step?: number;
   get(): number;
   set(v: number): void;
@@ -349,7 +351,7 @@ export function stepperRow(ctx: UiCtx, b: StepperBinding, opts: RowOpts = {}): R
     val.textContent = b.fmt ? b.fmt(b.get()) : '' + b.get();
   };
   const apply = (raw: number): boolean => {
-    const v = snap(raw, b.min, b.max, step);
+    const v = snap(raw, b.min, b.limit ? b.limit() : b.max, step);
     if (v === b.get()) return false;
     b.set(v);
     refresh();
@@ -478,15 +480,31 @@ export class TabBar {
     this.left = h('span');
     this.right = h('span');
     if (opts.glyphs !== false) this.el.appendChild(this.left);
-    tabs.forEach((t, i) => {
-      const e = h('div', 'tab focusable', t.label);
-      e.addEventListener('click', () => this.select(i));
-      this.tabEls.push(e);
-      this.el.appendChild(e);
-    });
-    if (opts.glyphs !== false) this.el.appendChild(this.right);
+    this.glyphs = opts.glyphs !== false;
+    if (this.glyphs) this.el.appendChild(this.right);
+    this.setTabs(tabs.map((t) => t.label));
     this.renderGlyphs();
     ctx.onDevice(() => this.renderGlyphs());
+    this.mark();
+  }
+
+  private readonly glyphs: boolean;
+
+  /**
+   * Replace the tabs with these (the setup wizard grows a fourth step when a second player joins). The selected index is kept if
+   * it still exists, else it falls back to the last tab.
+   */
+  setTabs(labels: readonly string[]): void {
+    for (const e of this.tabEls) e.remove();
+    this.tabEls.length = 0;
+    labels.forEach((label, i) => {
+      const e = h('div', 'tab focusable', label);
+      e.addEventListener('click', () => this.select(i));
+      this.tabEls.push(e);
+      if (this.glyphs) this.el.insertBefore(e, this.right);
+      else this.el.appendChild(e);
+    });
+    this.index = Math.min(this.index, Math.max(0, labels.length - 1));
     this.mark();
   }
 

@@ -45,10 +45,12 @@ import type {
   EnvironmentState,
   GraphicsSettings,
   QualityLevel,
+  SplitLayout,
   Weather,
   WeatherState,
 } from '../core/contracts';
 import { WEATHER_WATER } from '../core/contracts';
+import { splitGeometry, splitGraphics, type Rect, type SplitGeometry } from '../core/split';
 import type { RenderSystem } from '../core/systems';
 import { FOG_TABLE_SIZE } from './atmosphere';
 import { casterKinds } from './casters';
@@ -83,6 +85,19 @@ export interface RenderStats {
   gpuMemMB: number;
   /** Per-pass GPU ms (smoothed); only filled while profiling is on (debug.profile = true). */
   passMs: Record<string, number>;
+}
+
+/**
+ * One view of a split-screen frame (renderViews): the camera, the car it films (the sun's cascades, the street lamps and the rain
+ * on the glass are fitted around it), that car's speed (blur, drops) and where the driver sits.
+ */
+export interface ViewSpec {
+  camera: PerspectiveCamera;
+  focus: Vector3;
+  /** m/s. */
+  speed: number;
+  /** The rain on the glass is the windscreen and its wiper (true), a lens on the bodywork (false), or guessed from the camera's distance to the car (null). */
+  cockpit: boolean | null;
 }
 
 /** What createEffects / the sandbox may use beyond the public contract. */
@@ -164,6 +179,27 @@ export interface XenoRenderSystem extends RenderSystem {
   setMirrors(f: MirrorFrame): void;
   /** The HUD mirror strip is on screen (or fading in): the DOM HUD keeps its toasts clear of it. */
   readonly mirrorStrip: boolean;
+  /**
+   * Split screen: cut the canvas into two views of one layout (null = one view over all of it again). The buffers of the post
+   * chain take the size of one view, the graphics are trimmed for the split (src/core/split.ts splitGraphics), and from then on
+   * frames are drawn with renderViews(). Call it behind a loading screen, before precompile().
+   */
+  setSplit(layout: SplitLayout | null): void;
+  /** The layout of the split screen, or null while the screen is whole. */
+  readonly split: SplitLayout | null;
+  /** The two views' rectangles in CSS pixels (y from the top), or null while the screen is whole. */
+  readonly splitView: SplitGeometry | null;
+  /**
+   * Draw a split-screen frame: view 0, then view 1, each through the whole post chain into its half of the canvas. `prepare(i)` is
+   * called right before view i is drawn: it is where the game points everything that depends on the camera at it (the track scene,
+   * the effects, which of the cars shows its interior and its headlight beams). `dt` is the frame's, once, for the sky, the weather
+   * and the clocks of each view's glass.
+   */
+  renderViews(dt: number, views: readonly ViewSpec[], prepare: (index: number) => void): void;
+  /** renderViews() right now, whatever the frame cap, for the hidden warm-up frame (see renderNow). */
+  renderViewsNow(dt: number, views: readonly ViewSpec[], prepare: (index: number) => void): void;
+  /** The wiper of a view as the last frame drew it (see `wiper`, which is the whole screen's one view's). */
+  wiperOf(view: 0 | 1): WiperFeed;
 }
 
 interface Tier {
@@ -206,6 +242,29 @@ function smoothstep(a: number, b: number, x: number): number {
 }
 
 const yieldToBrowser = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
+
+/**
+ * What a view keeps from one frame to the next: the rain on its glass and the blade across it, the clock of its droplet pass, and the
+ * camera rotation its motion blur follows. A whole screen has one; a split screen two (the passes are shared, the state is swapped).
+ */
+class ViewState {
+  /** The rain on the glass: wet within seconds of the first drops, dry again only slowly. */
+  glass = 0;
+  /** The driver has put the wipers on. */
+  wiperOn = false;
+  /** The rain the wipers are set for: the blade's schedule and its sound are built on it, so it changes only while the blade is parked. */
+  wipeRain = 0;
+  /** Seconds a change of the wiper setting has waited for the blade to be parked. */
+  wipeWait = 0;
+  /** The clock of the droplet pass while this view is drawn. */
+  dropClock = 0;
+  /** What the droplet pass did the last time this view was drawn (the wiper's sound follows it). */
+  dropsOn = false;
+  dropsLens = false;
+  readonly prevQuat = new Quaternion();
+  havePrevQuat = false;
+  readonly pan = new Vector2();
+}
 
 interface GpuTimer {
   gl: WebGL2RenderingContext;
@@ -250,6 +309,12 @@ class RenderSystemImpl implements XenoRenderSystem {
   private dropletPass: DropletPass | null = null;
   private readonly wiperOut: WiperFeed = makeWiperFeed();
   private cockpitView: boolean | null = null;
+  /** The views: one, and a second while the screen is split. */
+  private readonly views: ViewState[] = [new ViewState(), new ViewState()];
+  /** The two rectangles of a split screen (null: one view over the canvas). */
+  private splitGeo: SplitGeometry | null = null;
+  /** The graphics the pipeline is built from: the player's, trimmed while the screen is split. */
+  private effective: GraphicsSettings;
   private aaEffect: SMAAEffect | FXAAEffect | null = null;
   private pipelineKey = '';
   private flashAmp = 0;
@@ -297,14 +362,6 @@ class RenderSystemImpl implements XenoRenderSystem {
   private envScale = 1;
   /** Do the shadow maps matter (is there a sun)? When not, a race that keeps its cascades through the rain stops drawing them. */
   private shadowsLive = true;
-  /** The rain on the glass: wet within seconds of the first drops, dry again only slowly. */
-  private glass = 0;
-  /** The driver has put the wipers on. */
-  private wiperOn = false;
-  /** The rain the wipers are set for: the blade's schedule and its sound are built on it, so it changes only while the blade is parked. */
-  private wipeRain = 0;
-  /** Seconds a change of the wiper setting has waited for the blade to be parked. */
-  private wipeWait = 0;
   private readonly wipeState = makeWiperState();
 
   private readonly hemi = new HemisphereLight(0xffffff, 0x444444, 1);
@@ -323,11 +380,8 @@ class RenderSystemImpl implements XenoRenderSystem {
   private frameIndex = 0;
   private lastStart = 0;
   private lastRenderEnd = 0;
-  private readonly prevQuat = new Quaternion();
   private readonly curQuat = new Quaternion();
   private readonly dq = new Quaternion();
-  private havePrevQuat = false;
-  private readonly pan = new Vector2();
   private gpu: GpuTimer | null = null;
   profiling = false;
   private disposed = false;
@@ -362,6 +416,7 @@ class RenderSystemImpl implements XenoRenderSystem {
     r.setClearColor(0x000000, 1);
 
     this.graphics = { ...g };
+    this.effective = this.graphics;
     this.tier = tierFor(g.quality);
 
     this.scene.name = 'xr.scene';
@@ -463,6 +518,15 @@ class RenderSystemImpl implements XenoRenderSystem {
     this.lastStart = 0;
     // the hidden warm-up frame draws every mirror once too, so their targets and passes exist before the race
     this.mirrors.forceNext();
+    this.warmFrame(() => this.render(camera, dt, speed));
+  }
+
+  renderViewsNow(dt: number, views: readonly ViewSpec[], prepare: (index: number) => void): void {
+    this.lastStart = 0;
+    this.warmFrame(() => this.renderViews(dt, views, prepare));
+  }
+
+  private warmFrame(draw: () => void): void {
     this.warming = true;
     // The shadow pass of this frame draws one caster of every kind of depth program wherever it stands, each with a depth material
     // of its own (see casterKinds). three.js draws all that has no alpha test with one shared depth material, and it picks the
@@ -476,7 +540,7 @@ class RenderSystemImpl implements XenoRenderSystem {
       o.customDepthMaterial = depth[i];
     });
     try {
-      this.render(camera, dt, speed);
+      draw();
     } finally {
       this.warming = false;
       kinds.forEach((o, i) => {
@@ -514,7 +578,27 @@ class RenderSystemImpl implements XenoRenderSystem {
   resize(width: number, height: number): void {
     this.cssW = Math.max(1, Math.floor(width));
     this.cssH = Math.max(1, Math.floor(height));
+    if (this.splitGeo) this.splitGeo = splitGeometry(this.cssW, this.cssH, this.splitGeo.layout);
     this.updateSize();
+  }
+
+  setSplit(layout: SplitLayout | null): void {
+    const was = this.splitGeo !== null;
+    this.splitGeo = layout ? splitGeometry(this.cssW, this.cssH, layout) : null;
+    if (was) this.endViews();
+    this.sun.select(0);
+    if (!layout) this.sun.releaseSecond();
+    for (const v of this.views) v.havePrevQuat = false;
+    // the graphics are trimmed for the split (or given back), the buffers take the size of a view, a pipeline whose passes differ is rebuilt
+    this.applyGraphicsInternal(false);
+  }
+
+  get split(): SplitLayout | null {
+    return this.splitGeo ? this.splitGeo.layout : null;
+  }
+
+  get splitView(): SplitGeometry | null {
+    return this.splitGeo;
   }
 
   setCloudTime(t: number): void {
@@ -603,6 +687,17 @@ class RenderSystemImpl implements XenoRenderSystem {
     return p.wiperFeed(f);
   }
 
+  wiperOf(view: 0 | 1): WiperFeed {
+    const f = this.wiperOut;
+    const v = this.views[view];
+    // (as DropletPass.wiperFeed: the pass ran, with the blade, on the windscreen)
+    f.drawn = v.dropsOn && v.wiperOn && !v.dropsLens;
+    f.time = v.dropClock;
+    f.rain = v.wipeRain;
+    wiperStateInto(f.state, f.time, f.rain);
+    return f;
+  }
+
   get debug(): XenoRenderSystem['debug'] {
     const self = this;
     return {
@@ -625,10 +720,92 @@ class RenderSystemImpl implements XenoRenderSystem {
   render(camera: PerspectiveCamera, dt: number, speed: number): void {
     if (this.disposed) return;
     const t0 = performance.now();
+    dt = this.beginFrame(t0, dt);
+    if (dt < 0) return;
 
+    this.setCamera(camera);
+    camera.updateMatrixWorld();
+    if (!Number.isFinite(speed)) speed = 0;
+    this.frameIndex++;
+    this.prepareView(this.views[0], camera, this.focus, this.cockpitView, speed, dt, dt);
+
+    this.renderer.info.reset();
+    this.beginGpu();
+    this.composer.render(dt);
+    // The mirrors after the picture: this frame's shadow maps are done (no mirror pass draws them again) and the glass in
+    // the next picture shows what is drawn here, a frame behind, which a mirror does not show.
+    this.mirrors.setWeather(this.views[0].glass);
+    this.mirrors.render(camera, dt, this.stats.height, this.pixelRatio, this.cssW, this.cssH);
+    this.mirrors.drawStrip(this.cssW, this.cssH, this.pixelRatio);
+    this.endGpu();
+    this.endFrame(t0);
+  }
+
+  renderViews(dt: number, specs: readonly ViewSpec[], prepare: (index: number) => void): void {
+    if (this.disposed || specs.length === 0) return;
+    const geo = this.splitGeo;
+    if (!geo) {
+      // the screen is whole: the first view is all of it
+      prepare(0);
+      this.focus.copy(specs[0].focus);
+      this.cockpitView = specs[0].cockpit;
+      this.render(specs[0].camera, dt, specs[0].speed);
+      return;
+    }
+    const t0 = performance.now();
+    dt = this.beginFrame(t0, dt);
+    if (dt < 0) return;
+    this.frameIndex++;
+    this.focus.copy(specs[0].focus);
+
+    this.renderer.info.reset();
+    this.beginGpu();
+    const n = Math.min(2, specs.length);
+    // The cascades of both views are fitted before the first is drawn: the lights move now, and the one pass over the scene's matrices
+    // that the first view's draw makes serves the second view too (nothing moves between the views, only what is shown in each).
+    let due = 0;
+    for (let i = 0; i < n; i++) {
+      this.sun.select(i === 0 ? 0 : 1);
+      if (this.fitSun(specs[i].focus)) due |= 1 << i;
+    }
+    try {
+      for (let i = 0; i < n; i++) {
+        const spec = specs[i];
+        // what depends on the camera is pointed at it just before it is drawn (the track scene, the effects, the cars' interiors)
+        prepare(i);
+        this.sun.select(i === 0 ? 0 : 1);
+        this.renderer.shadowMap.needsUpdate = (due & (1 << i)) !== 0;
+        this.setCamera(spec.camera);
+        spec.camera.updateMatrixWorld();
+        // (the sky, the weather and the clocks of the glass move once a frame: the second view only re-aims the lamps)
+        const v = this.views[i];
+        const speed = Number.isFinite(spec.speed) ? spec.speed : 0;
+        this.updateDroplets(v, spec.camera, spec.focus, spec.cockpit, dt, speed);
+        this.updateLamps(spec.camera, spec.focus, i === 0 ? dt : 0);
+        this.updateSpeedEffects(v, spec.camera, dt, speed);
+        this.updateShafts(spec.camera);
+        if (this.finalEffect) this.finalEffect.seed = (this.frameIndex % 64) / 64;
+        this.aimView(geo.views[i]);
+        this.scene.matrixWorldAutoUpdate = i === 0;
+        this.composer.render(dt);
+      }
+    } finally {
+      // (whatever happens in a view, the scene's matrices update again and the canvas is whole again)
+      this.scene.matrixWorldAutoUpdate = true;
+      this.endViews();
+    }
+    this.endGpu();
+    this.endFrame(t0);
+  }
+
+  /**
+   * The start of a frame, whatever the number of views: the frame cap, the clocks, and everything that moves once a frame (the sky,
+   * the weather, the lightning). Returns the frame's dt, or -1 when the cap skips the frame.
+   */
+  private beginFrame(t0: number, dt: number): number {
     // frame cap
     const cap = this.graphics.maxFps;
-    if (cap > 0 && this.lastStart > 0 && t0 - this.lastStart < 1000 / cap - 1.2) return;
+    if (cap > 0 && this.lastStart > 0 && t0 - this.lastStart < 1000 / cap - 1.2) return -1;
 
     const interval = this.lastStart > 0 ? t0 - this.lastStart : 16.7;
     this.lastStart = t0;
@@ -636,12 +813,9 @@ class RenderSystemImpl implements XenoRenderSystem {
     s.frameMs += (Math.min(interval, 250) - s.frameMs) * 0.08;
     s.fps = 1000 / Math.max(s.frameMs, 0.01);
 
-    this.setCamera(camera);
-    camera.updateMatrixWorld();
     // never let a bad number from the caller reach the GPU: one NaN pixel is smeared over the whole
     // frame by the bloom blur
     dt = Number.isFinite(dt) && dt > 0 ? Math.min(Math.max(dt, 1 / 500), 0.25) : 1 / 60;
-    if (!Number.isFinite(speed)) speed = 0;
 
     // A pipeline rebuilt in the middle of a race (a change of the graphics settings) has new wet-weather passes, and a pass builds
     // its programs when it is first drawn: so the first frame after the rebuild draws them once, as the warm-up frame does (nothing
@@ -654,34 +828,41 @@ class RenderSystemImpl implements XenoRenderSystem {
     this.updateFlash(dt);
     // (the warm-up frame runs the wet-road reflections too wherever rain can come, so their programs are built behind the loading screen)
     if (this.ssrPass) this.ssrPass.enabled = this.env.wetness > 0.02 || (this.warmPasses && this.wetPossible);
-    this.updateDroplets(camera, dt, speed);
-    this.updateLamps(camera, dt);
-    this.frameIndex++;
-    // A race whose weather changes keeps its cascades through the rain (taking them away would change every program) and fades
-    // their strength to nothing: with no sun to cast them the maps are not drawn at all, and drawn at once when it comes back.
-    // (The first draw of the shadow pass makes the maps and builds its depth programs, and nothing sampling a map that does not
-    // exist can be drawn at all: so the hidden warm-up frame draws them whatever the sky, and so does any frame that finds a map
-    // missing, as after a change of the shadow quality in the middle of a storm.)
+    return dt;
+  }
+
+  /**
+   * What a view needs settled before it is drawn: the rain on its glass, the street lamps and the sun's cascades around the car it
+   * films, the camera blur and the sun shafts. `lampDt` is 0 for the second view of a frame (the lamp search has its own clock).
+   */
+  private prepareView(v: ViewState, camera: PerspectiveCamera, focus: Vector3, cockpit: boolean | null, speed: number, dt: number, lampDt: number): void {
+    this.updateDroplets(v, camera, focus, cockpit, dt, speed);
+    this.updateLamps(camera, focus, lampDt);
+    this.renderer.shadowMap.needsUpdate = this.fitSun(focus);
+    this.updateSpeedEffects(v, camera, dt, speed);
+    this.updateShafts(camera);
+    if (this.finalEffect) this.finalEffect.seed = (this.frameIndex % 64) / 64;
+  }
+
+  /**
+   * Fit the cascades of the sun's set in use around `focus`: true when a shadow map has to be drawn with this view.
+   * A race whose weather changes keeps its cascades through the rain (taking them away would change every program) and fades
+   * their strength to nothing: with no sun to cast them the maps are not drawn at all, and drawn at once when it comes back.
+   * (The first draw of the shadow pass makes the maps and builds its depth programs, and nothing sampling a map that does not
+   * exist can be drawn at all: so the hidden warm-up frame draws them whatever the sky, and so does any frame that finds a map
+   * missing, as after a change of the shadow quality in the middle of a storm.)
+   */
+  private fitSun(focus: Vector3): boolean {
     const mapsReady = this.sun.mapsReady;
     if (!mapsReady) this.sun.markDirty();
     const sunny = !this.fc || this.warming || !mapsReady || (this.solution?.shadowIntensity ?? 1) >= 0.004;
     if (sunny && !this.shadowsLive) this.sun.markDirty();
     this.shadowsLive = sunny;
-    this.renderer.shadowMap.needsUpdate = this.sun.update(this.focus, this.frameIndex) && sunny;
-    this.updateSpeedEffects(camera, dt, speed);
-    this.updateShafts(camera);
-    if (this.finalEffect) this.finalEffect.seed = (this.frameIndex % 64) / 64;
+    return this.sun.update(focus, this.frameIndex) && sunny;
+  }
 
-    this.renderer.info.reset();
-    this.beginGpu();
-    this.composer.render(dt);
-    // The mirrors after the picture: this frame's shadow maps are done (no mirror pass draws them again) and the glass in
-    // the next picture shows what is drawn here, a frame behind, which a mirror does not show.
-    this.mirrors.setWeather(this.glass);
-    this.mirrors.render(camera, dt, this.stats.height, this.pixelRatio, this.cssW, this.cssH);
-    this.mirrors.drawStrip(this.cssW, this.cssH, this.pixelRatio);
-    this.endGpu();
-
+  private endFrame(t0: number): void {
+    const s = this.stats;
     const info = this.renderer.info.render;
     s.drawCalls = info.calls;
     s.triangles = info.triangles;
@@ -689,6 +870,20 @@ class RenderSystemImpl implements XenoRenderSystem {
     s.cpuMs += (cpu - s.cpuMs) * 0.1;
     this.pollGpu();
     this.lastRenderEnd = performance.now();
+  }
+
+  /** Aim the final pass at one view's rectangle of the canvas (the post chain itself works at the size of a view). */
+  private aimView(r: Rect): void {
+    const y = this.cssH - (r.y + r.h);
+    this.renderer.setViewport(r.x, y, r.w, r.h);
+    this.renderer.setScissor(r.x, y, r.w, r.h);
+    this.renderer.setScissorTest(true);
+  }
+
+  /** The whole canvas again. */
+  private endViews(): void {
+    this.renderer.setScissorTest(false);
+    this.renderer.setViewport(0, 0, this.cssW, this.cssH);
   }
 
   dispose(): void {
@@ -725,12 +920,13 @@ class RenderSystemImpl implements XenoRenderSystem {
     this.composer.setMainCamera(camera);
     this.particlePass.mainCamera = camera;
     if (this.aoPass) this.aoPass.camera = camera;
-    this.havePrevQuat = false;
+    // (a new camera on a whole screen starts the blur over; the two views of a split screen each keep their own history)
+    if (!this.splitGeo) this.views[0].havePrevQuat = false;
   }
 
   private computePixelRatio(): number {
     const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
-    let pr = Math.min(dpr, 2) * Math.min(Math.max(this.graphics.renderScale, 0.5), 1.5);
+    let pr = Math.min(dpr, 2) * Math.min(Math.max(this.effective.renderScale, 0.5), 1.5);
     const pixels = this.cssW * this.cssH * pr * pr;
     if (pixels > MAX_PIXELS) pr *= Math.sqrt(MAX_PIXELS / pixels);
     return Math.max(MIN_SCALE, pr);
@@ -741,16 +937,33 @@ class RenderSystemImpl implements XenoRenderSystem {
     this.pixelRatio = pr;
     this.renderer.setPixelRatio(pr);
     this.renderer.setSize(this.cssW, this.cssH, false);
-    this.composer.setSize(this.cssW, this.cssH, false);
-    const sz = this.renderer.getDrawingBufferSize(new Vector2());
+    this.sizeComposer();
+    // (the size the scene is drawn at: the canvas, or one view of it)
+    const sz = this.splitGeo
+      ? new Vector2(Math.floor(this.splitGeo.views[0].w * pr), Math.floor(this.splitGeo.views[0].h * pr))
+      : this.renderer.getDrawingBufferSize(new Vector2());
     this.stats.width = sz.x;
     this.stats.height = sz.y;
     this.stats.gpuMemMB = this.estimateMemoryMB();
   }
 
+  /**
+   * The post chain works at the size of a view: all of the canvas, or one half of it while the screen is split. (The composer sizes
+   * its buffers by resizing the renderer, so the canvas is put back to its own size afterwards.)
+   */
+  private sizeComposer(): void {
+    const g = this.splitGeo;
+    if (!g) {
+      this.composer.setSize(this.cssW, this.cssH, false);
+      return;
+    }
+    this.composer.setSize(g.views[0].w, g.views[0].h, false);
+    this.renderer.setSize(this.cssW, this.cssH, false);
+  }
+
   /** Rough but honest: every full-screen target the pipeline allocates, plus the shadow maps. */
   private estimateMemoryMB(): number {
-    const g = this.graphics;
+    const g = this.effective;
     const px = this.stats.width * this.stats.height;
     let bytes = px * (8 * 2 + 4 * 2 + 4); // two RGBA16F buffers, their depth, the stable depth copy
     if (g.ambientOcclusion) bytes += px * 0.25 * 8 * 3 + px * 0.25 * 4;
@@ -765,7 +978,8 @@ class RenderSystemImpl implements XenoRenderSystem {
   }
 
   private applyGraphicsInternal(first: boolean): void {
-    const g = this.graphics;
+    // (the player's graphics, trimmed while the screen is split)
+    const g = (this.effective = this.splitGeo ? splitGraphics(this.graphics) : this.graphics);
     this.tier = tierFor(g.quality);
     this.sky.setQuality(this.tier.skyHigh);
     this.mirrors.setTier(g.quality);
@@ -790,7 +1004,7 @@ class RenderSystemImpl implements XenoRenderSystem {
 
   /** Cascades follow the graphics setting, unless the weather has no sun to cast them (rain, storm) at any point of the race. */
   private configureShadows(): void {
-    const g = this.graphics;
+    const g = this.effective;
     const shadowless = this.solution !== null && !this.shadowsWanted(this.solution);
     const cfg = shadowless ? SHADOW_OFF : shadowConfigFor(g.shadows, g.quality);
     this.sun.configure(cfg);
@@ -800,7 +1014,7 @@ class RenderSystemImpl implements XenoRenderSystem {
   }
 
   private pipelineSignature(): string {
-    const g = this.graphics;
+    const g = this.effective;
     return [g.quality, g.antialias, g.ambientOcclusion ? 1 : 0, g.bloom ? 1 : 0, g.motionBlur ? 1 : 0].join('|');
   }
 
@@ -824,7 +1038,7 @@ class RenderSystemImpl implements XenoRenderSystem {
     const key = this.pipelineSignature();
     if (!force && key === this.pipelineKey) return;
     this.pipelineKey = key;
-    const g = this.graphics;
+    const g = this.effective;
     const tier = this.tier;
     const composer = this.composer;
 
@@ -944,6 +1158,8 @@ class RenderSystemImpl implements XenoRenderSystem {
     if (this.aoPass) this.aoPass.camera = this.camera;
 
     // (a rebuild in the middle of a race: the new wet-weather passes are drawn once on the next frame, see render)
+    // (new passes are sized to the canvas: a split screen sizes them to a view)
+    if (this.splitGeo) this.sizeComposer();
     this.rewarm = !force && this.wetPossible;
     if (this.solution) this.applyExposure();
   }
@@ -982,7 +1198,7 @@ class RenderSystemImpl implements XenoRenderSystem {
    * After dark the street lamps nearest to the focus car light every lit material (shaderPatches, 3.). The track scene
    * publishes the lamp heads in userData.xrLamps; the lookup is repeated every couple of seconds (track changes).
    */
-  private updateLamps(camera: PerspectiveCamera, dt: number): void {
+  private updateLamps(camera: PerspectiveCamera, focus: Vector3, dt: number): void {
     const col = xrLampColUniform.value;
     const slots = xrLampUniform.value;
     this.lampScanT -= dt;
@@ -1013,8 +1229,8 @@ class RenderSystemImpl implements XenoRenderSystem {
     col[3] = 1;
     // around the car being filmed (the subject of a TV shot can be far from the camera; in the chase and cockpit
     // views it is right there anyway)
-    const cx = this.focus.x;
-    const cz = this.focus.z;
+    const cx = focus.x;
+    const cz = focus.z;
     const dist = this.lampD2;
     const idx = this.lampIx;
     let n = 0;
@@ -1060,29 +1276,34 @@ class RenderSystemImpl implements XenoRenderSystem {
     xrLampUpUniform.value.set([v.x, v.y, v.z]);
   }
 
-  private updateDroplets(camera: PerspectiveCamera, dt: number, speed: number): void {
+  /** `focus` is the car the camera rides on, `cockpitHint` how the rain on the glass is seen (see ViewSpec.cockpit). */
+  private updateDroplets(v: ViewState, camera: PerspectiveCamera, focus: Vector3, cockpitHint: boolean | null, dt: number, speed: number): void {
     const p = this.dropletPass;
     if (!p) return;
     const rain = this.env.rain;
     // The glass wets within seconds of the first drops and dries more slowly than the rain stops: so the first drops are drops, and
     // the last ones do not vanish.
-    this.glass += (rain - this.glass) * (1 - Math.exp(-dt / (rain > this.glass ? 2.5 : 16)));
-    if (rain === 0 && this.glass < 5e-4) this.glass = 0;
+    v.glass += (rain - v.glass) * (1 - Math.exp(-dt / (rain > v.glass ? 2.5 : 16)));
+    if (rain === 0 && v.glass < 5e-4) v.glass = 0;
     camera.getWorldPosition(this._camPos);
-    const d = this._camPos.distanceTo(this.focus);
+    const d = this._camPos.distanceTo(focus);
     const interior = d < 3.4;
-    const live = this.glass > 0.004 && interior;
+    const live = v.glass > 0.004 && interior;
     // (a warm-up frame runs the pass wherever the camera is, so that its program is built before the rain, wherever rain can
     // come: with no drops to show there it leaves the picture as it is)
     p.enabled = live || (this.warmPasses && this.wetPossible);
+    v.dropsOn = p.enabled;
     if (!p.enabled) return;
-    this.updateWiper(p.clock, dt);
-    p.rain = this.wipeRain;
-    p.glass = live ? this.glass : 0;
-    p.wiper = this.wiperOn;
+    // (the pass is shared by the views: its clock is this view's while it is drawn)
+    p.setClock(v.dropClock);
+    this.updateWiper(v, p.clock, dt);
+    p.rain = v.wipeRain;
+    p.glass = live ? v.glass : 0;
+    p.wiper = v.wiperOn;
     p.speed = speed;
-    const cockpit = this.cockpitView ?? d < 1.4;
+    const cockpit = cockpitHint ?? d < 1.4;
     p.lens = !cockpit;
+    v.dropsLens = p.lens;
     p.strength = cockpit ? 1 : 0.7;
     const sol = this.solution;
     if (sol) {
@@ -1092,6 +1313,7 @@ class RenderSystemImpl implements XenoRenderSystem {
       p.sky.b = sol.skyAmbient[2] * k;
     }
     p.tick(dt);
+    v.dropClock = p.clock;
   }
 
   /**
@@ -1100,22 +1322,22 @@ class RenderSystemImpl implements XenoRenderSystem {
    * which would put the blade somewhere else at once and make the sound start over: so a change is made while the blade is parked,
    * in the schedule it leaves and in the one it joins (or after a few seconds, if that does not come).
    */
-  private updateWiper(clock: number, dt: number): void {
-    const g = this.glass;
-    const on = this.wiperOn ? g >= 0.05 : g > 0.2;
-    const rain = on && (!this.wiperOn || Math.abs(g - this.wipeRain) > 0.1) ? g : this.wipeRain;
-    if (on === this.wiperOn && rain === this.wipeRain) {
-      this.wipeWait = 0;
+  private updateWiper(v: ViewState, clock: number, dt: number): void {
+    const g = v.glass;
+    const on = v.wiperOn ? g >= 0.05 : g > 0.2;
+    const rain = on && (!v.wiperOn || Math.abs(g - v.wipeRain) > 0.1) ? g : v.wipeRain;
+    if (on === v.wiperOn && rain === v.wipeRain) {
+      v.wipeWait = 0;
       return;
     }
-    this.wipeWait += dt;
+    v.wipeWait += dt;
     const s = this.wipeState;
-    const parkedNow = !this.wiperOn || wiperStateInto(s, clock, this.wipeRain).stroke === 'parked';
+    const parkedNow = !v.wiperOn || wiperStateInto(s, clock, v.wipeRain).stroke === 'parked';
     const parkedNext = !on || wiperStateInto(s, clock, rain).stroke === 'parked';
-    if ((parkedNow && parkedNext) || this.wipeWait > 6) {
-      this.wiperOn = on;
-      this.wipeRain = rain;
-      this.wipeWait = 0;
+    if ((parkedNow && parkedNext) || v.wipeWait > 6) {
+      v.wiperOn = on;
+      v.wipeRain = rain;
+      v.wipeWait = 0;
     }
   }
 
@@ -1167,7 +1389,7 @@ class RenderSystemImpl implements XenoRenderSystem {
   private applySolution(sol: EnvSolution): void {
     const hadShadows = this.sun.cascadeCount > 0;
     this.solution = sol;
-    if (this.graphics.shadows !== 'off' && hadShadows !== this.shadowsWanted(sol)) {
+    if (this.effective.shadows !== 'off' && hadShadows !== this.shadowsWanted(sol)) {
       this.configureShadows();
       this.shadowProgramsChanged = true;
     }
@@ -1189,10 +1411,12 @@ class RenderSystemImpl implements XenoRenderSystem {
     env.rain = this.wx.rain;
     env.wetness = this.wx.wetness;
     // the rain is on the glass from the start (a changing weather starts with the glass as dry or as wet as its first weather)
-    this.glass = env.rain;
-    this.wiperOn = this.glass > 0.2;
-    this.wipeRain = env.rain;
-    this.wipeWait = 0;
+    for (const v of this.views) {
+      v.glass = env.rain;
+      v.wiperOn = v.glass > 0.2;
+      v.wipeRain = env.rain;
+      v.wipeWait = 0;
+    }
     const e = sol.exposure;
     const toDisplay = (x: number) => 1 - Math.exp(-x * e * 1.1);
     env.fogColor = '#' + new Color().setRGB(toDisplay(sol.fogColor[0]), toDisplay(sol.fogColor[1]), toDisplay(sol.fogColor[2])).getHexString();
@@ -1309,7 +1533,7 @@ class RenderSystemImpl implements XenoRenderSystem {
     this.scene.environmentIntensity = sol.envIntensity;
   }
 
-  private updateSpeedEffects(camera: PerspectiveCamera, dt: number, speed: number): void {
+  private updateSpeedEffects(v: ViewState, camera: PerspectiveCamera, dt: number, speed: number): void {
     const fx = this.speedEffect;
     if (!fx) return;
     const sn = smoothstep(34, 92, Math.max(0, speed));
@@ -1318,8 +1542,8 @@ class RenderSystemImpl implements XenoRenderSystem {
 
     // camera rotation blur (shutter ~ 1/90 s): rate of turn -> screen-space smear
     camera.getWorldQuaternion(this.curQuat);
-    if (this.havePrevQuat) {
-      this.dq.copy(this.prevQuat).invert().multiply(this.curQuat);
+    if (v.havePrevQuat) {
+      this.dq.copy(v.prevQuat).invert().multiply(this.curQuat);
       if (this.dq.w < 0) {
         this.dq.x = -this.dq.x;
         this.dq.y = -this.dq.y;
@@ -1339,12 +1563,12 @@ class RenderSystemImpl implements XenoRenderSystem {
         py = 0;
       }
       const k = 1 - Math.exp(-dt / 0.045);
-      this.pan.x += (Math.min(px, 0.03) - this.pan.x) * k;
-      this.pan.y += (Math.min(py, 0.03) - this.pan.y) * k;
+      v.pan.x += (Math.min(px, 0.03) - v.pan.x) * k;
+      v.pan.y += (Math.min(py, 0.03) - v.pan.y) * k;
     }
-    this.prevQuat.copy(this.curQuat);
-    this.havePrevQuat = true;
-    fx.pan.set(this.pan.x, this.pan.y);
+    v.prevQuat.copy(this.curQuat);
+    v.havePrevQuat = true;
+    fx.pan.set(v.pan.x, v.pan.y);
     fx.seed = (this.frameIndex % 16) * 0.37;
   }
 

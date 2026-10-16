@@ -519,6 +519,14 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
   let playerMode = false;
   let cockpitMode = false;
   let spotsOn = false;
+  /**
+   * Split screen (setBeams): the real beams are the car's while the view of the driver who has it is drawn; another player's car,
+   * seen from outside, has the soft glow on the road like an opponent. Without split screen the car's own beams are always on.
+   */
+  let beamsOn = true;
+  let beamControl = false;
+  /** The lamps are lit enough to throw a glow (as of the last update). */
+  let glowLit = false;
   const hideShell = dbgMode === 'interior';
   const hideList = ((globalThis as { __CARVIS_HIDE__?: string }).__CARVIS_HIDE__ ?? '').split(',');
   const applyVisibility = (): void => {
@@ -532,7 +540,7 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
     driverMesh.visible = playerMode && !cockpitMode && !hideList.includes('driver');
     mirrorRig?.setCockpit(playerMode && cockpitMode);
     steerGroup.visible = playerMode && !hideList.includes('steer');
-    for (const s of spots) s.visible = playerMode && spotsOn;
+    for (const s of spots) s.visible = playerMode && spotsOn && beamsOn;
   };
   applyVisibility();
 
@@ -674,15 +682,17 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
       const wantSpots = Math.max(dark, env.peakDarkness ?? 0) > CARVIS_TUNING.headlightOnDarkness;
       if (wantSpots !== spotsOn) {
         spotsOn = wantSpots;
-        for (const s of spots) s.visible = playerMode && spotsOn;
+        for (const s of spots) s.visible = playerMode && spotsOn && beamsOn;
       }
       // (a broken headlight goes dark; the spot stays "visible" at zero so the lights in the scene never change count)
       if (spotsOn) {
         spots[0].intensity = CARVIS_TUNING.headlightIntensity * head * lampOut.x;
         spots[1].intensity = CARVIS_TUNING.headlightIntensity * head * lampOut.y;
       }
-      const showGlow = !playerMode && head > 0.02;
-      glow.visible = showGlow;
+      // (a player's car has the glow only where beams are switched per view: another player's car in a split screen)
+      const showGlow = (!playerMode || beamControl) && head > 0.02;
+      glowLit = showGlow;
+      glow.visible = showGlow && (!playerMode || !beamsOn);
       // (on a wet road the lamps' light skids away as reflection instead of pooling: a much fainter decal)
       if (showGlow) (glow.material as MeshBasicMaterial).opacity = head * 0.8 * (1 - 0.7 * env.wetness) * 0.5 * (lampOut.x + lampOut.y);
       root.updateMatrixWorld(true);
@@ -717,6 +727,12 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
     setCockpitView(on: boolean): void {
       cockpitMode = on;
       applyVisibility();
+    },
+    setBeams(on: boolean): void {
+      beamControl = true;
+      beamsOn = on;
+      for (const s of spots) s.visible = playerMode && spotsOn && beamsOn;
+      glow.visible = glowLit && (!playerMode || !beamsOn);
     },
     dispose(): void {
       if (disposed) return;

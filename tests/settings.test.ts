@@ -36,6 +36,33 @@ describe('saved settings', () => {
     expect(s.camera.fov).toBe(70);
   });
 
+  it('has the split-screen settings: the name of the second driver and how the screen divides', () => {
+    expect(DEFAULT_SETTINGS.player2Name).toBe('Player 2');
+    expect(DEFAULT_SETTINGS.split.layout).toBe('rows');
+    // nothing saved: the defaults, and a save from before split screen existed gets them too
+    expect(loadSettings().player2Name).toBe('Player 2');
+    store[KEY] = JSON.stringify({ units: 'mph', playerName: 'Gabriel' });
+    const old = loadSettings();
+    expect(old.player2Name).toBe('Player 2');
+    expect(old.split).toEqual({ layout: 'rows' });
+  });
+
+  it('keeps a saved name for player 2 and the side-by-side layout', () => {
+    store[KEY] = JSON.stringify({ player2Name: 'Silviu', split: { layout: 'columns' } });
+    const s = loadSettings();
+    expect(s.player2Name).toBe('Silviu');
+    expect(s.split.layout).toBe('columns');
+  });
+
+  it('replaces a layout this build does not know with the default, and ignores a name that is not text', () => {
+    store[KEY] = JSON.stringify({ player2Name: 7, split: { layout: 'diagonal' } });
+    const s = loadSettings();
+    expect(s.split.layout).toBe('rows');
+    expect(s.player2Name).toBe('Player 2');
+    store[KEY] = JSON.stringify({ split: 'columns' });
+    expect(loadSettings().split.layout).toBe('rows');
+  });
+
   it('keeps every valid choice', () => {
     store[KEY] = JSON.stringify({ graphics: { quality: 'low', shadows: 'off', antialias: 'off' }, assists: { tcs: 'off' }, units: 'mph', camera: { defaultMode: 'cockpit' } });
     const s = loadSettings();

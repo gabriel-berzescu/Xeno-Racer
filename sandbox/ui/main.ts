@@ -12,12 +12,13 @@
  */
 import { CARS } from '../../src/cars';
 import { DEFAULT_SETTINGS } from '../../src/core/settings';
-import type { HudState, InputFrame, RaceConfig, UIIntent } from '../../src/core/contracts';
+import type { HudState, InputFrame, RaceConfig, SplitLayout, UIIntent } from '../../src/core/contracts';
+import { splitGeometry } from '../../src/core/split';
 import type { UIDeps } from '../../src/core/systems';
 import { createInputSystem, type PadLike } from '../../src/input';
 import { createUI, type XenoUI } from '../../src/ui';
-import { benchHud } from './bench';
-import { MOCK_TRACKS, MockRace, mockMinimap, mockResults, type MockOptions } from './mock';
+import { benchHud, benchSplit } from './bench';
+import { MOCK_TRACKS, MockRace, mockMinimap, mockResults, splitState, type MockOptions } from './mock';
 
 declare global {
   interface Window {
@@ -28,6 +29,7 @@ declare global {
     __feed?: (tokens: string) => void;
     __hud?: () => HudState | null;
     __bench?: (frames?: number) => unknown;
+    __benchSplit?: (frames?: number, flush?: boolean) => unknown;
     __pad?: { axes: number[]; buttons: { pressed: boolean; touched: boolean; value: number }[] };
   }
 }
@@ -137,21 +139,47 @@ if (q.has('countdown')) opts.override.countdown = q.get('countdown') === 'null' 
 if (q.has('banner')) opts.override.banner = q.get('banner');
 if (q.has('toast')) opts.override.toast = q.get('toast');
 if (q.get('wrongway')) opts.override.wrongWay = true;
+if (q.get('spot')) opts.override.spotter = { left: 0.85, right: 0.45, leftAt: 0.3, rightAt: -0.4 };
+// &wx=chip|note: the changing-weather chip (and the "Rain is coming" card)
+if (q.get('wx')) {
+  opts.override.weather = {
+    sky: 'rain', rain: 0.55, wetness: 0.6, track: 'Damp', forecast: 'rainLater', called: true,
+    notice: q.get('wx') === 'note' ? { kind: 'rain', title: 'Rain is coming', sub: 'Showers over the circuit in a minute or two' } : null,
+  };
+}
 if (q.has('lap')) opts.override.lap = num('lap', 1);
 if (q.has('delta')) opts.override.delta = num('delta', 0);
 const trackId = q.get('track') ?? 'azure-coast';
 const map = mockMinimap(trackId)!;
 const race = new MockRace(map, opts);
+// &split=rows|columns: two HUDs, one per view (the places are &p1= and &p2=; &keep=0 sends the whole standings)
+const splitLayout: SplitLayout | null = q.get('split') === 'columns' ? 'columns' : q.get('split') ? 'rows' : null;
+const places: [number, number] = [num('p1', 4), num('p2', 7)];
+const keep = num('keep', 6);
+if (splitLayout) {
+  // stand-in for the game's two views: the backdrop with the gap between them cut out in black
+  const gap = document.createElement('div');
+  gap.style.cssText = 'position:fixed;background:#000;pointer-events:none';
+  document.getElementById('bg')!.after(gap);
+  const place = (): void => {
+    const d = splitGeometry(window.innerWidth, window.innerHeight, splitLayout).divider;
+    gap.style.cssText = `position:fixed;background:#000;pointer-events:none;left:${d.x}px;top:${d.y}px;width:${d.w}px;height:${d.h}px`;
+  };
+  place();
+  window.addEventListener('resize', place);
+}
 const t0 = num('t', screen === 'hud' || screen === 'pause' ? 38 : 0);
 const freeze = q.get('freeze') === '1';
 let hudTime = t0;
 let lastHud: HudState | null = null;
 window.__hud = () => lastHud;
 window.__bench = (frames = 600) => benchHud(ui, race, frames);
+window.__benchSplit = (frames = 600, flush = true) => benchSplit(ui, race, (s, seat) => splitState(s, seat, places, keep), frames, flush);
 
 function startHud(): void {
   ui.setHudVisible(true);
   ui.setMinimap(map);
+  if (splitLayout) ui.setSplit(splitLayout);
 }
 
 // ── screen setup ────────────────────────────────────────────────────────────
@@ -166,7 +194,8 @@ function openScreen(): void {
       break;
     case 'pause':
       startHud();
-      ui.updateHud(race.state(t0));
+      ui.updateHud(splitLayout ? splitState(race.state(t0), 0, places, keep) : race.state(t0));
+      if (splitLayout) ui.updateHud(splitState(race.state(t0 + 4), 1, places, keep), 1);
       (ui as unknown as { ctx: { lastConfig: RaceConfig | null } }).ctx.lastConfig = cfg;
       ui.show('pause');
       break;
@@ -196,7 +225,10 @@ function tick(now: number): void {
   if (!freeze) hudTime += dt;
   if (ui.screen === 'none' || ui.screen === 'pause') {
     lastHud = race.state(hudTime);
-    ui.updateHud(lastHud);
+    if (splitLayout) {
+      ui.updateHud(splitState(lastHud, 0, places, keep), 0);
+      ui.updateHud(splitState(race.state(hudTime + 4), 1, places, keep), 1);
+    } else ui.updateHud(lastHud);
   }
   requestAnimationFrame(tick);
 }

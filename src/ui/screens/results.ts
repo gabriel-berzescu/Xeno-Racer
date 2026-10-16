@@ -1,13 +1,15 @@
-import type { InputFrame, RaceResultEntry } from '../../core/contracts';
+import type { InputFrame, RaceResultEntry, Seat, SplitDuel } from '../../core/contracts';
 import type { UiCtx } from '../ctx';
 import { clearEl, h } from '../dom';
 import { formatDelta, formatLapTime, formatRaceTime, ordinal } from '../format';
 import { iconBack, iconPlay, iconRestart, iconReplay, iconTrophy } from '../icons';
-import { MODE_INFO } from '../model';
+import { duelSummary, duelTitle, lapRows, MODE_INFO } from '../model';
 import { FocusList } from '../nav';
 import { BaseScreen } from './base';
 
 const MAX_LAP_ROWS = 10;
+/** Laps listed in each player's column of a split-screen race. */
+const MAX_DUEL_LAPS = 8;
 
 interface Btn {
   el: HTMLElement;
@@ -20,6 +22,11 @@ export class ResultsScreen extends BaseScreen {
   private readonly list = new FocusList(true);
   private readonly kicker = h('div', 'kicker');
   private readonly title = h('h1', 'h1');
+  /** Split screen: how the two players got on ("Gabriel beat Silviu by 3.241 s"), under the title. */
+  private readonly subline = h('div', 'res-sub');
+  private readonly yoursHead = h('span', null, 'Your laps');
+  /** Split screen: the head-to-head of the two players, in place of the single player's laps. */
+  private readonly duel = h('div', 'res-duel');
   private readonly badge = h('div', 'pb-badge');
   private readonly table = h('div', 'res-table');
   private readonly laps = h('div', 'res-laps');
@@ -44,9 +51,9 @@ export class ResultsScreen extends BaseScreen {
     this.el.append(
       h('div', 'scrim scrim-flat'),
       h('div', 'scrim scrim-vignette'),
-      h('header', 'topbar', h('div', { cls: 'in', style: { '--d': '60', '--tx': '-60px' } }, this.kicker, this.title), this.badge),
+      h('header', 'topbar', h('div', { cls: 'in', style: { '--d': '60', '--tx': '-60px' } }, this.kicker, this.title, this.subline), this.badge),
       h('div', { cls: 'panel chamfer edge res-panel res-standings in', style: { '--d': '200', '--ty': '40px', '--tx': '0px' } }, h('div', 'res-head', h('span', null, 'Final standings')), this.table),
-      h('div', { cls: 'panel chamfer edge res-panel res-yours in', style: { '--d': '300', '--ty': '40px', '--tx': '0px' } }, h('div', 'res-head', h('span', null, 'Your laps')), this.lapSummary, this.laps, this.pace),
+      h('div', { cls: 'panel chamfer edge res-panel res-yours in', style: { '--d': '300', '--ty': '40px', '--tx': '0px' } }, h('div', 'res-head', this.yoursHead), this.lapSummary, this.laps, this.pace, this.duel),
       this.btnRow,
       this.prompts.el,
     );
@@ -112,6 +119,14 @@ export class ResultsScreen extends BaseScreen {
     clearEl(this.pace);
     clearEl(this.lapSummary);
     clearEl(this.badge);
+    clearEl(this.duel);
+    // split screen: the head-to-head takes the place of the single player's laps
+    const d = r?.duel;
+    this.el.classList.toggle('is-duel', !!d);
+    this.subline.textContent = d ? duelSummary(d) : '';
+    this.subline.style.display = d ? '' : 'none';
+    this.yoursHead.textContent = d ? 'Head to head' : 'Your laps';
+    this.lapSummary.style.display = this.laps.style.display = this.pace.style.display = d ? 'none' : '';
     const ch = r?.config.championship;
     this.table.classList.toggle('champ', !!ch);
     if (!!ch !== this.champ) {
@@ -129,13 +144,19 @@ export class ResultsScreen extends BaseScreen {
     const laps = `${cfg.laps} ${cfg.laps === 1 ? 'lap' : 'laps'}`;
     this.kicker.textContent = ch
       ? `${ch.name}  ·  Round ${ch.round} / ${ch.rounds}  ·  ${track ? track.name + '  ·  ' : ''}${laps}`
-      : `${track ? track.name + '  ·  ' : ''}${info.label}${cfg.mode === 'race' ? `  ·  ${laps}` : ''}`;
+      : `${track ? track.name + '  ·  ' : ''}${info.label}${cfg.mode === 'race' ? `  ·  ${laps}` : ''}${d ? '  ·  Split screen' : ''}`;
     const me = r.entries.find((e) => e.isPlayer);
-    if (cfg.mode !== 'race' || !me) this.title.textContent = 'Session complete';
+    if (d) this.title.textContent = duelTitle(d);
+    else if (cfg.mode !== 'race' || !me) this.title.textContent = 'Session complete';
     else if (me.totalTime === null) this.title.textContent = 'Did not finish';
     else this.title.textContent = me.position === 1 ? 'Victory' : `${ordinal(me.position)} place`;
 
-    if (r.personalBest) this.badge.append(h('div', 'badge-in', iconTrophy('ico'), h('span', null, 'New personal best')));
+    if (d) {
+      // a new personal best badge for each player who set one, in their colour
+      d.personalBest.forEach((pb, i) => {
+        if (pb) this.badge.append(h('div', 'badge-in s' + i, iconTrophy('ico'), h('span', null, `${d.names[i]}  ·  personal best`)));
+      });
+    } else if (r.personalBest) this.badge.append(h('div', 'badge-in', iconTrophy('ico'), h('span', null, 'New personal best')));
     if (ch) this.renderSeason(me?.points ?? 0);
 
     // the button that carries on in a championship says where to: the next standings or the final table
@@ -157,6 +178,7 @@ export class ResultsScreen extends BaseScreen {
     );
     const entries = [...r.entries].sort((a, b) => a.position - b.position).slice(0, 12);
     entries.forEach((e, i) => this.table.appendChild(this.entryRow(e, fastest, i, !!ch)));
+    if (d) this.renderDuel(d);
 
     // laps
     const times = r.playerLapTimes;
@@ -203,6 +225,28 @@ export class ResultsScreen extends BaseScreen {
     }
   }
 
+  /** Split screen: the two players side by side, each with their place, car, best lap and laps, the winner marked. */
+  private renderDuel(d: SplitDuel): void {
+    const col = (seat: Seat): HTMLElement => {
+      const { rows, hidden } = lapRows(d.lapTimes[seat], d.personalBest[seat], MAX_DUEL_LAPS);
+      const laps = h('div', 'duel-laps');
+      if (rows.length === 0) laps.appendChild(h('div', 'lap-empty', 'No completed laps'));
+      if (hidden > 0) laps.appendChild(h('div', 'lap-more', `+ ${hidden} earlier ${hidden === 1 ? 'lap' : 'laps'}`));
+      for (const row of rows) {
+        laps.appendChild(h('div', { cls: 'lap-row' + (row.best ? ' best' : '') }, h('span', 'l-n', 'LAP ' + row.lap), h('span', 'l-t t-num', formatLapTime(row.time)), h('span', 'l-d t-num', row.tag)));
+      }
+      return h(
+        'div',
+        'duel-col s' + seat + (d.winner === seat ? ' win' : ''),
+        h('div', 'duel-who', h('b', null, d.names[seat]), d.winner === seat ? iconTrophy('ico') : null, h('span', 'duel-pos', 'P' + d.positions[seat])),
+        h('div', 'duel-car', this.carName(d.carIds[seat])),
+        h('div', 'kv duel-best', h('span', 'k', 'Best lap'), h('span', 'v t-num', formatLapTime(d.bestLap[seat]))),
+        laps,
+      );
+    };
+    this.duel.append(col(0), col(1));
+  }
+
   /** Where this round leaves the player in the championship (the game records the round before showing results). */
   private renderSeason(gained: number): void {
     const v = this.ctx.championship;
@@ -223,7 +267,7 @@ export class ResultsScreen extends BaseScreen {
     const dnf = e.totalTime === null;
     const row = h(
       'div',
-      { cls: 'rt-row' + (e.isPlayer ? ' me' : '') + (e.position === 1 ? ' win' : ''), style: { '--i': String(i) } },
+      { cls: 'rt-row' + (e.isPlayer ? ' me' : '') + (e.isPlayer && e.seat === 1 ? ' s1' : '') + (e.position === 1 ? ' win' : ''), style: { '--i': String(i) } },
       h('span', 'c-pos', String(e.position)),
       h('span', 'c-name', h('b', null, e.name), h('em', null, this.carName(e.carId))),
       champ ? null : h('span', 'c-laps t-num', String(e.laps)),

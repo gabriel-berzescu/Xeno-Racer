@@ -20,6 +20,8 @@ export const DEFAULT_SETTINGS: Settings = {
   camera: { fov: 62, defaultMode: 'chase', shake: 0.6 },
   damage: 'visual',
   playerName: 'Gabriel',
+  player2Name: 'Player 2',
+  split: { layout: 'rows' },
 };
 
 const KEY = 'xeno-racer.settings.v1';
@@ -44,6 +46,7 @@ const CHOICES: [string, readonly string[]][] = [
   ['assists.tcs', ['off', 'low', 'high']],
   ['units', ['kmh', 'mph']],
   ['camera.defaultMode', ['chase', 'chase-far', 'hood', 'bumper', 'cockpit', 'tv', 'orbit']],
+  ['split.layout', ['rows', 'columns']],
 ];
 
 function keepKnownChoices(s: Settings): Settings {

@@ -13,16 +13,21 @@ import type {
   Forecast,
   GraphicsSettings,
   Livery,
+  PlayersInfo,
   QualityLevel,
   RaceConfig,
   RaceMode,
+  Seat,
   Settings,
+  SplitDuel,
+  SplitLayout,
   TimeOfDay,
   TrackInfo,
   Weather,
 } from '../core/contracts';
 import { forecastAllowed, sanitizeForecast } from '../core/forecast';
 import { DEFAULT_SETTINGS, QUALITY_PRESETS } from '../core/settings';
+import { opponentLimit, SEAT_COLOR } from '../core/split';
 import { CAMERA_LABEL, DIFFICULTY_LABEL, FORECAST_LABEL, GRID_LABEL, LENGTH_LABEL, ordinal, pct, START_LABEL, TIME_OF_DAY_LABEL, WEATHER_LABEL } from './format';
 import { clamp, clamp01 } from './hudlogic';
 
@@ -143,9 +148,17 @@ export function bestLapFor(best: Record<string, number>, trackId: string, carId?
 
 export type SetupStep = 'track' | 'car' | 'race';
 export const SETUP_STEPS: readonly SetupStep[] = ['track', 'car', 'race'];
+/** A split-screen setup has a fourth step, the second player's car (behind the join): the wizard's steps are these. */
+export type WizardStep = SetupStep | 'car2';
+export const SPLIT_SETUP_STEPS: readonly WizardStep[] = ['track', 'car', 'car2', 'race'];
 
 /** The setup wizard serves the three race modes and the championship. */
 export type SetupMode = RaceMode | 'championship';
+
+/** How a screen opens the setup: with how many humans (the Split screen entry of the main menu opens it with two). */
+export interface SetupOpts {
+  players?: 1 | 2;
+}
 
 /** The championship's own options (kept apart from the Race ones so each remembers its last choice). */
 export interface ChampSetupState {
@@ -172,6 +185,11 @@ export interface SetupState {
   forecast: Forecast;
   startPosition: RaceConfig['startPosition'];
   champ: ChampSetupState;
+  /** Split screen: one human or two (only a race and free roam can have two: see `splitAllowed`). */
+  players: 1 | 2;
+  /** The second player's car and livery (they only count with two players). */
+  car2Index: number;
+  liveryIndex2: number;
 }
 
 export interface ModeInfo {
@@ -197,24 +215,206 @@ export const CHAMPIONSHIP_INFO = {
 /** "Race", "Time Trial", "Free Roam", "Championship". */
 export const modeLabel = (mode: SetupMode): string => (mode === 'championship' ? CHAMPIONSHIP_INFO.label : MODE_INFO[mode].label);
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Split screen
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** The line under the Split screen entry of the main menu. */
+export const SPLIT_BLURB = 'Two players, one screen: race a friend on two controllers.';
+
+/** A second human can drive in a race and in free roam; a time trial and a championship are for one. */
+export const splitAllowed = (mode: SetupMode): boolean => mode === 'race' || mode === 'freeRoam';
+
+/** The humans this setup will really run with: two only where it is allowed. */
+export const playersNow = (s: Pick<SetupState, 'mode' | 'players'>): 1 | 2 => (splitAllowed(s.mode) && s.players === 2 ? 2 : 1);
+
+/** The steps of the wizard for this setup: two players add the second player's car after the first's. */
+export const setupSteps = (s: Pick<SetupState, 'mode' | 'players'>): readonly WizardStep[] => (playersNow(s) === 2 ? SPLIT_SETUP_STEPS : SETUP_STEPS);
+
+/** The most opponents the setup can have beside its humans (11 beside one, 10 beside two). */
+export const opponentsMax = (s: Pick<SetupState, 'mode' | 'players'>): number => opponentLimit(playersNow(s));
+
+/** The name of a seat's driver: the settings' own, never empty. */
+export const seatName = (settings: Pick<Settings, 'playerName' | 'player2Name'>, seat: Seat): string =>
+  (seat === 0 ? settings.playerName.trim() || 'You' : settings.player2Name.trim() || 'Player 2');
+
+/** The tab text of a step of a race or free roam: "Car" for one player, "P1 car" and "P2 car" for two. */
+export function setupStepLabel(step: WizardStep, players: 1 | 2): string {
+  switch (step) {
+    case 'track': return 'Track';
+    case 'car': return players === 2 ? 'P1 car' : 'Car';
+    case 'car2': return 'P2 car';
+    default: return 'Race';
+  }
+}
+
+/** Which seat's car a step picks: the second player's on the 'car2' step, the first's on any other. */
+export const stepSeat = (step: WizardStep): Seat => (step === 'car2' ? 1 : 0);
+
+/**
+ * A livery that stands apart from the first player's, for the second player's default: the grid looks better with two different
+ * cars, and a pink one beside a factory-painted one is easy to tell from the tower and the minimap.
+ */
+export function contrastLivery(first: number): number {
+  const pink = LIVERY_PRESETS.findIndex((p) => p.id === 'pink');
+  const teal = LIVERY_PRESETS.findIndex((p) => p.id === 'teal');
+  return first === pink ? teal : pink;
+}
+
+// ── the join step ──
+
+export interface JoinSlot {
+  seat: Seat;
+  /** "Player 1" / "Player 2". */
+  title: string;
+  /** The driver's name. */
+  name: string;
+  /** What they play on ("Logitech Gamepad F310", "Keyboard"); null while nobody is there. */
+  device: string | null;
+  color: string;
+}
+
+/** What the join card of the setup says, from what the game knows about the devices (`PlayersInfo`). */
+export interface JoinView {
+  slots: readonly [JoinSlot, JoinSlot];
+  /** The second player is in (their device is bound). */
+  joined: boolean;
+  /** The big line: "Player 2, press A to join" while waiting, "Silviu is in" after. */
+  heading: string;
+  /** Under it: where to press ("on a second controller"), or what they play on once in. */
+  sub: string;
+  /** The way in that needs no second controller ("Or press Enter to play on the keyboard"), while it is one; else null. */
+  keyboard: string | null;
+  /** "1 controller connected". */
+  pads: string;
+  /** Both players are known, so the swap button has something to swap. */
+  canSwap: boolean;
+}
+
+const isKeyboard = (device: string | null): boolean => device !== null && device.toLowerCase().includes('keyboard');
+
+export function joinView(info: PlayersInfo, names: readonly [string, string]): JoinView {
+  const [d1, d2] = info.devices;
+  const joined = info.joined && d2 !== null;
+  const slot = (seat: Seat, device: string | null): JoinSlot => ({ seat, title: 'Player ' + (seat + 1), name: names[seat], device, color: SEAT_COLOR[seat] });
+  const firstOnKeyboard = isKeyboard(d1);
+  let sub: string;
+  if (joined) sub = 'on ' + d2;
+  else if (firstOnKeyboard) sub = info.pads > 0 ? 'on a controller' : 'on a controller, once it is plugged in';
+  else sub = info.pads > 1 ? 'on the controller for player 2' : 'on a second controller';
+  const n = info.pads;
+  return {
+    slots: [slot(0, d1), slot(1, joined ? d2 : null)],
+    joined,
+    heading: joined ? names[1] + ' is in' : 'Player 2, press A to join',
+    sub,
+    keyboard: !joined && !firstOnKeyboard ? 'Or press Enter to play on the keyboard' : null,
+    pads: n === 0 ? 'No controller connected' : n + (n === 1 ? ' controller' : ' controllers') + ' connected',
+    canSwap: joined && d1 !== null,
+  };
+}
+
+// ── the head-to-head of a split-screen race ──
+
+export type DuelMargin = { kind: 'time'; seconds: number } | { kind: 'laps'; laps: number } | { kind: 'none' };
+
+/** The gap a duel carries ("+3.241", "+1 LAP", "+2 LAPS", "+1L", or "" for no time) as a number of seconds or laps. */
+export function parseDuelGap(gap: string): DuelMargin {
+  const t = gap.trim();
+  const laps = /^\+?(\d+)\s*L(AP)?S?$/i.exec(t);
+  if (laps) return { kind: 'laps', laps: +laps[1] };
+  const sec = /^\+?(\d+(?:\.\d+)?)$/.exec(t);
+  return sec ? { kind: 'time', seconds: +sec[1] } : { kind: 'none' };
+}
+
+/** "by 3.241 s", "by 1 lap", or "" when the other player has no time to be behind by. */
+export function duelMargin(d: SplitDuel): string {
+  const m = parseDuelGap(d.gap);
+  if (m.kind === 'time') return 'by ' + m.seconds.toFixed(3) + ' s';
+  if (m.kind === 'laps') return 'by ' + m.laps + (m.laps === 1 ? ' lap' : ' laps');
+  return '';
+}
+
+/** The headline of the results of a split-screen race. */
+export function duelTitle(d: SplitDuel): string {
+  if (d.winner !== null) return d.names[d.winner] + ' wins';
+  return d.gap.trim() === '' ? 'No winner' : 'Dead heat';
+}
+
+/** One line on how it went: "Gabriel beat Silviu by 3.241 s", "Silviu did not finish", "Dead heat". */
+export function duelSummary(d: SplitDuel): string {
+  if (d.winner === null) return d.gap.trim() === '' ? 'Neither player finished' : 'Dead heat';
+  const win = d.names[d.winner];
+  const lose = d.names[d.winner === 0 ? 1 : 0];
+  const margin = duelMargin(d);
+  return margin ? win + ' beat ' + lose + ' ' + margin : lose + ' did not finish';
+}
+
+export interface LapRow {
+  /** 1-based lap number. */
+  lap: number;
+  time: number;
+  best: boolean;
+  /** "PB" or "BEST" on the best lap, else the gap to it ("+0.482"). */
+  tag: string;
+}
+
+/** The last `max` laps of a list, for a column of the results: the best one tagged, the rest as a gap to it. `hidden` counts the earlier laps left out. */
+export function lapRows(times: readonly number[], personalBest: boolean, max: number): { rows: LapRow[]; hidden: number } {
+  if (times.length === 0) return { rows: [], hidden: 0 };
+  let best = Infinity;
+  for (const t of times) if (t < best) best = t;
+  const hidden = Math.max(0, times.length - max);
+  const rows: LapRow[] = [];
+  for (let i = hidden; i < times.length; i++) {
+    const t = times[i];
+    const isBest = t === best;
+    rows.push({ lap: i + 1, time: t, best: isBest, tag: isBest ? (personalBest ? 'PB' : 'BEST') : '+' + (t - best).toFixed(3) });
+  }
+  return { rows, hidden };
+}
+
+// ── the pause menu of a split-screen race ──
+
+/** The apostrophe form of a name: "Silviu's", "James'". */
+export const possessive = (name: string): string => (/s$/i.test(name) ? name + "'" : name + "'s");
+
+/** "Paused by Silviu" while the pause menu follows one player's pad; null while it is anyone's. */
+export function pauseOwnerLine(info: PlayersInfo, names: readonly [string, string]): string | null {
+  return info.owner === null ? null : 'Paused by ' + names[info.owner];
+}
+
+/** Whose controller came out, and what to do about it; null while both are in. */
+export function missingPadLine(info: PlayersInfo, names: readonly [string, string]): string | null {
+  return info.missing === null ? null : possessive(names[info.missing]) + ' controller was disconnected. Plug it in and press A.';
+}
+
 export function defaultSetup(mode: SetupMode, tracks: readonly TrackInfo[], cars: readonly CarDefinition[], prev?: Partial<SetupState>): SetupState {
   const trackIndex = clamp(prev?.trackIndex ?? 0, 0, Math.max(0, tracks.length - 1));
   const track = tracks[trackIndex];
   // visiting the championship setup must not wipe what the Race setup remembers
   const racing = mode === 'race' || mode === 'championship';
+  const carIndex = clamp(prev?.carIndex ?? 0, 0, Math.max(0, cars.length - 1));
+  const liveryIndex = prev?.liveryIndex ?? 0;
+  const players: 1 | 2 = splitAllowed(mode) && prev?.players === 2 ? 2 : 1;
   return {
     mode,
     trackIndex,
-    carIndex: clamp(prev?.carIndex ?? 0, 0, Math.max(0, cars.length - 1)),
-    liveryIndex: prev?.liveryIndex ?? 0,
+    carIndex,
+    liveryIndex,
     laps: prev?.laps ?? track?.defaultLaps ?? 3,
-    opponents: racing ? clamp(prev?.opponents ?? 7, 0, OPPONENTS_MAX) : 0,
+    // (what a one-player setup left behind may be more than a grid of two humans has room for)
+    opponents: racing ? clamp(prev?.opponents ?? 7, 0, opponentLimit(players)) : 0,
     difficulty: prev?.difficulty ?? 'amateur',
     timeOfDay: prev?.timeOfDay ?? track?.defaultTimeOfDay ?? 'golden',
     weather: prev?.weather ?? 'clear',
     forecast: prev?.forecast ?? 'stable',
     startPosition: racing ? prev?.startPosition ?? 'back' : 'pole',
     champ: { ...CHAMP_DEFAULTS, ...prev?.champ },
+    players,
+    // (the second player drives the next car along, in a livery that contrasts with the first player's, until they pick their own)
+    car2Index: prev?.car2Index !== undefined ? clamp(prev.car2Index, 0, Math.max(0, cars.length - 1)) : (carIndex + 1) % Math.max(1, cars.length),
+    liveryIndex2: prev?.liveryIndex2 ?? contrastLivery(liveryIndex),
   };
 }
 
@@ -244,23 +444,31 @@ export function forecastOffered(s: SetupState, forecast: Forecast): boolean {
 /** A seed for a race's forecast (it fixes when the weather changes and how hard, so a restart repeats it). */
 export const newForecastSeed = (): number => Math.floor(Math.random() * 2147483646) + 1;
 
-export function buildRaceConfig(s: SetupState, tracks: readonly TrackInfo[], cars: readonly CarDefinition[], playerName: string, forecastSeed: number = newForecastSeed()): RaceConfig {
+/**
+ * The race the setup describes. With two players (a race or free roam, `players` 2) the config carries the second player's car and
+ * name (`player2Name`, "Player 2" when blank) and the opponents are limited to what the grid has room for beside both (10).
+ */
+export function buildRaceConfig(s: SetupState, tracks: readonly TrackInfo[], cars: readonly CarDefinition[], playerName: string, forecastSeed: number = newForecastSeed(), player2Name = ''): RaceConfig {
   const track = tracks[clamp(s.trackIndex, 0, tracks.length - 1)];
   const car = cars[clamp(s.carIndex, 0, cars.length - 1)];
   const mode: RaceMode = s.mode === 'championship' ? 'race' : s.mode;
   const info = MODE_INFO[mode];
   const preset = LIVERY_PRESETS[clamp(s.liveryIndex, 0, LIVERY_PRESETS.length - 1)];
   const forecast = forecastNow(s);
+  const two = playersNow(s) === 2;
+  const car2 = cars[clamp(s.car2Index, 0, cars.length - 1)];
+  const preset2 = LIVERY_PRESETS[clamp(s.liveryIndex2, 0, LIVERY_PRESETS.length - 1)];
   return {
     mode,
     trackId: track.id,
     carId: car.id,
     livery: liveryFor(preset, playerName),
     laps: info.usesLaps ? clamp(Math.round(s.laps), LAPS_MIN, LAPS_MAX) : 0,
-    opponents: info.usesOpponents ? clamp(Math.round(s.opponents), 0, OPPONENTS_MAX) : 0,
+    opponents: info.usesOpponents ? clamp(Math.round(s.opponents), 0, opponentsMax(s)) : 0,
     difficulty: info.usesDifficulty ? s.difficulty : 'amateur',
     environment: { timeOfDay: s.timeOfDay, weather: s.weather },
     startPosition: info.usesStart ? s.startPosition : 'pole',
+    ...(two ? { player2: { carId: car2.id, livery: liveryFor(preset2, player2Name.trim() || 'Player 2') } } : {}),
     ...(forecast !== 'stable' ? { forecast, forecastSeed } : {}),
   };
 }
@@ -503,6 +711,8 @@ export const SETTINGS_TABS: TabDef[] = [
       s.camera = structuredClone(DEFAULT_SETTINGS.camera);
       s.damage = DEFAULT_SETTINGS.damage;
       s.playerName = DEFAULT_SETTINGS.playerName;
+      s.player2Name = DEFAULT_SETTINGS.player2Name;
+      s.split = structuredClone(DEFAULT_SETTINGS.split);
     },
     rows: [
       {
@@ -542,6 +752,13 @@ export const SETTINGS_TABS: TabDef[] = [
         get: (s) => s.camera.defaultMode, set: (s, v) => { s.camera.defaultMode = v as CameraMode; }, wrap: true,
       },
       { kind: 'text', id: 'playerName', label: 'Driver name', maxLength: 16, desc: 'Shown in the standings and on your car.', get: (s) => s.playerName, set: (s, v) => { s.playerName = v; } },
+      { kind: 'text', id: 'player2Name', label: 'Player 2 name', maxLength: 16, desc: 'Shown on the tower, the HUD and the results in split screen.', get: (s) => s.player2Name, set: (s, v) => { s.player2Name = v; } },
+      {
+        kind: 'select', id: 'splitLayout', label: 'Split screen layout',
+        desc: 'How two players share the screen. Top and bottom gives each a wide view and suits a 16:9 screen; side by side suits an ultrawide one.',
+        options: opts([['rows', 'Top and bottom'], ['columns', 'Side by side']]),
+        get: (s) => s.split.layout, set: (s, v) => { s.split.layout = v as SplitLayout; },
+      },
     ],
   },
 ];

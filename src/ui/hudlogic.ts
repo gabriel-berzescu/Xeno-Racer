@@ -1,7 +1,8 @@
 /**
  * Pure HUD logic (no DOM, no canvas): everything the 60 fps HUD decides that can be tested headlessly.
  */
-import type { HudStanding } from '../core/contracts';
+import type { HudState, HudStanding, Seat } from '../core/contracts';
+import { SEAT_COLOR } from '../core/split';
 
 export const clamp = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > hi ? hi : v);
 export const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
@@ -207,6 +208,89 @@ export function selectTowerRows(standings: readonly HudStanding[], max = 8): Tow
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Split screen: seats
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** The colour of a seat (player 1 teal, player 2 hot pink). */
+export const seatColor = (seat: Seat): string => SEAT_COLOR[seat];
+
+/** What a tower row is for the HUD of seat `seat` (null = the one HUD of a single-player race). */
+export const ROW_AI = 0;
+export const ROW_ME = 1;
+export const ROW_OTHER = 2;
+export type RowKind = typeof ROW_AI | typeof ROW_ME | typeof ROW_OTHER;
+
+/**
+ * Is a human's row (or car) on the map the viewer's own? With one player (`seat` null) the human is. In split screen the standings
+ * and the cars of the map carry `seat`, and the HUD of seat s owns the one with seat s (a human without a seat is taken as the
+ * viewer's: nothing is lost if a caller forgets the field).
+ */
+export function isOwn(c: { isPlayer: boolean; seat?: Seat }, seat: Seat | null): boolean {
+  return c.isPlayer && (seat === null || c.seat === undefined || c.seat === seat);
+}
+
+/** An opponent, the viewer's own row, or the other human's. */
+export function towerRowKind(st: HudStanding, seat: Seat | null): RowKind {
+  if (!st.isPlayer) return ROW_AI;
+  return isOwn(st, seat) ? ROW_ME : ROW_OTHER;
+}
+
+/** Scratch for the split tower's marks (no allocation per frame). */
+const MARK = new Uint8Array(64);
+
+function mark(m: Uint8Array, i: number, n: number): number {
+  if (i < 0 || i >= n || m[i] === 1) return 0;
+  m[i] = 1;
+  return 1;
+}
+
+/**
+ * The tower of one view in split screen: at most `max` rows (the tower of a short pane has room for five), always the leader, the
+ * viewer's own row and the other human's, then the cars around the viewer, nearest first (the one just ahead before the one just
+ * behind, then two ahead...), shown in race order with a separator where cars were skipped. Everybody is shown when they fit. With
+ * `seat` null (one player) this is pickTowerIndices, unchanged. Allocation-free like it: `idx` and `gap` hold `max` entries.
+ */
+export function pickSplitTowerIndices(standings: readonly HudStanding[], max: number, seat: Seat | null, idx: Int16Array, gap: Uint8Array): number {
+  if (seat === null) return pickTowerIndices(standings, max, idx, gap);
+  const n = Math.min(standings.length, MARK.length);
+  if (n === 0 || max <= 0) return 0;
+  if (n <= max) {
+    for (let i = 0; i < n; i++) {
+      idx[i] = i;
+      gap[i] = 0;
+    }
+    return n;
+  }
+  let me = -1;
+  let other = -1;
+  for (let i = 0; i < n; i++) {
+    const st = standings[i];
+    if (!st.isPlayer) continue;
+    if (isOwn(st, seat)) {
+      if (me < 0) me = i;
+    } else if (other < 0) other = i;
+  }
+  const m = MARK;
+  m.fill(0, 0, n);
+  let left = max - mark(m, 0, n);
+  if (left > 0) left -= mark(m, me, n);
+  if (left > 0) left -= mark(m, other, n);
+  const centre = me >= 0 ? me : other >= 0 ? other : 0;
+  for (let d = 1; left > 0 && d < n; d++) {
+    left -= mark(m, centre - d, n);
+    if (left > 0) left -= mark(m, centre + d, n);
+  }
+  let k = 0;
+  for (let i = 0; i < n; i++) {
+    if (m[i] !== 1) continue;
+    idx[k] = i;
+    gap[k] = k > 0 && i > idx[k - 1] + 1 ? 1 : 0;
+    k++;
+  }
+  return k;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Minimap
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -235,6 +319,19 @@ export function fitBounds(b: { minX: number; maxX: number; minZ: number; maxZ: n
 }
 export const mapX = (f: MapFit, x: number): number => f.ox + (x - f.minX) * f.scale;
 export const mapY = (f: MapFit, z: number): number => f.oy + (z - f.minZ) * f.scale;
+
+/**
+ * The order the cars of the map are drawn in so the humans stay readable: opponents first, then the other human, the viewer's own
+ * car last, on top. Fills `out` with indices into `cars` (at most `out.length`) and returns how many; allocation-free.
+ */
+export function minimapOrder(cars: HudState['cars'], seat: Seat | null, out: Int16Array): number {
+  const n = Math.min(cars.length, out.length);
+  let k = 0;
+  for (let i = 0; i < n; i++) if (!cars[i].isPlayer) out[k++] = i;
+  for (let i = 0; i < n; i++) if (cars[i].isPlayer && !isOwn(cars[i], seat)) out[k++] = i;
+  for (let i = 0; i < n; i++) if (isOwn(cars[i], seat)) out[k++] = i;
+  return k;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Ring buffers for the telemetry graphs

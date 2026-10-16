@@ -3,7 +3,7 @@
  * finish order and results. Headless — it only reads vehicle states and the track.
  */
 import { Vector3 } from 'three';
-import type { RaceConfig, RaceResultEntry, RaceResults, TrackPoint, TrackRuntime, VehicleState } from '../core/contracts';
+import type { RaceConfig, RaceResultEntry, RaceResults, Seat, SplitDuel, TrackPoint, TrackRuntime, VehicleState } from '../core/contracts';
 
 export interface Entrant {
   id: number; // == VehicleState.id
@@ -12,6 +12,8 @@ export interface Entrant {
   carId: string;
   isPlayer: boolean;
   state: VehicleState;
+  /** Split screen: which of the two humans this is (0 = player 1). Absent for an opponent, and for the one player of a single-player race. */
+  seat?: Seat;
 }
 
 export interface EntrantProgress {
@@ -52,6 +54,14 @@ export type SessionEvent =
   | { type: 'finish'; entrant: Entrant; position: number }
   | { type: 'sector'; entrant: Entrant; sector: number; time: number; delta: number | null };
 
+/** One human's best lap so far, the reference of the live delta: elapsed time at every TRACE_STEP meters, and the sector splits. */
+interface LapRef {
+  trace: Float32Array | null;
+  sectors: number[] | null;
+  /** The lap under way. */
+  cur: Float32Array;
+}
+
 const _fwd = new Vector3();
 const _tp: TrackPoint = { s: 0, d: 0, segment: 0, widthLeft: 0, widthRight: 0, wallLeft: 0, wallRight: 0, tx: 0, tz: 1, lx: 1, lz: 0, y: 0 };
 
@@ -68,10 +78,10 @@ export class RaceSession {
   private countdownT = 0;
   private goAt = 0;
   private readonly events: SessionEvent[] = [];
-  /** Best lap reference trace (player) and its sector splits. */
-  private refTrace: Float32Array | null = null;
-  private refSectors: number[] | null = null;
-  private curTrace: Float32Array;
+  /** Each human's best-lap reference (live delta, sector deltas). */
+  private readonly refs = new Map<EntrantProgress, LapRef>();
+  /** Stored best laps, in seat order (one in a single-player session). */
+  private readonly storedBests: (number | null)[];
   readonly unlimited: boolean;
   private finishedCount = 0;
   private now = 0;
@@ -80,11 +90,15 @@ export class RaceSession {
     readonly track: TrackRuntime,
     readonly config: RaceConfig,
     entrants: Entrant[],
-    /** Stored best lap (s) for the player's track+car — triggers PB detection. */
-    readonly storedBest: number | null,
+    /**
+     * Stored best lap (s) for the player's track+car — triggers PB detection. In a split-screen session one per human in seat order
+     * (each drives a car of their own, with its own record).
+     */
+    storedBestIn: number | null | readonly (number | null)[],
     /** Random 0..1 used for the lights-out delay. */
     rand: number,
   ) {
+    this.storedBests = Array.isArray(storedBestIn) ? [...(storedBestIn as readonly (number | null)[])] : [storedBestIn as number | null];
     this.unlimited = config.mode !== 'race';
     this.progress = entrants.map((e) => ({
       entrant: e,
@@ -108,12 +122,46 @@ export class RaceSession {
       lapsDown: 0,
     }));
     this.goAt = 5 + 0.5 + rand * 1.8;
-    this.curTrace = new Float32Array(Math.ceil(track.length / TRACE_STEP) + 2).fill(-1);
-    for (const p of this.progress) this.locate(p, true);
+    for (const p of this.progress) {
+      if (p.entrant.isPlayer) this.refs.set(p, { trace: null, sectors: null, cur: new Float32Array(Math.ceil(track.length / TRACE_STEP) + 2).fill(-1) });
+      this.locate(p, true);
+    }
   }
 
+  /** The stored best lap of player 1 (the one player's, in a single-player session). */
+  get storedBest(): number | null {
+    return this.storedBests[0] ?? null;
+  }
+
+  /** The stored best lap of the track and car a seat drives. */
+  storedBestFor(seat: Seat): number | null {
+    return this.storedBests[seat] ?? null;
+  }
+
+  /** The first human: the one player of a single-player session, player 1 of a split-screen one. */
   get player(): EntrantProgress | undefined {
-    return this.progress.find((p) => p.entrant.isPlayer);
+    return this.playerAt(0);
+  }
+
+  /** The human in a seat, if there is one (seat 0 also answers for the one player of a single-player session, who has no seat). */
+  playerAt(seat: Seat): EntrantProgress | undefined {
+    let unseated: EntrantProgress | undefined;
+    for (const p of this.progress) {
+      if (!p.entrant.isPlayer) continue;
+      if (p.entrant.seat === seat) return p;
+      if (p.entrant.seat === undefined) unseated ??= p;
+    }
+    return seat === 0 ? unseated : undefined;
+  }
+
+  /** Every human, in seat order. */
+  players(): EntrantProgress[] {
+    const out: EntrantProgress[] = [];
+    const a = this.playerAt(0);
+    const b = this.playerAt(1);
+    if (a) out.push(a);
+    if (b) out.push(b);
+    return out;
   }
 
   /** Start the light sequence (race mode) or go immediately (time trial / free roam). */
@@ -196,13 +244,15 @@ export class RaceSession {
         // sector 3 closes on the line
         if (p.sector === 2) this.closeSector(p, 2, now);
         let personalBest = false;
-        if (p.entrant.isPlayer) {
-          personalBest = this.storedBest === null || lap < this.storedBest;
+        const ref = this.refs.get(p);
+        if (p.entrant.isPlayer && ref) {
+          const stored = this.storedBestFor(p.entrant.seat ?? 0);
+          personalBest = stored === null || lap < stored;
           if (best) {
-            this.refTrace = this.curTrace.slice();
-            this.refSectors = p.sectorTimes.map((x) => x ?? 0);
+            ref.trace = ref.cur.slice();
+            ref.sectors = p.sectorTimes.map((x) => x ?? 0);
           }
-          this.curTrace.fill(-1);
+          ref.cur.fill(-1);
         }
         this.events.push({ type: 'lap', entrant: p.entrant, time: lap, best, personalBest });
       }
@@ -234,7 +284,8 @@ export class RaceSession {
     p.sectorTimes[k] = t;
     p.sectorStart = now;
     let delta: number | null = null;
-    if (p.entrant.isPlayer && this.refSectors) delta = t - this.refSectors[k];
+    const sectors = this.refs.get(p)?.sectors;
+    if (p.entrant.isPlayer && sectors) delta = t - sectors[k];
     this.events.push({ type: 'sector', entrant: p.entrant, sector: k, time: t, delta });
   }
 
@@ -263,10 +314,11 @@ export class RaceSession {
           p.sector = 2;
         }
       }
-      // player trace for the live delta
+      // each human's trace for the live delta
       if (p.entrant.isPlayer && p.crossings >= 1) {
+        const cur = this.refs.get(p)?.cur;
         const i = Math.floor(p.s / TRACE_STEP);
-        if (i >= 0 && i < this.curTrace.length && this.curTrace[i] < 0) this.curTrace[i] = now - p.lapStart;
+        if (cur && i >= 0 && i < cur.length && cur[i] < 0) cur[i] = now - p.lapStart;
       }
     }
     this.rank();
@@ -283,25 +335,27 @@ export class RaceSession {
     order.forEach((p, i) => (p.position = i + 1));
   }
 
-  /** Live delta (s) of the player's current lap against their best lap, or null. */
-  liveDelta(): number | null {
-    const p = this.player;
-    if (!p || !this.refTrace || this.phase !== 'racing' || p.crossings < 1) return null;
+  /** Live delta (s) of a human's current lap against their best lap (player 1's without a seat), or null. */
+  liveDelta(seat: Seat = 0): number | null {
+    const p = this.playerAt(seat);
+    const trace = p ? this.refs.get(p)?.trace : null;
+    if (!p || !trace || this.phase !== 'racing' || p.crossings < 1) return null;
     const i = Math.floor(p.s / TRACE_STEP);
-    const ref = this.refTrace[i];
+    const ref = trace[i];
     if (ref === undefined || ref < 0) return null;
     // interpolate within the step
-    const next = this.refTrace[i + 1];
+    const next = trace[i + 1];
     const f = (p.s - i * TRACE_STEP) / TRACE_STEP;
     const r = next !== undefined && next >= 0 ? ref + (next - ref) * f : ref;
     return this.now - p.lapStart - r;
   }
 
-  /** Sector deltas of the player's current lap vs best (null until each sector closes). */
-  sectorDeltas(): (number | null)[] {
-    const p = this.player;
-    if (!p || !this.refSectors) return [null, null, null];
-    return p.sectorTimes.map((t, k) => (t === null ? null : t - this.refSectors![k]));
+  /** Sector deltas of a human's current lap vs best (null until each sector closes). */
+  sectorDeltas(seat: Seat = 0): (number | null)[] {
+    const p = this.playerAt(seat);
+    const sectors = p ? this.refs.get(p)?.sectors : null;
+    if (!p || !sectors) return [null, null, null];
+    return p.sectorTimes.map((t, k) => (t === null ? null : t - sectors[k]));
   }
 
   /** Ordered standings. */
@@ -321,7 +375,12 @@ export class RaceSession {
     return `+${((leader.distance - p.distance) / avg).toFixed(1)}`;
   }
 
-  results(personalBest: boolean): RaceResults {
+  /**
+   * The results. `personalBest`: player 1 set a new best lap for the track and car (in a split-screen session one flag per human,
+   * in seat order).
+   */
+  results(personalBest: boolean | readonly [boolean, boolean]): RaceResults {
+    const pbs: readonly [boolean, boolean] = typeof personalBest === 'boolean' ? [personalBest, false] : personalBest;
     const order = this.ordered();
     const leader = order[0];
     const entries: RaceResultEntry[] = order.map((p) => ({
@@ -333,9 +392,41 @@ export class RaceSession {
       bestLap: p.bestLap,
       gap: p === leader ? 'WINNER' : p.lapsDown > 0 ? `+${p.lapsDown} LAP${p.lapsDown > 1 ? 'S' : ''}` : p.finished ? this.gapString(p, leader) : 'DNF',
       laps: p.projected ? this.config.laps - p.lapsDown : Math.max(0, p.crossings - 1),
+      ...(p.entrant.isPlayer && p.entrant.seat !== undefined ? { seat: p.entrant.seat } : {}),
     }));
     const pl = this.player;
-    return { config: this.config, entries, playerLapTimes: pl ? pl.lapTimes.slice() : [], personalBest };
+    const duel = this.duel(pbs);
+    return { config: this.config, entries, playerLapTimes: pl ? pl.lapTimes.slice() : [], personalBest: pbs[0], ...(duel ? { duel } : {}) };
+  }
+
+  /** The two humans of a split-screen race against each other (undefined when it is not one). */
+  private duel(pbs: readonly [boolean, boolean]): SplitDuel | undefined {
+    const a = this.playerAt(0);
+    const b = this.playerAt(1);
+    if (!a || !b || a.entrant.seat === undefined || b.entrant.seat === undefined) return undefined;
+    // a human with no time at all (never classified) loses to one with a time; two of them have no winner
+    let winner: Seat | null = null;
+    if (a.finishTime !== null && b.finishTime !== null) winner = a.position < b.position ? 0 : 1;
+    else if (a.finishTime !== null) winner = 0;
+    else if (b.finishTime !== null) winner = 1;
+    let gap = '';
+    if (winner !== null) {
+      const w = winner === 0 ? a : b;
+      const l = winner === 0 ? b : a;
+      const laps = l.lapsDown - w.lapsDown;
+      if (laps >= 1) gap = `+${laps} LAP${laps > 1 ? 'S' : ''}`;
+      else if (w.finishTime !== null && l.finishTime !== null) gap = `+${Math.max(0, l.finishTime - w.finishTime).toFixed(3)}`;
+    }
+    return {
+      names: [a.entrant.name, b.entrant.name],
+      winner,
+      gap,
+      positions: [a.position, b.position],
+      lapTimes: [a.lapTimes.slice(), b.lapTimes.slice()],
+      bestLap: [a.bestLap, b.bestLap],
+      personalBest: [pbs[0], pbs[1]],
+      carIds: [a.entrant.carId, b.entrant.carId],
+    };
   }
 
   /**

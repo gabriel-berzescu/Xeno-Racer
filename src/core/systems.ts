@@ -27,10 +27,13 @@ import type {
   InputFrame,
   Livery,
   MinimapTrack,
+  PlayersInfo,
   QualityLevel,
   RaceConfig,
   RaceResults,
+  Seat,
   Settings,
+  SplitLayout,
   TrackInfo,
   TrackRuntime,
   UIIntent,
@@ -104,6 +107,12 @@ export interface EffectsSystem {
   registerCar(id: number, def: CarDefinition, damage?: CarDamageControl): void;
   unregisterCar(id: number): void;
   update(dt: number, cars: readonly VehicleState[], camera: THREE.Camera): void;
+  /**
+   * Split screen: aim the parts of the frame that depend on the camera (the rain around it, the lights nearest to it, the order of
+   * smoke and spray) at this camera. `update()` does it for the camera it is given; the second view of a frame calls this just
+   * before it is drawn, with the first view's `update()` already done.
+   */
+  view?(camera: THREE.Camera): void;
   clear(): void;
   dispose(): void;
 }
@@ -141,6 +150,12 @@ export interface CarVisual {
   setPlayer(on: boolean): void;
   /** Hide exterior parts that block the cockpit view / show the interior. */
   setCockpitView(on: boolean): void;
+  /**
+   * Split screen: the real headlight beams (spotlights) are lit while this is true, the soft glow on the road otherwise (what an
+   * opponent's car has). The game lights the beams of the car whose view is being drawn only, so the scene always has the same
+   * number of lights. Default true.
+   */
+  setBeams?(on: boolean): void;
   /** World-space anchors (Object3D children of root) for cameras. +Z forward. */
   readonly anchors: { hood: THREE.Object3D; bumper: THREE.Object3D; cockpit: THREE.Object3D; chase: THREE.Object3D };
   /**
@@ -167,8 +182,12 @@ export interface AudioSystem {
   /** Resume the AudioContext. Call from a user gesture (click/key/gamepad button). Safe to call repeatedly. */
   unlock(): Promise<void>;
   readonly unlocked: boolean;
-  setListener(camera: THREE.Camera, velocity: THREE.Vector3): void;
-  createCarSound(profile: EngineSoundProfile, isPlayer: boolean): CarSound;
+  /** Where the ears are: the camera and its velocity. In split screen (setSplit) each seat has its own, `seat` 1 for player 2's. */
+  setListener(camera: THREE.Camera, velocity: THREE.Vector3, seat?: Seat): void;
+  /** `seat`: the human a player's car belongs to (split screen); absent = seat 0. Opponents are not players. */
+  createCarSound(profile: EngineSoundProfile, isPlayer: boolean, seat?: Seat): CarSound;
+  /** Split screen on or off: two listeners (one per seat) instead of one. */
+  setSplit(on: boolean): void;
   /** Global effects that are not tied to a car. */
   ui(sound: UiSound): void;
   setVolumes(v: AudioSettings): void;
@@ -254,7 +273,12 @@ export interface UISystem {
   /** HUD. */
   setHudVisible(v: boolean): void;
   setMinimap(m: MinimapTrack | null): void;
-  updateHud(h: HudState): void;
+  /** The HUD of one seat's view (seat 0 when absent; seat 1 only while a split layout is set). */
+  updateHud(h: HudState, seat?: Seat): void;
+  /** Split screen: one HUD per seat, laid out in the panes of this layout (src/core/split.ts); null = the one HUD over the whole screen. */
+  setSplit(layout: SplitLayout | null): void;
+  /** Who plays on what (the join step of the setup, the pause menu of a split race). */
+  setPlayers(info: PlayersInfo): void;
   /** Device indicator (gamepad name or keyboard). */
   setDevice(name: string | null): void;
   /** The replay overlay (what is playing and how to drive it), or null to hide it. */

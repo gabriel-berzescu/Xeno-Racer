@@ -11,13 +11,18 @@
  * only while it rains (weather.ts, dsp/weather-voice.ts: bed, drops, cabin drumming, thunder) and (b) every
  * car's wet-road sound (hiss, spray, splashes, slush; dsp/wet-road.ts) through the control vector.
  *
+ * Split screen: setSplit(true) gives each seat its own listener (setListener(camera, velocity, seat)). WebAudio still has one, seat 0's,
+ * so a sound is worked out against the listener that hears it (a human's car: its own human's; an opponent: the nearer human's) and
+ * moved into seat 0's frame (spatial.ts, placeSplit). Both humans' cars are full "player" voices, turned down by SPLIT_PLAYER_TRIM so
+ * that two are not twice as loud as one, and set a little left and right of the middle so that each can hear which is theirs.
+ *
  * Wiper: setWiper(audio, feed) takes the renderer's view of the cockpit wiper (XenoRenderSystem.wiper: is the blade drawn, the
  * windscreen pass's clock, the blade's schedule) once per frame and plays the motor, the rubber's swish and the thunks at the
  * ends of each sweep on the blade's own schedule, sample-accurately, from a worklet voice that exists only while the blade is on
  * screen (wiper.ts, wiper-model.ts, dsp/wiper-voice.ts).
  */
 import type * as THREE from 'three';
-import type { AudioSettings, EngineSoundProfile, UiSound } from '../core/contracts';
+import type { AudioSettings, EngineSoundProfile, Seat, UiSound } from '../core/contracts';
 import type { AudioSystem, CarSound, CreateAudioSystem } from '../core/systems';
 import workletUrl from './engine.worklet.ts?worker&url';
 import { CarSoundImpl, type CarHost } from './carsound';
@@ -43,6 +48,7 @@ export type { WiperHost, WiperLogEntry, WiperNode, WiperNodeLike } from './wiper
 export { WiperPlanner, WIPER_LOOKAHEAD_S, WIPER_STALE_S, WIPER_THUNK_VARIANTS, makeSweepCommand } from './wiper-model';
 export type { SweepCommand, WiperFeed } from './wiper-model';
 export { calibratedExhaustGain } from './dsp/engine-voice';
+export { SPLIT_PLAYER_TRIM, SPLIT_SEPARATION_DEG } from './spatial';
 
 /** URL of the bundled worklet module (differs between `vite dev` and `vite build`). */
 export const AUDIO_WORKLET_URL: string = workletUrl;
@@ -65,6 +71,10 @@ class AudioSystemImpl implements AudioSystem, CarHost {
   readonly ctx: BaseAudioContext;
   readonly graph: MasterGraph;
   readonly listener: ListenerState = makeListener();
+  /** Split screen: seat 1's listener (only heard through while split is on and its camera has been given: see secondListener). */
+  private readonly listener1: ListenerState = makeListener();
+  private split = false;
+  private listener1Set = false;
   workletReady = false;
   paused = false;
   /** Water on the track 0..1 (setWeather): every car's wet-road sound follows it. */
@@ -82,6 +92,8 @@ class AudioSystemImpl implements AudioSystem, CarHost {
   private cars = new Set<CarSoundImpl>();
   /** The player's car (for the cabin / speed the rain ambience follows). */
   private player: CarSoundImpl | null = null;
+  /** Split screen: the two humans' cars by seat (the rain ambience follows both). */
+  private readonly seatCars: [CarSoundImpl | null, CarSoundImpl | null] = [null, null];
   private seed = 1;
   private owned: boolean;
   private lastResumeTry = -10;
@@ -151,6 +163,10 @@ class AudioSystemImpl implements AudioSystem, CarHost {
     return this.ctx.state === 'running';
   }
 
+  get secondListener(): ListenerState | null {
+    return this.split && this.listener1Set ? this.listener1 : null;
+  }
+
   nextSeed(): number {
     return this.seed++;
   }
@@ -211,9 +227,19 @@ class AudioSystemImpl implements AudioSystem, CarHost {
 
   // ── listener / frame update ────────────────────────────────────────────────
 
-  setListener(camera: THREE.Camera, velocity: THREE.Vector3): void {
+  setListener(camera: THREE.Camera, velocity: THREE.Vector3, seat: Seat = 0): void {
     camera.updateMatrixWorld();
-    listenerFromMatrix(camera.matrixWorld.elements, velocity.x, velocity.y, velocity.z, this.listener);
+    if (seat === 1) {
+      listenerFromMatrix(camera.matrixWorld.elements, velocity.x, velocity.y, velocity.z, this.listener1);
+      this.listener1Set = true;
+    } else listenerFromMatrix(camera.matrixWorld.elements, velocity.x, velocity.y, velocity.z, this.listener);
+  }
+
+  setSplit(on: boolean): void {
+    if (on === this.split) return;
+    this.split = on;
+    // (seat 1 has to give its camera again before it is listened through)
+    this.listener1Set = false;
   }
 
   private applyListener(): void {
@@ -296,24 +322,41 @@ class AudioSystemImpl implements AudioSystem, CarHost {
       for (let i = 0; i < n; i++) this.aiList[i].lod = this.lodOut[i];
     }
     // rain ambience: open or cabin mix and the windscreen follow the player's camera / speed
-    const pl = this.player;
-    this.weather.update(dt, pl ? pl.interior : 0, pl ? pl.speed : 0, this.paused || this.stale);
+    const pl = this.seatCars[0] ?? this.player;
+    let interior = pl ? pl.interior : 0;
+    let speed = pl ? pl.speed : 0;
+    if (this.split) {
+      // two humans: half way between a cabin and the open air when one is in it, and the faster one's wind
+      const a = this.seatCars[0];
+      const b = this.seatCars[1];
+      if (a && b) {
+        interior = (a.interior + b.interior) * 0.5;
+        speed = Math.max(a.speed, b.speed);
+      }
+    }
+    this.weather.update(dt, interior, speed, this.paused || this.stale);
     this.wiper.update(dt);
     this.music?.tick();
   }
 
   // ── cars ───────────────────────────────────────────────────────────────────
 
-  createCarSound(profile: EngineSoundProfile, isPlayer: boolean): CarSound {
-    const c = new CarSoundImpl(this, profile, isPlayer);
+  createCarSound(profile: EngineSoundProfile, isPlayer: boolean, seat: Seat = 0): CarSound {
+    const c = new CarSoundImpl(this, profile, isPlayer, seat);
     this.cars.add(c);
-    if (isPlayer) this.player = c;
+    if (isPlayer) {
+      this.player = c;
+      this.seatCars[seat === 1 ? 1 : 0] = c;
+    }
     return c;
   }
 
   onDispose(car: CarSoundImpl): void {
     this.cars.delete(car);
-    if (car === this.player) this.player = null;
+    if (car === this.seatCars[0]) this.seatCars[0] = null;
+    if (car === this.seatCars[1]) this.seatCars[1] = null;
+    // (with two humans, the one left is the player the rain ambience follows)
+    if (car === this.player) this.player = this.seatCars[0] ?? this.seatCars[1];
   }
 
   // ── ui, volumes, pause, music ──────────────────────────────────────────────
@@ -412,6 +455,7 @@ function createSilentAudioSystem(): AudioSystem {
     unlock: () => Promise.resolve(),
     unlocked: false,
     setListener: () => undefined,
+    setSplit: () => undefined,
     createCarSound: () => silentCar,
     ui: () => undefined,
     setVolumes: () => undefined,

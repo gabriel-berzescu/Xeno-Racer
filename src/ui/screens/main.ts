@@ -2,7 +2,7 @@ import type { InputFrame, RaceMode } from '../../core/contracts';
 import type { UiCtx } from '../ctx';
 import { clearEl, h } from '../dom';
 import { formatLapTime } from '../format';
-import { championshipHint, MODE_INFO } from '../model';
+import { championshipHint, MODE_INFO, SPLIT_BLURB } from '../model';
 import { FocusList, type FocusRow } from '../nav';
 import { wordmark } from '../wordmark';
 import { BaseScreen } from './base';
@@ -27,9 +27,10 @@ export class MainScreen extends BaseScreen {
 
   constructor(ctx: UiCtx) {
     super(ctx, 'main');
-    const mode = (m: RaceMode) => () => ctx.openSetup(m);
+    // (every entry opens the setup with its own number of players: a second player is chosen here or on the setup's Players row)
+    const mode = (m: RaceMode) => () => ctx.openSetup(m, { players: 1 });
     const modeItem = (label: string, m: RaceMode): Item => ({ label, hint: () => MODE_INFO[m].blurb, run: mode(m) });
-    this.items = [modeItem('Race', 'race')];
+    this.items = [modeItem('Race', 'race'), { label: 'Split screen', hint: () => SPLIT_BLURB, run: () => ctx.openSetup('race', { players: 2 }) }];
     if (ctx.championshipDef) {
       this.items.push({
         label: 'Championship',
@@ -82,7 +83,8 @@ export class MainScreen extends BaseScreen {
       h('div', 'scrim scrim-bottom'),
       h('div', { cls: 'main-brand in', style: { '--d': '60', '--ty': '-24px', '--tx': '0px' } }, wordmark()),
       h('div', { cls: 'main-driver in', style: { '--d': '260', '--ty': '-24px', '--tx': '0px' } }, h('div', 'tag', 'DRIVER ', this.driver)),
-      h('div', 'main-menu', menu),
+      // (seven entries, the championship's included, are set a little tighter so the list still ends above the hint)
+      h('div', this.items.length > 6 ? 'main-menu dense' : 'main-menu', menu),
       this.pb,
       h('div', { cls: 'main-hintwrap in', style: { '--d': '640', '--ty': '20px', '--tx': '0px' } }, this.hint),
       this.prompts.el,

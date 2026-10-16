@@ -516,6 +516,12 @@ export type DamageMode = 'off' | 'visual';
  */
 export type MirrorMode = 'auto' | 'off';
 
+/** Split screen (two players, one screen): player 1 sits in seat 0, player 2 in seat 1. */
+export type Seat = 0 | 1;
+
+/** How a split-screen race divides the screen: 'rows' = one wide view above the other (the default), 'columns' = side by side. */
+export type SplitLayout = 'rows' | 'columns';
+
 export interface Settings {
   graphics: GraphicsSettings;
   audio: AudioSettings;
@@ -526,6 +532,9 @@ export interface Settings {
   camera: { fov: number; defaultMode: CameraMode; shake: number };
   damage: DamageMode;
   playerName: string;
+  /** Split screen (src/core/split.ts): the second driver's name, and how the screen divides. */
+  player2Name: string;
+  split: { layout: SplitLayout };
 }
 
 export type RaceMode = 'race' | 'timeTrial' | 'freeRoam';
@@ -564,6 +573,12 @@ export interface RaceConfig {
   environment: EnvironmentSettings;
   startPosition: 'back' | 'middle' | 'pole';
   /**
+   * Split screen: a second human drives on the same screen, in a car of their own (races and free roam; a time trial and a
+   * championship are for one). `livery.driver` is their name. Absent = one player. The two start side by side at `startPosition`,
+   * and `opponents` counts at most 10 (src/core/split.ts MAX_SPLIT_OPPONENTS).
+   */
+  player2?: { carId: string; livery?: Partial<Livery> };
+  /**
    * Weather that changes during the race (see `Forecast`): `environment.weather` is the weather at the start. Races and free roam
    * only (a time trial stays as set), and only where it makes sense: rain later from a dry weather, clearing from a wet one
    * (`sanitizeForecast` in src/game/weather.ts). Absent = stable.
@@ -588,13 +603,52 @@ export interface RaceResultEntry {
   points?: number;
   /** Championship rounds: this driver took the fastest-lap point. */
   fastestLap?: boolean;
+  /** Split screen: which of the two humans this row is (absent for an opponent; absent for the one player of a single-player race). */
+  seat?: Seat;
+}
+
+/** The duel of a split-screen race: the two humans against each other (all of it in seat order). */
+export interface SplitDuel {
+  names: [string, string];
+  /** Who finished ahead of the other: null when neither finished (or they tie). */
+  winner: Seat | null;
+  /** How far behind the winner the other one finished: "+3.241", "+1 LAP", or "" when it is no time (the other did not finish). */
+  gap: string;
+  /** Places in the whole race. */
+  positions: [number, number];
+  /** Each human's own laps, best lap and whether the lap set a new personal best for the track and car. */
+  lapTimes: [number[], number[]];
+  bestLap: [number | null, number | null];
+  personalBest: [boolean, boolean];
+  /** The car each drove (ids). */
+  carIds: [string, string];
 }
 
 export interface RaceResults {
   config: RaceConfig;
   entries: RaceResultEntry[];
+  /** Player 1's laps (the one player's, in a single-player race). */
   playerLapTimes: number[];
   personalBest: boolean; // player set a new best lap for this track+car
+  /** Split screen: both humans, and who beat whom. */
+  duel?: SplitDuel;
+}
+
+/**
+ * Who is playing on what, for the screens that deal with the second player (the join step of the setup, the pause menu):
+ * the game fills it from the input system and hands it to the UI.
+ */
+export interface PlayersInfo {
+  /** The device each seat plays on ("Logitech Gamepad F310", "Keyboard"); null = nobody there yet. */
+  devices: [string | null, string | null];
+  /** Controllers connected right now (a second player needs another controller, or the keyboard). */
+  pads: number;
+  /** The second player has joined: their device is bound. */
+  joined: boolean;
+  /** A race is paused: the seat whose device drives the menu (the pad that paused it), null = either. */
+  owner: Seat | null;
+  /** A seat's controller was unplugged: the pause menu says whose. */
+  missing: Seat | null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -712,6 +766,8 @@ export interface HudStanding {
   gap: string; // "LEADER" / "+1.234" / "+1L"
   isPlayer: boolean;
   color: string;
+  /** Split screen: which human this row is (every human has a row in both towers; `isPlayer` is true for both). */
+  seat?: Seat;
 }
 
 export interface HudState {
@@ -745,7 +801,9 @@ export interface HudState {
   sectorDeltas: (number | null)[]; // per sector vs best, this lap
   standings: HudStanding[];
   /** Car markers for the minimap (world XZ). */
-  cars: { x: number; z: number; heading: number; color: string; isPlayer: boolean }[];
+  cars: { x: number; z: number; heading: number; color: string; isPlayer: boolean; seat?: Seat }[];
+  // (`isPlayer` is true for a human's car; in split screen both humans are on the map and `seat` says which, and the HUD of seat s
+  // draws its own car as the player's.)
   gLat: number; // in g, + = left
   gLong: number; // in g, + = accelerating
   tires: { slip: number; tempC: number; load: number }[]; // FL FR RL RR, load as fraction of static
@@ -813,6 +871,12 @@ export type UIIntent =
   /** Race the next round of the saved championship (the game shows the loading screen, as for `startChampionship`). */
   | { type: 'championshipNext' }
   /** Forget the saved championship (abandoned, or finished and seen). */
-  | { type: 'championshipAbandon' };
+  | { type: 'championshipAbandon' }
+  /**
+   * The split-screen join step of the setup. 'join': listen for the second player (A on another controller, Enter for the keyboard);
+   * 'cancel': stop listening; 'swap': player 1 and player 2 change devices; 'unbind': there is no second player any more (back to the
+   * menu, or a one-player setup). The game answers with `setPlayers()`.
+   */
+  | { type: 'split'; action: 'join' | 'cancel' | 'swap' | 'unbind' };
 
 export type UiSound = 'move' | 'select' | 'back' | 'error' | 'countdown' | 'go' | 'lap' | 'bestLap' | 'finish';

@@ -2,10 +2,10 @@
  * HUD minimap: north-up, whole circuit. The road is rendered once into an offscreen canvas when the
  * track changes; every frame only composites it and draws the car markers.
  */
-import type { HudState, MinimapTrack } from '../../core/contracts';
+import type { HudState, MinimapTrack, Seat } from '../../core/contracts';
 import { h } from '../dom';
-import { mapX, mapY, type MapFit } from '../hudlogic';
-import { drawCarDot, drawTrack, HUD_MAP_STYLE, sizeCanvas } from '../trackmap';
+import { isOwn, mapX, mapY, minimapOrder, type MapFit } from '../hudlogic';
+import { drawCarDot, drawOtherHumanDot, drawTrack, HUD_MAP_STYLE, sizeCanvas } from '../trackmap';
 
 const W = 296;
 const MAX_H = 276;
@@ -23,6 +23,9 @@ export class HudMinimap {
   private hh = MAX_H;
   private enabled = true;
   private shown = false;
+  /** Split screen: whose view this map is in (null: single player), and the draw order of the cars (hudlogic minimapOrder). */
+  private seat: Seat | null = null;
+  private readonly order = new Int16Array(64);
 
   constructor(parent: HTMLElement) {
     this.el = h('div', 'hud-map', this.canvas);
@@ -52,6 +55,11 @@ export class HudMinimap {
     this.sync();
   }
 
+  /** Whose view the map is in: the viewer's own car is the pulsing arrow in their colour, the other human a ringed arrow in theirs. */
+  setSeat(seat: Seat | null): void {
+    this.seat = seat;
+  }
+
   private sync(): void {
     const show = this.enabled && this.map !== null;
     if (show !== this.shown) {
@@ -78,18 +86,15 @@ export class HudMinimap {
     g.clearRect(0, 0, W, this.hh);
     g.drawImage(this.layer, 0, 0, W, this.hh);
     const cars = s.cars;
-    let player = -1;
-    for (let i = 0; i < cars.length; i++) {
-      const c = cars[i];
-      if (c.isPlayer) {
-        player = i;
-        continue;
-      }
-      drawCarDot(g, mapX(this.fit, c.x), mapY(this.fit, c.z), c.heading, c.color, false, now);
-    }
-    if (player >= 0) {
-      const c = cars[player];
-      drawCarDot(g, mapX(this.fit, c.x), mapY(this.fit, c.z), c.heading, c.color, true, now);
+    const seat = this.seat;
+    const n = minimapOrder(cars, seat, this.order);
+    for (let k = 0; k < n; k++) {
+      const c = cars[this.order[k]];
+      const x = mapX(this.fit, c.x);
+      const y = mapY(this.fit, c.z);
+      if (!c.isPlayer) drawCarDot(g, x, y, c.heading, c.color, false, now);
+      else if (isOwn(c, seat)) drawCarDot(g, x, y, c.heading, c.color, true, now, seat ?? 0);
+      else drawOtherHumanDot(g, x, y, c.heading, c.seat ?? 1);
     }
   }
 }

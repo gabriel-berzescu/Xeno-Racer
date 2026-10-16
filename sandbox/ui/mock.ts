@@ -2,7 +2,8 @@
  * Mock data for the UI sandbox: fictional tracks, a procedural circuit for the minimap, and an animated
  * HudState driven by a curvature-based speed profile (so speed, gears, g-forces and tire load look right).
  */
-import type { HudState, HudStanding, MinimapTrack, RaceResultEntry, RaceResults, TrackInfo } from '../../src/core/contracts';
+import type { HudState, HudStanding, MinimapTrack, RaceResultEntry, RaceResults, Seat, TrackInfo } from '../../src/core/contracts';
+import { SEAT_COLOR } from '../../src/core/split';
 
 export const MOCK_TRACKS: TrackInfo[] = [
   {
@@ -317,4 +318,49 @@ export function mockResults(carIds: string[], personalBest: boolean, position = 
     playerLapTimes: [95.4, 93.012, 92.481, 92.9, 93.77],
     personalBest,
   };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Split screen
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const SPLIT_NAMES: readonly [string, string] = ['GABRIEL', 'SILVIU'];
+
+/**
+ * The view of one seat in a split race: `base` (a MockRace state) with the two humans in the standings at places `pos` (both rows
+ * are `isPlayer`, with their seat), on the map, and the viewer's own place/lap numbers. `keep` limits the standings the way the game
+ * does (leader, the cars around the viewer and both humans: 6 rows at most); 0 keeps all of them.
+ */
+export function splitState(base: HudState, seat: Seat, pos: readonly [number, number], keep = 6): HudState {
+  const total = base.totalCars;
+  const humans = [clampPos(pos[0], total), clampPos(pos[1], total)];
+  if (humans[0] === humans[1]) humans[1] = humans[1] === total ? total - 1 : humans[1] + 1;
+  const names = NAMES.filter((n) => n !== 'GABRIEL' && n !== 'SILVIU');
+  let ai = 0;
+  const standings: HudStanding[] = [];
+  const cars: HudState['cars'] = [];
+  for (let p = 1; p <= total; p++) {
+    const hs = humans.indexOf(p);
+    const std = base.standings[p - 1] ?? base.standings[base.standings.length - 1];
+    const name = hs >= 0 ? SPLIT_NAMES[hs] : names[ai++ % names.length];
+    const color = hs >= 0 ? SEAT_COLOR[hs] : COLORS[NAMES.indexOf(name) % COLORS.length];
+    const gap = p === 1 ? 'LEADER' : '+' + (p * 0.74 + (p % 3) * 0.21).toFixed(3);
+    standings.push({ position: p, name, gap, isPlayer: hs >= 0, color, ...(hs >= 0 ? { seat: hs as Seat } : {}) });
+    const c = base.cars[Math.min(base.cars.length - 1, p - 1)];
+    cars.push({ x: c.x, z: c.z, heading: c.heading, color, isPlayer: hs >= 0, ...(hs >= 0 ? { seat: hs as Seat } : {}) });
+    void std;
+  }
+  let shown = standings;
+  if (keep > 0 && total > keep) {
+    // what the game sends: the leader and both humans first, then the cars around the viewer until `keep` rows are chosen
+    const me = humans[seat] - 1;
+    const want: number[] = [0, me, humans[1 - seat] - 1];
+    for (let d = 1; want.length < keep && d < total; d++) for (const i of [me - d, me + d]) if (i >= 0 && i < total && !want.includes(i) && want.length < keep) want.push(i);
+    shown = standings.filter((_, i) => want.includes(i));
+  }
+  return { ...base, position: humans[seat], standings: shown, cars };
+}
+
+function clampPos(p: number, total: number): number {
+  return Math.max(1, Math.min(total, Math.round(p)));
 }

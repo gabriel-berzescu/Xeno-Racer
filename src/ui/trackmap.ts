@@ -2,8 +2,9 @@
  * Canvas drawing for track maps (track-select preview and the HUD minimap).
  * World XZ -> canvas: +X to the right, +Z down the screen (an un-mirrored top view).
  */
-import type { MinimapTrack } from '../core/contracts';
-import { COLORS, fitBounds, mapX, mapY, type MapFit } from './hudlogic';
+import type { MinimapTrack, Seat } from '../core/contracts';
+import { SEAT_COLOR } from '../core/split';
+import { COLORS, fitBounds, hexToRgb, mapX, mapY, type MapFit } from './hudlogic';
 
 export interface MapStyle {
   /** Dark edge drawn under the road. */
@@ -90,18 +91,28 @@ export function drawTrack(g: CanvasRenderingContext2D, map: MinimapTrack, w: num
   tick(g, map, fit, map.startIndex, half + 2, COLORS.pink, 1.5);
 }
 
-const PULSE_COLORS: string[] = [];
-for (let i = 0; i < 24; i++) PULSE_COLORS.push(`rgba(22,224,189,${(0.55 * (1 - i / 24)).toFixed(3)})`);
+/** The pulse ring of the player's marker, by age (index = pulse * 24), for each seat's colour (one player: seat 0's, the game's teal). */
+const PULSE_COLORS: string[][] = SEAT_COLOR.map((hex) => {
+  const [r, gr, b] = hexToRgb(hex);
+  const out: string[] = [];
+  for (let i = 0; i < 24; i++) out.push(`rgba(${r},${gr},${b},${(0.55 * (1 - i / 24)).toFixed(3)})`);
+  return out;
+});
+/** The dark edge of a seat's marker. */
+const SEAT_EDGE: readonly string[] = ['#03211b', '#2a0610'];
 
-/** A car marker. heading = atan2(forward.x, forward.z) in world XZ. */
-export function drawCarDot(g: CanvasRenderingContext2D, x: number, y: number, heading: number, color: string, player: boolean, nowMs: number): void {
+/**
+ * A car marker. heading = atan2(forward.x, forward.z) in world XZ. The player's own marker is a pulsing arrow in the seat's colour
+ * (`seat` absent: one player, teal).
+ */
+export function drawCarDot(g: CanvasRenderingContext2D, x: number, y: number, heading: number, color: string, player: boolean, nowMs: number, seat: Seat = 0): void {
   const fx = Math.sin(heading);
   const fy = Math.cos(heading);
   if (player) {
     const pulse = (nowMs % 1400) / 1400;
     g.beginPath();
     g.arc(x, y, 8 + pulse * 11, 0, Math.PI * 2);
-    g.strokeStyle = PULSE_COLORS[Math.min(23, Math.floor(pulse * 24))];
+    g.strokeStyle = PULSE_COLORS[seat][Math.min(23, Math.floor(pulse * 24))];
     g.lineWidth = 2;
     g.stroke();
     g.save();
@@ -113,10 +124,10 @@ export function drawCarDot(g: CanvasRenderingContext2D, x: number, y: number, he
     g.lineTo(0, 4);
     g.lineTo(-7.5, 8);
     g.closePath();
-    g.fillStyle = COLORS.teal;
+    g.fillStyle = SEAT_COLOR[seat];
     g.fill();
     g.lineWidth = 2;
-    g.strokeStyle = '#03211b';
+    g.strokeStyle = SEAT_EDGE[seat];
     g.stroke();
     g.restore();
     return;
@@ -128,4 +139,33 @@ export function drawCarDot(g: CanvasRenderingContext2D, x: number, y: number, he
   g.lineWidth = 1.6;
   g.strokeStyle = 'rgba(3,4,7,0.92)';
   g.stroke();
+}
+
+/**
+ * The other human on a split-screen map: a smaller arrow in their colour inside a light ring, so it is neither an opponent's dot nor
+ * the viewer's own pulsing marker.
+ */
+export function drawOtherHumanDot(g: CanvasRenderingContext2D, x: number, y: number, heading: number, seat: Seat): void {
+  const fx = Math.sin(heading);
+  const fy = Math.cos(heading);
+  g.beginPath();
+  g.arc(x, y, 10.5, 0, Math.PI * 2);
+  g.strokeStyle = 'rgba(238,240,243,0.92)';
+  g.lineWidth = 1.8;
+  g.stroke();
+  g.save();
+  g.translate(x, y);
+  g.rotate(Math.atan2(fx, -fy));
+  g.beginPath();
+  g.moveTo(0, -8.5);
+  g.lineTo(6, 6.5);
+  g.lineTo(0, 3);
+  g.lineTo(-6, 6.5);
+  g.closePath();
+  g.fillStyle = SEAT_COLOR[seat];
+  g.fill();
+  g.lineWidth = 1.8;
+  g.strokeStyle = SEAT_EDGE[seat];
+  g.stroke();
+  g.restore();
 }

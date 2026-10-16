@@ -21,7 +21,7 @@ signage: teal `#16e0bd`, hot pink `#ff2e63`, near-black `#0b0c10`, off-white `#e
 | Path | Owner | What |
 |---|---|---|
 | `src/core/contracts.ts`, `src/core/systems.ts` | lead | Shared types + subsystem APIs. **Do not edit**; ask the lead. |
-| `src/core/*` (other) | lead | settings, small shared helpers |
+| `src/core/*` (other) | lead | settings, small shared helpers; `split.ts`: the split-screen geometry, lens, HUD scale and grid slots (pure, shared by render, UI and game) |
 | `src/physics/` | lead | rigid body, tires, suspension, drivetrain, aero, collisions, assists |
 | `src/cars/` | lead | car roster (`CARS`, `getCar`) — physics + visual + sound specs |
 | `src/game/`, `src/main.ts` | lead | game loop, race logic, timing, ghosts, championship (`championship.ts`: pure scoring, standings and persistence), weather that changes during a race (`weather.ts`: the plan, the timeline and the director, pure; the rules of a legal forecast are in `src/core/forecast.ts`), integration |
@@ -51,9 +51,45 @@ InputSystem.poll ─► game (steering filter, assists) ─► CarControls ─�
         └───────────────┴──── RenderSystem.render(camera) ┘
 ```
 
+Split screen (two humans, one canvas) has the same flow with the camera-dependent half done twice: see below.
+
 Track: `loadTrackRuntime(id)` is headless (physics/AI/tests use it); `buildTrackScene()` makes the
 visible world. Physics asks the track `groundAt()` for every wheel every substep and `project()`
 for barrier collisions — they must be fast and allocation-free.
+
+## Split screen
+
+Two humans on one screen (races and free roam, `RaceConfig.player2`). The simulation is the same, once per frame; what is doubled
+is everything that belongs to a view.
+
+- **Who is who:** `Game.drivers` holds one `Driver` per human in seat order (seat 0 is player 1): their car, their `CameraRig`,
+  steering filter, banners, spotter state and the lap they are on. A single-player race has one driver and runs the same code with
+  the same numbers as before.
+- **Input:** `XenoInputSystem.bindPlayers(a, b)` gives each seat a device (a pad index, or the keyboard). `poll()` still returns the
+  one merged frame the menus use, whose navigation is the union of the devices (or only the pad that paused a race: `menuOwner`);
+  `players[seat]` are the drivers' own frames and read their own device only. The join step (`beginJoin`, `takeJoiner`) binds the
+  first other pad that presses A, or the keyboard's Enter. A seat whose pad is unplugged is reported by `missingSeat()` and the game
+  pauses.
+- **Render:** `setSplit(layout)` cuts the canvas into two views (`src/core/split.ts`: a 4 px gap, rows or columns). The post chain
+  (one `EffectComposer`) works at the size of a view and `renderViews()` runs it twice a frame, each time into its own viewport, so
+  bloom, AO, SMAA, motion blur, sun shafts, wet-road reflections and windscreen droplets are the 1P passes. A view has its own
+  camera, the rain on its glass and its wiper clock (`ViewState`), its blur history, the street lamps nearest its car, and a **set of
+  sun cascades of its own** (`SunShadows.sets`: two sets of lights, one in the scene at a time, so the number of lights and every lit
+  shader are the same as in 1P; the far cascade of the second set refreshes a frame after the first's, so no frame redraws both). Just before a view is drawn the game's `prepare(i)` points everything else that depends on the camera
+  at it: `TrackScene.update(dt, camera)`, `EffectsSystem.view()` (the rain box, the nearest lights, the sort of smoke and spray), and
+  which car shows its cockpit and its real headlight beams (`CarVisual.setBeams`; the other human's car has the soft glow an opponent
+  has). The first view's draw updates the scene's matrices and the second skips it. Mirrors are off. While the screen is split the
+  graphics are run as `splitGraphics()` says (Ultra's 1.25 supersampling at 1.0; the saved settings are not touched).
+- **No shader after the start:** a split frame has the same lights, passes and buffer size for both views, so every program is built
+  behind the loading screen (`precompile()` with the first view's lights, then one hidden `renderViewsNow()` through both views) and
+  `renderer.info.programs` does not grow once the lights go out.
+- **Audio:** WebAudio has one listener. A human's car is placed from their own camera and moved into player 1's listener frame (a
+  small left/right swing tells the two engines apart), opponents are heard from the nearer human, and each human's gains are trimmed
+  so that two player voices are not twice as loud (`src/audio/spatial.ts`).
+- **UI:** `UISystem.setSplit(layout)` shows one HUD per seat in a pane over its view (`src/ui/hud/panes.ts`) and a divider;
+  `updateHud(state, seat)` feeds each. `PlayersInfo` tells the setup's join card and the pause menu who plays on what.
+- **Session:** `Entrant.seat` marks the humans. Each has their own lap reference, stored best and results row, and `RaceResults.duel`
+  says who beat whom.
 
 ## Rules for everyone
 

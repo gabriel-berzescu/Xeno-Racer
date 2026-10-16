@@ -12,16 +12,22 @@
  * UI-initiated navigation, e.g. `setup`, `setup:car`; not echoed when the game calls `show()`), and for the
  * championship startChampionship, championshipNext and championshipAbandon. The game keeps the championship
  * and pushes a view model with `setChampionship()`; the standings and champion screens only render it.
+ *
+ * Split screen: `setSplit('rows' | 'columns')` gives each seat a HUD of its own in a pane over its view (the rectangles are the
+ * render system's, src/core/split.ts, divided by the stage scale; src/ui/hud/panes.ts), and the divider line between them;
+ * `updateHud(state, seat)` feeds each one (seat 1 only while split); `setSplit(null)` goes back to the one HUD over the whole screen.
+ * The game calls setSplit before the first updateHud of a seat 1 and again with null when the race is over (results, replay, menu).
  */
 import './styles/base.css';
 import './styles/screens.css';
 import './styles/hud.css';
 
-import type { ChampionshipSetup, ChampionshipView, HudState, InputFrame, MinimapTrack, RaceConfig, RaceResults, Settings, UIIntent, UiSound } from '../core/contracts';
+import type { ChampionshipSetup, ChampionshipView, HudState, InputFrame, MinimapTrack, PlayersInfo, RaceConfig, RaceResults, Seat, Settings, SplitLayout, UIIntent, UiSound } from '../core/contracts';
 import type { ReplayInfo, ScreenId, UIDeps, UISystem } from '../core/systems';
 import { prettyPadName } from '../input/processing';
 import type { Device, UiCtx } from './ctx';
 import { createHud, type HudView } from './hud';
+import { dividerBackground, paneLayout } from './hud/panes';
 import type { BaseScreen, ActiveScreenId } from './screens/base';
 import { ChampionScreen } from './screens/champion';
 import { CreditsScreen } from './screens/credits';
@@ -33,7 +39,7 @@ import { SettingsScreen } from './screens/settings';
 import { SetupScreen } from './screens/setup';
 import { StandingsScreen } from './screens/standings';
 import { TitleScreen } from './screens/title';
-import type { SetupMode } from './model';
+import type { SetupMode, SetupOpts } from './model';
 import { h } from './dom';
 import { ReplayOverlay } from './replay';
 
@@ -65,7 +71,14 @@ class UiImpl implements XenoUI {
   readonly root: HTMLElement;
   private readonly stage: HTMLElement;
   private readonly screensEl: HTMLElement;
-  private readonly hud: HudView;
+  /** The HUD of each seat: [0] is the one HUD of a single-player race, [1] is made the first time the screen is split. */
+  private readonly huds: HudView[] = [];
+  /** The box each HUD sits in (the whole stage, or the pane over one view of a split) and the line between the views. */
+  private readonly panes: HTMLElement[] = [];
+  private readonly divider = h('div', 'xr-split-divider');
+  private minimap: MinimapTrack | null = null;
+  /** Stage units -> CSS pixels of the last layout(). */
+  private stageScale = 1;
   readonly ctx: UiCtx;
   private readonly screens = new Map<ActiveScreenId, BaseScreen>();
   private cur: ScreenId = 'none';
@@ -103,14 +116,17 @@ class UiImpl implements XenoUI {
       padWarning: null,
       lastConfig: null,
       lastHud: null,
+      lastHud2: null,
       results: null,
       championship: deps.championship ?? null,
       championshipDef: deps.championshipDef ?? null,
+      players: { devices: [null, null], pads: 0, joined: false, owner: null, missing: null },
+      split: null,
       pxScale: 1,
       sound: (s: UiSound) => this.playSound(s),
       emit: (i: UIIntent) => deps.onIntent(i),
       go: (s: ScreenId) => this.switchTo(s, true),
-      openSetup: (m: SetupMode) => this.openSetup(m),
+      openSetup: (m: SetupMode, o?: SetupOpts) => this.openSetup(m, o),
       startRace: (c: RaceConfig) => this.startRace(c),
       startChampionship: (s: ChampionshipSetup) => this.startChampionship(s),
       nextRound: () => this.nextRound(),
@@ -126,9 +142,10 @@ class UiImpl implements XenoUI {
     this.root = h('div', { cls: 'xr-ui', data: { input: 'kbd', fx: 'on' } });
     this.stage = h('div', 'xr-stage');
     this.screensEl = h('div', 'xr-screens');
-    this.hud = createHud(this.ctx);
+    this.huds[0] = createHud(this.ctx);
+    this.panes[0] = h('div', 'xr-pane', this.huds[0].el);
     this.replay = new ReplayOverlay(this.ctx);
-    this.stage.append(this.hud.el, this.replay.el, this.screensEl, this.notice);
+    this.stage.append(this.panes[0], this.divider, this.replay.el, this.screensEl, this.notice);
     this.root.appendChild(this.stage);
     container.appendChild(this.root);
 
@@ -172,11 +189,52 @@ class UiImpl implements XenoUI {
     this.stage.style.height = hh / s + 'px';
     this.stage.style.transform = `scale(${s})`;
     this.stage.toggleAttribute('data-narrow', w / s < NARROW_W);
+    this.stageScale = s;
     this.ctx.pxScale = s * (window.devicePixelRatio || 1);
     for (const cb of this.resizeCbs) cb();
     for (const sc of this.screens.values()) sc.resize();
-    this.hud.resize();
+    this.layoutHuds();
   };
+
+  /**
+   * Place the HUDs: one over the whole stage, or in a split one in a pane over each view (the same rectangles the render system
+   * draws the views in: core/split.ts, in CSS pixels, divided by the stage scale) with the divider in the gap between them. Runs on
+   * every resize and whenever the split changes.
+   */
+  private layoutHuds(): void {
+    const layout = this.ctx.split;
+    const huds = this.huds;
+    if (!layout || !huds[1]) {
+      const p = this.panes[0];
+      p.className = 'xr-pane';
+      p.style.cssText = '';
+      this.divider.className = 'xr-split-divider';
+      if (this.panes[1]) this.panes[1].style.cssText = 'display:none';
+      huds[0].setPane(null);
+      huds[1]?.setPane(null);
+      return;
+    }
+    const w = this.container.clientWidth || window.innerWidth;
+    const hh = this.container.clientHeight || window.innerHeight;
+    const s = this.stageScale;
+    const pl = paneLayout(w, hh, s, layout);
+    for (let seat = 0; seat < 2; seat++) {
+      const pane = pl.panes[seat];
+      const el = this.panes[seat];
+      const r = pane.rect;
+      el.className = 'xr-pane split';
+      el.style.cssText = `left:${r.x}px;top:${r.y}px;width:${r.w}px;height:${r.h}px`;
+      huds[seat].setPane({ seat: seat as Seat, layout, scale: pane.scale, w: pane.box.w, h: pane.box.h });
+    }
+    const d = pl.divider;
+    this.divider.style.cssText = `left:${d.x}px;top:${d.y}px;width:${d.w}px;height:${d.h}px;background:${dividerBackground(layout, layout === 'columns' ? d.w : d.h, 1.5 / s)}`;
+    this.divider.className = 'xr-split-divider' + (this.splitShown() ? ' on' : '');
+  }
+
+  /** Is the split on screen (a race or its pause menu, not a menu screen over it)? */
+  private splitShown(): boolean {
+    return this.ctx.split !== null && (this.cur === 'none' || this.cur === 'pause');
+  }
 
   // ── screens ────────────────────────────────────────────────────────────────
 
@@ -232,8 +290,8 @@ class UiImpl implements XenoUI {
     if (fromUi && next !== 'none') this.deps.onIntent({ type: 'menuOpened', screen: next });
   }
 
-  private openSetup(mode: SetupMode): void {
-    (this.screenFor('setup') as SetupScreen).configure(mode);
+  private openSetup(mode: SetupMode, opts?: SetupOpts): void {
+    (this.screenFor('setup') as SetupScreen).configure(mode, opts);
     this.switchTo('setup', true);
   }
 
@@ -262,7 +320,7 @@ class UiImpl implements XenoUI {
 
   private applySettings(): void {
     this.root.dataset.fx = this.ctx.settings.graphics.quality === 'low' ? 'off' : 'on';
-    this.hud.setSettings(this.ctx.settings);
+    for (const hud of this.huds) hud.setSettings(this.ctx.settings);
   }
 
   private settingsChanged(): void {
@@ -273,7 +331,10 @@ class UiImpl implements XenoUI {
   // ── HUD visibility ─────────────────────────────────────────────────────────
 
   private syncHud(): void {
-    this.hud.setVisible(this.hudWanted && (this.cur === 'none' || this.cur === 'pause'));
+    const on = this.hudWanted && (this.cur === 'none' || this.cur === 'pause');
+    this.huds[0].setVisible(on);
+    this.huds[1]?.setVisible(on && this.ctx.split !== null);
+    this.divider.classList.toggle('on', this.splitShown());
   }
 
   // ── sounds + notices ───────────────────────────────────────────────────────
@@ -388,15 +449,55 @@ class UiImpl implements XenoUI {
   }
 
   setMinimap(m: MinimapTrack | null): void {
-    this.hud.setMinimap(m);
+    this.minimap = m;
+    for (const hud of this.huds) hud.setMinimap(m);
   }
 
-  updateHud(s: HudState): void {
+  /** Seat 1's HUD only exists (and only takes states) while the screen is split. */
+  updateHud(s: HudState, seat: Seat = 0): void {
+    if (seat === 1) {
+      const hud = this.huds[1];
+      if (!hud || this.ctx.split === null) return;
+      this.ctx.lastHud2 = s;
+      hud.update(s);
+      return;
+    }
     this.ctx.lastHud = s;
-    this.hud.update(s);
+    this.huds[0].update(s);
+  }
+
+  setSplit(layout: SplitLayout | null): void {
+    if (layout !== null) this.ensureSecondHud();
+    const changed = layout !== this.ctx.split;
+    this.ctx.split = layout;
+    if (layout === null) this.ctx.lastHud2 = null;
+    if (changed) {
+      this.syncHud();
+      this.layoutHuds();
+    }
+  }
+
+  /** The second seat's HUD is built the first time a race is split, and kept. */
+  private ensureSecondHud(): void {
+    if (this.huds[1]) return;
+    const hud = createHud(this.ctx);
+    hud.setSettings(this.ctx.settings);
+    hud.setMinimap(this.minimap);
+    this.huds[1] = hud;
+    const pane = h('div', 'xr-pane', hud.el);
+    this.panes[1] = pane;
+    this.stage.insertBefore(pane, this.divider);
+  }
+
+  setPlayers(info: PlayersInfo): void {
+    this.ctx.players = info;
+    for (const s of this.screens.values()) s.refresh();
   }
 
   setDevice(name: string | null, warning?: string | null): void {
+    // (the game says it every frame: only a change reaches the screens)
+    const warnChanged = warning !== undefined && (!this.explicitWarning || warning !== this.ctx.padWarning);
+    if (this.explicitDevice && name === this.ctx.deviceName && !warnChanged) return;
     this.explicitDevice = true;
     this.ctx.deviceName = name;
     if (warning !== undefined) {
@@ -414,7 +515,7 @@ class UiImpl implements XenoUI {
     window.removeEventListener('resize', this.layout);
     this.ro?.disconnect();
     for (const s of this.screens.values()) s.dispose();
-    this.hud.dispose();
+    for (const hud of this.huds) hud.dispose();
     this.root.remove();
   }
 }

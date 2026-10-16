@@ -504,6 +504,11 @@ export class DropletPass extends Pass {
     return this.time;
   }
 
+  /** Set the clock: a split screen shares one pass between two views, and each view's glass keeps its own time. */
+  setClock(t: number): void {
+    this.time = t;
+  }
+
   /**
    * The wiper as seen by the frame just rendered: is the blade on screen (the same condition as the shader's uWiper, and
    * only while the pass runs), the clock and rain it was drawn with, and its place in the schedule. Allocation-free.

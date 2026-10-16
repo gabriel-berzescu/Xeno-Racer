@@ -3,12 +3,12 @@
  * and the per-frame VehicleState -> control-vector mapping. The DSP itself lives in the worklet.
  */
 import type { CarSound } from '../core/systems';
-import type { EngineSoundProfile, VehicleState } from '../core/contracts';
+import type { EngineSoundProfile, Seat, VehicleState } from '../core/contracts';
 import { ChassisMapper } from './chassis-controls';
 import { CTL, makeControlVector, writeEngineControls } from './controls';
 import { calibratedExhaustGain } from './dsp/engine-voice';
 import type { MasterGraph } from './graph';
-import { type ListenerState, type Lod, type SpatialOut, computeSpatial, lodFade, makeSpatialOut } from './spatial';
+import { type ListenerState, type Lod, type SpatialOut, type SplitPlace, SPLIT_PLAYER_TRIM, computeSpatial, lodFade, makeSpatialOut, makeSplitPlace, chooseHearer, placeSplit } from './spatial';
 
 export interface CarNodes {
   node: AudioWorkletNode;
@@ -128,6 +128,8 @@ export class CarFrame {
   readonly vec = makeControlVector();
   readonly sp: SpatialOut = makeSpatialOut();
   private mapper = new ChassisMapper();
+  /** The gain of a player's car (engine and chassis): 1, or SPLIT_PLAYER_TRIM while two people listen. Opponents follow their level of detail. */
+  trim = 1;
 
   constructor(readonly isPlayer: boolean) {}
 
@@ -142,7 +144,7 @@ export class CarFrame {
     v[CTL.CH_INTERIOR] = interior;
     let engineQ = 2;
     let chassisQ = 2;
-    let gain = 1;
+    let gain = this.isPlayer ? this.trim : 1;
     if (!this.isPlayer) {
       engineQ = lod;
       chassisQ = lod > 0 ? 1 : 0;
@@ -182,6 +184,12 @@ export interface CarHost {
   readonly paused: boolean;
   /** Water on the track, 0..1 (from setWeather); every car's tires and spray follow it. */
   readonly wetness: number;
+  /**
+   * Split screen: the listener of seat 1 while two people listen (and its camera has been given), else null. `listener` is seat 0's
+   * and is the one WebAudio hears with, so with a second listener every sound is worked out for the listener that hears it and moved
+   * into the first one's frame (see spatial.ts, placeSplit).
+   */
+  readonly secondListener: ListenerState | null;
   nextSeed(): number;
   onDispose(car: CarSoundImpl): void;
 }
@@ -201,11 +209,17 @@ export class CarSoundImpl implements CarSound {
   private failed = false;
   private offTick = 0;
   private wasSilent = false;
+  /** Split screen: where this car's sound goes in the real listener's frame (rewritten in place every frame). */
+  private readonly placed: SplitPlace = makeSplitPlace();
+  /** Split screen: which human's ears an opponent is placed for (it keeps them until the other human is clearly nearer). */
+  private heardBy: 0 | 1 = 0;
 
+  /** `seat`: the human a player's car belongs to (split screen; opponents ignore it). */
   constructor(
     private host: CarHost,
     readonly profile: EngineSoundProfile,
     readonly isPlayer: boolean,
+    readonly seat: Seat = 0,
   ) {
     this.seed = host.nextSeed();
     this.frame = new CarFrame(isPlayer);
@@ -232,7 +246,18 @@ export class CarSoundImpl implements CarSound {
   update(st: VehicleState, dt: number): void {
     if (this.disposed) return;
     const f = this.frame;
-    f.compute(st, dt, this.host.listener, this.interior, this.isPlayer ? 2 : this.lod, this.host.paused, this.host.wetness);
+    // Split screen: a human's car is heard by its own human, an opponent by the nearer of the two (each against that human's camera),
+    // and the human's cars are turned down so that two voices are not twice as loud as one. Alone, none of this is touched.
+    const host = this.host;
+    const second = host.secondListener;
+    let heard = host.listener;
+    if (second !== null) {
+      const pos = st.position;
+      const at = this.isPlayer ? this.seat : (this.heardBy = chooseHearer(heard, second, pos.x, pos.y, pos.z, this.heardBy));
+      if (at === 1) heard = second;
+    } else this.heardBy = 0;
+    f.trim = second !== null && this.isPlayer ? SPLIT_PLAYER_TRIM : 1;
+    f.compute(st, dt, heard, this.interior, this.isPlayer ? 2 : this.lod, host.paused, host.wetness);
     this.distance = f.sp.distance;
     this.speed = Number.isFinite(st.speed) ? st.speed : 0;
     if (!this.ensureNodes()) return;
@@ -245,7 +270,18 @@ export class CarSoundImpl implements CarSound {
     } else this.offTick = 0;
     this.wasSilent = silent;
     n.node.port.postMessage(v);
-    applySpatial(n, f.sp, st.position.x, st.position.y, st.position.z);
+    if (second === null) {
+      applySpatial(n, f.sp, st.position.x, st.position.y, st.position.z);
+      return;
+    }
+    // split screen: the sound worked out for `heard` goes into the real listener's frame (the engine's place into `sp`, the car's own
+    // place, for an opponent's chassis voice, apart)
+    const sp = f.sp;
+    const p = placeSplit(host.listener, heard, this.seat, this.isPlayer, sp, st.position.x, st.position.y, st.position.z, this.placed);
+    sp.x = p.x;
+    sp.y = p.y;
+    sp.z = p.z;
+    applySpatial(n, sp, p.cx, p.cy, p.cz);
   }
 
   setInterior(on: boolean): void {

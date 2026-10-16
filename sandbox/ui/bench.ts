@@ -28,3 +28,33 @@ export function benchHud(ui: XenoUI, race: MockRace, frames = 600, t0 = 12): Ben
   const sum = times.reduce((x, y) => x + y, 0);
   return { frames, avgMs: sum / frames, p95Ms: times[Math.floor(frames * 0.95)], worstMs: times[frames - 1] };
 }
+
+/**
+ * The same for a split screen: both seats' HUDs are updated for every frame (`state(seat, i)` makes each frame's states). With `flush`
+ * the style and layout work the updates cause is forced inside the timing too (the paint is not).
+ */
+export function benchSplit(ui: XenoUI, race: MockRace, state: (s: HudState, seat: 0 | 1) => HudState, frames = 600, flush = true, t0 = 12): BenchResult {
+  const a: HudState[] = [];
+  const b: HudState[] = [];
+  for (let i = 0; i < frames; i++) {
+    const base = race.state(t0 + i / 60);
+    a.push(state(base, 0));
+    b.push(state(race.state(t0 + 4 + i / 60), 1));
+  }
+  const root = ui.root;
+  for (let i = 0; i < 60; i++) {
+    ui.updateHud(a[i % frames], 0);
+    ui.updateHud(b[i % frames], 1);
+  }
+  const times: number[] = [];
+  for (let i = 0; i < frames; i++) {
+    const t = performance.now();
+    ui.updateHud(a[i], 0);
+    ui.updateHud(b[i], 1);
+    if (flush) void root.offsetHeight;
+    times.push(performance.now() - t);
+  }
+  times.sort((x, y) => x - y);
+  const sum = times.reduce((x, y) => x + y, 0);
+  return { frames, avgMs: sum / frames, p95Ms: times[Math.floor(frames * 0.95)], worstMs: times[frames - 1] };
+}

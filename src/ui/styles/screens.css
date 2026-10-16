@@ -607,3 +607,107 @@
 .xr-stage[data-narrow] .race-panel .r-ctl { min-width: 330px; }
 .xr-stage[data-narrow] .scr-title .title-logo { left: 72px; }
 .xr-stage[data-narrow] .scr-title .wm { --fs: 170px; }
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   Split screen: the menus of two players on one screen (the main entry, the setup with its join step, the pause menu, the results).
+   Player 1 is teal and player 2 pink everywhere (src/core/split.ts SEAT_COLOR).
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+/* main: a seventh entry (the championship's, too) is set a little tighter so the list still ends above the hint */
+.scr-main .main-menu.dense { top: 214px; }
+.scr-main .main-menu.dense .menu-item { height: 84px; font-size: 60px; }
+.scr-main .main-menu.dense .menu-item .plate,
+.scr-main .main-menu.dense .menu-item .plate-edge { top: 4px; bottom: 4px; }
+
+/* setup: the title of a car step is the player it is for, in their colour */
+.h1 .seat.s0 { color: var(--teal); }
+.h1 .seat.s1 { color: var(--pink); }
+.tabs.four .tab { padding: 0 30px; font-size: 29px; }
+
+/* setup: whose car the picker shows (a pill above it), and the second player's picker in pink */
+.view-car .seat-tag { position: absolute; left: 33px; top: -54px; display: flex; align-items: center; gap: 18px; font: 700 26px / 1 var(--f-display); letter-spacing: 0.16em; text-transform: uppercase; color: var(--text); }
+.seat-tag b { padding: 7px 24px 7px 26px; font-weight: 800; font-style: italic; letter-spacing: 0.1em; color: #03211b; background: var(--teal); clip-path: polygon(11px 0, 100% 0, calc(100% - 11px) 100%, 0 100%); }
+.seat-tag.s1 b { color: #fff; background: var(--pink); }
+.seat-tag em { font-style: normal; font-size: 21px; letter-spacing: 0.12em; color: var(--dim); }
+.view-car.seat1 { --teal: #ff2e63; --teal-d: #b3143f; }
+.view-car.seat1 .liv-row.is-focus { background: linear-gradient(90deg, rgba(255, 46, 99, 0.16), transparent 80%); }
+.view-car.seat1 .swatch.on { box-shadow: 0 0 20px rgba(255, 46, 99, 0.7); }
+.view-car.seat1 .btn.primary { background: rgba(255, 46, 99, 0.22); }
+.view-car.seat1 .btn.primary.is-focus { color: #fff; filter: drop-shadow(0 0 22px rgba(255, 46, 99, 0.55)); }
+.view-car.seat1 .car-pager i.on { background: var(--pink); }
+.race-summary .kv.s0 .k { color: var(--teal); }
+.race-summary .kv.s1 .k { color: var(--pink); }
+/* a race with the Players row has eight rows: set tighter, so the Start button stays above the prompts */
+.race-panel .rows.dense .row { min-height: 70px; padding-top: 6px; padding-bottom: 6px; }
+.race-panel .rows.dense .r-label { font-size: 31px; }
+.race-panel .rows.dense .race-start { padding-top: 20px; }
+
+/* setup: the join card */
+.view-join .join-card { position: absolute; left: 0; top: 0; width: 940px; padding: 36px 46px 38px; display: flex; flex-direction: column; gap: 20px; --cut: 30px; }
+.view-join .join-card.edge::before { background: linear-gradient(90deg, var(--pink), rgba(255, 46, 99, 0) 62%); }
+.join-head { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; font: 900 italic 76px / 1 var(--f-display); letter-spacing: 0.005em; text-transform: uppercase; color: #fff; text-shadow: 0 6px 30px rgba(0, 0, 0, 0.5); }
+.join-head .gl { min-width: 66px; height: 66px; font-size: 40px; animation: xr-join-press 1.3s ease-in-out infinite; }
+@keyframes xr-join-press { 0%, 100% { transform: scale(1); } 50% { transform: scale(0.9); } }
+.join-sub { font: 600 33px / 1 var(--f-display); letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+.join-slots { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 12px; }
+.join-slot { --seat: var(--teal); position: relative; display: flex; flex-direction: column; gap: 9px; min-width: 0; padding: 18px 26px 20px 34px; background: rgba(255, 255, 255, 0.06); box-shadow: inset 7px 0 0 var(--seat); clip-path: polygon(0 0, 100% 0, calc(100% - 20px) 100%, 0 100%); }
+.join-slot.s1 { --seat: var(--pink); }
+.js-k { font: 700 20px / 1 var(--f-display); letter-spacing: 0.28em; text-transform: uppercase; color: var(--seat); }
+.js-name { font: 800 italic 52px / 1 var(--f-display); letter-spacing: 0.01em; text-transform: uppercase; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.js-dev { font: 600 23px / 1.1 var(--f-display); letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.join-slot.wait { animation: xr-join-wait 1.6s ease-in-out infinite; }
+.join-slot.wait .js-name { color: var(--dim); }
+.join-slot.wait .js-dev { color: var(--pink); }
+@keyframes xr-join-wait { 0%, 100% { background: rgba(255, 46, 99, 0.05); } 50% { background: rgba(255, 46, 99, 0.2); } }
+.join-foot { display: flex; flex-direction: column; gap: 14px; margin-top: 10px; padding-top: 20px; border-top: 1px solid var(--line); font: 600 25px / 1.2 var(--f-display); letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+.join-kb { display: inline-flex; align-items: center; gap: 12px; color: var(--text); }
+
+/* pause: a line for each player, and whose pad the menu follows */
+.scr-pause.is-duo .pause-menu { top: 446px; }
+.scr-pause .pause-info.duo { flex-direction: column; gap: 10px; margin-top: 22px; }
+.scr-pause .pause-line { --seat: var(--teal); display: flex; align-items: center; gap: 44px; }
+.scr-pause .pause-line.s1 { --seat: var(--pink); }
+.scr-pause .pause-line .who { min-width: 200px; font: 800 italic 36px / 1 var(--f-display); letter-spacing: 0.02em; text-transform: uppercase; color: var(--seat); }
+.scr-pause .pause-line .kv .v { font-size: 30px; }
+.scr-pause .pause-owner { margin-top: 8px; font: 700 26px / 1 var(--f-display); letter-spacing: 0.22em; text-transform: uppercase; color: var(--teal); }
+.scr-pause .pause-owner.s1 { color: var(--pink); }
+.scr-pause .pause-warn { position: absolute; left: 0; top: 800px; width: 900px; padding: 12px 34px 14px 28px; font: 700 27px / 1.25 var(--f-display); letter-spacing: 0.05em; color: #fff; background: rgba(255, 46, 99, 0.92); clip-path: polygon(14px 0, 100% 0, calc(100% - 14px) 100%, 0 100%); }
+
+/* results: the head to head */
+.res-sub { margin-top: 14px; font: 700 34px / 1 var(--f-display); letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+.scr-results.is-duel .res-standings { right: 800px; }
+.scr-results.is-duel .res-yours { width: 720px; }
+.scr-results.is-duel .res-panel { top: 250px; }
+.scr-results.is-duel .pb-badge { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; margin-top: 0; }
+.badge-in.s1 { color: #fff; background: var(--pink); filter: drop-shadow(0 0 18px rgba(255, 46, 99, 0.6)); animation-name: xr-badge-pink; }
+@keyframes xr-badge-pink { 0%, 100% { filter: drop-shadow(0 0 10px rgba(255, 46, 99, 0.4)); } 50% { filter: drop-shadow(0 0 26px rgba(255, 46, 99, 0.9)); } }
+.rt-row.me.s1 { background: linear-gradient(90deg, rgba(255, 46, 99, 0.3), rgba(255, 46, 99, 0.07) 80%, transparent); box-shadow: inset 6px 0 0 var(--pink); }
+.res-duel { display: grid; grid-template-columns: 1fr 1fr; }
+.duel-col { --seat: var(--teal); min-width: 0; padding: 4px 22px 10px; }
+.duel-col.s1 { --seat: var(--pink); border-left: 1px solid var(--line); }
+.duel-who { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding-top: 6px; }
+.duel-who b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 800 italic 40px / 1 var(--f-display); text-transform: uppercase; color: var(--seat); }
+.duel-who .ico { flex: none; width: 30px; height: 30px; margin: 0 auto 0 2px; color: var(--warn); }
+.duel-pos { font: 800 italic 40px / 1 var(--f-display); color: #fff; }
+.duel-col.win .duel-pos { color: var(--warn); }
+.duel-car { margin-top: 8px; font: 600 20px / 1 var(--f-display); letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); }
+.duel-best { flex-direction: row; justify-content: space-between; align-items: baseline; margin: 14px 0 8px; padding-top: 12px; border-top: 1px solid var(--line); }
+.duel-best .v { font-size: 30px; color: var(--seat); }
+.duel-laps .lap-row { grid-template-columns: 74px 1fr 84px; height: 40px; padding: 0 8px; font-size: 20px; }
+.duel-laps .lap-row .l-t { font-size: 23px; }
+.duel-laps .lap-row .l-d { font-size: 18px; }
+.duel-laps .lap-row.best { color: var(--seat); background: linear-gradient(90deg, rgba(255, 255, 255, 0.1), transparent); box-shadow: inset 5px 0 0 var(--seat); }
+.duel-laps .lap-row.best .l-t, .duel-laps .lap-row.best .l-d { color: var(--seat); }
+.duel-laps .lap-more, .duel-laps .lap-empty { padding: 10px 8px; }
+
+.xr-stage[data-narrow] .scr-results.is-duel .res-standings { right: 700px; }
+.xr-stage[data-narrow] .scr-results.is-duel .res-yours { width: 620px; }
+.xr-stage[data-narrow] .tabs.four .tab { padding: 0 20px; font-size: 26px; }
+.xr-stage[data-narrow] .view-join .join-card { width: 820px; }
+.xr-stage[data-narrow] .scr-main .main-menu.dense { top: 200px; }
+.xr-stage[data-narrow] .duel-col { padding: 4px 14px 10px; }
+.xr-stage[data-narrow] .duel-who b, .xr-stage[data-narrow] .duel-pos { font-size: 34px; }
+.xr-stage[data-narrow] .duel-laps .lap-row { grid-template-columns: 64px 1fr 74px; padding: 0 6px; font-size: 18px; }
+.xr-stage[data-narrow] .duel-laps .lap-row .l-t { font-size: 20px; }
+.xr-stage[data-narrow] .duel-laps .lap-row .l-d { font-size: 16px; }
+.xr-stage[data-narrow] .join-head { font-size: 60px; }

@@ -5,6 +5,8 @@
  * URL flags for development: ?quick=race|timeTrial|freeRoam&track=&car=&opp=&diff=&laps=&tod=
  * &weather=&cam=&autopilot=1&ui=0 start straight into a session; window.__GAME__ exposes the instance.
  * ?quick=championship starts a new championship (car, opp, diff, start; &champlaps=N makes every round N laps).
+ * &players=2 (race or freeRoam) puts a second human on the same screen in &car2= (default: another car), each with a camera and a HUD of
+ * their own; with &autopilot=1 both drive themselves. Split screen: see src/core/split.ts, and `drivers` below for what is whose.
  *
  * Championship: the season lives in `this.championship` (src/game/championship.ts, saved after every round). A round is
  * a normal race whose RaceConfig carries `championship` (the grid and the season identity of each driver); when the
@@ -28,9 +30,12 @@ import type {
   InputFrame,
   Livery,
   MinimapTrack,
+  PlayersInfo,
   RaceConfig,
   RaceResults,
+  Seat,
   Settings,
+  SplitLayout,
   TimeOfDay,
   TrackFrame,
   Weather,
@@ -40,10 +45,11 @@ import type {
   VehicleState,
 } from '../core/contracts';
 import { DEFAULT_SETTINGS, loadSettings, saveSettings } from '../core/settings';
-import type { AudioSystem, CameraRig, CarSound, CarVisual, EffectsSystem, InputSystem, RenderSystem, TrackScene, UISystem } from '../core/systems';
-import { createInputSystem } from '../input';
+import type { AudioSystem, CameraRig, CarSound, CarVisual, EffectsSystem, RenderSystem, TrackScene, UISystem } from '../core/systems';
+import { opponentLimit, playerSlots, SEAT_COLOR, splitFov, viewAspect } from '../core/split';
+import { createInputSystem, type PlayerSource, type XenoInputSystem } from '../input';
 import { PhysicsWorld, SteeringFilter, type Vehicle } from '../physics';
-import { createCameraRig, createEffects, createRenderSystem, lightningStrength, type MirrorFrame, type XenoRenderSystem } from '../render';
+import { createCameraRig, createEffects, createRenderSystem, lightningStrength, type MirrorFrame, type ViewSpec, type XenoRenderSystem } from '../render';
 import { TRACKS, buildTrackScene, loadTrackRuntime } from '../track';
 import { createUI } from '../ui';
 import { GhostRecorder, ghostPose, loadBestLaps, loadGhost, recordKey, saveBestLap, saveGhost, type GhostLap } from './records';
@@ -73,6 +79,36 @@ interface RaceCar {
   driverId?: string;
 }
 
+/**
+ * One human at the wheel: their car, the camera that films it, and everything that is theirs alone (their steering filter, their
+ * banners, their spotter, the lap they are on). A single-player race has one; a split screen has two, in seat order.
+ */
+interface Driver {
+  seat: Seat;
+  car: RaceCar;
+  rig: CameraRig;
+  steering: SteeringFilter;
+  /** Development (?autopilot=1): the AI that drives this car. */
+  autopilot: AIDriver | null;
+  banner: { text: string; until: number } | null;
+  toast: { text: string; until: number } | null;
+  /** Split screen: this seat's HUD is shown (D-pad up hides it, leaving the centre messages). A single player's is Game.hudVisible. */
+  hudVisible: boolean;
+  /** Proximity spotter: the smoothed state, and what the HUD is handed. */
+  spotter: SpotterState;
+  spotOut: { left: number; right: number; leftAt: number; rightAt: number };
+  /** The most water on the track since this driver's lap began: a lap on a road that was wet at any point is a wet lap. */
+  lapWet: number;
+  /** The last impact the controller was told about (rumble). */
+  impactSeen: number;
+  /** Crossed the line after the last lap. */
+  finished: boolean;
+  /** Split screen: this human's own lap recorder (the ghost saved with a record they set; a single player's is Game.ghostRec). */
+  ghostRec: GhostRecorder;
+  /** Split screen: a lap of theirs beat the record of their car on this track during the race. */
+  pb: boolean;
+}
+
 type Phase = 'boot' | 'menu' | 'loading' | 'race' | 'results';
 
 const _frame: TrackFrame = { position: new Vector3(), tangent: new Vector3(), normal: new Vector3(), left: new Vector3(), widthLeft: 0, widthRight: 0, wallLeft: 0, wallRight: 0, curvature: 0, bank: 0 };
@@ -84,7 +120,7 @@ const _v3 = new Vector3();
 export class Game {
   settings: Settings;
   render!: RenderSystem;
-  input!: InputSystem;
+  input!: XenoInputSystem;
   audio!: AudioSystem;
   ui!: UISystem;
   camera!: CameraRig;
@@ -94,13 +130,28 @@ export class Game {
   trackScene: TrackScene | null = null;
   world: PhysicsWorld | null = null;
   cars: RaceCar[] = [];
+  /** Player 1's car (the one player's, in a single-player race). */
   player: RaceCar | null = null;
+  /** The humans at the wheel, in seat order. */
+  drivers: Driver[] = [];
+  /**
+   * Development (?autopilot=1): the AI that drives player 1's car. Setting it to null hands every human's car to their pad again, as
+   * the QA scripts do from the console (`__GAME__.autopilot = null`); a split screen's second AI is `drivers[1].autopilot`.
+   */
+  get autopilot(): AIDriver | null {
+    return this.drivers[0]?.autopilot ?? null;
+  }
+  set autopilot(v: AIDriver | null) {
+    if (v === null) for (const d of this.drivers) d.autopilot = null;
+    else if (this.drivers[0]) this.drivers[0].autopilot = v;
+  }
+  /** How the screen is divided right now: two views (a split-screen race), or null for one over all of it. */
+  splitLayout: SplitLayout | null = null;
   session: RaceSession | null = null;
   config: RaceConfig | null = null;
   phase: Phase = 'boot';
   paused = false;
 
-  private steering = new SteeringFilter();
   private bestLaps: Record<string, number>;
   /** The saved championship (null = none). The UI only ever sees view models built from it. */
   private championship: ChampionshipState | null = null;
@@ -110,8 +161,6 @@ export class Game {
   private last = 0;
   private hudVisible = true;
   private showTelemetry: boolean;
-  private banner: { text: string; until: number } | null = null;
-  private toast: { text: string; until: number } | null = null;
   private finishAt: number | null = null;
   private resultsShown = false;
   /** The pad driving the race, to notice it being unplugged. */
@@ -123,7 +172,12 @@ export class Game {
   private preview: { world: PhysicsWorld; car: RaceCar; carId: string; liveryKey: string } | null = null;
   private previewOrbit = 0;
   private minimaps = new Map<string, MinimapTrack>();
-  private autopilot: AIDriver | null = null;
+  /** Player 2's camera (made when a split-screen race first needs it, kept after). */
+  private rig2: CameraRig | null = null;
+  private readonly viewSpecs: ViewSpec[] = [];
+  /** The step of the frame being drawn, for the second view's track scene update. */
+  private viewDt = 0;
+  private readonly prepareViewFn = (i: number): void => this.prepareView(i);
   private readonly params = new URLSearchParams(location.search);
   private frameCount = 0;
   private fpsAvg = 60;
@@ -138,9 +192,7 @@ export class Game {
   private replay: { player: ReplayPlayer; t: number; target: number } | null = null;
   /** Frame-time samples for perfStats(): [frame interval ms, CPU ms spent in frame()]. */
   private perfSamples: number[] = [];
-  /** Proximity spotter: the smoothed state, what the HUD is handed, and each car's footprint for it (see src/game/spotter.ts). */
-  private spotter: SpotterState = makeSpotter();
-  private readonly spotOut = { left: 0, right: 0, leftAt: 0, rightAt: 0 };
+  /** Each car's footprint for the proximity spotter (see src/game/spotter.ts). */
   private spotList: SpotterBody[] = [];
   private spotCars: RaceCar[] | null = null;
   /** Each car's lamp light output (damage: head left, head right, tail left, tail right), for the glare in the mirrors. */
@@ -162,8 +214,6 @@ export class Game {
   /** The water on the track the drivers were built for, and the water each was last told about. */
   private wxStartWet = 0;
   private readonly wxTuned = new WeakMap<AIDriver, number>();
-  /** The most water on the track since the player's lap began: a lap on a road that was wet at any point is a wet lap. */
-  private lapWet = 0;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -254,12 +304,17 @@ export class Game {
 
   private quickConfig(mode: 'race' | 'timeTrial' | 'freeRoam'): RaceConfig {
     const p = this.params;
+    // &players=2: a second human, in &car2= (the next car of the roster when it is not given)
+    const two = p.get('players') === '2' && mode !== 'timeTrial';
+    const car = p.get('car') ?? 'vanta-gt';
+    const car2 = p.get('car2') ?? CARS[(Math.max(0, CARS.findIndex((c) => c.id === car)) + 1) % CARS.length].id;
     return {
       mode,
       trackId: p.get('track') ?? 'aurelia',
-      carId: p.get('car') ?? 'vanta-gt',
+      carId: car,
       laps: +(p.get('laps') ?? 3),
-      opponents: mode === 'race' ? +(p.get('opp') ?? 7) : 0,
+      opponents: mode === 'race' ? Math.min(+(p.get('opp') ?? 7), opponentLimit(two ? 2 : 1)) : 0,
+      ...(two ? { player2: { carId: car2, livery: { driver: this.settings.player2Name || 'Player 2' } } } : {}),
       difficulty: (p.get('diff') as Difficulty) ?? 'pro',
       environment: { timeOfDay: (p.get('tod') as TimeOfDay) ?? 'golden', weather: (p.get('weather') as Weather) ?? 'clear' },
       startPosition: (p.get('start') as RaceConfig['startPosition']) ?? 'middle',
@@ -273,7 +328,43 @@ export class Game {
     const w = window.innerWidth;
     const h = window.innerHeight;
     this.render.resize(w, h);
-    this.camera?.setAspect(w / h);
+    this.applyLens();
+  }
+
+  /**
+   * The lens of each camera: the shape of the screen, or in a split screen the shape of its own view, with a field of view that
+   * suits a view that wide and short (or tall and narrow): see splitFov.
+   */
+  private applyLens(): void {
+    const geo = this.splitLayout && this.drivers.length > 1 ? (this.render as XenoRenderSystem).splitView : null;
+    if (geo) {
+      this.drivers.forEach((d, i) => {
+        const a = viewAspect(geo.views[Math.min(i, 1)]);
+        d.rig.setAspect(a);
+        d.rig.setFov(splitFov(this.settings.camera.fov, a));
+      });
+      return;
+    }
+    this.camera?.setAspect(window.innerWidth / window.innerHeight);
+  }
+
+  /** Cut the screen in two. Behind the loading screen, before the shaders are compiled: the render system, the audio and each camera's lens. */
+  private beginSplit(layout: SplitLayout): void {
+    this.splitLayout = layout;
+    (this.render as XenoRenderSystem).setSplit(layout);
+    this.audio.setSplit(true);
+    this.applyLens();
+  }
+
+  /** The screen as one view again: the render system, the HUD, the audio and the lens of the camera. */
+  private endSplit(): void {
+    if (!this.splitLayout) return;
+    this.splitLayout = null;
+    (this.render as XenoRenderSystem).setSplit(null);
+    this.ui.setSplit(null);
+    this.audio.setSplit(false);
+    this.camera?.setFov(this.settings.camera.fov);
+    this.applyLens();
   }
 
   private applyMaxFps(): void {
@@ -340,6 +431,7 @@ export class Game {
     this.render.scene.add(scene.root);
     scene.setEnvironment(this.render.env);
     this.camera = createCameraRig(rt, scene.tvCameras);
+    this.rig2 = null;
     this.camera.setFov(this.settings.camera.fov);
     this.camera.setShake(this.settings.camera.shake);
     this.camera.setAspect(window.innerWidth / window.innerHeight);
@@ -357,6 +449,7 @@ export class Game {
     }
     this.trackScene = null;
     this.track = null;
+    this.rig2 = null;
   }
 
   private clearCars(): void {
@@ -371,7 +464,7 @@ export class Game {
     this.player = null;
     this.session = null;
     this.world = null;
-    this.autopilot = null;
+    this.drivers = [];
     this.replay = null;
     this.replayRec = null;
     if (this.ghost) {
@@ -414,7 +507,7 @@ export class Game {
       dmg.onEvent = (e) => this.replayRec?.addDamage(index, e);
       dmg.otherAt = (x, y, z) => this.contactOther(vehicle.id, x, y, z);
     }
-    const sound = withSound ? this.audio.createCarSound(def.sound, entrant.isPlayer) : null;
+    const sound = withSound ? this.audio.createCarSound(def.sound, entrant.isPlayer, entrant.seat ?? 0) : null;
     this.effects?.registerCar(vehicle.id, def, visual.damage);
     const driver = ai ? new AIDriver(world.track, def, { difficulty: ai, seed: aiSeed ?? vehicle.id * 17 + slot, wetness: world.wetness }) : null;
     // a race whose weather changes: the racing line of the other weather is made now, behind the loading screen, not when it turns
@@ -457,6 +550,7 @@ export class Game {
   private async loadAttract(trackId: string, env?: RaceConfig['environment']): Promise<void> {
     const token = ++this.loadToken;
     this.phase = 'loading';
+    this.endSplit();
     this.wx = null;
     armWeather(this.audio, false);
     const tod = this.track?.info.id === trackId ? this.render.env.settings.timeOfDay : 'golden';
@@ -560,8 +654,14 @@ export class Game {
     this.paused = false;
     this.resultsShown = false;
     this.finishAt = null;
-    this.banner = this.toast = null;
     this.config = config;
+    // two humans on one screen: races and free roam only (a time trial and a championship are for one)
+    const splitRace = !!config.player2 && config.mode !== 'timeTrial' && !config.championship;
+    this.endSplit();
+    if (!splitRace) this.input.unbindPlayers();
+    this.input.menuOwner = null;
+    // (a split race started from the address with nobody joined: A on a second pad, or Enter, gives player 2 a device)
+    if (splitRace && !this.input.split) this.input.beginJoin();
     this.ui.setRaceConfig(config);
     this.ui.show('loading');
     this.ui.setLoading(0.05, getTrackName(config.trackId));
@@ -580,34 +680,45 @@ export class Game {
     // rain: water on the track for the tires and the AI, the rain bed and wet tires for the audio
     this.world.wetness = this.render.env.wetness;
     this.audio.setWeather(this.render.env.rain, this.render.env.wetness);
-    this.lapWet = this.world.wetness;
     this.wxStartWet = this.world.wetness;
     this.wxSent.rain = this.wxSent.wetness = this.wxSent.darkness = -1;
     const def = getCar(config.carId);
     // a championship round brings its own grid: who starts where, with the season's liveries
     const champ = config.mode === 'race' ? config.championship : undefined;
-    const opponents = champ ? Math.max(0, Math.min(11, champ.grid.length - 1)) : config.mode === 'race' ? Math.max(0, Math.min(11, config.opponents)) : 0;
-    const total = opponents + 1;
-    const playerSlot = champ
-      ? Math.max(0, champ.grid.findIndex((g) => g.isPlayer))
-      : config.mode !== 'race' ? 0 : config.startPosition === 'pole' ? 0 : config.startPosition === 'back' ? total - 1 : Math.floor(total / 2);
+    const humans = splitRace ? 2 : 1;
+    const opponents = champ ? Math.max(0, Math.min(11, champ.grid.length - 1)) : config.mode === 'race' ? Math.max(0, Math.min(opponentLimit(humans), config.opponents)) : 0;
+    const total = opponents + humans;
+    // the second human's car (the opponents drive one car or the other, alternately, so both are on the grid)
+    const def2 = splitRace ? getCar(config.player2!.carId) : def;
+    // where the humans start: one place, or the two places of one row
+    const [playerSlot, playerSlot2] = splitRace
+      ? playerSlots(total, config.mode === 'race' ? config.startPosition : 'pole')
+      : [champ
+          ? Math.max(0, champ.grid.findIndex((g) => g.isPlayer))
+          : config.mode !== 'race' ? 0 : config.startPosition === 'pole' ? 0 : config.startPosition === 'back' ? total - 1 : Math.floor(total / 2), -1];
     const playerLivery: Livery = { ...def.defaultLivery, ...config.livery, driver: this.settings.playerName || 'You' };
+    const playerLivery2: Livery = { ...def2.defaultLivery, ...config.player2?.livery, driver: config.player2?.livery?.driver || this.settings.player2Name || 'Player 2' };
     this.hudChampionship = champ ? { name: champ.name, round: champ.round, rounds: champ.rounds } : null;
     let slot = 0;
     let aiIndex = 0;
+    let car2: RaceCar | null = null;
     for (let i = 0; i < total; i++) {
       if (token !== this.loadToken) return;
       this.ui.setLoading(0.78 + (0.2 * i) / total, 'Preparing the grid');
       if (i === playerSlot) {
-        this.player = await this.spawnCar(def, playerLivery, { name: playerLivery.driver, color: '#16e0bd', carId: def.id, isPlayer: true }, slot++, true, null, undefined, champ?.grid[i]?.id);
+        this.player = await this.spawnCar(def, playerLivery, { name: playerLivery.driver, color: SEAT_COLOR[0], carId: def.id, isPlayer: true, ...(splitRace ? { seat: 0 as Seat } : {}) }, slot++, true, null, undefined, champ?.grid[i]?.id);
+      } else if (i === playerSlot2) {
+        car2 = await this.spawnCar(def2, playerLivery2, { name: playerLivery2.driver, color: SEAT_COLOR[1], carId: def2.id, isPlayer: true, seat: 1 }, slot++, true, null);
       } else if (champ && champ.grid[i]) {
         const g = champ.grid[i];
         const livery: Livery = g.livery ? { ...g.livery, driver: g.name } : opponentLivery(aiIndex, def, playerLivery);
         await this.spawnCar(def, livery, { name: livery.driver, color: livery.primary, carId: def.id, isPlayer: false }, slot++, true, config.difficulty, g.seed, g.id);
         aiIndex++;
       } else {
-        const livery = opponentLivery(aiIndex, def, playerLivery);
-        await this.spawnCar(def, livery, { name: livery.driver, color: livery.primary, carId: def.id, isPlayer: false }, slot++, true, config.difficulty);
+        // (the humans' liveries are avoided, and so are their cars' by alternating)
+        const aiDef = splitRace && aiIndex % 2 === 1 ? def2 : def;
+        const livery = opponentLivery(aiIndex, aiDef, splitRace ? [playerLivery, playerLivery2] : playerLivery);
+        await this.spawnCar(aiDef, livery, { name: livery.driver, color: livery.primary, carId: aiDef.id, isPlayer: false }, slot++, true, config.difficulty);
         aiIndex++;
       }
     }
@@ -619,11 +730,18 @@ export class Game {
       const guide = new AIDriver(track, def, { difficulty: 'alien', seed: 1, wetness: this.world.wetness });
       let v = 25;
       for (let ds = 0; ds <= 120; ds += 10) v = Math.min(v, 0.8 * guide.targetSpeed(track.wrapS(s0 + ds)));
-      this.placeOnTrack(this.player!.vehicle, s0, 0, v);
+      // (two humans roll out side by side)
+      this.placeOnTrack(this.player!.vehicle, s0, splitRace ? 1.9 : 0, v);
       this.player!.vehicle.setTemperatures(1);
+      if (car2) {
+        this.placeOnTrack(car2.vehicle, s0, -1.9, v);
+        car2.vehicle.setTemperatures(1);
+      }
     }
+    // each human's own record (their car on this track), for the personal bests
     const stored = this.bestLaps[recordKey(this.recordTrack(config), config.carId)] ?? null;
-    this.session = new RaceSession(track, config, this.cars.map((c) => c.entrant), stored, Math.random());
+    const stored2 = car2 ? this.bestLaps[recordKey(this.recordTrack(config), car2.def.id)] ?? null : null;
+    this.session = new RaceSession(track, config, this.cars.map((c) => c.entrant), car2 ? [stored, stored2] : stored, Math.random());
     if (config.mode === 'race') {
       for (const c of this.cars) c.vehicle.holdOnGrid = true;
       this.session.startCountdown(this.world.time, true);
@@ -635,21 +753,53 @@ export class Game {
       if (lap) await this.makeGhost(lap, def, playerLivery);
     }
     this.ghostRec.reset();
+    // the humans at the wheel, each with a camera and the rest of what is theirs alone
+    const wet = this.world.wetness;
+    const driver = (seat: Seat, car: RaceCar, rig: CameraRig): Driver => ({
+      seat,
+      car,
+      rig,
+      steering: new SteeringFilter(),
+      autopilot: null,
+      banner: null,
+      toast: null,
+      hudVisible: true,
+      spotter: makeSpotter(),
+      spotOut: { left: 0, right: 0, leftAt: 0, rightAt: 0 },
+      lapWet: wet,
+      impactSeen: 0,
+      finished: false,
+      ghostRec: new GhostRecorder(),
+      pb: false,
+    });
+    this.drivers = [driver(0, this.player!, this.camera)];
+    if (car2) {
+      this.rig2 ??= createCameraRig(track, this.trackScene!.tvCameras);
+      this.rig2.setShake(this.settings.camera.shake);
+      this.drivers.push(driver(1, car2, this.rig2));
+    }
     if (this.params.get('autopilot') === '1') {
-      this.autopilot = new AIDriver(track, def, { difficulty: 'alien', seed: 99, wetness: this.world.wetness });
-      if (this.wx?.plan) this.autopilot.prepareWeather();
+      for (const d of this.drivers) {
+        d.autopilot = new AIDriver(track, d.car.def, { difficulty: 'alien', seed: 99 + d.seat, wetness: this.world.wetness });
+        if (this.wx?.plan) d.autopilot.prepareWeather();
+      }
     }
 
-    this.steering.reset();
     this.replay = null;
     this.replayRec = new ReplayRecorder(this.cars.length, this.world.time);
     const cam = (this.params.get('cam') as CameraMode) || this.settings.camera.defaultMode;
-    this.camera.setMode(cam);
-    this.camera.snap();
+    const cam2 = (this.params.get('cam2') as CameraMode) || cam;
+    this.drivers.forEach((d, i) => {
+      d.rig.setMode(i === 0 ? cam : cam2);
+      d.rig.snap();
+    });
     this.ui.setMinimap(this.minimapFor(config.trackId));
+    // two humans: the screen is cut in two now, so that the shaders and buffers prepared are the split's
+    if (car2) this.beginSplit(this.settings.split.layout);
     // compile every shader the grid needs behind the loading screen, not in the first frames of the countdown
     this.ui.setLoading(0.99, 'Warming up');
     if (!(await this.warmUp(this.player!, token))) return;
+    this.ui.setSplit(this.splitLayout);
     this.ui.show('none');
     this.ui.setHudVisible(this.hudVisible);
     this.phase = 'race';
@@ -665,6 +815,7 @@ export class Game {
    */
   private async warmUp(focus: RaceCar, token: number): Promise<boolean> {
     const xr = this.render as XenoRenderSystem;
+    if (this.splitLayout && this.drivers.length > 1) return this.warmUpSplit(xr, token);
     // the player's mirror glass gets its shader before the scene is compiled, so the cockpit's first frame builds nothing
     xr.setMirrors({ mode: 'off', rig: focus.visual.mirrors ?? null, hud: false });
     await xr.precompile();
@@ -678,6 +829,62 @@ export class Game {
     primeCarVoices(this.audio);
     this.camera.snap();
     return true;
+  }
+
+  /**
+   * warmUp() for a split screen: the same shaders, built for the number of lights its views have (the beams of one car at a time),
+   * and one hidden frame through both views, which makes the second view's shadow maps too.
+   */
+  private async warmUpSplit(xr: XenoRenderSystem, token: number): Promise<boolean> {
+    // (no mirrors in a split screen)
+    xr.setMirrors({ mode: 'off', rig: null, hud: false });
+    this.driveViewCars(0);
+    await xr.precompile();
+    if (token !== this.loadToken) return false;
+    for (const car of this.cars) car.visual.update(car.vehicle.state, 1 / 60, this.render.env);
+    for (const d of this.drivers) d.rig.update(1 / 60, { state: d.car.vehicle.state, anchors: d.car.visual.anchors }, { x: 0, y: 0, back: false });
+    this.viewDt = 1 / 60;
+    xr.renderViewsNow(1 / 60, this.viewsOfDrivers(), this.prepareViewFn);
+    primeCarVoices(this.audio);
+    for (const d of this.drivers) d.rig.snap();
+    return true;
+  }
+
+  /** The views of this frame, one per human: the camera, the car it films, its speed and whether the driver sits inside. */
+  private viewsOfDrivers(): ViewSpec[] {
+    const specs = this.viewSpecs;
+    const drivers = this.drivers;
+    for (let i = 0; i < drivers.length; i++) {
+      const d = drivers[i];
+      const spec = (specs[i] ??= { camera: d.rig.camera, focus: d.car.vehicle.state.position, speed: 0, cockpit: false });
+      spec.camera = d.rig.camera;
+      spec.focus = d.car.vehicle.state.position;
+      spec.speed = d.car.vehicle.state.speed;
+      spec.cockpit = d.rig.mode === 'cockpit';
+    }
+    specs.length = drivers.length;
+    return specs;
+  }
+
+  /**
+   * Which car shows its interior and its real headlight beams in the view of seat `i`: that view's driver only. In the other view the
+   * same car is seen from outside, with the glow on the road an opponent has, so the scene always has the same number of lights.
+   */
+  private driveViewCars(i: number): void {
+    for (const d of this.drivers) {
+      d.car.visual.setCockpitView(d.seat === i && d.rig.mode === 'cockpit');
+      d.car.visual.setBeams?.(d.seat === i);
+    }
+  }
+
+  /** Just before view `i` is drawn: everything that depends on the camera is pointed at it. */
+  private prepareView(i: number): void {
+    const d = this.drivers[i];
+    if (!d) return;
+    this.driveViewCars(i);
+    // (the second view's step is 0: the clocks of the track have moved already)
+    this.trackScene?.update(i === 0 ? this.viewDt : 0, d.rig.camera);
+    if (i > 0) this.effects?.view?.(d.rig.camera);
   }
 
   /**
@@ -746,9 +953,10 @@ export class Game {
     const d = Math.max(-tp.widthRight + 1.5, Math.min(tp.widthLeft - 1.5, tp.d));
     this.placeOnTrack(c.vehicle, tp.s - 4, d, 0);
     c.ai?.onReset();
-    if (c === this.player) {
-      this.steering.reset();
-      this.camera.snap();
+    const drv = this.drivers.find((x) => x.car === c);
+    if (drv) {
+      drv.steering.reset();
+      drv.rig.snap();
     }
   }
 
@@ -796,6 +1004,9 @@ export class Game {
         break;
       case 'watchReplay':
         this.startReplay();
+        break;
+      case 'split':
+        this.onSplitIntent(i.action);
         break;
       case 'startChampionship':
         void this.beginChampionship(i.setup);
@@ -892,22 +1103,98 @@ export class Game {
     this.audio.setVolumes(s.audio);
     this.input.setControls(s.controls);
     for (const c of this.cars) c.visual.damage?.setMode(s.damage);
-    if (this.player) this.player.vehicle.assists = { ...s.assists };
+    for (const d of this.drivers) d.car.vehicle.assists = { ...s.assists };
     this.camera?.setFov(s.camera.fov);
     this.camera?.setShake(s.camera.shake);
+    this.rig2?.setShake(s.camera.shake);
+    // the layout of a split screen can change in the middle of a race: the buffers take the new size, nothing new is compiled
+    if (this.splitLayout && s.split.layout !== this.splitLayout) {
+      this.splitLayout = s.split.layout;
+      (this.render as XenoRenderSystem).setSplit(this.splitLayout);
+      this.ui.setSplit(this.splitLayout);
+    }
+    if (this.splitLayout) this.applyLens();
     this.showTelemetry = s.hud.telemetry;
     this.applyMaxFps();
     if (renamed && this.championship) this.syncChampionship();
     void prevQuality;
   }
 
-  private setPaused(p: boolean): void {
+  /**
+   * `owner`: the seat whose pad paused a split-screen race (its menu follows that pad); `missing`: the seat whose controller was
+   * unplugged (the menu says so).
+   */
+  private setPaused(p: boolean, owner: Seat | null = null, missing: Seat | null = null): void {
     if (this.phase !== 'race') return;
     this.paused = p;
     if (this.world) this.world.paused = p;
     this.audio.setPaused(p);
+    this.input.menuOwner = p ? owner : null;
+    this.pausedMissing = p ? missing : null;
+    this.pushPlayers();
     this.ui.show(p ? 'pause' : 'none');
     this.ui.setHudVisible(!p && this.hudVisible);
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Two players: who plays on what
+  // ───────────────────────────────────────────────────────────────────────────
+
+  /** The seat whose controller is unplugged while the race waits behind the pause menu. */
+  private pausedMissing: Seat | null = null;
+  private lastPadCount = -1;
+
+  /** The join step of the split-screen setup (UIIntent 'split'). */
+  private onSplitIntent(action: 'join' | 'cancel' | 'swap' | 'unbind'): void {
+    const input = this.input;
+    if (action === 'join') {
+      // (a binding left from the last split race stands if both its devices are still there; else the second player joins again)
+      if (input.split && input.missingSeat() !== null) input.unbindPlayers();
+      if (!input.split) input.beginJoin();
+    } else if (action === 'cancel') input.endJoin();
+    else if (action === 'swap') input.swapPlayers();
+    else {
+      input.endJoin();
+      input.unbindPlayers();
+    }
+    this.pushPlayers();
+  }
+
+  /**
+   * Every frame: a second player who asks to join gets the seat, and a change in the controllers connected reaches the join card.
+   * True when someone joined this frame: the press that did it (the keyboard's Enter is a menu press too) is theirs alone, the
+   * menus must not take it as a confirmation of whatever comes next.
+   */
+  private pollJoin(): boolean {
+    const input = this.input;
+    let joined = false;
+    if (input.joining) {
+      const joiner = input.takeJoiner();
+      if (joiner) {
+        input.bindPlayers(input.primarySource(), joiner);
+        this.pushPlayers();
+        joined = true;
+      }
+    }
+    if (input.padCount !== this.lastPadCount) {
+      this.lastPadCount = input.padCount;
+      this.pushPlayers();
+    }
+    return joined;
+  }
+
+  /** Tell the UI who plays on what. */
+  private pushPlayers(): void {
+    const input = this.input;
+    const [a, b] = input.sources;
+    const info: PlayersInfo = {
+      devices: [input.deviceName(a ?? input.primarySource()), input.deviceName(b)],
+      pads: input.padCount,
+      joined: input.split,
+      owner: input.menuOwner,
+      missing: this.pausedMissing,
+    };
+    this.ui?.setPlayers(info);
   }
 
   // ───────────────────────────────────────────────────────────────────────────
@@ -934,6 +1221,7 @@ export class Game {
     const cpu0 = performance.now();
     const input = this.input.poll(dt);
     if (input.anyPressed) void this.audio.unlock();
+    if (this.pollJoin()) input.nav.confirm = false;
     this.ui.setDevice(input.device === 'gamepad' ? input.gamepadId : null);
 
     if (this.phase === 'race') this.updateRace(dt, input, now);
@@ -941,8 +1229,8 @@ export class Game {
       this.ui.handleInput(input);
       this.updateAttract(dt);
     } else if (this.phase === 'loading') {
-      // keep the last scene alive behind the loading screen
-      if (this.world && this.camera) this.updateAttract(dt);
+      // keep the last scene alive behind the loading screen (not once a split screen is being made ready: the views are its own)
+      if (this.world && this.camera && !this.splitLayout) this.updateAttract(dt);
     }
     if (this.phase !== 'race') this.mirrorsOff();
     this.audio.update(dt);
@@ -1004,15 +1292,28 @@ export class Game {
   }
 
   private drawWorld(dt: number, speed: number): void {
+    if (this.splitLayout) return;
     this.trackScene?.update(dt, this.camera.camera);
     _v.set(0, 0, 0);
     this.audio.setListener(this.camera.camera, _v);
     this.render.render(this.camera.camera, dt, speed);
   }
 
+  /** The controller frame of a driver: their own pad's in a split screen, the merged one of a single player. */
+  private frameOf(d: Driver, merged: InputFrame): InputFrame {
+    return this.drivers.length > 1 && this.input.split ? this.input.players[d.seat] : merged;
+  }
+
+  /** The driver a session entrant is (undefined for an opponent). */
+  private driverOf(entrant: Entrant): Driver | undefined {
+    return this.drivers.find((d) => d.car.entrant.id === entrant.id);
+  }
+
   private updateRace(dt: number, input: InputFrame, now: number): void {
     const world = this.world!;
     const session = this.session!;
+    const drivers = this.drivers;
+    const split = drivers.length > 1;
     const player = this.player!;
     const pv = player.vehicle;
 
@@ -1021,8 +1322,11 @@ export class Game {
       return;
     }
 
-    // the pad was unplugged mid-race: wait behind the pause menu (it says why) instead of coasting on with no input
-    if (input.gamepadId !== this.racePadId) {
+    // a pad was unplugged mid-race: wait behind the pause menu (it says why, and whose) instead of coasting on with no input
+    if (split && this.input.split) {
+      const miss = this.input.missingSeat();
+      if (miss !== null && !this.paused && !this.resultsShown) this.setPaused(true, null, miss);
+    } else if (input.gamepadId !== this.racePadId) {
       if (this.racePadId && !input.gamepadId && !this.paused && !this.resultsShown) this.setPaused(true);
       this.racePadId = input.gamepadId;
     }
@@ -1030,55 +1334,74 @@ export class Game {
     // pauses here: while paused it belongs to the screen on show, which resumes from the pause menu but accepts a
     // name or steps back in the settings
     if (input.pause && !this.resultsShown && !this.paused) {
-      this.setPaused(true);
+      // either player's Start pauses the race for both, and the menu follows the device that paused (a keyboard that is not one of the
+      // two players' is anyone's; the keyboard of a seat is that seat's, and it navigates the menu whoever owns it)
+      const owner: Seat | null = split && this.input.split ? (this.input.players[0].pause ? 0 : this.input.players[1].pause ? 1 : null) : null;
+      this.setPaused(true, owner);
       this.audio.ui('select');
     }
     if (this.paused || this.resultsShown) {
       this.ui.handleInput(input);
       if (this.paused) {
+        // the controller that was unplugged is back: the menu stops saying so
+        if (this.pausedMissing !== null && this.input.missingSeat() === null) {
+          this.pausedMissing = null;
+          this.pushPlayers();
+        }
         this.driveMirrors(false);
-        this.drawWorld(0, 0);
+        if (this.splitLayout) this.drawSplit(0);
+        else this.drawWorld(0, 0);
         return;
       }
     }
 
-    // global race controls
+    // global race controls: each human's own camera, HUD and reset
     if (!this.resultsShown) {
-      if (input.cameraNext) this.camera.next();
-      if (input.toggleHud) {
-        this.hudVisible = !this.hudVisible;
-        this.ui.setHudVisible(this.hudVisible);
+      for (const d of drivers) {
+        const f = this.frameOf(d, input);
+        if (f.cameraNext) d.rig.next();
+        if (f.toggleHud) {
+          if (split) d.hudVisible = !d.hudVisible;
+          else {
+            this.hudVisible = !this.hudVisible;
+            this.ui.setHudVisible(this.hudVisible);
+          }
+        }
+        if (f.toggleTelemetry && !split) this.showTelemetry = !this.showTelemetry;
+        if (f.resetCar && session.phase === 'racing') this.resetCar(d.car);
       }
-      if (input.toggleTelemetry) this.showTelemetry = !this.showTelemetry;
-      if (input.resetCar && session.phase === 'racing') this.resetCar(player);
     }
 
     // the weather: its state to the physics, the AI, the sound and the picture (nothing to do in a race that stays as set)
     this.updateWeather(dt, now);
 
     // player controls
-    const c = pv.controls;
-    if (this.autopilot) {
-      this.autopilot.update(dt, pv.state, world.states, c, session.phase === 'racing');
-      if (this.autopilot.needsReset) {
-        this.resetCar(player);
-        this.autopilot.onReset();
+    for (const d of drivers) {
+      const f = this.frameOf(d, input);
+      const dv = d.car.vehicle;
+      const c = dv.controls;
+      if (d.autopilot) {
+        d.autopilot.update(dt, dv.state, world.states, c, session.phase === 'racing');
+        if (d.autopilot.needsReset) {
+          this.resetCar(d.car);
+          d.autopilot.onReset();
+        }
+      } else if (!this.resultsShown) {
+        c.steer = d.steering.update(f.steer, dt, dv.state, d.car.def, this.settings.controls);
+        c.throttle = f.throttle;
+        c.brake = f.brake;
+        c.handbrake = f.handbrake;
+        c.clutch = f.clutch;
+        if (f.shiftUp) c.shift = 1;
+        else if (f.shiftDown) c.shift = -1;
+      } else {
+        // after the flag the car coasts to a stop
+        c.steer = 0;
+        c.throttle = 0;
+        c.brake = 0.3;
       }
-    } else if (!this.resultsShown) {
-      c.steer = this.steering.update(input.steer, dt, pv.state, player.def, this.settings.controls);
-      c.throttle = input.throttle;
-      c.brake = input.brake;
-      c.handbrake = input.handbrake;
-      c.clutch = input.clutch;
-      if (input.shiftUp) c.shift = 1;
-      else if (input.shiftDown) c.shift = -1;
-    } else {
-      // after the flag the car coasts to a stop
-      c.steer = 0;
-      c.throttle = 0;
-      c.brake = 0.3;
+      if (d.car.entrant.state.forwardSpeed < -0.5 && c.throttle > 0.1) c.handbrake = 0;
     }
-    if (player.entrant.state.forwardSpeed < -0.5 && c.throttle > 0.1) c.handbrake = 0;
 
     // AI
     const racing = session.phase === 'racing' || session.phase === 'finished';
@@ -1093,9 +1416,16 @@ export class Game {
     this.handleSessionEvents(now);
     if (this.replayRec && session.phase !== 'countdown') this.replayRec.capture(world.time - this.replayRec.t0, world.states);
 
-    // ghost recording / playback
+    // ghost recording / playback (a lap against your own best: one player; in a split screen each human's lap is recorded, to be saved
+    // with the record it sets, but no ghost is shown)
     const pp = session.player;
-    if (pp && session.phase === 'racing' && pp.crossings >= 1) {
+    if (split && session.phase === 'racing') {
+      for (const d of drivers) {
+        const ph = session.playerAt(d.seat);
+        if (ph && ph.crossings >= 1) d.ghostRec.sample(world.time - ph.lapStart, d.car.vehicle.state.position, d.car.vehicle.state.quaternion);
+      }
+    }
+    if (!split && pp && session.phase === 'racing' && pp.crossings >= 1) {
       this.ghostRec.sample(world.time - pp.lapStart, pv.state.position, pv.state.quaternion);
       if (this.ghost) {
         const st = this.ghost.state;
@@ -1125,46 +1455,86 @@ export class Game {
     }
 
     // visuals, sound, effects
-    const interior = this.camera.mode === 'cockpit' || this.camera.mode === 'hood' || this.camera.mode === 'bumper';
     for (const car of this.cars) {
       car.visual.update(car.vehicle.state, dt, this.render.env);
-      if (car.sound) {
-        car.sound.update(car.vehicle.state, dt);
-        if (car === player) car.sound.setInterior(interior);
-      }
+      car.sound?.update(car.vehicle.state, dt);
     }
-    player.visual.setCockpitView(this.camera.mode === 'cockpit');
-    (this.render as XenoRenderSystem).setCockpitView(this.camera.mode === 'cockpit');
-    this.effects?.update(dt, world.states, this.camera.camera);
-    this.camera.update(dt, { state: pv.state, anchors: player.visual.anchors }, { x: input.lookX, y: input.lookY, back: input.lookBack });
-    this.render.setFocus(pv.state.position);
-    this.trackScene?.update(dt, this.camera.camera);
-    this.trackScene?.setStartLights(session.phase === 'countdown' ? session.lights : session.phase === 'racing' && world.time - session.startTime < 3 ? 6 : null);
-    this.audio.setListener(this.camera.camera, pv.state.velocity);
-    this.updateSpotter(dt, input.lookBack);
-    this.driveMirrors(input.lookBack);
-    this.render.render(this.camera.camera, dt, pv.state.speed);
-    // the cockpit wiper: its swish and thunks follow the windscreen pass's own clock, so they land on the blade you see
-    setWiper(this.audio, (this.render as XenoRenderSystem).wiper);
+    for (const d of drivers) {
+      const m = d.rig.mode;
+      d.car.sound?.setInterior(m === 'cockpit' || m === 'hood' || m === 'bumper');
+    }
+
+    if (split && this.splitLayout) this.drawRaceSplit(dt, input);
+    else this.drawRaceWhole(dt, input);
 
     // rumble on impacts and kerbs
-    this.rumble(player);
+    for (const d of drivers) this.rumble(d);
 
     // HUD
-    if (this.hudVisible && !this.resultsShown) this.ui.updateHud(this.buildHud(now));
+    if (split) {
+      if (!this.resultsShown) for (const d of drivers) this.ui.updateHud(this.buildHud(now, d), d.seat);
+    } else if (this.hudVisible && !this.resultsShown) this.ui.updateHud(this.buildHud(now, drivers[0]));
 
     // results
     if (this.finishAt !== null && !this.resultsShown && (now > this.finishAt || session.phase === 'finished')) this.showResults();
   }
 
-  private lastImpactSeen = 0;
-  private rumble(p: RaceCar): void {
+  /** One view over the whole screen (a single player; also what a split screen shows behind its results). */
+  private drawRaceWhole(dt: number, input: InputFrame): void {
+    const session = this.session!;
+    const player = this.player!;
+    const pv = player.vehicle;
+    const xr = this.render as XenoRenderSystem;
+    player.visual.setCockpitView(this.camera.mode === 'cockpit');
+    xr.setCockpitView(this.camera.mode === 'cockpit');
+    this.effects?.update(dt, this.world!.states, this.camera.camera);
+    this.camera.update(dt, { state: pv.state, anchors: player.visual.anchors }, { x: input.lookX, y: input.lookY, back: input.lookBack });
+    this.render.setFocus(pv.state.position);
+    this.trackScene?.update(dt, this.camera.camera);
+    this.trackScene?.setStartLights(session.phase === 'countdown' ? session.lights : session.phase === 'racing' && this.world!.time - session.startTime < 3 ? 6 : null);
+    this.audio.setListener(this.camera.camera, pv.state.velocity);
+    this.updateSpotter(this.drivers[0], dt, input.lookBack);
+    this.driveMirrors(input.lookBack);
+    this.render.render(this.camera.camera, dt, pv.state.speed);
+    // the cockpit wiper: its swish and thunks follow the windscreen pass's own clock, so they land on the blade you see
+    setWiper(this.audio, xr.wiper);
+  }
+
+  /** Two views, one for each human, each through the whole post chain into its half of the screen. */
+  private drawRaceSplit(dt: number, input: InputFrame): void {
+    const session = this.session!;
+    const xr = this.render as XenoRenderSystem;
+    const world = this.world!;
+    for (const d of this.drivers) {
+      const f = this.frameOf(d, input);
+      d.rig.update(dt, { state: d.car.vehicle.state, anchors: d.car.visual.anchors }, { x: f.lookX, y: f.lookY, back: f.lookBack });
+      this.updateSpotter(d, dt, f.lookBack);
+      this.audio.setListener(d.rig.camera, d.car.vehicle.state.velocity, d.seat);
+    }
+    this.effects?.update(dt, world.states, this.drivers[0].rig.camera);
+    this.trackScene?.setStartLights(session.phase === 'countdown' ? session.lights : session.phase === 'racing' && world.time - session.startTime < 3 ? 6 : null);
+    this.mirrorsOff();
+    this.drawSplit(dt);
+    // the cockpit wiper of whichever view shows its blade (player 1's first)
+    const w0 = xr.wiperOf(0);
+    setWiper(this.audio, w0.drawn ? w0 : xr.wiperOf(1));
+  }
+
+  /** Draw the two views of a split screen (the race, or the pause menu's frozen frame). */
+  private drawSplit(dt: number): void {
+    this.viewDt = dt;
+    (this.render as XenoRenderSystem).renderViews(dt, this.viewsOfDrivers(), this.prepareViewFn);
+  }
+
+  /** Rumble on impacts and kerbs, in the pad of the driver they happen to. */
+  private rumble(d: Driver): void {
     if (!this.settings.controls.vibration) return;
-    const st = p.vehicle.state;
-    if (st.impactCount !== this.lastImpactSeen) {
-      this.lastImpactSeen = st.impactCount;
+    const st = d.car.vehicle.state;
+    const seat = this.drivers.length > 1 ? d.seat : undefined;
+    if (st.impactCount !== d.impactSeen) {
+      d.impactSeen = st.impactCount;
       const k = Math.min(1, st.lastImpact.strength / 12);
-      this.input.rumble(k, k * 0.6, 120 + 200 * k);
+      this.input.rumble(k, k * 0.6, 120 + 200 * k, seat);
     }
     let curb = 0;
     let slip = 0;
@@ -1172,7 +1542,7 @@ export class Game {
       if (w.contact && w.surface === 'curb') curb = Math.max(curb, Math.min(1, st.speed / 30));
       slip = Math.max(slip, w.skid);
     }
-    if (curb > 0.05 || slip > 0.3) this.input.rumble(curb * 0.35, Math.max(curb * 0.5, slip * 0.25), 60);
+    if (curb > 0.05 || slip > 0.3) this.input.rumble(curb * 0.35, Math.max(curb * 0.5, slip * 0.25), 60, seat);
   }
 
   private handleSessionEvents(now: number): void {
@@ -1186,72 +1556,96 @@ export class Game {
           this.audio.ui('go');
           for (const c of this.cars) c.vehicle.holdOnGrid = false;
           break;
-        case 'lap':
-          if (e.entrant.isPlayer) {
-            const lapLap = this.ghostRec.finish(e.time);
-            this.ghostRec.reset();
-            const cfg = this.config!;
-            // a lap is dry or wet by the water the road had at any point of it (see recordTrack), and a race whose weather
-            // changes compares it with the best of its own kind, not with the one of the weather the race started in
-            const key = this.recordTrack(cfg, this.lapWet);
-            let pb = e.personalBest;
-            if (this.wx?.plan) {
-              const best = this.bestLaps[recordKey(key, cfg.carId)];
-              pb = best === undefined || e.time < best;
+        case 'lap': {
+          const d = this.driverOf(e.entrant);
+          if (!d) break;
+          // (a split screen records each human's lap on their own recorder)
+          const split = this.drivers.length > 1;
+          const rec = split ? d.ghostRec : this.ghostRec;
+          const lapLap = rec.finish(e.time);
+          rec.reset();
+          const cfg = this.config!;
+          const carId = d.car.def.id;
+          // a lap is dry or wet by the water the road had at any point of it (see recordTrack), and a race whose weather
+          // changes compares it with the best of its own kind, not with the one of the weather the race started in
+          const key = this.recordTrack(cfg, d.lapWet);
+          let pb = e.personalBest;
+          if (this.wx?.plan || split) {
+            // (two humans may drive the same car: a lap is a record against what is saved now, whoever set it)
+            const best = this.bestLaps[recordKey(key, carId)];
+            pb = best === undefined || e.time < best;
+          }
+          d.lapWet = this.world ? this.world.wetness : 0;
+          if (pb) {
+            d.pb = true;
+            this.bestLaps = saveBestLap(key, carId, e.time);
+            this.ui.setBestLaps(this.bestLaps);
+            if (lapLap) saveGhost(key, carId, lapLap);
+            if (lapLap && cfg.mode === 'timeTrial' && this.settings.hud.ghost) {
+              if (this.ghost) {
+                this.ghost.lap = lapLap;
+              } else void this.makeGhost(lapLap, this.player!.def, this.player!.livery);
             }
-            this.lapWet = this.world ? this.world.wetness : 0;
-            if (pb) {
-              this.bestLaps = saveBestLap(key, cfg.carId, e.time);
-              this.ui.setBestLaps(this.bestLaps);
-              saveGhost(key, cfg.carId, lapLap);
-              if (cfg.mode === 'timeTrial' && this.settings.hud.ghost) {
-                if (this.ghost) {
-                  this.ghost.lap = lapLap;
-                } else void this.makeGhost(lapLap, this.player!.def, this.player!.livery);
-              }
-              this.flashToast(`PERSONAL BEST  ${fmtTime(e.time)}`, now);
-              this.audio.ui('bestLap');
-            } else {
-              this.flashToast(`${e.best ? 'BEST LAP' : 'LAP'}  ${fmtTime(e.time)}`, now);
-              this.audio.ui('lap');
-            }
+            this.flashToast(d, `PERSONAL BEST  ${fmtTime(e.time)}`, now);
+            this.audio.ui('bestLap');
+          } else {
+            this.flashToast(d, `${e.best ? 'BEST LAP' : 'LAP'}  ${fmtTime(e.time)}`, now);
+            this.audio.ui('lap');
           }
           break;
-        case 'finalLap':
-          if (e.entrant.isPlayer) this.flashBanner('FINAL LAP', now, 2500);
+        }
+        case 'finalLap': {
+          const d = this.driverOf(e.entrant);
+          if (d) this.flashBanner(d, 'FINAL LAP', now, 2500);
           break;
-        case 'finish':
-          if (e.entrant.isPlayer) {
-            this.flashBanner(e.position === 1 ? 'VICTORY' : `FINISHED  P${e.position}`, now, 5000);
-            this.audio.ui('finish');
-            this.finishAt = now + 7000;
-          }
+        }
+        case 'finish': {
+          const d = this.driverOf(e.entrant);
+          if (!d) break;
+          d.finished = true;
+          this.flashBanner(d, e.position === 1 ? 'VICTORY' : `FINISHED  P${e.position}`, now, 5000);
+          this.audio.ui('finish');
+          // the results come 7 s after the flag for a single player; a split screen waits for the other human to cross the line too
+          // (at most 25 s after the first, and 5 s after the last)
+          if (this.drivers.length < 2) this.finishAt = now + 7000;
+          else this.finishAt = this.drivers.every((x) => x.finished) ? Math.min(this.finishAt ?? Infinity, now + 5000) : this.finishAt ?? now + 25000;
           break;
+        }
         case 'sector':
           break;
       }
     }
   }
 
-  private flashBanner(text: string, now: number, ms: number): void {
-    this.banner = { text, until: now + ms };
+  private flashBanner(d: Driver, text: string, now: number, ms: number): void {
+    d.banner = { text, until: now + ms };
   }
-  private flashToast(text: string, now: number): void {
-    this.toast = { text, until: now + 4000 };
+  private flashToast(d: Driver, text: string, now: number): void {
+    d.toast = { text, until: now + 4000 };
   }
 
   private showResults(): void {
     const session = this.session!;
     if (session.phase !== 'finished') session.closeRace();
     const cfg = this.config!;
-    const pb = session.player?.bestLap ?? null;
-    const stored = session.storedBest;
-    const res = session.results(pb !== null && (stored === null || pb <= stored));
+    // a personal best: the best lap of the session beats the record the race began with. In a split screen, where two humans may drive
+    // the same car and so share one record, it is what each one's laps did against the record as it stood at the time (d.pb).
+    const isPb = (seat: Seat): boolean => {
+      const best = session.playerAt(seat)?.bestLap ?? null;
+      const stored = session.storedBestFor(seat);
+      return best !== null && (stored === null || best <= stored);
+    };
+    const res = this.drivers.length > 1 ? session.results([this.drivers[0].pb, this.drivers[1].pb]) : session.results(isPb(0));
     if (cfg.championship) this.scoreChampionshipRound(res);
     this.ui.setResults(res);
     this.ui.setHudVisible(false);
     this.ui.show('results');
     this.resultsShown = true;
+    // behind the results the screen is whole again: a TV camera on player 1's car (the lights keep the number they had)
+    if (this.splitLayout) {
+      this.endSplit();
+      this.driveViewCars(0);
+    }
     this.camera.setMode('tv');
     this.camera.snap();
     this.audio.setMusic(true);
@@ -1264,7 +1658,7 @@ export class Game {
   /** Run the weather of the race: the leader's progress calls the change, its state goes to everyone who reads it. */
   private updateWeather(dt: number, now: number): void {
     const world = this.world!;
-    this.lapWet = Math.max(this.lapWet, world.wetness);
+    for (const d of this.drivers) d.lapWet = Math.max(d.lapWet, world.wetness);
     const wx = this.wx;
     if (!wx?.plan) return;
     const session = this.session!;
@@ -1310,8 +1704,9 @@ export class Game {
    */
   private retuneDrivers(wetness: number): void {
     const cars = this.cars;
-    for (let k = 0; k <= cars.length; k++) {
-      const d = k < cars.length ? cars[k].ai : this.autopilot;
+    const drivers = this.drivers;
+    for (let k = 0; k < cars.length + drivers.length; k++) {
+      const d = k < cars.length ? cars[k].ai : drivers[k - cars.length].autopilot;
       if (!d || Math.abs(wetness - (this.wxTuned.get(d) ?? this.wxStartWet)) < 0.02) continue;
       this.wxTuned.set(d, wetness);
       d.setWetness(wetness);
@@ -1399,22 +1794,33 @@ export class Game {
     });
   }
 
-  private buildHud(now: number): HudState {
+  /** The HUD of one human's view. */
+  private buildHud(now: number, d: Driver): HudState {
     const session = this.session!;
-    const p = this.player!;
+    const p = d.car;
     const st = p.vehicle.state;
     const def = p.def;
-    const pp = session.player!;
+    const split = this.drivers.length > 1;
+    const pp = session.playerAt(d.seat)!;
     const order = session.ordered();
     const leader = order[0];
     const cfg = this.config!;
-    // standings: leader + the cars around the player
+    // standings: leader + the cars around the player (and, in a split screen, the other human wherever they are)
     const standings: HudStanding[] = [];
     const idx = order.indexOf(pp);
-    const pick = new Set<number>([0, idx - 1, idx, idx + 1, 1, 2].filter((i) => i >= 0 && i < order.length));
-    [...pick].sort((a, b) => a - b).slice(0, 6).forEach((i) => {
+    const other = split ? session.playerAt(d.seat === 0 ? 1 : 0) : undefined;
+    const oi = other ? order.indexOf(other) : -1;
+    const pick = new Set<number>([0, idx - 1, idx, idx + 1, oi, 1, 2].filter((i) => i >= 0 && i < order.length));
+    [...pick].sort((a, b) => a - b).slice(0, split ? 7 : 6).forEach((i) => {
       const e = order[i];
-      standings.push({ position: e.position, name: e.entrant.name, gap: session.gapString(e, leader), isPlayer: e.entrant.isPlayer, color: e.entrant.color });
+      standings.push({
+        position: e.position,
+        name: e.entrant.name,
+        gap: session.gapString(e, leader),
+        isPlayer: e.entrant.isPlayer,
+        color: e.entrant.color,
+        ...(split && e.entrant.seat !== undefined ? { seat: e.entrant.seat } : {}),
+      });
     });
     const up = def.physics.drivetrain.upshiftRpm;
     const shiftLight = Math.max(0, Math.min(1, (st.rpm - (up - 2200)) / 2200));
@@ -1422,10 +1828,18 @@ export class Game {
     const cars = this.cars.map((c) => {
       const s = c.vehicle.state;
       _v.set(0, 0, 1).applyQuaternion(s.quaternion);
-      return { x: s.position.x, z: s.position.z, heading: Math.atan2(_v.x, _v.z), color: c.entrant.color, isPlayer: c === p };
+      return {
+        x: s.position.x,
+        z: s.position.z,
+        heading: Math.atan2(_v.x, _v.z),
+        color: c.entrant.color,
+        // (both humans are on every map in a split screen, each view draws its own as the player's)
+        isPlayer: split ? c.entrant.isPlayer : c === p,
+        ...(split && c.entrant.seat !== undefined ? { seat: c.entrant.seat } : {}),
+      };
     });
-    if (this.banner && now > this.banner.until) this.banner = null;
-    if (this.toast && now > this.toast.until) this.toast = null;
+    if (d.banner && now > d.banner.until) d.banner = null;
+    if (d.toast && now > d.toast.until) d.toast = null;
     const t = this.world!.time;
     const racing = session.phase === 'racing' || session.phase === 'finished';
     const countdown = session.phase === 'countdown' ? session.lights : racing && t - session.startTime < 1.2 && cfg.mode === 'race' ? 6 : null;
@@ -1452,10 +1866,10 @@ export class Game {
       raceTime: racing ? t - session.startTime : 0,
       lapTime: racing && (pp.crossings >= 1 || cfg.mode === 'race') ? t - pp.lapStart : 0,
       lastLap: pp.lapTimes.length ? pp.lapTimes[pp.lapTimes.length - 1] : null,
-      bestLap: pp.bestLap ?? session.storedBest,
-      delta: session.liveDelta(),
+      bestLap: pp.bestLap ?? session.storedBestFor(d.seat),
+      delta: session.liveDelta(d.seat),
       sector: pp.sector,
-      sectorDeltas: session.sectorDeltas(),
+      sectorDeltas: session.sectorDeltas(d.seat),
       standings: cfg.mode === 'race' && this.settings.hud.standings ? standings : [],
       cars,
       gLat: st.localAccel.x / 9.81,
@@ -1463,13 +1877,14 @@ export class Game {
       tires,
       countdown,
       wrongWay: pp.wrongWayTime > 1.5,
-      banner: this.banner?.text ?? null,
-      toast: this.toast?.text ?? null,
-      showTelemetry: this.showTelemetry,
-      hudVisible: this.hudVisible,
+      banner: d.banner?.text ?? null,
+      toast: d.toast?.text ?? null,
+      // (no telemetry overlay in a split screen: it would fill a view)
+      showTelemetry: split ? false : this.showTelemetry,
+      hudVisible: split ? d.hudVisible : this.hudVisible,
       championship: this.hudChampionship,
-      spotter: this.settings.hud.spotter ? this.spotOut : null,
-      mirror: (this.render as XenoRenderSystem).mirrorStrip,
+      spotter: this.settings.hud.spotter ? d.spotOut : null,
+      mirror: split ? false : (this.render as XenoRenderSystem).mirrorStrip,
       weather: this.wx?.plan ? this.hudWeather(now) : null,
     };
   }
@@ -1508,23 +1923,22 @@ export class Game {
   }
 
   /** Fold the field into the spotter's two sides. It speaks only while the screen's left and right are the car's. */
-  private updateSpotter(dt: number, lookBack: boolean): void {
-    const player = this.player;
+  private updateSpotter(d: Driver, dt: number, lookBack: boolean): void {
     const session = this.session;
-    if (!player || !session) return;
+    if (!session) return;
     const bodies = this.spotBodies();
-    const me = bodies[this.cars.indexOf(player)];
+    const me = bodies[this.cars.indexOf(d.car)];
     if (!me) return;
-    const mode = this.camera.mode;
+    const mode = d.rig.mode;
     // not in the TV or orbit cameras (the screen's left is anybody's), and not while looking back
     const driversView = mode !== 'tv' && mode !== 'orbit' && !lookBack;
     const on = this.settings.hud.spotter && driversView && session.phase === 'racing' && !this.resultsShown && !this.replay;
-    updateSpotter(this.spotter, me, bodies, dt, on);
-    const o = this.spotOut;
-    o.left = this.spotter.left.level;
-    o.right = this.spotter.right.level;
-    o.leftAt = this.spotter.left.at;
-    o.rightAt = this.spotter.right.at;
+    updateSpotter(d.spotter, me, bodies, dt, on);
+    const o = d.spotOut;
+    o.left = d.spotter.left.level;
+    o.right = d.spotter.right.level;
+    o.leftAt = d.spotter.left.at;
+    o.rightAt = d.spotter.right.at;
   }
 
   /**
@@ -1533,6 +1947,11 @@ export class Game {
    * with the setting off.
    */
   private driveMirrors(lookBack: boolean): void {
+    // (a split screen has no mirrors: each view is half a screen, and the glass would have to be drawn for both)
+    if (this.drivers.length > 1) {
+      this.mirrorsOff();
+      return;
+    }
     const player = this.player;
     const f = this.mirrorFrame;
     const cam = this.camera.mode;

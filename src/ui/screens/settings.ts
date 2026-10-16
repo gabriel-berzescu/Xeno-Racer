@@ -98,7 +98,7 @@ export class SettingsScreen extends BaseScreen {
         case 'text':
           handle = textRow(ctx, { label: rd.label, desc: rd.desc, maxLength: rd.maxLength, get: () => rd.get(getS()), set: (v) => rd.set(getS(), v) }, {
             ...opts,
-            osk: (initial, max, done) => this.osk.show('Driver name', initial, max, done),
+            osk: (initial, max, done) => this.osk.show(rd.label, initial, max, done),
           });
           break;
       }

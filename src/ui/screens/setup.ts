@@ -1,4 +1,4 @@
-import { WEATHER_WATER, type ChampionshipRoundDef, type Forecast, type InputFrame, type MinimapTrack, type RaceMode, type TrackInfo } from '../../core/contracts';
+import { WEATHER_WATER, type ChampionshipRoundDef, type Forecast, type InputFrame, type MinimapTrack, type RaceMode, type Seat, type TrackInfo } from '../../core/contracts';
 import { sanitizeForecast } from '../../core/forecast';
 import type { ScreenId } from '../../core/systems';
 import type { UiCtx } from '../ctx';
@@ -6,13 +6,15 @@ import { clearEl, h } from '../dom';
 import { formatConditions, formatLapTime, formatLength, lapsLabel, TIME_OF_DAY_LABEL, WEATHER_LABEL } from '../format';
 import { iconPlay } from '../icons';
 import {
+  type JoinView,
   applyTrackDefaults, bestLapFor, buildChampionshipSetup, buildRaceConfig, carStatBars, CHAMP_OPPONENTS_MIN, defaultSetup, DIFFICULTIES, FORECAST_CHOICES, forecastNow, forecastOffered, GRID_RULES,
-  LAPS_MAX, LAPS_MIN, LENGTHS, LIVERY_PRESETS, liveryFor, MODE_INFO, modeLabel, OPPONENTS_MAX, OPTION_LABELS, SETUP_STEPS, STARTS, TIMES, WEATHERS, type SetupMode, type SetupState, type SetupStep,
+  joinView, LAPS_MAX, LAPS_MIN, LENGTHS, LIVERY_PRESETS, liveryFor, MODE_INFO, modeLabel, OPPONENTS_MAX, opponentsMax, OPTION_LABELS, playersNow, seatName, SETUP_STEPS, setupStepLabel, setupSteps, splitAllowed, STARTS, stepSeat, TIMES, WEATHERS,
+  type SetupMode, type SetupOpts, type SetupState, type SetupStep, type WizardStep,
 } from '../model';
 import { FocusList, type FocusRow } from '../nav';
 import { drawTrack, MENU_MAP_STYLE, sizeCanvas } from '../trackmap';
 import type { MapFit } from '../hudlogic';
-import { chevron, pips, selectRow, stepperRow, StatBars, TabBar, type RowHandle } from '../widgets';
+import { chevron, keyGlyph, padGlyph, pips, selectRow, stepperRow, StatBars, TabBar, type RowHandle } from '../widgets';
 import { BaseScreen } from './base';
 
 const STEP_LABEL: Record<SetupStep, string> = { track: 'Track', car: 'Car', race: 'Race' };
@@ -26,13 +28,19 @@ const CHAMP_STEP_TITLE: Record<SetupStep, string> = { track: 'The calendar', car
 const MAP_W = 576;
 const MAP_H = 330;
 
+/** The panes of the wizard: the second player's car step shows the first's car picker, or the join card before the player is in. */
+type ViewKey = SetupStep | 'join';
+const VIEW_KEYS: readonly ViewKey[] = ['track', 'car', 'race', 'join'];
+
 export class SetupScreen extends BaseScreen {
   readonly id = 'setup' as const;
 
   private state: SetupState;
-  private step: SetupStep = 'track';
-  private readonly lists: Record<SetupStep, FocusList> = { track: new FocusList(false), car: new FocusList(false), race: new FocusList(false) };
-  private readonly views = {} as Record<SetupStep, HTMLElement>;
+  private step: WizardStep = 'track';
+  /** The second player's car step is the same picker as the first's (and so is its list of rows). */
+  private readonly carList = new FocusList(false);
+  private readonly lists: Record<WizardStep, FocusList> = { track: new FocusList(false), car: this.carList, car2: this.carList, race: new FocusList(false) };
+  private readonly views = {} as Record<ViewKey, HTMLElement>;
   private readonly tabs: TabBar;
   private readonly kicker = h('div', 'kicker');
   private readonly title = h('h1', 'h1');
@@ -72,6 +80,15 @@ export class SetupScreen extends BaseScreen {
   private swatches: HTMLElement[] = [];
   private readonly liveryName = h('span', 'liv-name');
   private readonly nextLabel = h('span', null, 'Race options');
+  /** Split screen: whose car this is ("Player 2 · Silviu · Logitech Gamepad F310"), above the car. */
+  private readonly seatTag = h('div', 'seat-tag');
+
+  // the join card: the second player's car step, until they are in
+  private readonly joinCard = h('div', { cls: 'panel chamfer edge join-card in', style: { '--d': '120', '--tx': '-60px' } });
+  /** The game was told to listen for a second player (and has not been told to stop). */
+  private joining = false;
+  /** The screen is on show (the game's answers about the devices only matter then). */
+  private open = false;
 
   // race step
   private raceRows: RowHandle[] = [];
@@ -82,6 +99,13 @@ export class SetupScreen extends BaseScreen {
   private readonly sumMode = h('div', 'v');
   private readonly sumConditions = h('div', 'v');
   private readonly sumBest = h('div', 'v');
+  // (split screen: the summary names both cars, and the best lap, which is the first car's, goes)
+  private readonly sumCarK = h('span', 'k', 'Car');
+  private readonly sumCarRow = h('div', 'kv');
+  private readonly sumCar2K = h('span', 'k', 'Player 2');
+  private readonly sumCar2 = h('div', 'v');
+  private readonly sumCar2Row = h('div', 'kv s1');
+  private readonly sumBestRow = h('div', 'kv');
   private readonly sumCanvas = h('canvas', 'map-canvas');
   private raceSummary: HTMLElement = h('div');
   // race step, championship: the season at a glance
@@ -96,13 +120,14 @@ export class SetupScreen extends BaseScreen {
   constructor(ctx: UiCtx) {
     super(ctx, 'setup');
     this.state = defaultSetup('race', ctx.deps.tracks, ctx.deps.cars);
-    this.tabs = new TabBar(ctx, SETUP_STEPS.map((s, i) => ({ id: s, label: this.tabLabel(s, i) })), (i) => this.goStep(SETUP_STEPS[i], false));
+    this.tabs = new TabBar(ctx, this.steps().map((s, i) => ({ id: s, label: this.tabLabel(s, i) })), (i) => this.goStep(this.steps()[i], false));
     this.views.track = this.buildTrackView();
     this.views.car = this.buildCarView();
     this.views.race = this.buildRaceView();
+    this.views.join = h('div', 'setup-view view-join', this.joinCard);
     this.rebuildTrackCards();
     this.rebuildRaceRows();
-    const body = h('div', 'setup-body', this.views.track, this.views.car, this.views.race);
+    const body = h('div', 'setup-body', this.views.track, this.views.car, this.views.race, this.views.join);
     this.el.append(
       h('div', 'scrim scrim-top'),
       h('div', 'scrim scrim-left'),
@@ -117,18 +142,23 @@ export class SetupScreen extends BaseScreen {
 
   // ── public ─────────────────────────────────────────────────────────────────
 
-  /** Reset the wizard for a mode (keeps the last track / car / livery). */
-  configure(mode: SetupMode): void {
-    this.state = defaultSetup(mode, this.ctx.deps.tracks, this.ctx.deps.cars, this.state);
+  /**
+   * Reset the wizard for a mode (keeps the last track / car / livery). `opts.players` is how many humans it is for (one when absent): a
+   * second player left over from an earlier split-screen setup goes home when this one is for one.
+   */
+  configure(mode: SetupMode, opts: SetupOpts = {}): void {
+    this.state = defaultSetup(mode, this.ctx.deps.tracks, this.ctx.deps.cars, { ...this.state, players: opts.players ?? 1 });
     this.roundIndex = 0;
-    this.tabs.setLabels(SETUP_STEPS.map((s, i) => this.tabLabel(s, i)));
+    this.step = 'track';
+    this.syncTabs();
     this.rebuildTrackCards();
     this.rebuildRaceRows();
-    this.step = 'track';
     this.renderAll();
+    if (playersNow(this.state) === 1 && this.ctx.players.joined) this.ctx.emit({ type: 'split', action: 'unbind' });
   }
 
   enter(_from: ScreenId): void {
+    this.open = true;
     this.step = 'track';
     this.renderAll();
     this.showStep('track', false);
@@ -137,7 +167,9 @@ export class SetupScreen extends BaseScreen {
   }
 
   leave(): void {
+    this.open = false;
     this.stopAnim();
+    this.endJoin();
   }
 
   dispose(): void {
@@ -146,6 +178,7 @@ export class SetupScreen extends BaseScreen {
 
   refresh(): void {
     this.renderAll();
+    this.syncJoin();
   }
 
   resize(): void {
@@ -176,31 +209,102 @@ export class SetupScreen extends BaseScreen {
     return this.ctx.settings.units;
   }
 
-  private tabLabel(step: SetupStep, i: number): string {
-    return `${i + 1}  ${(this.champMode() ? CHAMP_STEP_LABEL : STEP_LABEL)[step]}`;
+  // ── split screen: two players, two cars ──
+
+  /** The seat whose car the car step is picking (the second player's on the 'car2' step). */
+  private seat(): Seat {
+    return stepSeat(this.step);
+  }
+  private splitOn(): boolean {
+    return playersNow(this.state) === 2;
+  }
+  private names(): [string, string] {
+    return [seatName(this.ctx.settings, 0), seatName(this.ctx.settings, 1)];
+  }
+  private carIndexOf(seat: Seat): number {
+    return seat === 1 ? this.state.car2Index : this.state.carIndex;
+  }
+  private liveryIndexOf(seat: Seat): number {
+    return seat === 1 ? this.state.liveryIndex2 : this.state.liveryIndex;
+  }
+  private carOf(seat: Seat) {
+    const c = this.ctx.deps.cars;
+    return c[Math.min(this.carIndexOf(seat), c.length - 1)];
+  }
+  /** The car on show in the car picker. */
+  private pickedCar() {
+    return this.carOf(this.seat());
+  }
+  /** The second player is not in yet: their car step is the join card. */
+  private joinShown(): boolean {
+    return this.step === 'car2' && !this.ctx.players.joined;
+  }
+  /** Which pane a step shows. */
+  private viewFor(step: WizardStep): ViewKey {
+    return step === 'car2' ? (this.ctx.players.joined ? 'car' : 'join') : step;
+  }
+
+  private steps(): readonly WizardStep[] {
+    return setupSteps(this.state);
+  }
+
+  private tabLabel(step: WizardStep, i: number): string {
+    // (a championship has one player: its steps are always the three of SETUP_STEPS)
+    const label = this.champMode() ? CHAMP_STEP_LABEL[step as SetupStep] : setupStepLabel(step, playersNow(this.state));
+    return `${i + 1}  ${label}`;
+  }
+
+  /** The line above the title: the mode and "Setup", or for a split-screen setup the mode, "Split screen" and (on the car steps) what is being asked. */
+  private kickerText(): string {
+    const mode = modeLabel(this.state.mode);
+    if (!this.splitOn()) return `${mode}  ·  Setup`;
+    if (this.step === 'car2' && !this.ctx.players.joined) return `${mode}  ·  Split screen  ·  Join`;
+    return this.step === 'car' || this.step === 'car2' ? `${mode}  ·  Split screen  ·  Choose your car` : `${mode}  ·  Split screen`;
+  }
+
+  /** The title of a step; the two car steps of a split-screen setup are just the player they are for, big and in that player's colour. */
+  private renderTitle(step: WizardStep): void {
+    if (this.splitOn() && (step === 'car' || step === 'car2')) {
+      const seat = stepSeat(step);
+      this.title.replaceChildren(h('span', 'seat s' + seat, `Player ${seat + 1}`));
+    } else {
+      this.title.textContent = (this.champMode() ? CHAMP_STEP_TITLE : STEP_TITLE)[step as SetupStep];
+    }
+  }
+
+  /** The tabs of the steps this setup has (a fourth for the second player's car), the current one marked. */
+  private syncTabs(): void {
+    const steps = this.steps();
+    this.tabs.setTabs(steps.map((s, i) => this.tabLabel(s, i)));
+    this.tabs.setIndex(steps.indexOf(this.step));
+    this.tabs.el.classList.toggle('four', steps.length > 3);
   }
 
   // ── step control ───────────────────────────────────────────────────────────
 
-  private goStep(step: SetupStep, tabAlready: boolean): void {
+  private goStep(step: WizardStep, tabAlready: boolean): void {
     if (step === this.step) return;
+    if (this.step === 'car2') this.endJoin();
     this.step = step;
-    if (!tabAlready) this.tabs.setIndex(SETUP_STEPS.indexOf(step));
+    if (!tabAlready) this.tabs.setIndex(this.steps().indexOf(step));
     this.showStep(step, true);
-    this.ctx.emit({ type: 'menuOpened', screen: 'setup:' + step });
-    if (step === 'car') this.previewCar();
+    // (the second player's car is shown in the showroom like the first's, which the game keeps for 'setup:car')
+    this.ctx.emit({ type: 'menuOpened', screen: 'setup:' + (step === 'car2' ? 'car' : step) });
+    if (step === 'car' || step === 'car2') this.previewCar();
     if (step === 'track') this.ctx.emit({ type: 'previewTrack', trackId: this.track().id });
   }
 
-  private showStep(step: SetupStep, animate: boolean): void {
-    for (const s of SETUP_STEPS) this.views[s].style.display = s === step ? '' : 'none';
-    this.tabs.setIndex(SETUP_STEPS.indexOf(step));
-    this.title.textContent = (this.champMode() ? CHAMP_STEP_TITLE : STEP_TITLE)[step];
-    this.kicker.textContent = `${modeLabel(this.state.mode)}  ·  Setup`;
+  private showStep(step: WizardStep, animate: boolean): void {
+    const key = this.viewFor(step);
+    for (const k of VIEW_KEYS) this.views[k].style.display = k === key ? '' : 'none';
+    this.tabs.setIndex(this.steps().indexOf(step));
+    this.renderTitle(step);
+    this.kicker.textContent = this.kickerText();
     if (animate) {
       this.flip ^= 1;
-      this.views[step].setAttribute('data-flip', String(this.flip));
+      this.views[key].setAttribute('data-flip', String(this.flip));
     }
+    this.syncJoin();
     this.updatePrompts();
     this.renderAll();
     if (step === 'track') this.lists.track.focus(this.champMode() ? this.roundIndex : this.state.trackIndex);
@@ -209,25 +313,34 @@ export class SetupScreen extends BaseScreen {
 
   /** Advance one step. `sound` is false when the caller (the nav handler) already plays it. */
   private nextStep(sound = false): void {
-    const i = SETUP_STEPS.indexOf(this.step);
-    if (i < SETUP_STEPS.length - 1) {
+    const steps = this.steps();
+    const i = steps.indexOf(this.step);
+    if (i < steps.length - 1) {
       if (sound) this.ctx.sound('select');
-      this.goStep(SETUP_STEPS[i + 1], false);
+      this.goStep(steps[i + 1], false);
     }
   }
 
   private prevStep(): void {
-    const i = SETUP_STEPS.indexOf(this.step);
+    const steps = this.steps();
+    const i = steps.indexOf(this.step);
     this.ctx.sound('back');
-    if (i > 0) this.goStep(SETUP_STEPS[i - 1], false);
-    else this.ctx.go('main');
+    if (i > 0) this.goStep(steps[i - 1], false);
+    else {
+      // backing out of the setup: the second player (in or waiting) goes home
+      if (this.splitOn() || this.ctx.players.joined) this.ctx.emit({ type: 'split', action: 'unbind' });
+      this.ctx.go('main');
+    }
   }
 
   private updatePrompts(): void {
     if (this.step === 'track') {
       this.prompts.set([{ action: 'navigate', label: 'Browse' }, { action: 'confirm', label: this.champMode() ? 'Continue' : 'Choose' }, { action: 'tabs', label: 'Step' }, { action: 'back', label: 'Back' }]);
-    } else if (this.step === 'car') {
-      this.prompts.set([{ action: 'adjust', label: 'Change' }, { action: 'navigate', label: 'Livery' }, { action: 'confirm', label: 'Continue' }, { action: 'tabs', label: 'Step' }, { action: 'back', label: 'Back' }]);
+    } else if (this.joinShown()) {
+      this.prompts.set([{ action: 'tabs', label: 'Step' }, { action: 'back', label: 'Back' }]);
+    } else if (this.step === 'car' || this.step === 'car2') {
+      const swap = this.splitOn() && this.ctx.players.joined ? [{ action: 'camera' as const, label: 'Swap players' }] : [];
+      this.prompts.set([{ action: 'adjust', label: 'Change' }, { action: 'navigate', label: 'Livery' }, { action: 'confirm', label: 'Continue' }, ...swap, { action: 'tabs', label: 'Step' }, { action: 'back', label: 'Back' }]);
     } else {
       this.prompts.set([{ action: 'navigate', label: 'Select' }, { action: 'adjust', label: 'Change' }, { action: 'confirm', label: 'Confirm' }, { action: 'tabs', label: 'Step' }, { action: 'back', label: 'Back' }]);
     }
@@ -353,8 +466,8 @@ export class SetupScreen extends BaseScreen {
   private buildCarView(): HTMLElement {
     const chevL = chevron('l');
     const chevR = chevron('r');
-    chevL.addEventListener('click', () => this.setCar(this.state.carIndex - 1));
-    chevR.addEventListener('click', () => this.setCar(this.state.carIndex + 1));
+    chevL.addEventListener('click', () => this.setCar(this.carIndexOf(this.seat()) - 1));
+    chevR.addEventListener('click', () => this.setCar(this.carIndexOf(this.seat()) + 1));
     this.carRow = h('div', { cls: 'car-hero focusable in', style: { '--d': '120', '--tx': '-60px' } }, this.cMaker, h('div', 'car-title', chevL, this.cName, chevR), this.cChips, this.cPager);
 
     const sw = h('div', 'swatches');
@@ -374,14 +487,14 @@ export class SetupScreen extends BaseScreen {
     const rows: FocusRow[] = [
       {
         setFocused: (on) => this.carRow.classList.toggle('is-focus', on),
-        left: () => this.setCar(this.state.carIndex - 1),
-        right: () => this.setCar(this.state.carIndex + 1),
+        left: () => this.setCar(this.carIndexOf(this.seat()) - 1),
+        right: () => this.setCar(this.carIndexOf(this.seat()) + 1),
         activate: () => (this.nextStep(), true),
       },
       {
         setFocused: (on) => livRow.classList.toggle('is-focus', on),
-        left: () => this.setLivery(this.state.liveryIndex - 1),
-        right: () => this.setLivery(this.state.liveryIndex + 1),
+        left: () => this.setLivery(this.liveryIndexOf(this.seat()) - 1),
+        right: () => this.setLivery(this.liveryIndexOf(this.seat()) + 1),
         activate: () => (this.nextStep(), true),
       },
       { setFocused: (on) => next.classList.toggle('is-focus', on), activate: () => (this.nextStep(), true) },
@@ -396,14 +509,16 @@ export class SetupScreen extends BaseScreen {
     }
 
     const info = h('div', { cls: 'car-info in', style: { '--d': '260', '--tx': '-60px' } }, this.cDesc, this.cStats.el, this.cBest);
-    return h('div', 'setup-view view-car', h('div', 'car-col', this.carRow, info), h('div', 'car-actions', livRow, next));
+    return h('div', 'setup-view view-car', this.seatTag, h('div', 'car-col', this.carRow, info), h('div', 'car-actions', livRow, next));
   }
 
+  /** The picker works on the seat the step belongs to: the first player's car and livery, or the second player's. */
   private setCar(i: number): boolean {
     const n = this.ctx.deps.cars.length;
     const j = ((i % n) + n) % n;
-    if (j === this.state.carIndex) return false;
-    this.state.carIndex = j;
+    if (j === this.carIndexOf(this.seat())) return false;
+    if (this.seat() === 1) this.state.car2Index = j;
+    else this.state.carIndex = j;
     this.renderCar();
     this.previewCar();
     return true;
@@ -412,8 +527,9 @@ export class SetupScreen extends BaseScreen {
   private setLivery(i: number): boolean {
     const n = LIVERY_PRESETS.length;
     const j = ((i % n) + n) % n;
-    if (j === this.state.liveryIndex) return false;
-    this.state.liveryIndex = j;
+    if (j === this.liveryIndexOf(this.seat())) return false;
+    if (this.seat() === 1) this.state.liveryIndex2 = j;
+    else this.state.liveryIndex = j;
     this.renderLivery();
     this.renderSummary();
     this.previewCar();
@@ -421,12 +537,27 @@ export class SetupScreen extends BaseScreen {
   }
 
   private previewCar(): void {
-    this.ctx.emit({ type: 'previewCar', carId: this.car().id, livery: liveryFor(LIVERY_PRESETS[this.state.liveryIndex], this.ctx.settings.playerName) });
+    const seat = this.seat();
+    this.ctx.emit({ type: 'previewCar', carId: this.pickedCar().id, livery: liveryFor(LIVERY_PRESETS[this.liveryIndexOf(seat)], this.names()[seat]) });
+  }
+
+  /** Whose car the picker shows: the seat tag above it, and the second player's step in their colour. */
+  private renderSeat(): void {
+    const split = this.splitOn();
+    const seat = this.seat();
+    this.views.car.classList.toggle('seat1', split && seat === 1);
+    this.seatTag.style.display = split ? '' : 'none';
+    if (!split) return;
+    const device = this.ctx.players.devices[seat];
+    this.seatTag.className = 'seat-tag s' + seat;
+    this.seatTag.replaceChildren(h('b', null, this.names()[seat]));
+    if (device) this.seatTag.append(h('em', null, device));
   }
 
   private renderCar(): void {
-    const c = this.car();
+    const c = this.pickedCar();
     const cars = this.ctx.deps.cars;
+    this.renderSeat();
     this.cMaker.textContent = c.maker;
     this.cName.textContent = c.name;
     clearEl(this.cChips);
@@ -440,34 +571,39 @@ export class SetupScreen extends BaseScreen {
     this.cBest.textContent = '';
     this.cBest.append(h('span', 'k', `${this.wet() ? 'Wet best lap' : 'Best lap'} at ${this.track().name}`), h('span', 'v t-num', best ? formatLapTime(best.time) : 'No lap yet'));
     clearEl(this.cPager);
-    cars.forEach((_, i) => this.cPager.appendChild(h('i', i === this.state.carIndex ? 'on' : null)));
+    cars.forEach((_, i) => this.cPager.appendChild(h('i', i === this.carIndexOf(this.seat()) ? 'on' : null)));
     this.renderLivery();
   }
 
   private renderLivery(): void {
-    const c = this.car();
+    const c = this.pickedCar();
+    const picked = this.liveryIndexOf(this.seat());
     this.swatches.forEach((s, i) => {
       const p = LIVERY_PRESETS[i];
       const fill = s.firstElementChild as HTMLElement;
       fill.style.background = p.swatch || c.defaultLivery.primary;
-      s.classList.toggle('on', i === this.state.liveryIndex);
+      s.classList.toggle('on', i === picked);
       s.classList.toggle('factory', p.id === 'factory');
     });
-    this.liveryName.textContent = LIVERY_PRESETS[this.state.liveryIndex].name;
+    this.liveryName.textContent = LIVERY_PRESETS[picked].name;
   }
 
   // ── race step ──────────────────────────────────────────────────────────────
 
   private buildRaceView(): HTMLElement {
+    this.sumCarRow.append(this.sumCarK, this.sumCar);
+    this.sumCar2Row.append(this.sumCar2K, this.sumCar2);
+    this.sumBestRow.append(h('span', 'k', 'Your best'), this.sumBest);
     this.raceSummary = h(
       'div',
       { cls: 'panel chamfer edge race-summary in', style: { '--d': '260', '--tx': '70px' } },
       h('div', 'map-wrap small', this.sumCanvas),
       h('div', 'kv', h('span', 'k', 'Track'), this.sumTrack),
-      h('div', 'kv', h('span', 'k', 'Car'), this.sumCar),
+      this.sumCarRow,
+      this.sumCar2Row,
       h('div', 'kv', h('span', 'k', 'Mode'), this.sumMode),
       h('div', 'kv', h('span', 'k', 'Conditions'), this.sumConditions),
-      h('div', 'kv', h('span', 'k', 'Your best'), this.sumBest),
+      this.sumBestRow,
     );
     this.champSummary = h(
       'div',
@@ -519,12 +655,16 @@ export class SetupScreen extends BaseScreen {
       add(help('Standings: the championship leader starts on pole. Reverse: the leader starts last, and the back of the order starts up front.')(selectRow(ctx, { label: 'Later grids', options: GRID_RULES.map((g) => ({ value: g, label: OPTION_LABELS.grid[g] })), get: () => c.grid, set: (v) => (c.grid = v as typeof c.grid) }, { onChange })));
     } else {
       const info = MODE_INFO[s.mode as RaceMode];
+      // split screen: a second human, in a race or in free roam (the opponents stepper below follows the choice)
+      if (splitAllowed(s.mode)) {
+        add(selectRow(ctx, { label: 'Players', options: [{ value: '1', label: '1 player' }, { value: '2', label: '2 players' }], get: () => String(s.players), set: (v) => this.setPlayerCount(v === '2' ? 2 : 1) }, { onChange }));
+      }
       if (info.usesLaps) {
         // (a race of one lap cannot run a forecast: the Forecast row follows the laps)
         add(stepperRow(ctx, { label: 'Laps', min: LAPS_MIN, max: LAPS_MAX, get: () => s.laps, set: (v) => (s.laps = v), fmt: (v) => `${v} ${v === 1 ? 'lap' : 'laps'}` }, { onChange: () => (onChange(), this.rebuildRaceRowsValues()) }));
       }
       if (info.usesOpponents) {
-        add(stepperRow(ctx, { label: 'Opponents', min: 0, max: OPPONENTS_MAX, get: () => s.opponents, set: (v) => (s.opponents = v), fmt: (v) => (v === 0 ? 'None' : String(v)) }, { onChange }));
+        add(stepperRow(ctx, { label: 'Opponents', min: 0, max: OPPONENTS_MAX, limit: () => opponentsMax(s), get: () => s.opponents, set: (v) => (s.opponents = v), fmt: (v) => (v === 0 ? 'None' : String(v)) }, { onChange }));
       }
       if (info.usesDifficulty) {
         add(selectRow(ctx, { label: 'Difficulty', options: DIFFICULTIES.map((d) => ({ value: d, label: OPTION_LABELS.difficulty[d] })), get: () => s.difficulty, set: (v) => (s.difficulty = v as SetupState['difficulty']) }, { onChange }));
@@ -571,11 +711,26 @@ export class SetupScreen extends BaseScreen {
         : undefined,
       activate: () => (this.start(), true),
     });
+    // (a race with the Players row has eight rows: they are set a little tighter so the Start button stays above the prompts)
+    this.raceList.classList.toggle('dense', this.raceRows.length >= 8);
     this.lists.race.setRows(rows, 0);
   }
 
   private rebuildRaceRowsValues(): void {
     for (const r of this.raceRows) r.refresh();
+  }
+
+  /** The Players row: a second step appears for the second player's car, and the field shrinks to what the grid has room for. */
+  private setPlayerCount(n: 1 | 2): void {
+    const s = this.state;
+    if (s.players === n) return;
+    s.players = n;
+    s.opponents = Math.min(s.opponents, opponentsMax(s));
+    this.syncTabs();
+    this.kicker.textContent = this.kickerText();
+    // one player again: the second one (in, or waited for) goes home
+    if (n === 1 && this.ctx.players.joined) this.ctx.emit({ type: 'split', action: 'unbind' });
+    this.rebuildRaceRowsValues();
   }
 
   private start(sound = false): void {
@@ -584,7 +739,12 @@ export class SetupScreen extends BaseScreen {
       this.ctx.startChampionship(buildChampionshipSetup(this.state, this.ctx.deps.cars, this.ctx.settings.playerName));
       return;
     }
-    this.ctx.startRace(buildRaceConfig(this.state, this.ctx.deps.tracks, this.ctx.deps.cars, this.ctx.settings.playerName));
+    // two players: the second one has to be in before the lights go on, so the setup goes to the join step first
+    if (this.splitOn() && !this.ctx.players.joined) {
+      this.goStep('car2', false);
+      return;
+    }
+    this.ctx.startRace(buildRaceConfig(this.state, this.ctx.deps.tracks, this.ctx.deps.cars, this.ctx.settings.playerName, undefined, this.ctx.settings.player2Name));
   }
 
   /** Rain or storm chosen: laps are kept apart from the dry ones (game.ts recordTrack), and so are the bests shown. */
@@ -609,6 +769,16 @@ export class SetupScreen extends BaseScreen {
     const c = this.car();
     this.sumTrack.textContent = t.name;
     this.sumCar.textContent = `${c.name}  ·  ${LIVERY_PRESETS[this.state.liveryIndex].name}`;
+    const two = this.splitOn();
+    const [name1, name2] = this.names();
+    this.sumCarK.textContent = two ? name1 : 'Car';
+    this.sumCarRow.classList.toggle('s0', two);
+    this.sumCar2Row.style.display = two ? '' : 'none';
+    this.sumBestRow.style.display = two ? 'none' : '';
+    if (two) {
+      this.sumCar2K.textContent = name2;
+      this.sumCar2.textContent = `${this.carOf(1).name}  ·  ${LIVERY_PRESETS[this.state.liveryIndex2].name}`;
+    }
     this.sumMode.textContent = MODE_INFO[this.state.mode as RaceMode].label;
     this.sumConditions.textContent = formatConditions({ timeOfDay: this.state.timeOfDay, weather: this.state.weather }, forecastNow(this.state));
     const best = bestLapFor(this.ctx.bestLaps, this.recordTrack(t.id), c.id);
@@ -641,7 +811,57 @@ export class SetupScreen extends BaseScreen {
     this.renderCar();
     this.renderSummary();
     this.rebuildRaceRowsValues();
-    this.kicker.textContent = `${modeLabel(this.state.mode)}  ·  Setup`;
+    this.kicker.textContent = this.kickerText();
+    this.renderJoin();
+  }
+
+  // ── split screen: the second player joins ──────────────────────────────────
+
+  private canSwap(): boolean {
+    return this.splitOn() && this.ctx.players.joined && (this.step === 'car' || this.step === 'car2');
+  }
+
+  /**
+   * The second player's car step follows what the game knows about the devices: the join card (and the game listening for a button
+   * on another controller) until they are in, the car picker once they are, the card again if their device goes away.
+   */
+  private syncJoin(): void {
+    if (!this.open) return;
+    if (this.step === 'car2') {
+      const key = this.viewFor('car2');
+      for (const k of VIEW_KEYS) this.views[k].style.display = k === key ? '' : 'none';
+      this.renderTitle('car2');
+      this.kicker.textContent = this.kickerText();
+      this.updatePrompts();
+    }
+    const wait = this.joinShown();
+    if (wait && !this.joining) {
+      this.joining = true;
+      this.ctx.emit({ type: 'split', action: 'join' });
+    } else if (!wait && this.joining) {
+      this.joining = false;
+      this.ctx.sound('select');
+    }
+  }
+
+  /** Stop the game listening for a second player (the join card is gone without them). */
+  private endJoin(): void {
+    if (!this.joining) return;
+    this.joining = false;
+    this.ctx.emit({ type: 'split', action: 'cancel' });
+  }
+
+  /** The join card: what to press, who is on what, and how to play without a second controller. */
+  private renderJoin(): void {
+    const v = joinView(this.ctx.players, this.names());
+    const slot = (sl: JoinView['slots'][number]): HTMLElement =>
+      h('div', 'join-slot s' + sl.seat + (sl.device || sl.seat === 0 ? ' on' : ' wait'), h('span', 'js-k', sl.title), h('b', 'js-name', sl.name), h('span', 'js-dev', sl.device ?? (sl.seat === 0 ? 'Ready' : 'Waiting for a controller')));
+    this.joinCard.replaceChildren(
+      v.joined ? h('div', 'join-head', v.heading) : h('div', 'join-head', 'Player 2, press ', padGlyph('a'), ' to join'),
+      h('div', 'join-sub', v.sub),
+      h('div', 'join-slots', slot(v.slots[0]), slot(v.slots[1])),
+      h('div', 'join-foot', h('span', 'join-pads', v.pads), v.keyboard ? h('span', 'join-kb', 'Or press ', keyGlyph('Enter'), ' to play on the keyboard') : null),
+    );
   }
 
   /** Static track image per (track, canvas size), cached; the moving dot is drawn on top every frame. */
@@ -726,6 +946,13 @@ export class SetupScreen extends BaseScreen {
       this.prevStep();
       return;
     }
+    // Y (C on the keyboard): the two players change devices (the pad for the keyboard, or the other way round)
+    if (f.cameraNext && this.canSwap()) {
+      this.ctx.sound('select');
+      this.ctx.emit({ type: 'split', action: 'swap' });
+      return;
+    }
+    if (this.joinShown()) return; // the join card has nothing to move
     const list = this.lists[this.step];
     const r = list.handle(n);
     if (r === 'moved' || r === 'changed') this.ctx.sound('move');

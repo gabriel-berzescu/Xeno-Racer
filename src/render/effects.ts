@@ -292,9 +292,11 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
   const tunnelSpans = ((track as unknown as { tunnelSpans?: [number, number][] }).tunnelSpans ?? []).slice();
   const tp: TrackPoint = { s: 0, d: 0, segment: 0, widthLeft: 0, widthRight: 0, wallLeft: 0, wallRight: 0, tx: 0, tz: 1, lx: 1, lz: 0, y: 0 };
   let tpHint = -1;
-  const camPrev = new Vector3();
-  const camVel = new Vector3();
-  let camHave = false;
+  /** Where each view's camera was and how fast it moves (smoothed, hard cuts ignored): the rain streaks rake with it. Two views while the screen is split. */
+  const tracks = [{ prev: new Vector3(), vel: new Vector3(), have: false }, { prev: new Vector3(), vel: new Vector3(), have: false }];
+  /** The last update()'s step and cars, for the second view's camera (view()). */
+  let lastDt = 1 / 60;
+  let lastCars: readonly VehicleState[] = [];
   /** Lamp-head positions published by the track scene (userData.xrLamps), found lazily. */
   let lamps: Float32Array | null = null;
   let lampsSearched = false;
@@ -860,13 +862,17 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
     return k;
   }
 
-  /** Camera velocity (smoothed, hard cuts ignored), rain streaks and the light list. */
-  function updateWeather(dt: number, cars: readonly VehicleState[], camera: Camera): void {
+  /**
+   * Camera velocity (smoothed, hard cuts ignored), rain streaks and the light list, for one view's camera. `tick` is false for the
+   * second view of a frame: the rain's clock has moved already.
+   */
+  function updateWeather(dt: number, cars: readonly VehicleState[], camera: Camera, track: (typeof tracks)[number], tick: boolean): void {
     const env = envState();
     camera.getWorldPosition(_posCam);
     camera.getWorldDirection(_fwdCam);
-    if (camHave) {
-      const dx = _posCam.x - camPrev.x, dy = _posCam.y - camPrev.y, dz = _posCam.z - camPrev.z;
+    const camVel = track.vel;
+    if (track.have) {
+      const dx = _posCam.x - track.prev.x, dy = _posCam.y - track.prev.y, dz = _posCam.z - track.prev.z;
       const jump = Math.hypot(dx, dy, dz);
       // a TV camera cut or a car reset teleports the camera: keep the old velocity for that frame
       if (jump < 40 * dt + 1.5) {
@@ -876,18 +882,19 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
         camVel.z += (dz / dt - camVel.z) * k;
       }
     }
-    camPrev.copy(_posCam);
-    camHave = true;
+    track.prev.copy(_posCam);
+    track.have = true;
+    const rdt = tick ? dt : 0;
     const rainK = env ? env.rain : 0;
     if (rainK <= 0) {
-      rain.update(dt, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0);
+      rain.update(rdt, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0);
       if (beams) beams.mesh.visible = false;
       if (halos) halos.mesh.visible = false;
       return;
     }
     const windK = 1 + 1.6 * rainK * rainK;
     const shelter = shelterAt(_posCam.x, _posCam.y, _posCam.z);
-    rain.update(dt, _posCam.x, _posCam.y, _posCam.z, _fwdCam.x, _fwdCam.z, camVel.x, camVel.y, camVel.z, rainK, windX * windK, windZ * windK, shelter, env ? env.darkness : 0);
+    rain.update(rdt, _posCam.x, _posCam.y, _posCam.z, _fwdCam.x, _fwdCam.z, camVel.x, camVel.y, camVel.z, rainK, windX * windK, windZ * windK, shelter, env ? env.darkness : 0);
     collectLights(cars, env ? env.darkness : 0, rainK * (1 - shelter));
   }
 
@@ -1006,7 +1013,9 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
       }
       skid.endFrame();
 
-      updateWeather(dt, cars, camera);
+      lastDt = dt;
+      lastCars = cars;
+      updateWeather(dt, cars, camera, tracks[0], true);
 
       puffs.update(dt, windX, windZ);
       mist.update(dt, windX, windZ);
@@ -1026,6 +1035,15 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
       if (stats) void stats;
     },
 
+    view(camera: Camera): void {
+      // the second view of the frame: the particles and rain were stepped by update(); only what depends on the camera is done again
+      camera.getWorldPosition(_posCam);
+      camera.getWorldDirection(_fwdCam);
+      updateWeather(lastDt, lastCars, camera, tracks[1], false);
+      puffs.fill(_posCam.x, _posCam.y, _posCam.z, _fwdCam.x, _fwdCam.y, _fwdCam.z);
+      mist.fill(_posCam.x, _posCam.y, _posCam.z, _fwdCam.x, _fwdCam.y, _fwdCam.z);
+    },
+
     clear(): void {
       puffs.clear();
       mist.clear();
@@ -1036,7 +1054,7 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
       glows.clear();
       skid.clear();
       blobs.clear();
-      camHave = false;
+      for (const t of tracks) t.have = false;
       for (const rec of records.values()) {
         for (const t of rec.trails) skid.endTrail(t);
         rec.hasPrev.fill(false);

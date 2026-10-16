@@ -35,10 +35,11 @@ const PALETTES: [string, string, string, Livery['pattern'], boolean][] = [
   ['#9b2226', '#e9d8a6', '#001219', 'solid', true],
 ];
 
-/** A distinct livery for opponent `i`; avoids the player's primary color. */
-export function opponentLivery(i: number, def: CarDefinition, avoid?: Livery): Livery {
+/** A distinct livery for opponent `i`; avoids the primary color of the player (or of each of the two players of a split screen). */
+export function opponentLivery(i: number, def: CarDefinition, avoid?: Livery | readonly Livery[]): Livery {
   let k = i % PALETTES.length;
-  if (avoid && PALETTES[k][0].toLowerCase() === avoid.primary.toLowerCase()) k = (k + 1) % PALETTES.length;
+  const avoided = avoid === undefined ? [] : Array.isArray(avoid) ? (avoid as readonly Livery[]) : [avoid as Livery];
+  for (let tries = 0; tries < PALETTES.length && avoided.some((a) => PALETTES[k][0].toLowerCase() === a.primary.toLowerCase()); tries++) k = (k + 1) % PALETTES.length;
   const [primary, secondary, accent, pattern, metallic] = PALETTES[k];
   return {
     primary,

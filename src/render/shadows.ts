@@ -5,6 +5,10 @@
  * Each cascade's projection is snapped to its own texel grid in light space so shadows never shimmer
  * while the player drives; far cascades refresh only every few frames and only re-centre after the
  * focus has moved a fraction of their extent, which keeps the cost of 200 m+ of shadow coverage low.
+ *
+ * Split screen: each view has a set of cascades of its own (two sets of lights, one set in the scene at a time, chosen with
+ * select()): the cascades follow the car that view films, and a far cascade that refreshes every few frames keeps its picture
+ * between frames, which one set shared by the two views could not.
  */
 import { DirectionalLight, Group, Vector3 } from 'three';
 import { MAX_CASCADES, xrCsmUniform } from './shaderPatches';
@@ -42,13 +46,15 @@ const _upAlt = new Vector3(0, 0, 1);
 
 export class SunShadows {
   readonly group = new Group();
-  readonly lights: DirectionalLight[] = [];
+  /** The cascade lights of each view's set: set 0 serves the one view (and the first of two), set 1 the second view of a split screen. */
+  readonly sets: DirectionalLight[][] = [[], []];
+  private active = 0;
   private cfg: ShadowConfig = SHADOW_OFF;
   private readonly dir = new Vector3(0.3, 0.8, 0.5).normalize();
   private readonly ax = new Vector3(1, 0, 0);
   private readonly ay = new Vector3(0, 0, 1);
-  private readonly centers: Vector3[] = [];
-  private dirty: boolean[] = [];
+  private readonly centerSets: Vector3[][] = [[], []];
+  private readonly dirtySets: boolean[][] = [[], []];
   private elevationSin = 0.5;
   private csmAvailable: boolean;
   /** Texel snapping on/off (off only to demonstrate shimmer in the sandbox). */
@@ -57,23 +63,63 @@ export class SunShadows {
   constructor(csmAvailable: boolean) {
     this.csmAvailable = csmAvailable;
     this.group.name = 'xr.sun';
-    for (let i = 0; i < MAX_CASCADES; i++) {
-      const l = new DirectionalLight(0xffffff, 1);
-      l.name = `xr.sun.${i}`;
-      l.castShadow = false;
-      l.visible = i === 0;
-      l.shadow.autoUpdate = false;
-      l.shadow.needsUpdate = true;
-      l.shadow.radius = 1;
-      this.group.add(l);
-      this.group.add(l.target);
-      this.lights.push(l);
-      this.centers.push(new Vector3());
-      this.dirty.push(true);
+    for (let k = 0; k < 2; k++) {
+      for (let i = 0; i < MAX_CASCADES; i++) {
+        const l = new DirectionalLight(0xffffff, 1);
+        l.name = k === 0 ? `xr.sun.${i}` : `xr.sun2.${i}`;
+        l.castShadow = false;
+        l.visible = k === 0 && i === 0;
+        l.shadow.autoUpdate = false;
+        l.shadow.needsUpdate = true;
+        l.shadow.radius = 1;
+        this.group.add(l);
+        this.group.add(l.target);
+        this.sets[k].push(l);
+        this.centerSets[k].push(new Vector3());
+        this.dirtySets[k].push(true);
+      }
     }
     this.setDirection(this.dir);
   }
 
+  /** The cascade lights of the set in use (set 0 until select() says otherwise). */
+  get lights(): DirectionalLight[] {
+    return this.sets[this.active];
+  }
+
+  private get centers(): Vector3[] {
+    return this.centerSets[this.active];
+  }
+
+  private get dirty(): boolean[] {
+    return this.dirtySets[this.active];
+  }
+
+  /**
+   * Put a view's set of cascades in the scene (and the other out of it): the next update() and the next render are that view's.
+   * A scene has the sun's cascades of one set only, so the number of lights, and with it every lit shader, is the same for both.
+   */
+  select(set: 0 | 1): void {
+    this.active = set;
+    const count = this.cfg.count;
+    for (let k = 0; k < 2; k++) for (let i = 0; i < MAX_CASCADES; i++) this.sets[k][i].visible = k === set && (i === 0 || i < count);
+  }
+
+  /** The set in use. */
+  get selected(): 0 | 1 {
+    return this.active === 1 ? 1 : 0;
+  }
+
+  /** The screen is whole again: the second set's shadow maps (tens of MB) go, and are made again by the next split screen. */
+  releaseSecond(): void {
+    for (const l of this.sets[1]) {
+      if (l.shadow.map) {
+        l.shadow.map.dispose();
+        l.shadow.map = null;
+      }
+    }
+    for (let i = 0; i < this.dirtySets[1].length; i++) this.dirtySets[1][i] = true;
+  }
   get config(): ShadowConfig {
     return this.cfg;
   }
@@ -95,40 +141,44 @@ export class SunShadows {
   configure(cfg: ShadowConfig): void {
     const count = this.csmAvailable ? Math.min(cfg.count, MAX_CASCADES) : Math.min(cfg.count, 1);
     this.cfg = { ...cfg, count };
-    for (let i = 0; i < MAX_CASCADES; i++) {
-      const l = this.lights[i];
-      const active = i < count;
-      l.castShadow = active;
-      l.visible = i === 0 || active;
-      if (active) {
-        if (l.shadow.mapSize.x !== cfg.mapSize) {
-          l.shadow.mapSize.set(cfg.mapSize, cfg.mapSize);
-          if (l.shadow.map) {
-            l.shadow.map.dispose();
-            l.shadow.map = null;
+    for (let k = 0; k < 2; k++) {
+      for (let i = 0; i < MAX_CASCADES; i++) {
+        const l = this.sets[k][i];
+        const active = i < count;
+        l.castShadow = active;
+        l.visible = k === this.active && (i === 0 || active);
+        if (active) {
+          if (l.shadow.mapSize.x !== cfg.mapSize) {
+            l.shadow.mapSize.set(cfg.mapSize, cfg.mapSize);
+            if (l.shadow.map) {
+              l.shadow.map.dispose();
+              l.shadow.map = null;
+            }
           }
+          l.shadow.bias = -0.0004;
+          l.shadow.normalBias = 0.03;
+          l.shadow.intensity = 1;
+        } else if (l.shadow.map) {
+          l.shadow.map.dispose();
+          l.shadow.map = null;
         }
-        l.shadow.bias = -0.0004;
-        l.shadow.normalBias = 0.03;
-        l.shadow.intensity = 1;
-      } else if (l.shadow.map) {
-        l.shadow.map.dispose();
-        l.shadow.map = null;
+        this.dirtySets[k][i] = true;
       }
-      this.dirty[i] = true;
     }
     xrCsmUniform.value[3] = cfg.taps;
   }
 
   setLight(color: [number, number, number], intensity: number): void {
-    for (let i = 0; i < MAX_CASCADES; i++) {
-      this.lights[i].color.setRGB(color[0], color[1], color[2]);
-      this.lights[i].intensity = intensity;
+    for (const set of this.sets) {
+      for (let i = 0; i < MAX_CASCADES; i++) {
+        set[i].color.setRGB(color[0], color[1], color[2]);
+        set[i].intensity = intensity;
+      }
     }
   }
 
   setShadowIntensity(v: number): void {
-    for (const l of this.lights) l.shadow.intensity = v;
+    for (const set of this.sets) for (const l of set) l.shadow.intensity = v;
   }
 
   /** Unit vector pointing toward the sun/moon. */
@@ -142,7 +192,7 @@ export class SunShadows {
   }
 
   markDirty(): void {
-    for (let i = 0; i < this.dirty.length; i++) this.dirty[i] = true;
+    for (const d of this.dirtySets) for (let i = 0; i < d.length; i++) d[i] = true;
   }
 
   /**
@@ -172,7 +222,9 @@ export class SunShadows {
       const center = this.centers[i];
       const moved = Math.hypot(focus.x - center.x, focus.z - center.z, focus.y - center.y);
       const recenter = this.dirty[i] || every === 1 || moved > r * 0.12;
-      const due = this.dirty[i] || frame % every === phase;
+      // (the second view's set is one frame behind the first's: a far cascade that refreshes every few frames never refreshes for both
+      // views in the same frame, which would double that frame's shadow work)
+      const due = this.dirty[i] || (frame + this.active) % every === phase;
       if (!due) {
         // keep the map as is
       } else {
@@ -210,6 +262,6 @@ export class SunShadows {
   }
 
   dispose(): void {
-    for (const l of this.lights) l.shadow.map?.dispose();
+    for (const set of this.sets) for (const l of set) l.shadow.map?.dispose();
   }
 }

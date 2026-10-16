@@ -29,6 +29,13 @@ export const CHAMPIONSHIP_TIPS: readonly string[] = [
   'Quit to the menu and the round does not count, but your season is saved. Pick it up from the Championship entry.',
 ];
 
+/** Shown first on the loading screen of a split-screen race. */
+export const SPLIT_TIPS: readonly string[] = [
+  'Split screen: Y changes your own camera, and the right stick looks around from it. Each player has their own HUD, lap timer and rain on the glass.',
+  'Either player can pause with Start, and the menu follows that player\'s controller. If a controller comes out, the race waits for it.',
+  'Pull up beside each other on the grid: the HUD edge glows amber, then red, while a car is alongside you.',
+];
+
 export class LoadingScreen extends BaseScreen {
   readonly id = 'loading' as const;
   private readonly kicker = h('div', 'kicker', 'LOADING');
@@ -87,7 +94,8 @@ export class LoadingScreen extends BaseScreen {
     this.name.classList.toggle('xlong', nm.length > 22);
     this.place.textContent = track?.location ?? '';
     const ch = cfg?.championship;
-    this.kicker.textContent = ch ? `${ch.name}  ·  Round ${ch.round} / ${ch.rounds}` : 'LOADING';
+    const duo = cfg?.player2 ? `${cfg.livery?.driver || 'You'} vs ${cfg.player2.livery?.driver || 'Player 2'}` : null;
+    this.kicker.textContent = ch ? `${ch.name}  ·  Round ${ch.round} / ${ch.rounds}` : duo ? `Split screen  ·  ${duo}` : 'LOADING';
     this.facts.textContent = track
       ? ch && cfg
         ? `${formatLength(track.lengthHint, this.ctx.settings.units)}  ·  ${lapsLabel(cfg.laps)}  ·  ${formatConditions(cfg.environment, cfg.forecast)}`
@@ -98,8 +106,8 @@ export class LoadingScreen extends BaseScreen {
     if (ch) for (let i = 1; i <= ch.rounds; i++) this.rounds.appendChild(h('i', i < ch.round ? 'done' : i === ch.round ? 'now' : null));
     this.glow.style.setProperty('--accent', track?.color ?? '#16e0bd');
     // a championship round leads with its own advice
-    this.tips = ch ? [...CHAMPIONSHIP_TIPS, ...LOADING_TIPS] : LOADING_TIPS;
-    this.tipIndex = ch ? Math.floor(Math.random() * CHAMPIONSHIP_TIPS.length) : Math.floor(Math.random() * this.tips.length);
+    this.tips = ch ? [...CHAMPIONSHIP_TIPS, ...LOADING_TIPS] : duo ? [...SPLIT_TIPS, ...LOADING_TIPS] : LOADING_TIPS;
+    this.tipIndex = ch ? Math.floor(Math.random() * CHAMPIONSHIP_TIPS.length) : duo ? Math.floor(Math.random() * SPLIT_TIPS.length) : Math.floor(Math.random() * this.tips.length);
     this.tip.textContent = this.tips[this.tipIndex % this.tips.length];
     this.tipIndex++;
     this.tipWrap.classList.add('show');
