@@ -505,10 +505,10 @@ export type CameraMode = 'chase' | 'chase-far' | 'hood' | 'bumper' | 'cockpit' |
 
 /**
  * What a crash does to a car. 'off': cars stay pristine. 'visual': crumpled panels, scraped paint and broken lamps,
- * nothing more (src/core/damage.ts). A later 'full' adds mechanical damage (alignment, aero, power), which reads the
- * same per-zone record.
+ * nothing more (src/core/damage.ts). 'full': all of that, and a hard hit also changes how the car drives: bent suspension,
+ * lost downforce, a tired engine (src/core/mechanical.ts). The pack-racing bumps and light grazes stay cosmetic.
  */
-export type DamageMode = 'off' | 'visual';
+export type DamageMode = 'off' | 'visual' | 'full';
 
 /**
  * Rear-view mirrors. 'auto': real glass that reflects the road behind in the cockpit view, a HUD mirror strip at the
@@ -829,6 +829,22 @@ export interface HudState {
   mirror?: boolean;
   /** The conditions of a race whose weather changes (null or absent: stable weather, nothing to show). */
   weather?: HudWeather | null;
+  /** The player's mechanical damage (Damage: Full), or null when the car is sound or the mode is not Full. */
+  damage?: HudDamage | null;
+}
+
+/**
+ * How badly each part of the player's car is hurt, 0 = sound .. 1 = as bad as it gets (src/core/mechanical.ts): what the HUD's
+ * car outline tints, amber to red. The game keeps one object and rewrites it in place.
+ */
+export interface HudDamage {
+  /** The nose (front downforce, engine cooling), the tail (rear downforce), and the two flanks (the suspension on that side). */
+  front: number;
+  rear: number;
+  left: number;
+  right: number;
+  /** The alignment of each wheel: FL FR RL RR. */
+  wheels: [number, number, number, number];
 }
 
 /** The conditions chip of a race whose weather changes, and the broadcast notice that something is about to happen to it. */

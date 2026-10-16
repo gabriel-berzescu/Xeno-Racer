@@ -39,6 +39,7 @@ import {
 } from 'three';
 import type { CarDefinition, DamageMode, EnvironmentState, Livery, QualityLevel, VehicleState } from '../core/contracts';
 import { CarDamage, ImpactObserver, MAX_DENTS, hullOf, type CarDamageControl, type DamageEvent } from '../core/damage';
+import { mechanicalEffects, neutralEffects } from '../core/mechanical';
 import type { CarVisual } from '../core/systems';
 import { VERTEX_STRIDE, type BodyData, type PartData } from './build';
 import { makeDamageGeometry, partBounds } from './damageGeometry';
@@ -451,6 +452,10 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
   const dmg = new CarDamage(hull, makeDamageGeometry(data.lod0, spec));
   const observer = new ImpactObserver(hull);
   let dmgMode: DamageMode = 'visual';
+  /** Damage: Full: the toe and camber the bent wheels stand at (src/core/mechanical.ts), made when the record changes, and how much bigger than true they are drawn. */
+  const mechFx = neutralEffects();
+  let mechShown = -1;
+  const BENT_LOOK = 2.5;
   let dmgWritten = -1;
   const dentShown = new Float32Array(MAX_DENTS);
   let dentMoving = false;
@@ -600,13 +605,21 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
       const full = playerMode;
       const wm = full ? wheels0 : wheels1;
       const cm = full ? cal0 : cal1;
+      // bent suspension (Damage: Full): the wheels stand off true, drawn a little bigger than the 1.5 degrees they are
+      const bent = dmgMode === 'full' && !dmg.mech.pristine;
+      if (bent && dmg.mech.version !== mechShown) {
+        mechShown = dmg.mech.version;
+        mechanicalEffects(dmg.mech, mechFx);
+      }
       for (let i = 0; i < 4; i++) {
         const w = state.wheels[i];
         const axle = i >> 1;
         const side = i & 1;
         tmp.copy(w.hub).sub(root.position).applyQuaternion(qi);
-        qs.setFromAxisAngle(AX_Y, w.steerAngle);
-        const camber = axle === 0 ? camberF : camberR;
+        // (the toe is already in the steering angle the physics publishes, and in the replays; the camber is not)
+        qs.setFromAxisAngle(AX_Y, w.steerAngle + (bent ? mechFx.toe[i] * (BENT_LOOK - 1) : 0));
+        // (the spec's camber is negative, the top leaning in; the damage adds to it, the top leaning out, on either side)
+        const camber = (axle === 0 ? camberF : camberR) + (bent ? mechFx.camber[i] * BENT_LOOK : 0);
         qc.setFromAxisAngle(AX_Z, side ? camber : -camber);
         qx.setFromAxisAngle(AX_X, w.spin % (Math.PI * 2));
         qa.copy(qs).multiply(qc);

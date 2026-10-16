@@ -47,6 +47,8 @@ const CHOICES: [string, readonly string[]][] = [
   ['units', ['kmh', 'mph']],
   ['camera.defaultMode', ['chase', 'chase-far', 'hood', 'bumper', 'cockpit', 'tv', 'orbit']],
   ['split.layout', ['rows', 'columns']],
+  // (a save from before Full existed holds 'off' or 'visual': both still mean what they did)
+  ['damage', ['off', 'visual', 'full']],
 ];
 
 function keepKnownChoices(s: Settings): Settings {
@@ -71,7 +73,6 @@ export function loadSettings(): Settings {
     if (raw) {
       const s = keepKnownChoices(merge(structuredClone(DEFAULT_SETTINGS), JSON.parse(raw)));
       // a mode this build does not know (saved by a newer one) falls back to the default
-      if (s.damage !== 'off' && s.damage !== 'visual') s.damage = DEFAULT_SETTINGS.damage;
       if (s.hud.mirror !== 'auto' && s.hud.mirror !== 'off') s.hud.mirror = DEFAULT_SETTINGS.hud.mirror;
       return s;
     }

@@ -43,6 +43,7 @@ import {
   TrailBuf,
   type MapFit,
 } from '../src/ui/hudlogic';
+import { DamageShow, damageWord } from '../src/ui/hud/damage';
 import { FocusList, snap, stepIndex, type FocusRow, type Nav } from '../src/ui/nav';
 import { buildChampionshipSetup, CHAMP_DEFAULTS, CHAMP_OPPONENTS_MIN, championshipHint, modeLabel, OPPONENTS_MAX } from '../src/ui/model';
 import { formatConditions, formatPointsGap, lapsLabel, leadText, seasonTitle, trackCode } from '../src/ui/format';
@@ -373,6 +374,53 @@ describe('settings schema', () => {
     expect(rowIds('assists').sort()).toEqual(Object.keys(s.assists).sort());
     // (the split-screen settings: the second driver's name and how the screen divides)
     expect(rowIds('gameplay').sort()).toEqual(['units', ...Object.keys(s.hud), 'fov', 'shake', 'defaultMode', 'damage', 'playerName', 'player2Name', 'splitLayout'].sort());
+  });
+
+  it('shows the damage indicator for five seconds after what is drawn changes, and never on a sound car', () => {
+    const s = new DamageShow();
+    s.step(true, true, 0); // the first look at a sound car (everything moves from "unknown" to zero): nothing to show
+    expect([s.on, s.pulse]).toEqual([false, 0]);
+    s.step(true, false, 1000); // a hit
+    const first = s.pulse;
+    expect([s.on, first > 0]).toEqual([true, true]);
+    s.step(false, false, 1016);
+    expect([s.on, s.pulse]).toEqual([true, 0]);
+    s.step(false, false, 5900);
+    expect(s.on).toBe(true);
+    s.step(true, false, 5016); // a second hit on the way: a new pulse (the other one, so that the animation restarts), and five seconds more
+    expect(s.on).toBe(true);
+    expect(s.pulse).toBeGreaterThan(0);
+    expect(s.pulse).not.toBe(first);
+    s.step(false, false, 9900);
+    expect(s.on).toBe(true);
+    s.step(false, false, 10100);
+    expect(s.on).toBe(false);
+    s.step(true, false, 20000); // the HUD comes back (or the setting) and the car is bent already: it shows
+    expect([s.on, s.pulse > 0]).toEqual([true, true]);
+    s.step(false, true, 20100); // repaired
+    expect([s.on, s.pulse]).toEqual([false, 0]);
+    s.step(false, false, 20200); // (nothing moved and the car is not sound: still down, the window is over)
+    expect(s.on).toBe(false);
+  });
+
+  it('puts a word to the worst part of a damaged car for the pause screen', () => {
+    const d = (worst: number) => ({ front: worst, rear: 0, left: 0, right: 0, wheels: [0, 0, 0, 0] as [number, number, number, number] });
+    expect([0.05, 0.3, 0.6, 0.95].map((w) => damageWord(d(w)))).toEqual(['Light', 'Moderate', 'Heavy', 'Severe']);
+    expect(damageWord({ ...d(0.1), wheels: [0, 0, 0.8, 0] })).toBe('Severe');
+  });
+
+  it('offers the damage as Off, Visual and Full, and says what Full does', () => {
+    const row = SETTINGS_TABS.find((t) => t.id === 'gameplay')!.rows.find((r) => r.id === 'damage')!;
+    expect(row.kind).toBe('select');
+    if (row.kind !== 'select') return;
+    expect(row.options.map((o) => [o.value, o.label])).toEqual([['off', 'Off'], ['visual', 'Visual'], ['full', 'Full']]);
+    expect(row.desc).toMatch(/bent suspension/);
+    expect(row.desc).toMatch(/downforce/);
+    expect(row.desc).toMatch(/engine/);
+    const s: Settings = structuredClone(DEFAULT_SETTINGS);
+    row.set(s, 'full');
+    expect(s.damage).toBe('full');
+    expect(row.get(s)).toBe('full');
   });
 
   it('every row reads and writes through to the right field and round-trips', () => {

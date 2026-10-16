@@ -20,8 +20,9 @@
  */
 import { Vector3 } from 'three';
 import type { CarControls, CarDefinition, Difficulty, GroundSample, SurfaceType, TrackPoint, TrackRuntime, VehicleState } from '../core/contracts';
+import { cloneEffects, isNeutral, type MechEffects } from '../core/mechanical';
 import { SURFACES, wetGripFactor } from '../physics/surfaces';
-import { computeRacingLine, computeSpeedProfile, type RacingLine, type SpeedProfile } from './racing-line';
+import { computeRacingLine, computeSpeedProfile, damageFactors, type RacingLine, type SpeedProfile } from './racing-line';
 
 export interface Skill {
   gripUse: number;
@@ -51,6 +52,10 @@ const RHO = 1.225;
 const WET_RAMP = 1.5;
 /** setWetness: seconds over which the speed profile, the racing line and the wet parameters move to the new conditions. */
 const WET_BLEND_SECONDS = 2;
+/** setDamage: seconds over which the speed profile moves to the damaged car's (a driver notices a bent car within a second or two). */
+const DAMAGE_BLEND_SECONDS = 1;
+/** setDamage: the change in the grip or the downforce factors (see damageFactors) below which the profile is not worked out again. */
+const DAMAGE_NOTICED = 0.002;
 /** How far (m) beyond the asphalt edge the car's side may reach when passing, at 0 and at full water on a slippery edge. */
 const EDGE_ALLOW_DRY = 0.2;
 const EDGE_WET_MARGIN = 0.9;
@@ -154,6 +159,10 @@ export class AIDriver {
   /** Peak friction coefficient of the weaker axle (dry), downforce acceleration per (m/s)^2, braking acceleration at full pedal. */
   private readonly gripMu: number;
   private readonly cDown: number;
+  /** What mechanical damage has left of the car (setDamage): the grip of its weaker axle, the downforce of its weaker end. Both 1 on a sound car. */
+  private dmgGrip = 1;
+  private dmgAero = 1;
+  private dmg: MechEffects | null = null;
   private readonly brakeGain: number;
   private readonly alphaPkF: number;
   private readonly alphaPkR: number;
@@ -256,7 +265,7 @@ export class AIDriver {
   }
 
   private profileFor(line: RacingLine, wet: number): SpeedProfile {
-    return computeSpeedProfile(this.track, line, this.def, { gripUse: this.skill.gripUse, brakeUse: this.skill.brakeUse, wetness: wet });
+    return computeSpeedProfile(this.track, line, this.def, { gripUse: this.skill.gripUse, brakeUse: this.skill.brakeUse, wetness: wet, damage: this.dmg });
   }
 
   /** Everything the driver works out from the water on the road, except the line and the profile. */
@@ -286,6 +295,11 @@ export class AIDriver {
       if (blendSeconds <= 0) this.finishBlend();
       return;
     }
+    this.startBlend(wet, blendSeconds);
+  }
+
+  /** Work out the profile (and line) for water `wet` and the damage the car has, and start moving the driver to it. */
+  private startBlend(wet: number, blendSeconds: number): void {
     const lineTo = this.racingLine(wet > 0);
     const profTo = this.profileFor(lineTo, wet).v;
     // (a change that interrupts a blend starts from where the driver is now)
@@ -298,6 +312,29 @@ export class AIDriver {
     this.blendT = 0;
     this.blendSpan = blendSeconds;
     if (blendSeconds <= 0) this.finishBlend();
+  }
+
+  /**
+   * The car has mechanical damage (src/core/mechanical.ts), or has been repaired (null): less downforce and grip. The driver works
+   * out the speed profile of the car as it is now (a part of what the damage took: see damageFactors) and moves to it over
+   * `blendSeconds`: it brakes earlier and carries less speed, most of all where the downforce used to carry it. The pull of bent
+   * suspension and the loss of power need no telling: the steering already corrects the lateral error the first causes, and a
+   * driver that has the throttle flat out wherever the profile asks for more than the car has meets the second as it comes.
+   *
+   * Cost: one speed profile, about 1 to 2 ms (see setWetness), when the damage changes.
+   */
+  setDamage(e: MechEffects | null, blendSeconds = DAMAGE_BLEND_SECONDS): void {
+    const fx = e && !isNeutral(e) ? cloneEffects(e) : null;
+    if (!fx && !this.dmg) return;
+    if (!Number.isFinite(blendSeconds)) blendSeconds = DAMAGE_BLEND_SECONDS;
+    const f = damageFactors(fx);
+    // a change too small to alter the profile (the tap of a pack race) is not worth working it out again: the driver keeps the
+    // damage, the factors and the profile it has, which stay in step with one another
+    if (Math.abs(f.grip - this.dmgGrip) < DAMAGE_NOTICED && Math.abs(f.aero - this.dmgAero) < DAMAGE_NOTICED) return;
+    this.dmg = fx;
+    this.dmgGrip = f.grip;
+    this.dmgAero = f.aero;
+    this.startBlend(this.wetTo, blendSeconds);
   }
 
   /**
@@ -358,7 +395,7 @@ export class AIDriver {
   /** What the tyres can give in any horizontal direction at speed v (m/s^2): wet grip, aquaplaning and downforce included. */
   private gripAccel(v: number): number {
     const wetF = this.wetness > 0 ? wetGripFactor(this.wetness, this.tireWet, SURFACES.asphalt, v) : 1;
-    return this.gripMu * wetF * (G + this.cDown * v * v);
+    return this.gripMu * this.dmgGrip * wetF * (G + this.cDown * this.dmgAero * v * v);
   }
 
   /** Target speed at track position s (m/s), with this driver's pace. */
@@ -545,7 +582,7 @@ export class AIDriver {
     // ── speed: track the profile slightly ahead; brake early for slower points ahead ──
     let vT = this.targetSpeedOff(s + v * 0.3 + 2, this.offset);
     // anticipate: the slowest requirement within the next ~1.2 s, discounted by distance
-    const brakeCap = 9.81 * Math.min(def.physics.tireFront.mu, def.physics.tireRear.mu) * this.wetMu * this.skill.brakeUse * 0.9;
+    const brakeCap = 9.81 * Math.min(def.physics.tireFront.mu, def.physics.tireRear.mu) * this.dmgGrip * this.wetMu * this.skill.brakeUse * 0.9;
     for (let k = 1; k <= 6; k++) {
       const ahead = v * 0.2 * k + 4;
       const va = this.targetSpeedOff(s + ahead, this.offset);

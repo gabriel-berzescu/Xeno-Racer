@@ -12,6 +12,7 @@ import type { HudState, MinimapTrack, Seat, Settings, SplitLayout } from '../../
 import type { UiCtx } from '../ctx';
 import { h } from '../dom';
 import { Center } from './center';
+import { DamageHud } from './damage';
 import { HudMinimap } from './minimap';
 import { Spotter } from './spotter';
 import { Speedo } from './speedo';
@@ -56,6 +57,7 @@ export function createHud(ctx: UiCtx): HudView {
   const minimap = new HudMinimap(el);
   const tele = new Telemetry(el);
   const spotter = new Spotter(el);
+  const damage = new DamageHud(el);
   const center = new Center(el);
   const weather = new WeatherHud(el, center.el);
 
@@ -91,6 +93,7 @@ export function createHud(ctx: UiCtx): HudView {
       if (clean) return; // photo mode: only the center messages stay
 
       spotter.update(s);
+      damage.update(s, now);
       posLap.update(s);
       if (standingsOn) tower.update(s);
       timing.update(s);

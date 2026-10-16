@@ -7,6 +7,9 @@ import { AIDriver } from '../../src/ai';
 import { CARS, getCar } from '../../src/cars';
 import { DEFAULT_SETTINGS } from '../../src/core/settings';
 import type { Difficulty, TrackFrame, TrackPoint } from '../../src/core/contracts';
+import { CarDamage, ImpactObserver, hullOf } from '../../src/core/damage';
+import { mechanicalWorst, type MechState } from '../../src/core/mechanical';
+import { MechLink } from '../../src/game/mechsync';
 import { PhysicsWorld, type Vehicle } from '../../src/physics';
 import { loadTrackRuntime } from '../../src/track';
 
@@ -23,6 +26,11 @@ export interface PackResult {
   finished: number;
   winnerTime: number;
   perCar: { model: string; off: number; walls: number; hits: number; hard: number; resets: number }[];
+  /** Damage: Full only: hits that moved the mechanics, and the worst part (0..1) on any car at the end */
+  mechHits?: number;
+  worstWear?: number;
+  /** the damage each car had at the end, 0..1 (the worst part) */
+  wear?: number[];
 }
 
 export interface PackOptions {
@@ -30,6 +38,15 @@ export interface PackOptions {
   seed?: number;
   /** Water on the track 0..1; defaults to the WET environment variable. */
   wetness?: number;
+  /**
+   * Damage: Full, as the game does it: each car's impacts are folded into a CarDamage every frame (the way the car visual does)
+   * and what that did to the mechanics goes on its physics and its driver.
+   */
+  full?: boolean;
+  /** The mechanical damage each car starts the race with (index = grid slot; implies `full`): put into its record before the start. */
+  initial?: (i: number) => MechState | null;
+  /** The drivers are not told about the damage on their cars (their physics is). */
+  blind?: boolean;
 }
 
 export function runPack(trackId: string, carSpec: string, diff: Difficulty, n: number, laps: number, log = false, opts: PackOptions = {}): PackResult {
@@ -56,8 +73,42 @@ export function runPack(trackId: string, carSpec: string, diff: Difficulty, n: n
     v.setTemperatures(0.8);
     v.holdOnGrid = true;
     const d = i === n - 1 && process.env.LASTDIFF ? (process.env.LASTDIFF as Difficulty) : diff;
-    cars.push({ v, ai: new AIDriver(track, def, { difficulty: d, seed: v.id * 17 + i + (opts.seed ?? 0) * 101, wetness }), hint: -1, prevS: 0, crossings: 0, lapStart: 0, laps: [], carHits: 0, hardHits: 0, wallHits: 0, resets: 0, off: 0, finished: false, finishT: 0, seenImpact: 0, wasOff: false });
+    const ai = new AIDriver(track, def, { difficulty: d, seed: v.id * 17 + i + (opts.seed ?? 0) * 101, wetness });
+    cars.push({ v, ai, hint: -1, prevS: 0, crossings: 0, lapStart: 0, laps: [], carHits: 0, hardHits: 0, wallHits: 0, resets: 0, off: 0, finished: false, finishT: 0, seenImpact: 0, wasOff: false });
   }
+  // Damage: Full: the record of each car (what its visual keeps), the observer that feeds it, and the link to its physics and driver
+  const records = opts.full || opts.initial
+    ? cars.map((c, i) => {
+        const def = c.v.def;
+        const dmg = new CarDamage(hullOf(def.visual), { surfacePoint: (p) => [p[0], 0.5, p[2]], lamps: [] });
+        const obs = new ImpactObserver(dmg.hull);
+        obs.otherAt = (x, y, z) => {
+          let best = 16;
+          let found: Vehicle | undefined;
+          for (const o of cars) {
+            if (o === c) continue;
+            const d2 = (o.v.state.position.x - x) ** 2 + (o.v.state.position.y - y) ** 2 + (o.v.state.position.z - z) ** 2;
+            if (d2 < best) {
+              best = d2;
+              found = o.v;
+            }
+          }
+          return found ? { paint: 0xffffff, vx: found.state.velocity.x, vy: found.state.velocity.y, vz: found.state.velocity.z } : undefined;
+        };
+        const start = opts.initial?.(i);
+        if (start) {
+          dmg.mech.front = start.front;
+          dmg.mech.rear = start.rear;
+          for (let w = 0; w < 4; w++) dmg.mech.wheel[w] = start.wheel[w];
+          dmg.mech.version++;
+        }
+        const link = new MechLink(opts.blind ? [c.v] : [c.v, c.ai]);
+        // (the damage a car starts with is on it from the first step: the game would have it from the frame after the hit)
+        link.update(dmg.mech, true);
+        return { dmg, obs, link, i };
+      })
+    : [];
+  let mechHits = 0;
   const tp: TrackPoint = { s: 0, d: 0, segment: 0, widthLeft: 0, widthRight: 0, wallLeft: 0, wallRight: 0, tx: 0, tz: 1, lx: 1, lz: 0, y: 0 };
   for (const c of cars) {
     c.hint = track.project(c.v.p.x, c.v.p.z, tp, c.hint);
@@ -93,6 +144,12 @@ export function runPack(trackId: string, carSpec: string, diff: Difficulty, n: n
       }
     }
     world.step(DT);
+    for (const r of records) {
+      const before = r.dmg.mech.version;
+      r.obs.update(cars[r.i].v.state, DT, (e) => r.dmg.apply(e));
+      if (r.dmg.mech.version !== before) mechHits++;
+      r.link.update(r.dmg.mech, true);
+    }
     const tr = process.env.TRACE ? process.env.TRACE.split(',').map(Number) : null; // carId,from,to
     if (tr && world.time > tr[1] && world.time < tr[2] && Math.round(world.time * 60) % 3 === 0) {
       const c = cars.find((x) => x.v.id === tr[0])!;
@@ -168,6 +225,12 @@ export function runPack(trackId: string, carSpec: string, diff: Difficulty, n: n
   rows.push(`  TOTAL carHits ${contacts} hard ${hard} walls ${walls} off ${offTrack.toFixed(1)}s resets ${resets}`);
   if (log) rows.push(...events.slice(0, process.env.TRACE ? 400 : 80));
   const perCar = cars.map((c) => ({ model: c.v.def.id, off: c.off, walls: c.wallHits, hits: c.carHits, hard: c.hardHits, resets: c.resets }));
-  return { rows, contacts, hardContacts: hard, walls, resets, offTrack, overtakes, finished: finishedCount, winnerTime, perCar };
+  const res: PackResult = { rows, contacts, hardContacts: hard, walls, resets, offTrack, overtakes, finished: finishedCount, winnerTime, perCar };
+  if (opts.full || opts.initial) {
+    res.mechHits = mechHits;
+    res.wear = records.map((r) => mechanicalWorst(r.dmg.mech));
+    res.worstWear = Math.max(0, ...res.wear);
+  }
+  return res;
 }
 

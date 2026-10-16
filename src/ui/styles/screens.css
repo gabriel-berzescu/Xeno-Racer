@@ -669,6 +669,9 @@
 .scr-pause .pause-line.s1 { --seat: var(--pink); }
 .scr-pause .pause-line .who { min-width: 200px; font: 800 italic 36px / 1 var(--f-display); letter-spacing: 0.02em; text-transform: uppercase; color: var(--seat); }
 .scr-pause .pause-line .kv .v { font-size: 30px; }
+.scr-pause .pause-line .dmg-chip .v { gap: 10px; height: 30px; }
+.scr-pause .pause-line .dmg-chip .dmg-car { width: 17px; height: 30px; }
+.scr-pause .pause-line .dmg-word { font-size: 28px; }
 .scr-pause .pause-owner { margin-top: 8px; font: 700 26px / 1 var(--f-display); letter-spacing: 0.22em; text-transform: uppercase; color: var(--teal); }
 .scr-pause .pause-owner.s1 { color: var(--pink); }
 .scr-pause .pause-warn { position: absolute; left: 0; top: 800px; width: 900px; padding: 12px 34px 14px 28px; font: 700 27px / 1.25 var(--f-display); letter-spacing: 0.05em; color: #fff; background: rgba(255, 46, 99, 0.92); clip-path: polygon(14px 0, 100% 0, calc(100% - 14px) 100%, 0 100%); }
