@@ -51,6 +51,7 @@ uniform vec3 uDeckLo;     // pale haze toward the horizon
 uniform vec3 uDeckHi;     // the thick, darker underside overhead
 uniform vec3 uGlow;       // warm chroma of a low sun / the moon, under the deck
 uniform vec3 uFogTab[8];  // horizon haze by azimuth relative to the sun (the table the fog uses)
+uniform float uAurora;    // northern lights, 0..1 (a winter circuit's clear night; 0 everywhere else)
 uniform float uFlash;     // storm sheet lightning, 0..1 (see RenderSystem.lightning)
 uniform vec3 uFlashAdd;   // radiance the flash adds to the deck (scaled so it reads the same at noon and at night)
 uniform vec2 uFlashDir;   // horizontal direction of the strike
@@ -239,6 +240,38 @@ vec3 galaxy(vec3 d) {
   return vec3(0.46, 0.52, 0.74) * band * (0.15 + 0.85 * dust) * (0.55 + 1.2 * core);
 }
 
+// ---- northern lights -------------------------------------------------------------------------
+// Two slow, wavy curtains over the north: a sharp bright lower edge that fades upward, vertical rays (noise that varies quickly along
+// the arc and slowly with height), green at the foot shading to violet and a pink fringe on high. A few texture reads, only where the
+// sky is seen on a clear winter night.
+const vec2 AURORA_DIR = vec2(-0.866, 0.5);   // the middle of the arc: north-west of the start straight's heading, azimuth -60 degrees
+
+vec3 aurora(vec3 d) {
+  float e = asin(clamp(d.y, 0.0, 1.0));
+  if (e < 0.03 || e > 1.3) return vec3(0.0);
+  vec2 hn = d.xz / max(length(d.xz), 1e-4);
+  float a = atan(hn.x * AURORA_DIR.y - hn.y * AURORA_DIR.x, dot(hn, AURORA_DIR));
+  float cover = 1.0 - smoothstep(0.6, 1.7, abs(a));
+  if (cover <= 0.0) return vec3(0.0);
+  float t = uTime;
+  vec3 acc = vec3(0.0);
+  for (int k = 0; k < 2; k++) {
+    float fk = float(k);
+    float base = 0.30 + 0.17 * fk + 0.07 * sin(a * (1.6 + fk) + t * (0.03 + 0.012 * fk) + fk * 2.0) + 0.035 * sin(a * 4.7 - t * 0.05 + fk);
+    float h = e - base;
+    float body = smoothstep(-0.03, 0.03, h) * exp(-max(h, 0.0) * (9.5 - 2.5 * fk));
+    vec2 uv = vec2(a * (2.1 + 0.8 * fk) + t * 0.006 * (1.0 + fk) + fk * 0.37, e * 0.5 + fk * 0.21);
+    float rays = texture2D(uNoise, uv).r * 0.6 + texture2D(uNoise, uv * vec2(2.9, 0.7) + 0.43).g * 0.4;
+    rays = smoothstep(0.3, 0.78, rays);
+    float pulse = 0.65 + 0.35 * sin(t * 0.21 + a * 3.0 + fk * 1.7);
+    float I = body * (0.2 + 0.8 * rays) * pulse * (1.0 - 0.4 * fk);
+    vec3 c = mix(vec3(0.14, 1.0, 0.42), vec3(0.4, 0.3, 1.0), smoothstep(0.0, 0.32, h));
+    c = mix(c, vec3(1.0, 0.25, 0.45), smoothstep(0.38, 0.7, h) * 0.5);
+    acc += c * I;
+  }
+  return acc * cover;
+}
+
 vec3 moon(vec3 d, float vis) {
   float sinT = length(cross(d, uMoonDir));
   float mu = dot(d, uMoonDir);
@@ -318,6 +351,7 @@ void main() {
     col += (stars(d) * 2.4 + galaxy(d) * 0.07) * uStars * horizonFade;
   }
   if (uMoonVis > 0.01) col += moon(d, uMoonVis);
+  if (uAurora > 0.01) col += aurora(d) * uAurora * 0.13;
 
   // clouds (high cirrus first, cumulus over it)
   if (d.y > -0.02) {

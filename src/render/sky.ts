@@ -91,6 +91,7 @@ export class SkyDome {
         uFlashAdd: { value: new Vector3() },
         uFlashDir: { value: new Vector2(0, 1) },
         uFogTab: { value: Array.from({ length: 8 }, () => new Vector3()) },
+        uAurora: { value: 0 },
       },
       vertexShader: skyVertexShader,
       fragmentShader: skyFragmentShader,
@@ -166,6 +167,7 @@ export class SkyDome {
     u.uCloudDark.value = sol.weather.dark;
     u.uCirrus.value = sol.weather.cirrus;
     u.uStars.value = sol.stars;
+    u.uAurora.value = sol.aurora;
     u.uMoonVis.value = sol.moonVis;
     u.uDeck.value = sol.deck;
     u.uDeckDark.value = sol.deckDark;

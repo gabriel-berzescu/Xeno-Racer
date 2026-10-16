@@ -96,6 +96,8 @@ interface CarFx {
   chipAcc: number[];
   mistAcc: number[];
   dropAcc: number[];
+  /** The exhaust plumes of a winter circuit: puffs owed per tail pipe. */
+  plumeAcc: number[];
   /** 0..1: how much of a tunnel is over the car this frame (the road there is dry). */
   dry: number;
   /** Track projection hint for the tunnel test. */
@@ -111,6 +113,11 @@ interface CarFx {
 
 function isHard(s: SurfaceType): boolean {
   return s === 'asphalt' || s === 'curb' || s === 'concrete';
+}
+
+/** Snow, studded ice, deep snow: what a winter circuit is made of. */
+function isSnowy(s: SurfaceType): boolean {
+  return s === 'snow' || s === 'ice' || s === 'deepsnow';
 }
 
 interface SurfaceLook {
@@ -314,6 +321,8 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
   mainScene.add(blobs.mesh);
 
   const records = new Map<number, CarFx>();
+  /** A winter circuit: snow is thrown instead of dust and water, and the exhausts steam in the cold. */
+  const winter = track.info.winter === true;
   let windX = 1.2;
   let windZ = 0.55;
   let clock = 0;
@@ -441,6 +450,136 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
     }
   }
 
+  /**
+   * Snow thrown up by a wheel on a winter circuit: a fine bright powder that lifts and hangs in the air (a rooster tail behind a driven
+   * wheel that spins or slides, flung on along the slide by a wheel that goes sideways), and a few glittering granules that fly clear of
+   * it. `amt` is the speed times how hard the wheel works the snow times the heap the surface makes (deep snow most, ice least). It is
+   * drawn as the mist of the spray pool, which is lit by the whole sky (and by the lamps and the headlights at night): a plume of
+   * powder is white against any light, where the smoke puff is only as bright as the sun is.
+   */
+  function emitPowder(rec: CarFx, s: VehicleState, i: number, look: SurfaceLook, amt: number, dt: number, gy: number): void {
+    const dcam = Math.hypot(s.position.x - _posCam.x, s.position.z - _posCam.z);
+    if (dcam > 220) return;
+    // far cars get fewer, bigger puffs
+    const lod = clamp(1.3 - dcam / 160, 0.2, 1);
+    const w = s.wheels[i];
+    const rear = i >= 2;
+    const rate = (2 + 34 * amt) * (rear ? 1 : 0.55) * caps.spray * lod;
+    const acc = rec.dustAcc[i] + rate * dt;
+    let n = Math.floor(acc);
+    rec.dustAcc[i] = acc - n;
+    if (n > 5) n = 5;
+    const cp = w.contactPoint;
+    const ox = rec.prev[i * 3], oz = rec.prev[i * 3 + 2];
+    _v1.set(1, 0, 0).applyQuaternion(s.quaternion);
+    const lx = _v1.x, lz = _v1.z;
+    // how fast the car goes sideways: the cloud is carried on along the slide
+    const vlat = s.velocity.x * lx + s.velocity.z * lz;
+    const fresh = 1 + 0.5 * freshNow;
+    for (let k = 0; k < n; k++) {
+      const f = (k + rnd()) / n;
+      const sp = _spec;
+      sp.x = (rec.hasPrev[i] ? ox + (cp.x - ox) * f : cp.x) + rg() * 0.3;
+      sp.y = cp.y + 0.1 + rnd() * 0.15;
+      sp.z = (rec.hasPrev[i] ? oz + (cp.z - oz) * f : cp.z) + rg() * 0.3;
+      sp.vx = -s.velocity.x * 0.1 + rg() * 1.1 + lx * vlat * 0.2;
+      sp.vy = rr(1.0, 2.8) * (0.45 + amt);
+      sp.vz = -s.velocity.z * 0.1 + rg() * 1.1 + lz * vlat * 0.2;
+      sp.r0 = rr(0.2, 0.32);
+      sp.r1 = (rr(0.9, 1.6) + amt * 0.6) * (1.1 - 0.25 * lod);
+      sp.life = rr(0.9, 1.7) * (0.75 + 0.35 * amt);
+      sp.alpha = (0.1 + 0.2 * Math.min(1, amt)) * look.dustAlpha * 2.6 * rr(0.75, 1.1) * fresh;
+      const t = rr(0.96, 1.04);
+      sp.cr = look.r * t; sp.cg = look.g * t; sp.cb = look.b * t;
+      sp.rotVel = 0.3; sp.drag = 1.5; sp.buoy = 0.3; sp.wind = 1;
+      mist.spawn(sp);
+    }
+    // granules: clumps and crystals thrown clear of the cloud (the streaks of the spray pool, white)
+    const dacc = rec.dropAcc[i] + 36 * amt * look.chips * caps.spray * lod * dt;
+    let dn = Math.floor(dacc);
+    rec.dropAcc[i] = dacc - dn;
+    if (dn > 4) dn = 4;
+    for (let k = 0; k < dn; k++) {
+      drops.spawn(
+        cp.x + rg() * 0.2, cp.y + 0.1 + rnd() * 0.15, cp.z + rg() * 0.2,
+        s.velocity.x * 0.22 + rg() * 2.4 + lx * vlat * 0.2, rr(1.6, 4.8) * (0.6 + amt), s.velocity.z * 0.22 + rg() * 2.4 + lz * vlat * 0.2,
+        rr(0.3, 0.7), rr(0.012, 0.02), rr(0.85, 1.2), gy,
+      );
+    }
+  }
+
+  /** A car's puff of snow where it hits a snowbank, no sparks: the bank swallows the car and throws its top up in a cloud. */
+  function snowBurst(s: VehicleState, k: number, gy: number): void {
+    const im = s.lastImpact;
+    const p = im.point;
+    const look = SURF.deepsnow;
+    const np = 6 + Math.round(16 * k);
+    for (let i = 0; i < np; i++) {
+      const sp = _spec;
+      sp.x = p.x + rg() * 0.4; sp.y = p.y + rnd() * 0.3; sp.z = p.z + rg() * 0.4;
+      sp.vx = im.normal.x * rr(0.8, 2.6) + rg() * 2.0 + s.velocity.x * 0.2;
+      sp.vy = rr(1.4, 4.2) * (0.6 + k);
+      sp.vz = im.normal.z * rr(0.8, 2.6) + rg() * 2.0 + s.velocity.z * 0.2;
+      sp.r0 = 0.45; sp.r1 = 1.5 + 1.5 * k; sp.life = rr(1.3, 2.4);
+      sp.alpha = 0.22 + 0.2 * k;
+      const t = rr(0.96, 1.04);
+      sp.cr = look.r * t; sp.cg = look.g * t; sp.cb = look.b * t;
+      sp.rotVel = 0.4; sp.drag = 1.5; sp.buoy = 0.25; sp.wind = 1;
+      mist.spawn(sp);
+    }
+    const nd = 6 + Math.round(30 * k);
+    for (let i = 0; i < nd; i++) {
+      drops.spawn(
+        p.x + rg() * 0.3, p.y + 0.1 + rnd() * 0.3, p.z + rg() * 0.3,
+        im.normal.x * rr(1, 4) + rg() * 3 + s.velocity.x * 0.25, rr(2, 6.5), im.normal.z * rr(1, 4) + rg() * 3 + s.velocity.z * 0.25,
+        rr(0.35, 0.8), rr(0.012, 0.022), rr(0.85, 1.2), gy,
+      );
+    }
+  }
+
+  /**
+   * In the cold the exhaust gas condenses into a white plume: a thin one at idle, thick and long under load. It is left behind in the
+   * air where the car was, curling off in the wind, so that a car in front shows as a drifting trail and at the grid the whole pack steams.
+   */
+  function emitPlume(rec: CarFx, s: VehicleState, dt: number): void {
+    const dcam = Math.hypot(s.position.x - _posCam.x, s.position.z - _posCam.z);
+    if (dcam > 220) return;
+    const v = rec.def.visual;
+    const load = clamp(0.2 + 0.8 * s.engineLoad + 0.3 * s.throttle, 0, 1);
+    // (a camera far down the straight sees the plume of the whole grid: fewer puffs, each bigger)
+    const lod = clamp(1.4 - dcam / 160, 0.25, 1);
+    _v1.set(0, v.cgHeight, v.cgToFrontAxle - v.wheelbase / 2).applyQuaternion(s.quaternion);
+    const ox = s.position.x - _v1.x, oy = s.position.y - _v1.y, oz = s.position.z - _v1.z;
+    const nt = Math.min(rec.tips.length, 4);
+    for (let i = 0; i < nt; i++) {
+      const rate = (3 + 9 * load) * caps.spray * lod * (nt > 2 ? 0.55 : 1);
+      const acc = rec.plumeAcc[i] + rate * dt;
+      const n = Math.min(3, Math.floor(acc));
+      rec.plumeAcc[i] = acc - n;
+      if (n <= 0) continue;
+      const t = rec.tips[i];
+      _v2.set(t.x, t.y, t.z).applyQuaternion(s.quaternion);
+      _v3.set(t.dx, t.dy, t.dz).applyQuaternion(s.quaternion);
+      for (let k = 0; k < n; k++) {
+        const f = (k + rnd()) / n;
+        const sp = _spec;
+        // (spread along the step the car made, so that the plume is a line and not a string of beads)
+        sp.x = ox + _v2.x - s.velocity.x * dt * f;
+        sp.y = oy + _v2.y - s.velocity.y * dt * f;
+        sp.z = oz + _v2.z - s.velocity.z * dt * f;
+        sp.vx = s.velocity.x * 0.5 + _v3.x * (1.2 + 3.2 * load) + rg() * 0.25;
+        sp.vy = _v3.y * 2 + 0.5 + rnd() * 0.3;
+        sp.vz = s.velocity.z * 0.5 + _v3.z * (1.2 + 3.2 * load) + rg() * 0.25;
+        sp.r0 = 0.07 + 0.04 * load; sp.r1 = (rr(0.35, 0.55) + 0.3 * load) * (1.9 - 0.9 * lod); sp.life = rr(0.9, 1.5) + 0.4 * load;
+        sp.alpha = (0.1 + 0.18 * load) * rr(0.75, 1.1);
+        const g = rr(0.93, 1.0);
+        sp.cr = g * 0.97; sp.cg = g; sp.cb = g * 1.03;
+        sp.rotVel = 0.3; sp.drag = 1.1; sp.buoy = 0.3; sp.wind = 1;
+        mist.spawn(sp);
+      }
+    }
+  }
+
   function emitChips(rec: CarFx, s: VehicleState, i: number, look: SurfaceLook, amt: number, dt: number, gy: number): void {
     const rate = 14 * amt * look.chips * caps.emit;
     let acc = rec.chipAcc[i] + rate * dt;
@@ -546,6 +685,10 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
   function impactBurst(rec: CarFx, s: VehicleState, gy: number): void {
     const im = s.lastImpact;
     const k = clamp(im.strength, 0.12, 1);
+    if (im.kind === 'snow') {
+      snowBurst(s, k, gy);
+      return;
+    }
     const p = im.point;
     const nx = im.normal.x, ny = im.normal.y, nz = im.normal.z;
     const vd = s.velocity.x * nx + s.velocity.y * ny + s.velocity.z * nz;
@@ -668,8 +811,10 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
 
   // ── spray ──
 
-  /** Weather as seen by this frame's emitters. */
+  /** Weather as seen by this frame's emitters: standing water (never on a winter circuit: the wet there is fresh snow) ... */
   let wetNow = 0;
+  /** ... and the fresh snow on a winter circuit (0..1), which the wheels throw as more powder. */
+  let freshNow = 0;
 
   /**
    * Water thrown by a wheel on a wet surface. `k` 0..1 = wetness x how hard the tyre works the water.
@@ -812,7 +957,12 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
           } else if (trail.active) {
             skid.endTrail(trail);
           }
-          if (look.dust > 0 && speed > 2.5) {
+          if (look.dust > 0 && speed > 2.5 && isSnowy(w.surface)) {
+            // snow: a rolling wheel stirs up a veil of powder; wheelspin and slides throw it up in a tail
+            const work = clamp(w.skid + 2 * Math.abs(w.slipRatio) + 2 * Math.abs(w.slipAngle), 0, 1);
+            const amt = clamp(speed / 28, 0, 1) * look.dust * (0.2 + 0.8 * work);
+            if (amt > 0.02) emitPowder(rec, s, i, look, amt, dt, gy);
+          } else if (look.dust > 0 && speed > 2.5) {
             // a rolling wheel lifts a little; wheelspin and slides throw the real clouds
             const amt = clamp(speed / 30, 0, 1) * look.dust * (0.22 + 0.78 * clamp(w.skid + 2 * Math.abs(w.slipRatio) + 2 * Math.abs(w.slipAngle), 0, 1));
             if (amt > 0.02) emitDust(rec, s, i, look, amt, dt);
@@ -829,6 +979,7 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
       }
     }
 
+    if (winter) emitPlume(rec, s, dt);
     if (s.scrape > 0.04) emitScrapeSparks(rec, s, dt, gy);
 
     if (s.impactCount !== rec.impactSeen) {
@@ -979,6 +1130,7 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
         chipAcc: [0, 0, 0, 0],
         mistAcc: [0, 0, 0, 0],
         dropAcc: [0, 0, 0, 0],
+        plumeAcc: [0, 0, 0, 0, 0, 0, 0, 0],
         dry: 0,
         hint: -1,
         sparkAcc: 0,
@@ -1009,7 +1161,8 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
       camera.getWorldPosition(_posCam);
       camera.getWorldDirection(_fwdCam);
       const env = envState();
-      wetNow = env ? env.wetness : 0;
+      wetNow = env && !winter ? env.wetness : 0;
+      freshNow = env && winter ? env.wetness : 0;
       skid.beginFrame();
       for (let i = 0; i < cars.length; i++) {
         const rec = records.get(cars[i].id);

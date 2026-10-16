@@ -698,16 +698,18 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
         for (const s of spots) s.visible = playerMode && spotsOn && beamsOn;
       }
       // (a broken headlight goes dark; the spot stays "visible" at zero so the lights in the scene never change count)
+      // (snow gives back five times the light of asphalt: on a winter circuit the beams are dimmed, or they burn it out into a hard white box)
+      const snowK = env.settings.winter ? 0.4 : 1;
       if (spotsOn) {
-        spots[0].intensity = CARVIS_TUNING.headlightIntensity * head * lampOut.x;
-        spots[1].intensity = CARVIS_TUNING.headlightIntensity * head * lampOut.y;
+        spots[0].intensity = CARVIS_TUNING.headlightIntensity * snowK * head * lampOut.x;
+        spots[1].intensity = CARVIS_TUNING.headlightIntensity * snowK * head * lampOut.y;
       }
       // (a player's car has the glow only where beams are switched per view: another player's car in a split screen)
       const showGlow = (!playerMode || beamControl) && head > 0.02;
       glowLit = showGlow;
       glow.visible = showGlow && (!playerMode || !beamsOn);
       // (on a wet road the lamps' light skids away as reflection instead of pooling: a much fainter decal)
-      if (showGlow) (glow.material as MeshBasicMaterial).opacity = head * 0.8 * (1 - 0.7 * env.wetness) * 0.5 * (lampOut.x + lampOut.y);
+      if (showGlow) (glow.material as MeshBasicMaterial).opacity = head * 0.8 * snowK * (1 - 0.7 * env.wetness) * 0.5 * (lampOut.x + lampOut.y);
       root.updateMatrixWorld(true);
       if (showGlow) layGlow(state);
     },
