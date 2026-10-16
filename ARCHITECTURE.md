@@ -24,7 +24,7 @@ signage: teal `#16e0bd`, hot pink `#ff2e63`, near-black `#0b0c10`, off-white `#e
 | `src/core/*` (other) | lead | settings, small shared helpers |
 | `src/physics/` | lead | rigid body, tires, suspension, drivetrain, aero, collisions, assists |
 | `src/cars/` | lead | car roster (`CARS`, `getCar`) — physics + visual + sound specs |
-| `src/game/`, `src/main.ts` | lead | game loop, race logic, timing, ghosts, championship (`championship.ts`: pure scoring, standings and persistence), integration |
+| `src/game/`, `src/main.ts` | lead | game loop, race logic, timing, ghosts, championship (`championship.ts`: pure scoring, standings and persistence), weather that changes during a race (`weather.ts`: the plan, the timeline and the director, pure; the rules of a legal forecast are in `src/core/forecast.ts`), integration |
 | `src/track/` | track | track definitions, spline/runtime queries, road/terrain/scenery meshes |
 | `src/render/` | render | renderer, post-processing, sky/sun/env map, cameras, particle FX, skidmarks |
 | `src/carvis/` | carvis | procedural car models, wheels, lights, liveries, cockpit |

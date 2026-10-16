@@ -82,6 +82,16 @@ export class SunShadows {
     return this.cfg.count;
   }
 
+  /**
+   * Every active cascade has its shadow map. A map is made by the first draw of the shadow pass, and until then a program that
+   * samples it has nothing valid bound: the draw calls of every shadow-receiving material fail (nothing but sky and terrain on
+   * screen). So the pass must run once before anything is drawn, whatever the sun is doing.
+   */
+  get mapsReady(): boolean {
+    for (let i = 0; i < this.cfg.count; i++) if (!this.lights[i].shadow.map) return false;
+    return true;
+  }
+
   configure(cfg: ShadowConfig): void {
     const count = this.csmAvailable ? Math.min(cfg.count, MAX_CASCADES) : Math.min(cfg.count, 1);
     this.cfg = { ...cfg, count };

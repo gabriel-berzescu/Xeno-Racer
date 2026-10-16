@@ -19,7 +19,7 @@ import {
   Vector2,
   Vector3,
 } from 'three';
-import { LUT_E0 } from './atmosphere';
+import { LUT_E0, type SkyModel } from './atmosphere';
 import type { EnvSolution } from './environment';
 import { makeCloudNoise } from './noise';
 import { skyFragmentShader, skyVertexShader } from './skyShader';
@@ -32,6 +32,8 @@ export class SkyDome {
   readonly envMesh: Mesh;
   readonly material: ShaderMaterial;
   private lutTexture: DataTexture | null = null;
+  /** The sky model the LUT texture was made from: a solution made of the same model (a blend) keeps the texture. */
+  private lutModel: SkyModel | null = null;
   private readonly noiseTexture: DataTexture;
   private time = 0;
 
@@ -128,21 +130,25 @@ export class SkyDome {
 
   apply(sol: EnvSolution): void {
     const u = this.material.uniforms;
-    // LUT -> half float texture
+    // LUT -> half float texture (only when the sky model is a new one: every frame of a changing weather applies a blend of two
+    // solutions that share the dry one's model)
     const m = sol.model;
-    const half = new Uint16Array(m.lut.length);
-    for (let i = 0; i < m.lut.length; i++) half[i] = DataUtils.toHalfFloat(Math.min(m.lut[i], 65000));
-    const tex = new DataTexture(half, m.width, m.height, RGBAFormat, HalfFloatType);
-    tex.magFilter = LinearFilter;
-    tex.minFilter = LinearFilter;
-    tex.wrapS = ClampToEdgeWrapping;
-    tex.wrapT = ClampToEdgeWrapping;
-    tex.generateMipmaps = false;
-    tex.needsUpdate = true;
-    tex.name = 'xr.skyLut';
-    this.lutTexture?.dispose();
-    this.lutTexture = tex;
-    u.uLut.value = tex;
+    if (m !== this.lutModel) {
+      const half = new Uint16Array(m.lut.length);
+      for (let i = 0; i < m.lut.length; i++) half[i] = DataUtils.toHalfFloat(Math.min(m.lut[i], 65000));
+      const tex = new DataTexture(half, m.width, m.height, RGBAFormat, HalfFloatType);
+      tex.magFilter = LinearFilter;
+      tex.minFilter = LinearFilter;
+      tex.wrapS = ClampToEdgeWrapping;
+      tex.wrapT = ClampToEdgeWrapping;
+      tex.generateMipmaps = false;
+      tex.needsUpdate = true;
+      tex.name = 'xr.skyLut';
+      this.lutTexture?.dispose();
+      this.lutTexture = tex;
+      this.lutModel = m;
+      u.uLut.value = tex;
+    }
 
     const sd = sol.sunDir;
     (u.uSunDir.value as Vector3).set(sd[0], sd[1], sd[2]);
@@ -160,7 +166,7 @@ export class SkyDome {
     u.uCloudDark.value = sol.weather.dark;
     u.uCirrus.value = sol.weather.cirrus;
     u.uStars.value = sol.stars;
-    u.uMoonVis.value = sol.tod.moon ? (sol.deck > 0 ? 0.6 : 1 - sol.weather.overcast * 0.85) : 0;
+    u.uMoonVis.value = sol.moonVis;
     u.uDeck.value = sol.deck;
     u.uDeckDark.value = sol.deckDark;
     u.uScud.value = sol.scud;

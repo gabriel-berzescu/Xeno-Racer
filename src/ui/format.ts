@@ -71,6 +71,8 @@ export const TIME_OF_DAY_LABEL: Record<string, string> = {
   dawn: 'Dawn', morning: 'Morning', noon: 'Noon', golden: 'Golden hour', dusk: 'Dusk', night: 'Night',
 };
 export const WEATHER_LABEL: Record<string, string> = { clear: 'Clear', cloudy: 'Cloudy', overcast: 'Overcast', rain: 'Rain', storm: 'Storm' };
+/** How the weather moves during the race (the Forecast row; "Stable" is the weather as set, all race long). */
+export const FORECAST_LABEL: Record<string, string> = { stable: 'Stable', rainLater: 'Rain later', clearing: 'Clearing' };
 export const DIFFICULTY_LABEL: Record<string, string> = { rookie: 'Rookie', amateur: 'Amateur', pro: 'Pro', alien: 'Alien' };
 export const START_LABEL: Record<string, string> = { back: 'Back of the grid', middle: 'Mid grid', pole: 'Pole position' };
 export const LENGTH_LABEL: Record<string, string> = { short: 'Short', standard: 'Standard', long: 'Long' };
@@ -79,9 +81,10 @@ export const CAMERA_LABEL: Record<string, string> = {
   chase: 'Chase', 'chase-far': 'Chase (far)', hood: 'Hood', bumper: 'Bumper', cockpit: 'Cockpit', tv: 'TV', orbit: 'Orbit',
 };
 
-/** "Golden hour  ·  Clear". */
-export function formatConditions(env: { timeOfDay: string; weather: string }): string {
-  return `${TIME_OF_DAY_LABEL[env.timeOfDay] ?? env.timeOfDay}  ·  ${WEATHER_LABEL[env.weather] ?? env.weather}`;
+/** "Golden hour  ·  Clear", or "Golden hour  ·  Clear, rain later" when the weather changes during the race. */
+export function formatConditions(env: { timeOfDay: string; weather: string }, forecast?: string): string {
+  const change = forecast && forecast !== 'stable' ? `, ${(FORECAST_LABEL[forecast] ?? forecast).toLowerCase()}` : '';
+  return `${TIME_OF_DAY_LABEL[env.timeOfDay] ?? env.timeOfDay}  ·  ${WEATHER_LABEL[env.weather] ?? env.weather}${change}`;
 }
 
 /** Points behind the leader: "-7", nothing for the leader. */

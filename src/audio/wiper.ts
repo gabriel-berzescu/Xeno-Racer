@@ -114,6 +114,8 @@ export class WiperSystem {
   /** The last few posted sweeps, newest last (read through window.__GAME__.audio.wiper.log to compare against the picture). */
   readonly log: WiperLogEntry[] = [];
   private node: WiperNodeLike | null = null;
+  /** Keep the voice alive (silent) whether or not the blade is on screen (see arm). */
+  private armed = false;
   private failed = false;
   private playing = false;
   private age = 0;
@@ -138,6 +140,15 @@ export class WiperSystem {
       if (isNew) this.note(c, this.feedTime);
     };
     this.resync = () => this.node?.stop();
+  }
+
+  /**
+   * Have the worklet voice built and waiting for a race that rain is coming to: building it costs the audio thread tens of
+   * milliseconds (the blade's sounds are synthesised), a dropout that is better heard behind a loading screen than at the first
+   * sweep of the race.
+   */
+  arm(on: boolean): void {
+    this.armed = on;
   }
 
   /** Is a wiper node alive? */
@@ -193,7 +204,15 @@ export class WiperSystem {
     if (!(dt > 0) || !Number.isFinite(dt)) dt = 0;
     this.age += dt;
     if (this.playing && (this.age > WIPER_STALE_S || this.host.muted() || !(this.host.rain() > 0))) this.halt();
-    if (this.node && !this.playing) {
+    if (this.armed && !this.node && !this.failed && this.host.ready()) {
+      try {
+        this.node = this.host.makeNode(this.seed);
+      } catch (e) {
+        this.failed = true;
+        console.warn('[audio] could not create the wiper voice:', e);
+      }
+    }
+    if (this.node && !this.playing && !this.armed) {
       this.idle += dt;
       if (this.idle >= WIPER_NODE_KEEP_S) this.drop();
     } else this.idle = 0;

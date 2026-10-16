@@ -14,6 +14,7 @@ import { Speedo } from './speedo';
 import { Telemetry } from './telemetry';
 import { PosLap, TimingPanel } from './timing';
 import { Tower } from './tower';
+import { WeatherHud } from './weather';
 
 export interface HudView {
   readonly el: HTMLElement;
@@ -40,6 +41,7 @@ export function createHud(ctx: UiCtx): HudView {
   const tele = new Telemetry(el);
   const spotter = new Spotter(el);
   const center = new Center(el);
+  const weather = new WeatherHud(el, center.el);
 
   let visible = false;
   let teleOn = false;
@@ -66,6 +68,7 @@ export function createHud(ctx: UiCtx): HudView {
         el.classList.toggle('has-mirror', mirror);
       }
       center.update(s);
+      weather.update(s);
       if (clean) return; // photo mode: only the center messages stay
 
       spotter.update(s);

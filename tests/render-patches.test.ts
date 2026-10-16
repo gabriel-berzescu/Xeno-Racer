@@ -66,11 +66,14 @@ describe('rain haze in the fog patch', () => {
     expect(chunks().fog_fragment).toContain('fogDensity * fogDensity * vFogDepth * vFogDepth');
   });
 
-  it('fades far scenery into the rain deck by elevation, only when the deck mode (xrFog[0].w = 2) is on', () => {
+  it('fades far scenery into the rain deck by elevation, only when the deck mode (xrFog[0].w = 2) is on, and by how much of the sky the deck covers in between', () => {
     installShaderPatches();
     const pars = chunks().fog_pars_fragment;
     expect(pars).toContain('uniform vec4 xrFog[ 10 ]');
-    expect(pars).toContain('xrFog[ 0 ].w > 1.5');
+    // the mode is 1 + the share of the sky under the deck: a changing weather moves it smoothly from 1 to 2 and back
+    expect(pars).toContain('float deck = clamp( xrFog[ 0 ].w - 1.0, 0.0, 1.0 );');
+    expect(pars).toContain('if ( deck > 0.001 )');
     expect(pars).toContain('xrFog[ 9 ].rgb');
+    expect(pars).toContain('* deck );');
   });
 });

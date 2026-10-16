@@ -10,6 +10,7 @@ import type {
   ChampionshipSetup,
   ChampionshipView,
   Difficulty,
+  Forecast,
   GraphicsSettings,
   Livery,
   QualityLevel,
@@ -20,8 +21,9 @@ import type {
   TrackInfo,
   Weather,
 } from '../core/contracts';
+import { forecastAllowed, sanitizeForecast } from '../core/forecast';
 import { DEFAULT_SETTINGS, QUALITY_PRESETS } from '../core/settings';
-import { CAMERA_LABEL, DIFFICULTY_LABEL, GRID_LABEL, LENGTH_LABEL, ordinal, pct, START_LABEL, TIME_OF_DAY_LABEL, WEATHER_LABEL } from './format';
+import { CAMERA_LABEL, DIFFICULTY_LABEL, FORECAST_LABEL, GRID_LABEL, LENGTH_LABEL, ordinal, pct, START_LABEL, TIME_OF_DAY_LABEL, WEATHER_LABEL } from './format';
 import { clamp, clamp01 } from './hudlogic';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -30,6 +32,7 @@ import { clamp, clamp01 } from './hudlogic';
 
 export const TIMES: readonly TimeOfDay[] = ['dawn', 'morning', 'noon', 'golden', 'dusk', 'night'];
 export const WEATHERS: readonly Weather[] = ['clear', 'cloudy', 'overcast', 'rain', 'storm'];
+export const FORECAST_CHOICES: readonly Forecast[] = ['stable', 'rainLater', 'clearing'];
 export const DIFFICULTIES: readonly Difficulty[] = ['rookie', 'amateur', 'pro', 'alien'];
 export const STARTS: readonly RaceConfig['startPosition'][] = ['back', 'middle', 'pole'];
 export const CAMERA_MODES: readonly CameraMode[] = ['chase', 'chase-far', 'hood', 'bumper', 'cockpit', 'tv', 'orbit'];
@@ -165,6 +168,8 @@ export interface SetupState {
   difficulty: Difficulty;
   timeOfDay: TimeOfDay;
   weather: Weather;
+  /** How the weather moves during the race. It only counts where it makes sense (see forecastNow). */
+  forecast: Forecast;
   startPosition: RaceConfig['startPosition'];
   champ: ChampSetupState;
 }
@@ -207,6 +212,7 @@ export function defaultSetup(mode: SetupMode, tracks: readonly TrackInfo[], cars
     difficulty: prev?.difficulty ?? 'amateur',
     timeOfDay: prev?.timeOfDay ?? track?.defaultTimeOfDay ?? 'golden',
     weather: prev?.weather ?? 'clear',
+    forecast: prev?.forecast ?? 'stable',
     startPosition: racing ? prev?.startPosition ?? 'back' : 'pole',
     champ: { ...CHAMP_DEFAULTS, ...prev?.champ },
   };
@@ -218,12 +224,33 @@ export function applyTrackDefaults(s: SetupState, track: TrackInfo): void {
   s.timeOfDay = track.defaultTimeOfDay;
 }
 
-export function buildRaceConfig(s: SetupState, tracks: readonly TrackInfo[], cars: readonly CarDefinition[], playerName: string): RaceConfig {
+/**
+ * The forecast the setup will really run: what is chosen when it makes sense for the weather, mode and laps (rain later from a dry
+ * weather, clearing from a wet one, not in a time trial, not in a race of one lap), else stable.
+ */
+export function forecastNow(s: SetupState): Forecast {
+  const mode: RaceMode = s.mode === 'championship' ? 'race' : s.mode;
+  const laps = MODE_INFO[mode].usesLaps ? clamp(Math.round(s.laps), LAPS_MIN, LAPS_MAX) : 0;
+  return s.mode === 'championship' ? 'stable' : sanitizeForecast(s.forecast, s.weather, mode, laps);
+}
+
+/** Is `forecast` one the Forecast row can offer for this setup? */
+export function forecastOffered(s: SetupState, forecast: Forecast): boolean {
+  const mode: RaceMode = s.mode === 'championship' ? 'race' : s.mode;
+  const laps = MODE_INFO[mode].usesLaps ? clamp(Math.round(s.laps), LAPS_MIN, LAPS_MAX) : 0;
+  return s.mode !== 'championship' && forecastAllowed(forecast, s.weather, mode, laps);
+}
+
+/** A seed for a race's forecast (it fixes when the weather changes and how hard, so a restart repeats it). */
+export const newForecastSeed = (): number => Math.floor(Math.random() * 2147483646) + 1;
+
+export function buildRaceConfig(s: SetupState, tracks: readonly TrackInfo[], cars: readonly CarDefinition[], playerName: string, forecastSeed: number = newForecastSeed()): RaceConfig {
   const track = tracks[clamp(s.trackIndex, 0, tracks.length - 1)];
   const car = cars[clamp(s.carIndex, 0, cars.length - 1)];
   const mode: RaceMode = s.mode === 'championship' ? 'race' : s.mode;
   const info = MODE_INFO[mode];
   const preset = LIVERY_PRESETS[clamp(s.liveryIndex, 0, LIVERY_PRESETS.length - 1)];
+  const forecast = forecastNow(s);
   return {
     mode,
     trackId: track.id,
@@ -234,6 +261,7 @@ export function buildRaceConfig(s: SetupState, tracks: readonly TrackInfo[], car
     difficulty: info.usesDifficulty ? s.difficulty : 'amateur',
     environment: { timeOfDay: s.timeOfDay, weather: s.weather },
     startPosition: info.usesStart ? s.startPosition : 'pole',
+    ...(forecast !== 'stable' ? { forecast, forecastSeed } : {}),
   };
 }
 
@@ -522,6 +550,7 @@ export const SETTINGS_TABS: TabDef[] = [
 export const OPTION_LABELS = {
   time: TIME_OF_DAY_LABEL,
   weather: WEATHER_LABEL,
+  forecast: FORECAST_LABEL,
   difficulty: DIFFICULTY_LABEL,
   start: START_LABEL,
   length: LENGTH_LABEL,

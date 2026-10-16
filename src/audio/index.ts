@@ -454,6 +454,20 @@ export function primeCarVoices(audio: AudioSystem): void {
 }
 
 /**
+ * Behind a loading screen, for a race whose weather is going to change: build the rain and wiper voices now and keep them (asleep)
+ * until the race is over, instead of when the rain first falls (their first build is a few tens of ms of work for the audio
+ * thread: a dropout in the engines). Call with false for any race that does not need them. Returns false when this audio system
+ * has no weather (the silent fallback).
+ */
+export function armWeather(audio: AudioSystem, on: boolean): boolean {
+  const a = audio as Partial<AudioSystemImpl>;
+  if (!a.weather || !a.wiper) return false;
+  a.weather.arm(on);
+  a.wiper.arm(on);
+  return true;
+}
+
+/**
  * The cockpit wiper: call once per rendered frame, right after the frame is drawn, with the renderer's view of the blade
  * (XenoRenderSystem.wiper). While the blade is on screen the audio follows its schedule (motor, rubber swish, thunks at the
  * ends of each sweep); when it is not (another camera, no rain, a menu) or when nothing is fed for a moment, the sound fades

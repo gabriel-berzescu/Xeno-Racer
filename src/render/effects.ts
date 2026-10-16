@@ -897,6 +897,8 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
     if (beams) beams.begin();
     if (halos) halos.begin();
     const head = clamp((darkness - 0.25) / 0.35, 0, 1);
+    // (the haze of a beam and the halo of a lamp come in with the first drops, not all at once when the rain passes 0.02)
+    const hazeIn = smooth(0.02, 0.2, rainK);
     for (let i = 0; i < cars.length; i++) {
       const s = cars[i];
       const rec = records.get(s.id);
@@ -918,7 +920,7 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
         const k = 1.1 * head * headOut;
         lights.add(ox + _v2.x, oy + _v2.y, oz + _v2.z, 48, k, k * 0.93, k * 0.8, fx, fy, fz, 0.82, 0.14);
         // the beam itself: rain makes it a hazy cone
-        if (beams && rainK > 0.02) beams.add(ox + _v2.x, oy + _v2.y, oz + _v2.z, fx, fy - 0.05, fz, 30, head * headOut * (0.006 + 0.02 * rainK));
+        if (beams && rainK > 0.02) beams.add(ox + _v2.x, oy + _v2.y, oz + _v2.z, fx, fy - 0.05, fz, 30, head * headOut * (0.006 + 0.02 * rainK) * hazeIn);
       }
       // tail lights: a dim red glow while the lamps are on, flaring on the brakes
       const tail = (0.1 * head + (s.brake > 0.05 ? 0.55 : 0)) * tailOut;
@@ -938,7 +940,7 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
         const dx = lamps[i] - _posCam.x, dz = lamps[i + 2] - _posCam.z;
         if (dx * dx + dz * dz > 90 * 90) continue;
         lights.add(lamps[i], lamps[i + 1], lamps[i + 2], 30, 1.9 * k, 1.6 * k, 1.2 * k, 0, -1, 0, -0.35, 0.6);
-        if (halos && rainK > 0.02) halos.add(lamps[i], lamps[i + 1], lamps[i + 2], 1.7 + 0.8 * rainK, k * (0.2 + 0.5 * rainK));
+        if (halos && rainK > 0.02) halos.add(lamps[i], lamps[i + 1], lamps[i + 2], 1.7 + 0.8 * rainK, k * (0.2 + 0.5 * rainK) * hazeIn);
       }
     }
     if (beams) beams.end();

@@ -706,8 +706,8 @@ function buildLamps(ctx: Ctx, group: THREE.Group): void {
   ctx.disposables.push(poolG, poolT, poolM);
   ctx.envListeners.push((env: EnvironmentState) => {
     // in the rain the lamps stay quiet until it is really dark (a storm at noon only switches them on)
-    // (a wet road is lit by the lamps themselves in its shader, with reflections: no painted pools there)
-    poolM.opacity = env.wetness > 0 ? 0 : (0.55 * poolK * Math.max(0, env.darkness - 0.25)) / 0.75;
+    // (a wet road is lit by the lamps themselves in its shader, with reflections: no painted pools there; they fade out as it wets)
+    poolM.opacity = (1 - Math.min(1, env.wetness * 5)) * ((0.55 * poolK * Math.max(0, env.darkness - 0.25)) / 0.75);
     pools.visible = poolM.opacity > 0.01;
   });
 }

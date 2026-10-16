@@ -48,3 +48,22 @@ export const iconWarn = (cls = ''): SVGElement => wrap('0 0 32 32', '<path d="M1
 
 export const iconClock = (cls = ''): SVGElement =>
   wrap('0 0 32 32', '<path d="M16 3a13 13 0 1 0 0 26 13 13 0 0 0 0-26zm-1.5 5h3v8.2l5 3-1.5 2.6-6.5-3.9z"/>', cls);
+
+// ── weather (the HUD's conditions chip and its notices) ──────────────────────────────────────────────────────────────
+
+/** A cloud, low in the box so that rain or a bolt can hang under it. */
+const CLOUD = '<path d="M9 20.5a5.5 5.5 0 0 1-.9-10.9 7.5 7.5 0 0 1 14.3-1.7A6.3 6.3 0 0 1 23 20.5z"/>';
+const LINES = (d: string): string => `<path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" d="${d}"/>`;
+
+export const iconCloud = (cls = ''): SVGElement => wrap('0 0 32 32', '<g transform="translate(0 4)">' + CLOUD + '</g>', cls);
+
+export const iconRain = (cls = ''): SVGElement => wrap('0 0 32 32', CLOUD + LINES('M10 24.5l-1.6 4M16 24.5l-1.6 4M22 24.5l-1.6 4'), cls);
+
+export const iconStorm = (cls = ''): SVGElement => wrap('0 0 32 32', CLOUD + '<path d="M17.4 21.5l-5 6.6h3.3l-1.4 4.4 6.2-7.6h-3.6l2.1-3.4z"/>', cls);
+
+export const iconSun = (cls = ''): SVGElement =>
+  wrap('0 0 32 32', '<circle cx="16" cy="16" r="5.8"/>' + LINES('M16 3.5v3M16 25.5v3M3.5 16h3M25.5 16h3M7.2 7.2l2.1 2.1M22.7 22.7l2.1 2.1M7.2 24.8l2.1-2.1M22.7 9.3l2.1-2.1'), cls);
+
+/** The sun coming out from behind a cloud: the rain easing, the sky lifting. */
+export const iconSunCloud = (cls = ''): SVGElement =>
+  wrap('0 0 32 32', '<circle cx="21" cy="11" r="4.6"/>' + LINES('M21 2.4v2M28.6 11h2M21 19.6v2M13.4 11h-2M26.2 5.8l1.4-1.4M15.8 5.8l-1.4-1.4M26.2 16.2l1.4 1.4') + '<g transform="translate(-1.5 7) scale(0.92)">' + CLOUD + '</g>', cls);

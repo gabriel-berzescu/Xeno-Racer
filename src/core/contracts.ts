@@ -392,6 +392,11 @@ export interface EnvironmentState {
   rain: number;
   /** 0..1 standing water on the track: tire grip, spray, the wet look of road and cars. */
   wetness: number;
+  /**
+   * The darkest `darkness` gets in this race. It only differs from `darkness` in a race whose weather changes (a storm is
+   * coming): whatever has to be fitted before the start, like the player's headlights, is decided by this one. Absent = `darkness`.
+   */
+  peakDarkness?: number;
 }
 
 /** Rain and track water per weather preset (shared by render, physics, AI and audio). */
@@ -402,6 +407,23 @@ export const WEATHER_WATER: Record<Weather, { rain: number; wetness: number }> =
   rain: { rain: 0.55, wetness: 0.75 },
   storm: { rain: 1, wetness: 1 },
 };
+
+/**
+ * How the weather of a race moves while it is run (the timeline is src/game/weather.ts). 'rainLater': it starts dry and rain
+ * arrives part way through. 'clearing': it starts wet, the rain eases and stops, the cloud lifts and the track dries.
+ * 'stable' (or no forecast at all): the weather in the settings, all race long.
+ */
+export type Forecast = 'stable' | 'rainLater' | 'clearing';
+
+/** What the weather of a race that changes is doing right now. Fixed weather is just `WEATHER_WATER` and a constant sky. */
+export interface WeatherState {
+  /** 0 = the sky of the race's dry weather .. 1 = the sky of its wet weather (cloud deck, light, darkness). */
+  sky: number;
+  /** Rain falling, 0..1 (what `EnvironmentState.rain` carries). */
+  rain: number;
+  /** Water on the track, 0..1 (`EnvironmentState.wetness`). It follows the rain with a lag and dries more slowly than it wets. */
+  wetness: number;
+}
 
 export type QualityLevel = 'low' | 'medium' | 'high' | 'ultra';
 
@@ -541,6 +563,14 @@ export interface RaceConfig {
   difficulty: Difficulty;
   environment: EnvironmentSettings;
   startPosition: 'back' | 'middle' | 'pole';
+  /**
+   * Weather that changes during the race (see `Forecast`): `environment.weather` is the weather at the start. Races and free roam
+   * only (a time trial stays as set), and only where it makes sense: rain later from a dry weather, clearing from a wet one
+   * (`sanitizeForecast` in src/game/weather.ts). Absent = stable.
+   */
+  forecast?: Forecast;
+  /** Decides when the change comes and how hard (so that a restart repeats it). Absent = 1. */
+  forecastSeed?: number;
   /** Set for a round of a championship (mode is then always 'race'); `grid` overrides `startPosition`. */
   championship?: ChampionshipRoundInfo;
 }
@@ -735,6 +765,23 @@ export interface HudState {
   spotter?: { left: number; right: number; leftAt: number; rightAt: number } | null;
   /** The HUD mirror strip is on screen at the top centre: toasts and banners step below it. */
   mirror?: boolean;
+  /** The conditions of a race whose weather changes (null or absent: stable weather, nothing to show). */
+  weather?: HudWeather | null;
+}
+
+/** The conditions chip of a race whose weather changes, and the broadcast notice that something is about to happen to it. */
+export interface HudWeather {
+  /** The sky as its nearest weather preset (for the icon). */
+  sky: Weather;
+  rain: number;
+  wetness: number;
+  /** What the track is like under the tyres: "Dry", "Damp", "Wet", "Very wet", "Soaked". */
+  track: string;
+  forecast: Exclude<Forecast, 'stable'>;
+  /** The change has begun (the call has been made); before it the weather is still the one the race started in. */
+  called: boolean;
+  /** A notice on screen right now ("Rain is coming" with a line under it), or null. The game keeps the same object while it shows. */
+  notice: { kind: 'rain' | 'clearing'; title: string; sub: string } | null;
 }
 
 /** Minimap geometry, sent once per track. */

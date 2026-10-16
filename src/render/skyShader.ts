@@ -44,7 +44,7 @@ uniform float uMoonVis;
 uniform vec3 uTrueSunDir;
 uniform vec3 uMoonLight;
 uniform float uQuality;
-uniform float uDeck;      // 1 under a rain-bearing deck (replaces cumulus, sun, stars), 0 for the dry skies
+uniform float uDeck;      // 1 under a rain-bearing deck (replaces cumulus, sun, stars), 0 for the dry skies, between while one closes in or lifts
 uniform float uDeckDark;
 uniform float uScud;
 uniform vec3 uDeckLo;     // pale haze toward the horizon
@@ -264,22 +264,39 @@ vec3 moon(vec3 d, float vis) {
   return col * vis;
 }
 
+// the sky under a rain deck, from the rain deck's own horizon haze to the ground below it
+vec3 deckSky(vec3 d, float mu) {
+  vec3 sky = rainSky(d, mu);
+  if (uMoonVis > 0.01) sky += moonThroughDeck(d);
+  // storm lightning lights the cloud from within: a lobe toward the strike, plus a general brightening
+  if (uFlash > 0.001) {
+    float hl = length(d.xz);
+    float lobe = 0.4 + 0.6 * pow(clamp(hl > 1e-4 ? dot(d.xz / hl, uFlashDir) : 1.0, 0.0, 1.0), 3.0);
+    sky *= 1.0 + uFlash * (1.0 + 1.6 * smoothstep(0.1, 0.8, d.y)) * lobe;
+    sky += uFlashAdd * lobe * (0.3 + 0.7 * smoothstep(0.0, 0.5, d.y));
+  }
+  return mix(sky, uGround, smoothstep(0.012, -0.045, d.y));
+}
+
+// While a front passes (0 < uDeck < 1) the deck closes over the open sky in ragged patches that grow together, the horizon on
+// the wind's side first. Exactly 0 at uDeck = 0 and exactly 1 at uDeck = 1, wherever you look.
+float deckCover(vec3 d) {
+  float y = max(d.y, 0.0);
+  vec2 uv = d.xz / (y + 0.25);
+  vec2 w = uWind * uTime * 2.0;
+  float n = texture2D(uNoise, uv * 0.05 + w * 0.5).r * 0.55 + texture2D(uNoise, uv * 0.17 - w * 0.4 + vec2(0.31, 0.7)).g * 0.45;
+  float hl = length(d.xz);
+  float side = hl > 1e-4 ? dot(d.xz / hl, normalize(-uWind)) : 0.0;
+  float edge = uDeck * 1.75 - 0.78 + (0.5 - n) * 0.9 + side * 0.25 * (1.0 - y);
+  return smoothstep(0.0, 0.25, edge);
+}
+
 void main() {
   vec3 d = normalize(vDir);
   float mu = dot(d, uSunDir);
 
-  if (uDeck > 0.5) {
-    vec3 sky = rainSky(d, mu);
-    if (uMoonVis > 0.01) sky += moonThroughDeck(d);
-    // storm lightning lights the cloud from within: a lobe toward the strike, plus a general brightening
-    if (uFlash > 0.001) {
-      float hl = length(d.xz);
-      float lobe = 0.4 + 0.6 * pow(clamp(hl > 1e-4 ? dot(d.xz / hl, uFlashDir) : 1.0, 0.0, 1.0), 3.0);
-      sky *= 1.0 + uFlash * (1.0 + 1.6 * smoothstep(0.1, 0.8, d.y)) * lobe;
-      sky += uFlashAdd * lobe * (0.3 + 0.7 * smoothstep(0.0, 0.5, d.y));
-    }
-    sky = mix(sky, uGround, smoothstep(0.012, -0.045, d.y));
-    gl_FragColor = vec4(sky, 1.0);
+  if (uDeck >= 0.999) {
+    gl_FragColor = vec4(deckSky(d, mu), 1.0);
     return;
   }
 
@@ -316,6 +333,9 @@ void main() {
 
   // below the horizon: ground fill (only ever visible in reflections / environment capture)
   col = mix(col, uGround, smoothstep(0.012, -0.045, d.y));
+
+  // a front is passing: the deck closes over this
+  if (uDeck > 0.001) col = mix(col, deckSky(d, mu), deckCover(d));
 
   gl_FragColor = vec4(col, 1.0);
 }

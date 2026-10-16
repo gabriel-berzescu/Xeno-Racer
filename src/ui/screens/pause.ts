@@ -2,7 +2,7 @@ import type { InputFrame } from '../../core/contracts';
 import type { ScreenId } from '../../core/systems';
 import type { UiCtx } from '../ctx';
 import { h, clearEl } from '../dom';
-import { formatLapTime, ordinal } from '../format';
+import { FORECAST_LABEL, formatLapTime, ordinal, WEATHER_LABEL } from '../format';
 import { MODE_INFO } from '../model';
 import { FocusList, type FocusRow } from '../nav';
 import { Dialog } from '../widgets';
@@ -118,6 +118,9 @@ export class PauseScreen extends BaseScreen {
       if (hud.mode === 'race') this.info.append(chip('Position', `P${hud.position} / ${hud.totalCars}`));
       this.info.append(chip('Lap', hud.totalLaps > 0 ? `${hud.lap} / ${hud.totalLaps}` : String(hud.lap)), chip('Best lap', formatLapTime(hud.bestLap)), chip('Last lap', formatLapTime(hud.lastLap)));
     }
+    // weather that changes: what it is now, or what is coming
+    const wx = hud?.weather;
+    if (wx) this.info.append(chip('Weather', wx.called ? `${WEATHER_LABEL[wx.sky]}  ·  track ${wx.track.toLowerCase()}` : `${WEATHER_LABEL[wx.sky]}, ${FORECAST_LABEL[wx.forecast].toLowerCase()}`));
     // where the season stands going into this round
     const season = ch ? this.ctx.championship : null;
     if (season) this.info.append(chip('Championship', season.done === 0 ? 'Not started' : `${ordinal(season.player.position)}  ·  ${season.player.points} pts`));

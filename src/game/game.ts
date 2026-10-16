@@ -13,7 +13,7 @@
 import { Matrix4, Quaternion, Vector3 } from 'three';
 import { AIDriver } from '../ai';
 import { CARS, getCar } from '../cars';
-import { createAudioSystem, onLightning, primeCarVoices, setWiper } from '../audio';
+import { armWeather, createAudioSystem, onLightning, primeCarVoices, setWiper } from '../audio';
 import { createCarVisual } from '../carvis';
 import type {
   CameraMode,
@@ -21,8 +21,10 @@ import type {
   ChampionshipSetup,
   ChampionshipView,
   Difficulty,
+  Forecast,
   HudState,
   HudStanding,
+  HudWeather,
   InputFrame,
   Livery,
   MinimapTrack,
@@ -32,6 +34,7 @@ import type {
   TimeOfDay,
   TrackFrame,
   Weather,
+  WeatherState,
   TrackRuntime,
   UIIntent,
   VehicleState,
@@ -51,6 +54,7 @@ import type { ContactOther } from '../core/damage';
 import { ReplayPlayer, ReplayRecorder } from './replay';
 import { makeSpotter, updateSpotter, type SpotterBody, type SpotterState } from './spotter';
 import { collectHeadlamps, makeMirrorLamps } from './headlamps';
+import { makePlan, nearestWeather, trackCondition, WET_RECORD, WeatherDirector, WeatherLog, type WeatherPlan } from './weather';
 
 /** Camera names for the replay overlay. */
 const CAMERA_LABEL: Record<CameraMode, string> = { chase: 'Chase', 'chase-far': 'Chase far', hood: 'Hood', bumper: 'Bumper', cockpit: 'Cockpit', tv: 'TV', orbit: 'Orbit' };
@@ -145,6 +149,21 @@ export class Game {
   private readonly mirrorFrame: MirrorFrame = { mode: 'off', rig: null, hud: false };
   /** The lit headlamps of the cars behind, for the glare in the mirrors at night (see src/game/headlamps.ts). */
   private readonly mirrorLamps = makeMirrorLamps();
+  /** The weather of the race that is loaded, when it changes during the race (null: the weather in the settings, all race long). */
+  private wx: WeatherDirector | null = null;
+  /** What the HUD shows of it (one object, rewritten in place) and the notice on show: "Rain is coming". */
+  private readonly wxHud: HudWeather = { sky: 'clear', rain: 0, wetness: 0, track: 'Dry', forecast: 'rainLater', called: false, notice: null };
+  private wxNotice: { n: NonNullable<HudWeather['notice']>; until: number } | null = null;
+  /** The environment the track scene was last given: it is told again once the weather has moved on. */
+  private readonly wxSent = { rain: -1, wetness: -1, darkness: -1 };
+  /** The weather as it was during the race, for the replay. */
+  private readonly wxLog = new WeatherLog();
+  private readonly wxReplay: WeatherState = { sky: 0, rain: 0, wetness: 0 };
+  /** The water on the track the drivers were built for, and the water each was last told about. */
+  private wxStartWet = 0;
+  private readonly wxTuned = new WeakMap<AIDriver, number>();
+  /** The most water on the track since the player's lap began: a lap on a road that was wet at any point is a wet lap. */
+  private lapWet = 0;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -244,6 +263,9 @@ export class Game {
       difficulty: (p.get('diff') as Difficulty) ?? 'pro',
       environment: { timeOfDay: (p.get('tod') as TimeOfDay) ?? 'golden', weather: (p.get('weather') as Weather) ?? 'clear' },
       startPosition: (p.get('start') as RaceConfig['startPosition']) ?? 'middle',
+      // weather that changes: ?forecast=rainLater|clearing (&wxseed=N picks when and how hard)
+      forecast: (p.get('forecast') as Forecast | null) ?? undefined,
+      forecastSeed: p.has('wxseed') ? +(p.get('wxseed') ?? 1) : undefined,
     };
   }
 
@@ -289,8 +311,8 @@ export class Game {
   }
 
   /** Load the track runtime + scene if it isn't the current one. */
-  private async ensureTrack(trackId: string, env: RaceConfig['environment'], token: number): Promise<boolean> {
-    await this.render.setEnvironment(env);
+  private async ensureTrack(trackId: string, env: RaceConfig['environment'], token: number, forecastTo: Weather | null = null): Promise<boolean> {
+    await (this.render as XenoRenderSystem).setEnvironment(env, forecastTo);
     if (token !== this.loadToken) return false;
     // the scene is reused for the same track, unless the quality or vegetation it was built with has changed since
     const built = `${trackId}|${this.settings.graphics.quality}|${this.settings.graphics.vegetation}`;
@@ -394,6 +416,9 @@ export class Game {
     }
     const sound = withSound ? this.audio.createCarSound(def.sound, entrant.isPlayer) : null;
     this.effects?.registerCar(vehicle.id, def, visual.damage);
+    const driver = ai ? new AIDriver(world.track, def, { difficulty: ai, seed: aiSeed ?? vehicle.id * 17 + slot, wetness: world.wetness }) : null;
+    // a race whose weather changes: the racing line of the other weather is made now, behind the loading screen, not when it turns
+    if (this.wx?.plan) driver?.prepareWeather();
     const car: RaceCar = {
       entrant: { ...entrant, id: vehicle.id, state: vehicle.state },
       def,
@@ -401,7 +426,7 @@ export class Game {
       visual,
       sound,
       // a championship driver keeps the same seed (and so the same pace and mistakes) for the whole season
-      ai: ai ? new AIDriver(world.track, def, { difficulty: ai, seed: aiSeed ?? vehicle.id * 17 + slot, wetness: world.wetness }) : null,
+      ai: driver,
       livery,
       driverId,
     };
@@ -432,6 +457,8 @@ export class Game {
   private async loadAttract(trackId: string, env?: RaceConfig['environment']): Promise<void> {
     const token = ++this.loadToken;
     this.phase = 'loading';
+    this.wx = null;
+    armWeather(this.audio, false);
     const tod = this.track?.info.id === trackId ? this.render.env.settings.timeOfDay : 'golden';
     if (!(await this.ensureTrack(trackId, env ?? { timeOfDay: tod, weather: 'clear' }, token))) return;
     this.clearCars();
@@ -539,13 +566,23 @@ export class Game {
     this.ui.show('loading');
     this.ui.setLoading(0.05, getTrackName(config.trackId));
     this.audio.setMusic(false);
-    if (!(await this.ensureTrack(config.trackId, config.environment, token))) return;
+    // weather that changes: its plan is fixed by the config (so a restart repeats it); the renderer gets both ends of it to
+    // solve and fit before the track is built
+    const plan = this.weatherPlan(config);
+    this.wx = plan ? new WeatherDirector(plan, Math.max(0.1, +(this.params.get('wxspeed') ?? 1) || 1)) : null;
+    armWeather(this.audio, plan !== null);
+    this.wxNotice = null;
+    this.wxLog.reset();
+    if (!(await this.ensureTrack(config.trackId, config.environment, token, plan?.to ?? null))) return;
     this.clearCars();
     const track = this.track!;
     this.world = new PhysicsWorld(track);
     // rain: water on the track for the tires and the AI, the rain bed and wet tires for the audio
     this.world.wetness = this.render.env.wetness;
     this.audio.setWeather(this.render.env.rain, this.render.env.wetness);
+    this.lapWet = this.world.wetness;
+    this.wxStartWet = this.world.wetness;
+    this.wxSent.rain = this.wxSent.wetness = this.wxSent.darkness = -1;
     const def = getCar(config.carId);
     // a championship round brings its own grid: who starts where, with the season's liveries
     const champ = config.mode === 'race' ? config.championship : undefined;
@@ -598,7 +635,10 @@ export class Game {
       if (lap) await this.makeGhost(lap, def, playerLivery);
     }
     this.ghostRec.reset();
-    if (this.params.get('autopilot') === '1') this.autopilot = new AIDriver(track, def, { difficulty: 'alien', seed: 99, wetness: this.world.wetness });
+    if (this.params.get('autopilot') === '1') {
+      this.autopilot = new AIDriver(track, def, { difficulty: 'alien', seed: 99, wetness: this.world.wetness });
+      if (this.wx?.plan) this.autopilot.prepareWeather();
+    }
 
     this.steering.reset();
     this.replay = null;
@@ -640,9 +680,22 @@ export class Game {
     return true;
   }
 
-  /** Records and ghosts are kept apart for wet sessions (a wet lap can't chase a dry one). */
-  private recordTrack(cfg: RaceConfig): string {
-    return this.world && this.world.wetness > 0 ? `${cfg.trackId}~wet` : cfg.trackId;
+  /**
+   * Records and ghosts are kept apart for wet sessions (a wet lap can't chase a dry one). `wetness` is the water on the track:
+   * now, or the most there was during the lap in question. In a race whose weather changes a lap is wet when the road was wet
+   * at any point of it, more than a trace of damp.
+   */
+  private recordTrack(cfg: RaceConfig, wetness = this.world ? this.world.wetness : 0): string {
+    const wet = this.wx?.plan ? wetness >= WET_RECORD : wetness > 0;
+    return wet ? `${cfg.trackId}~wet` : cfg.trackId;
+  }
+
+  /** The plan of the weather of this race (null when it stays as set), with the development flags applied. */
+  private weatherPlan(config: RaceConfig): WeatherPlan | null {
+    const plan = makePlan({ forecast: config.forecast, weather: config.environment.weather, mode: config.mode, laps: config.laps, seed: config.forecastSeed });
+    // development: ?wxat=<seconds> brings the call in at that second of the race
+    const at = this.params.get('wxat');
+    return plan && at !== null && Number.isFinite(+at) ? { ...plan, at: { seconds: +at } } : plan;
   }
 
   private async makeGhost(lap: GhostLap, def: CarDefinition, livery: Livery): Promise<void> {
@@ -1000,6 +1053,9 @@ export class Game {
       if (input.resetCar && session.phase === 'racing') this.resetCar(player);
     }
 
+    // the weather: its state to the physics, the AI, the sound and the picture (nothing to do in a race that stays as set)
+    this.updateWeather(dt, now);
+
     // player controls
     const c = pv.controls;
     if (this.autopilot) {
@@ -1135,10 +1191,19 @@ export class Game {
             const lapLap = this.ghostRec.finish(e.time);
             this.ghostRec.reset();
             const cfg = this.config!;
-            if (e.personalBest) {
-              this.bestLaps = saveBestLap(this.recordTrack(cfg), cfg.carId, e.time);
+            // a lap is dry or wet by the water the road had at any point of it (see recordTrack), and a race whose weather
+            // changes compares it with the best of its own kind, not with the one of the weather the race started in
+            const key = this.recordTrack(cfg, this.lapWet);
+            let pb = e.personalBest;
+            if (this.wx?.plan) {
+              const best = this.bestLaps[recordKey(key, cfg.carId)];
+              pb = best === undefined || e.time < best;
+            }
+            this.lapWet = this.world ? this.world.wetness : 0;
+            if (pb) {
+              this.bestLaps = saveBestLap(key, cfg.carId, e.time);
               this.ui.setBestLaps(this.bestLaps);
-              saveGhost(this.recordTrack(cfg), cfg.carId, lapLap);
+              saveGhost(key, cfg.carId, lapLap);
               if (cfg.mode === 'timeTrial' && this.settings.hud.ghost) {
                 if (this.ghost) {
                   this.ghost.lap = lapLap;
@@ -1192,6 +1257,73 @@ export class Game {
     this.audio.setMusic(true);
   }
 
+  // ───────────────────────────────────────────────────────────────────────────
+  // Weather that changes
+  // ───────────────────────────────────────────────────────────────────────────
+
+  /** Run the weather of the race: the leader's progress calls the change, its state goes to everyone who reads it. */
+  private updateWeather(dt: number, now: number): void {
+    const world = this.world!;
+    this.lapWet = Math.max(this.lapWet, world.wetness);
+    const wx = this.wx;
+    if (!wx?.plan) return;
+    const session = this.session!;
+    const racing = session.phase === 'racing' || session.phase === 'finished';
+    let lead = -Infinity;
+    for (const p of session.progress) if (p.distance > lead) lead = p.distance;
+    const cfg = this.config!;
+    const total = cfg.mode === 'race' ? cfg.laps * this.track!.length : Infinity;
+    wx.update(dt, racing ? lead / total : -1, racing ? world.time - session.startTime : 0);
+    for (const ev of wx.drain()) this.wxNotice = { n: ev.notice, until: now + 9000 };
+    this.wxLog.sample(world.time - (this.replayRec?.t0 ?? 0), wx.state);
+    this.applyWeather(wx.state, true);
+  }
+
+  /**
+   * Hand a weather state to everything that reads it: the physics and the AI (the road's grip), the sound, the picture (sky, rain,
+   * spray) and the track scene (wet shaders, lamp pools). `live`: a race, not a replay: the cars' physics and drivers are not
+   * touched in a replay.
+   */
+  private applyWeather(s: WeatherState, live: boolean): void {
+    if (live && this.world) {
+      this.world.wetness = s.wetness;
+      this.retuneDrivers(s.wetness);
+    }
+    this.audio.setWeather(s.rain, s.wetness);
+    const xr = this.render as XenoRenderSystem;
+    xr.setWeatherState(s);
+    // the track scene reads the environment (the wet look, the lamps' pools): tell it once the weather has moved on a little
+    const env = xr.env;
+    const sent = this.wxSent;
+    if (Math.abs(env.wetness - sent.wetness) > 0.004 || Math.abs(env.rain - sent.rain) > 0.004 || Math.abs(env.darkness - sent.darkness) > 0.004) {
+      sent.wetness = env.wetness;
+      sent.rain = env.rain;
+      sent.darkness = env.darkness;
+      this.trackScene?.setEnvironment(env);
+    }
+  }
+
+  /**
+   * The drivers learn the road is wetter (or drier): each re-derives its speed profile (a pass over the whole racing line, a couple
+   * of ms) and eases into it over a couple of seconds, so one of them a frame and only once the water has moved by a couple of
+   * hundredths since the last time it was told.
+   */
+  private retuneDrivers(wetness: number): void {
+    const cars = this.cars;
+    for (let k = 0; k <= cars.length; k++) {
+      const d = k < cars.length ? cars[k].ai : this.autopilot;
+      if (!d || Math.abs(wetness - (this.wxTuned.get(d) ?? this.wxStartWet)) < 0.02) continue;
+      this.wxTuned.set(d, wetness);
+      d.setWetness(wetness);
+      return;
+    }
+  }
+
+  /** Development: pin the weather of the race at this state (its plan is ignored from now on), e.g. to take pictures of it. */
+  holdWeather(s: Partial<WeatherState>): void {
+    this.wx?.hold(s);
+  }
+
   private startReplay(): void {
     if (!this.replayRec || this.replayRec.frames < 30 || !this.world) return;
     this.replay = { player: new ReplayPlayer(this.replayRec, this.world.states), t: 0, target: this.cars.indexOf(this.player!) };
@@ -1211,6 +1343,8 @@ export class Game {
     // back to the race's own damage
     for (const c of this.cars) c.visual.damage?.replay(null, 0);
     this.effects?.clear();
+    // the weather is the race's own again
+    if (this.wx?.plan) this.applyWeather(this.wx.state, false);
     this.ui.show('results');
     this.audio.setMusic(true);
   }
@@ -1238,6 +1372,8 @@ export class Game {
       this.camera.snap();
     }
     r.player.apply(r.t);
+    // the weather of the race, as it was at this moment of it
+    if (this.wx?.plan && this.wxLog.at(r.t, this.wxReplay)) this.applyWeather(this.wxReplay, false);
     const states = r.player.states;
     this.cars.forEach((c, i) => {
       c.visual.damage?.replay(r.player.rec.damage[i], r.player.frame);
@@ -1334,7 +1470,24 @@ export class Game {
       championship: this.hudChampionship,
       spotter: this.settings.hud.spotter ? this.spotOut : null,
       mirror: (this.render as XenoRenderSystem).mirrorStrip,
+      weather: this.wx?.plan ? this.hudWeather(now) : null,
     };
+  }
+
+  /** The conditions chip of a race whose weather changes, and the notice on show. */
+  private hudWeather(now: number): HudWeather {
+    const h = this.wxHud;
+    const wx = this.wx!;
+    const s = wx.state;
+    h.sky = nearestWeather(wx.plan!, s);
+    h.rain = s.rain;
+    h.wetness = s.wetness;
+    h.track = trackCondition(s.wetness);
+    h.forecast = wx.plan!.forecast;
+    h.called = wx.called;
+    if (this.wxNotice && now > this.wxNotice.until) this.wxNotice = null;
+    h.notice = this.wxNotice ? this.wxNotice.n : null;
+    return h;
   }
 
   // ───────────────────────────────────────────────────────────────────────────

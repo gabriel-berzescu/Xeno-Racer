@@ -165,6 +165,39 @@
 /* the HUD mirror strip owns the top centre: toasts drop below it */
 .xr-hud.has-mirror .hud-toast { top: 192px; }
 
+/* ── weather: the conditions chip under the timing, and the notice card ───────────────────────────────────── */
+
+.hud-wx { right: 56px; top: 330px; width: 404px; height: 52px; display: flex; align-items: center; gap: 14px; padding: 0 22px 0 28px; background: linear-gradient(180deg, rgba(14, 17, 24, 0.78), rgba(7, 9, 13, 0.86)); clip-path: polygon(16px 0, 100% 0, 100% 100%, 0 100%); }
+.hud-wx::after { content: ''; position: absolute; left: 16px; right: 0; top: 0; height: 2px; background: linear-gradient(90deg, var(--warn), rgba(255, 176, 32, 0) 70%); }
+.hud-wx.wet::after { background: linear-gradient(90deg, var(--blue), rgba(74, 168, 255, 0) 70%); }
+.wx-ico { display: block; width: 34px; height: 34px; color: var(--warn); flex: none; }
+.hud-wx.wet .wx-ico { color: var(--blue); }
+.wx-ico svg { display: block; width: 100%; height: 100%; }
+.wx-sky { font: 800 italic 28px / 1 var(--f-display); letter-spacing: 0.06em; text-transform: uppercase; color: #fff; }
+.wx-sep { flex: 1; }
+.wx-trk { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.wx-track { font: 700 24px / 1 var(--f-display); letter-spacing: 0.08em; text-transform: uppercase; color: var(--text); }
+.wx-meter { display: flex; gap: 3px; align-items: flex-end; height: 28px; }
+.wx-meter i { display: block; width: 7px; background: rgba(255, 255, 255, 0.16); transition: background 0.5s var(--ease); }
+.wx-meter i:nth-child(1) { height: 10px; }
+.wx-meter i:nth-child(2) { height: 14px; }
+.wx-meter i:nth-child(3) { height: 18px; }
+.wx-meter i:nth-child(4) { height: 23px; }
+.wx-meter i:nth-child(5) { height: 28px; }
+.wx-meter i.on { background: var(--blue); }
+
+.hud-wxnote { left: 50%; top: 128px; transform: translateX(-50%) translateY(-22px); display: flex; align-items: stretch; min-width: 600px; background: linear-gradient(90deg, rgba(4, 5, 8, 0.92), rgba(4, 5, 8, 0.84)); clip-path: polygon(20px 0, 100% 0, calc(100% - 20px) 100%, 0 100%); opacity: 0; transition: opacity 0.4s var(--ease), transform 0.6s var(--ease); }
+.hud-wxnote.show { opacity: 1; transform: translateX(-50%); }
+.wxn-ico { display: grid; place-items: center; width: 104px; padding-left: 14px; background: linear-gradient(135deg, #5cb4ff, #2f7fe0); color: #04121f; }
+.hud-wxnote.clearing .wxn-ico { background: linear-gradient(135deg, #ffd166, #ffb020); color: #1b1203; }
+.wxn-ico svg { display: block; width: 58px; height: 58px; }
+.wxn-txt { display: flex; flex-direction: column; justify-content: center; gap: 8px; padding: 12px 56px 14px 26px; }
+.wxn-title { font: 900 italic 54px / 1 var(--f-display); letter-spacing: 0.05em; text-transform: uppercase; color: #fff; text-shadow: 0 0 34px rgba(74, 168, 255, 0.55); white-space: nowrap; }
+.hud-wxnote.clearing .wxn-title { text-shadow: 0 0 34px rgba(255, 176, 32, 0.5); }
+.wxn-sub { font: 600 24px / 1 var(--f-display); letter-spacing: 0.1em; text-transform: uppercase; color: rgba(238, 240, 243, 0.78); white-space: nowrap; }
+/* the HUD mirror strip owns the top centre: the card drops below it */
+.xr-hud.has-mirror .hud-wxnote { top: 262px; }
+
 /* ── screen edges: car alongside ───────────────────────────────────────────── */
 /* A bar on the edge that lights up amber, then red, while a car is alongside or closing within a car length. --lv is
    how close (0..1), --at where along your car it is (-1 behind .. 1 ahead). The right edge is the left one flipped. */

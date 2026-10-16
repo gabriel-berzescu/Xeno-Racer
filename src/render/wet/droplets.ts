@@ -33,7 +33,8 @@ uniform vec2 uNearFar;
 uniform float uAspect;
 uniform float uPx;        // one pixel, in picture heights
 uniform float uTime;
-uniform float uRain;      // 0..1
+uniform float uRain;      // 0..1: the rain the wiper is set for (its schedule, how fast the glass refills behind it)
+uniform float uGlass;     // 0..1: how wet the glass is (the drops, the veil); the same as uRain unless the weather is changing
 uniform float uSpeed;     // m/s
 uniform float uLens;      // 0 = windscreen (depth mask), 1 = lens (everywhere)
 uniform float uStrength;  // optical strength of a drop
@@ -148,7 +149,9 @@ Drop beads(vec2 uv, float t, float cells, float live, float stretch, float slide
   vec3 m = hash13(idw.x * 29.19 + idw.y * 177.7 + seed * 5.3);
   float age = fract(t * (0.02 + 0.045 * m.x) + n.z);
   float grow = smoothstep(0.0, 0.3, age) * (1.0 - smoothstep(0.93, 1.0, age));
-  float r = mix(rLo, rHi, m.y) * grow;
+  // a cell that the rising (or falling) rain has only just switched on fades in (out) instead of showing a drop at once
+  float on = smoothstep(0.0, 1.0, (live - n.x) / max(0.35 * live, 1e-5));
+  float r = mix(rLo, rHi, m.y) * grow * on;
   if (r < 0.03) return noDrop();
   // the centre keeps the biggest possible drop inside its own cell, so nothing is clipped by a neighbour
   vec2 c = rHi + (1.0 - 2.0 * rHi) * n.yz;
@@ -185,6 +188,8 @@ Runner runner(vec2 uv, vec2 sh, float t, float vel, float live, float cw, float 
   float id = floor(cx);
   vec3 n = hash13(id * 17.13 + 3.7 + seed);
   if (n.x > live) return o;
+  // (the same fade for the runners: the head grows from nothing, and the trail with it)
+  float on = smoothstep(0.0, 1.0, (live - n.x) / max(0.35 * live, 1e-5));
   float lane = (n.y - 0.5) * cw * 0.5;
   float P = 1.5;
   float v = vel * (0.55 + 0.9 * n.z);
@@ -196,7 +201,7 @@ Runner runner(vec2 uv, vec2 sh, float t, float vel, float live, float cw, float 
   float wobHere = sin((u.y + n.z * 6.0) * 14.0) * wk;
   // the head
   float sr = 1.0 + 4.0 * clamp(abs(v) / 0.42, 0.0, 1.0);
-  float R = 0.0055 + 0.0045 * fract(n.x * 91.7 + n.y * 13.1);
+  float R = (0.0055 + 0.0045 * fract(n.x * 91.7 + n.y * 13.1)) * on;
   vec2 q = vec2(u.x - (x0 + wobHead), u.y - yp) / vec2(R, R * sr);
   float rho = length(q);
   if (rho < 1.25) {
@@ -211,7 +216,7 @@ Runner runner(vec2 uv, vec2 sh, float t, float vel, float live, float cw, float 
   float behind = v >= 0.0 ? yp - u.y : u.y - yp;
   float tl = 0.06 + 0.8 * abs(v);
   float dxT = u.x - (x0 + wobHere);
-  o.tc = step(0.0, behind) * (1.0 - smoothstep(0.0, tl, behind)) * (1.0 - smoothstep(0.5 * o.tw, o.tw, abs(dxT)));
+  o.tc = step(0.0, behind) * (1.0 - smoothstep(0.0, tl, behind)) * (1.0 - smoothstep(0.5 * o.tw, o.tw, abs(dxT))) * on;
   o.tq = dxT / o.tw;
   return o;
 }
@@ -268,21 +273,25 @@ void main() {
   // windscreen: everything beyond the cockpit (dashboard / pillars sit within ~1.5 m); sky counts (depth 1)
   float mask = mix(smoothstep(1.3, 2.4, z), 1.0, uLens);
   vec3 clean = texture2D(tScene, vUv).rgb;
-  if (mask < 0.01 || uRain < 0.02) {
+  if (mask < 0.01 || uGlass < 0.004) {
     gl_FragColor = vec4(clean, 1.0);
     return;
   }
   vec2 uv = vec2(vUv.x * uAspect, vUv.y);
   float fast = smoothstep(2.0, 30.0, uSpeed);
   float vel = mix(-0.025, 0.42, fast);
-  float amount = clamp(0.15 + uRain * 0.6, 0.0, 1.0) * (1.0 - 0.45 * uLens);
+  // (the first drops: from nothing at all, not from the density a light rain starts with)
+  float amount = clamp(0.15 + uGlass * 0.6, 0.0, 1.0) * smoothstep(0.0, 0.14, uGlass) * (1.0 - 0.45 * uLens);
+  // a rain that is only starting leaves a few big drops first, well before the glass is wet: they come in with the rain and the
+  // dense layers take over (exactly nothing from a rain of 0.22 up, so a steady shower or a storm looks as it always did)
+  float first = smoothstep(0.004, 0.03, uGlass) * (1.0 - smoothstep(0.03, 0.22, uGlass)) * (1.0 - 0.45 * uLens);
   float sk = mix(1.0, 0.75, uLens);
   float t = uTime;
 
   vec3 col = clean;
   // coarse to fine: the finest layer is laid down last, on top of the others' picture of the scene
-  col = applyDrop(col, beads(uv, t, 10.0, amount * 0.12 * (1.0 - 0.6 * fast), 1.0 + 0.8 * fast, 0.09 * fast, 0.1 * sk, 0.26 * sk, 11.0), 8.0, mask);
-  col = applyDrop(col, beads(uv, t * 1.1, 24.0, amount * 0.35, 1.0 + 2.0 * fast, 0.035 * fast, 0.14 * sk, 0.32 * sk, 23.0), 6.5, mask);
+  col = applyDrop(col, beads(uv, t, 10.0, amount * 0.12 * (1.0 - 0.6 * fast) + 0.018 * first, 1.0 + 0.8 * fast, 0.09 * fast, 0.1 * sk, 0.26 * sk, 11.0), 8.0, mask);
+  col = applyDrop(col, beads(uv, t * 1.1, 24.0, amount * 0.35 + 0.012 * first, 1.0 + 2.0 * fast, 0.035 * fast, 0.14 * sk, 0.32 * sk, 23.0), 6.5, mask);
   col = applyDrop(col, beads(uv, t * 1.2, 52.0, amount * 0.55, 1.0 + 1.6 * fast, 0.0, 0.16 * sk, 0.36 * sk, 37.0), 5.0, mask);
   col = applyDrop(col, beads(uv, t * 1.3, 120.0, amount * 0.3, 1.0 + 0.6 * fast, 0.0, 0.2 * sk, 0.36 * sk, 53.0), 3.5, mask);
 
@@ -294,7 +303,7 @@ void main() {
   col = applyDrop(col, r.head, 6.5, mask);
 
   // a faint veil of mist over the whole glass (thinner where the blade has just been)
-  float veil = (0.012 + 0.03 * uRain) * (uWiper > 0.5 ? 0.4 + 0.6 * smoothstep(0.0, 2.0, sinceWiped(uv, t)) : 1.0);
+  float veil = (0.012 + 0.03 * uGlass) * (uWiper > 0.5 ? 0.4 + 0.6 * smoothstep(0.0, 2.0, sinceWiped(uv, t)) : 1.0);
   col = mix(col, vec3(dot(col, vec3(0.3333))) * 0.92 + uSky * 0.25, veil * mask);
   vec4 blade = wiperBlade(uv);
   col = mix(col, blade.rgb, blade.a * mask);
@@ -428,7 +437,10 @@ export class DropletPass extends Pass {
   private depthTexture: Texture | null = null;
   private camera3: PerspectiveCamera | null = null;
   private time = 0;
+  /** The rain the wiper is set for: its schedule and the audio's are built on it, so it only changes when the blade is parked. */
   rain = 0;
+  /** How wet the glass is, 0..1 (what the drops and the veil are drawn from). Negative: the same as `rain`. */
+  glass = -1;
   speed = 0;
   lens = false;
   strength = 1;
@@ -450,6 +462,7 @@ export class DropletPass extends Pass {
         uPx: { value: 1 / 900 },
         uTime: { value: 0 },
         uRain: { value: 0 },
+        uGlass: { value: 0 },
         uSpeed: { value: 0 },
         uLens: { value: 0 },
         uStrength: { value: 1 },
@@ -513,6 +526,7 @@ export class DropletPass extends Pass {
     u.uPx.value = 1 / Math.max(1, inputBuffer.height);
     u.uTime.value = this.time;
     u.uRain.value = this.rain;
+    u.uGlass.value = this.glass >= 0 ? this.glass : this.rain;
     u.uSpeed.value = this.speed;
     u.uLens.value = this.lens ? 1 : 0;
     u.uStrength.value = this.strength;

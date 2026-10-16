@@ -108,6 +108,8 @@ export class WeatherSystem {
   /** Called when a lightning strike happens (the thunder follows `delaySeconds` later). Optional. */
   onStrike: ((s: StrikeInfo) => void) | null = null;
   private target = 0;
+  /** Keep the voice alive (asleep) while it is not raining, for a race that rain is coming to (see arm). */
+  private armed = false;
   private node: WeatherNodeLike | null = null;
   private failed = false;
   private idle = 0;
@@ -141,6 +143,15 @@ export class WeatherSystem {
     return this.sched.count;
   }
 
+  /**
+   * Have the worklet voice built and waiting, silent, for a race whose rain is still to come. A voice is built where it is first
+   * needed, which costs the audio thread tens of milliseconds (the drop prototypes are synthesised): a dropout, harmless behind a
+   * loading screen but not as the rain arrives in the middle of a race.
+   */
+  arm(on: boolean): void {
+    this.armed = on;
+  }
+
   set(rain: number): void {
     const r = unit(rain);
     if (r === this.target) return;
@@ -154,7 +165,7 @@ export class WeatherSystem {
   update(dt: number, interior: number, speed: number, muted: boolean): void {
     if (this.disposed) return;
     if (!(dt > 0) || !Number.isFinite(dt)) dt = 0;
-    if (this.target > 0 && !this.node && !this.failed) {
+    if ((this.target > 0 || this.armed) && !this.node && !this.failed) {
       if (!this.host.ready()) return;
       try {
         this.node = this.host.makeNode(this.seed);
@@ -194,7 +205,7 @@ export class WeatherSystem {
       }
     }
 
-    if (this.target === 0) {
+    if (this.target === 0 && !this.armed) {
       this.idle += dt;
       if (this.idle >= WEATHER_FADE_OUT_S) this.drop();
     } else this.idle = 0;

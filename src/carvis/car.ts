@@ -635,11 +635,13 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
       // the light through the glass: the sun rarely reaches the dash and wheel under the roof, and with the black trim
       // the cockpit view fell to pure black even at noon (QA). A soft window light all day, fading out after dusk.
       IU.uFill.value = 0.055 * (1 - env.darkness);
-      // rain: wet paint (shader), a glossier and darker far LOD, shinier tyres
-      U.uWet.value = env.wetness;
+      // rain: wet paint (shader), a glossier and darker far LOD, shinier tyres. The car is wet as soon as the drops fall on it,
+      // before the road has caught up (a fixed weather has both at once: the rain is never wetter than the track)
+      const wet = Math.max(env.wetness, env.rain * 0.85);
+      U.uWet.value = wet;
       U.uSpd.value = state.speed;
-      if (env.wetness !== lastWet) {
-        lastWet = env.wetness;
+      if (wet !== lastWet) {
+        lastWet = wet;
         farMat.roughness = farBaseRough * (1 - 0.5 * lastWet);
         farMat.color.setScalar(1 - 0.14 * lastWet);
         WU.uWet.value = lastWet;
@@ -668,7 +670,8 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
       U.uTail.value = 0.12 + 0.88 * head;
       U.uBrake.value = state.brake > 0.05 ? 1 : 0;
       U.uRev.value = state.gear === -1 ? 1 : 0;
-      const wantSpots = dark > CARVIS_TUNING.headlightOnDarkness;
+      // (the spotlights are fitted for the darkest this race gets: switching one on changes what every lit material is built from)
+      const wantSpots = Math.max(dark, env.peakDarkness ?? 0) > CARVIS_TUNING.headlightOnDarkness;
       if (wantSpots !== spotsOn) {
         spotsOn = wantSpots;
         for (const s of spots) s.visible = playerMode && spotsOn;

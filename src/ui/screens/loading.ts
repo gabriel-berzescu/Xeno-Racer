@@ -13,6 +13,7 @@ export const LOADING_TIPS: readonly string[] = [
   'Look through the corner, not at the wall. The car follows your eyes.',
   'Curbs are fast but they unsettle the car. Use the flat ones, avoid the tall ones.',
   'Rain, dusk and night change grip and visibility. Try the same track at a different time of day.',
+  'When rain is on the way the track does not wet at once: it takes a lap or two. The first drops are your cue to brake earlier and keep off the kerbs.',
   'Stability control is a safety net, not a crutch. Turn it down as your confidence grows.',
   'Hold RS in (or V) to look behind you before defending a position.',
   'Set a lap in Time Trial first. Your best lap becomes the delta on the HUD in every session.',
@@ -90,7 +91,7 @@ export class LoadingScreen extends BaseScreen {
     this.facts.textContent = track
       ? ch && cfg
         ? `${formatLength(track.lengthHint, this.ctx.settings.units)}  ·  ${lapsLabel(cfg.laps)}  ·  ${formatConditions(cfg.environment)}`
-        : `${formatLength(track.lengthHint, this.ctx.settings.units)}  ·  ${cfg?.mode === 'race' ? cfg.laps + (cfg.laps === 1 ? ' lap' : ' laps') : cfg?.mode === 'timeTrial' ? 'Time trial' : 'Free roam'}`
+        : `${formatLength(track.lengthHint, this.ctx.settings.units)}  ·  ${cfg?.mode === 'race' ? cfg.laps + (cfg.laps === 1 ? ' lap' : ' laps') : cfg?.mode === 'timeTrial' ? 'Time trial' : 'Free roam'}${cfg?.forecast ? '  ·  ' + formatConditions(cfg.environment, cfg.forecast) : ''}`
       : '';
     clearEl(this.rounds);
     this.rounds.style.display = ch ? '' : 'none';

@@ -212,7 +212,8 @@ export class RainField {
    */
   update(dt: number, cx: number, cy: number, cz: number, fx: number, fz: number, camVx: number, camVy: number, camVz: number, rain: number, windX: number, windZ: number, shelter: number, night: number): void {
     const density = Math.max(0, Math.min(1, rain)) * (1 - shelter);
-    if (density < 0.01) {
+    // (the first drops of a rain that starts part way through a race are single streaks: no density is too small to show)
+    if (density * this.max < 1) {
       this.mesh.visible = false;
       this.geom.instanceCount = 0;
       return;

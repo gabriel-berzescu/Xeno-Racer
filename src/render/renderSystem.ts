@@ -26,6 +26,7 @@ import {
   FogExp2,
   HalfFloatType,
   HemisphereLight,
+  MeshDepthMaterial,
   NoToneMapping,
   PCFShadowMap,
   PerspectiveCamera,
@@ -44,15 +45,18 @@ import type {
   EnvironmentState,
   GraphicsSettings,
   QualityLevel,
+  Weather,
+  WeatherState,
 } from '../core/contracts';
 import { WEATHER_WATER } from '../core/contracts';
 import type { RenderSystem } from '../core/systems';
 import { FOG_TABLE_SIZE } from './atmosphere';
-import { solveEnvironment, type EnvSolution } from './environment';
+import { casterKinds } from './casters';
+import { blendInto, cloneSolution, solveEnvironment, type EnvSolution } from './environment';
 import { FinalEffect, SpeedEffect } from './effects-post';
 import { ParticlePass, particleUniforms, ShaftsPass } from './post';
 import { MirrorSystem, type MirrorFrame } from './mirrors';
-import { DropletPass, makeWiperFeed, type WiperFeed } from './wet/droplets';
+import { DropletPass, makeWiperFeed, makeWiperState, wiperStateInto, type WiperFeed } from './wet/droplets';
 import { SSRPass } from './wet/ssr';
 import { installShaderPatches, XR_LAMPS, xrFogUniform, xrLampColUniform, xrLampUniform, xrLampUpUniform } from './shaderPatches';
 import { SHADOW_OFF, shadowConfigFor, SunShadows } from './shadows';
@@ -99,6 +103,22 @@ export interface XenoRenderSystem extends RenderSystem {
     /** Per-pass GPU timing into stats.passMs (replaces the whole-frame query while on). */
     profile: boolean;
   };
+  /**
+   * `forecastTo` makes the weather one that changes: the sky will move between the weather of `e` and this one (rain later: a dry
+   * `e` and a wet `forecastTo`; clearing: the other way round), driven by setWeatherState() every frame. Both looks are solved
+   * here, and the shadow cascades and the headlights are fitted for the darkest and the sunniest of the two, so that nothing the
+   * change needs is built, switched or compiled once the race is on. Without it the weather is fixed.
+   */
+  setEnvironment(e: EnvironmentSettings, forecastTo?: Weather | null): Promise<void>;
+  /**
+   * What the weather is doing this frame (see WeatherState). The rain and the water on the track are the renderer's `env.rain`
+   * and `env.wetness` at once, for the effects, the track scene and the cars; in a race whose weather changes the sky, the light,
+   * the fog and the exposure follow `sky` on the next render() (the environment map is captured again now and then, never more
+   * than once a second, and the light it gives is scaled in between so that the picture does not step).
+   */
+  setWeatherState(s: WeatherState): void;
+  /** This race's weather changes (setEnvironment was given a `forecastTo`). */
+  readonly changing: boolean;
   /** Pin the cloud animation clock (deterministic screenshots). */
   setCloudTime(t: number): void;
   /**
@@ -177,6 +197,9 @@ const MIN_SCALE = 0.4;
 /** Weather shadow strength below which the sun's cascaded shadow maps are not rendered at all. */
 const SHADOWLESS_BELOW = 0.06;
 
+/** Luminance of a linear colour. */
+const lumOf = (c: readonly number[]): number => c[0] * 0.2126 + c[1] * 0.7152 + c[2] * 0.0722;
+
 function smoothstep(a: number, b: number, x: number): number {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
   return t * t * (3 - 2 * t);
@@ -247,7 +270,42 @@ class RenderSystemImpl implements XenoRenderSystem {
   private lampLit = false;
   /** True during the hidden warm-up frame (renderNow). */
   private warming = false;
+  /** The pipeline was rebuilt in a race that rain can come to: the next frame draws its wet-weather passes once (see render). */
+  private rewarm = false;
+  /** This frame draws the wet-weather passes whatever the weather: the warm-up frame, or the first one after a rebuild. */
+  private warmPasses = false;
+  /** The depth materials the warm-up frame built the shadow pass's programs with (see renderNow). */
+  private warmDepth: MeshDepthMaterial[] = [];
   private readonly mirrors: MirrorSystem;
+  /** The weather this frame (setWeatherState): the rain and the water are `env`'s at once, the sky waits for render(). */
+  private readonly wx: WeatherState = { sky: 0, rain: 0, wetness: 0 };
+  /**
+   * A race whose weather changes: the two looks it moves between, and the blend of them that is on screen (rewritten in place).
+   * `sky` and `rain` are what the blend was made for; `cap` is what the environment map was last captured for.
+   */
+  private fc: {
+    dry: EnvSolution;
+    wet: EnvSolution;
+    mix: EnvSolution;
+    sky: number;
+    rain: number;
+    cap: { sky: number; at: number; ambient: number };
+  } | null = null;
+  /** Seconds of render time (the environment map is captured at most once a second). */
+  private clock = 0;
+  /** Light of the environment map now over the light it was captured with: it carries the picture between two captures. */
+  private envScale = 1;
+  /** Do the shadow maps matter (is there a sun)? When not, a race that keeps its cascades through the rain stops drawing them. */
+  private shadowsLive = true;
+  /** The rain on the glass: wet within seconds of the first drops, dry again only slowly. */
+  private glass = 0;
+  /** The driver has put the wipers on. */
+  private wiperOn = false;
+  /** The rain the wipers are set for: the blade's schedule and its sound are built on it, so it changes only while the blade is parked. */
+  private wipeRain = 0;
+  /** Seconds a change of the wiper setting has waited for the blade to be parked. */
+  private wipeWait = 0;
+  private readonly wipeState = makeWiperState();
 
   private readonly hemi = new HemisphereLight(0xffffff, 0x444444, 1);
   private readonly fog = new FogExp2(0x9fb4c8, 0.0002);
@@ -335,6 +393,11 @@ class RenderSystemImpl implements XenoRenderSystem {
       if (this.solution && !this.disposed) {
         this.captureEnvironment(this.solution);
         this.sun.markDirty();
+        // (a changing weather: the map was just captured for the sky as it is now)
+        if (this.fc) {
+          this.fc.cap = { sky: this.fc.sky, at: this.clock, ambient: lumOf(this.fc.mix.skyAmbient) };
+          this.envScale = 1;
+        }
       }
     };
     canvas.addEventListener('webglcontextrestored', this.onContextRestored);
@@ -347,11 +410,16 @@ class RenderSystemImpl implements XenoRenderSystem {
 
   // ───────────────────────────── public API ─────────────────────────────
 
-  async setEnvironment(e: EnvironmentSettings): Promise<void> {
+  async setEnvironment(e: EnvironmentSettings, forecastTo: Weather | null = null): Promise<void> {
     const token = ++this.envToken;
     const sol = await solveEnvironment(e, yieldToBrowser);
+    // the other end of a weather that changes: the same light, the other weather (cached, so a restart costs nothing)
+    const other = forecastTo && forecastTo !== e.weather ? await solveEnvironment({ ...e, weather: forecastTo }, yieldToBrowser) : null;
     if (token !== this.envToken || this.disposed) return;
-    this.applySolution(sol);
+    this.fc = null;
+    // (a forecast has to join a dry weather and a wet one: anything else is just the start weather)
+    if (other && (other.deck > 0) !== (sol.deck > 0)) this.applyForecast(sol, other);
+    else this.applySolution(sol);
     // Dry <-> wet swaps the shadow programs of everything that receives shadows. With a track already in the scene
     // that is a multi-second compile: take it now, under the caller's loading screen, not in the first frame.
     if (this.shadowProgramsChanged) {
@@ -396,10 +464,29 @@ class RenderSystemImpl implements XenoRenderSystem {
     // the hidden warm-up frame draws every mirror once too, so their targets and passes exist before the race
     this.mirrors.forceNext();
     this.warming = true;
+    // The shadow pass of this frame draws one caster of every kind of depth program wherever it stands, each with a depth material
+    // of its own (see casterKinds). three.js draws all that has no alpha test with one shared depth material, and it picks the
+    // program for it again only when the kind of draw changes (instanced or not): which programs get built then depends on the
+    // order in which the casters happen to be drawn, and the one a race needs may only come when the car gets to a fence.
+    const kinds = this.sun.cascadeCount > 0 ? casterKinds(this.scene) : [];
+    const saved = kinds.map((o) => ({ culled: o.frustumCulled, depth: o.customDepthMaterial }));
+    const depth = kinds.map(() => new MeshDepthMaterial());
+    kinds.forEach((o, i) => {
+      o.frustumCulled = false;
+      o.customDepthMaterial = depth[i];
+    });
     try {
       this.render(camera, dt, speed);
     } finally {
       this.warming = false;
+      kinds.forEach((o, i) => {
+        o.frustumCulled = saved[i].culled;
+        o.customDepthMaterial = saved[i].depth;
+      });
+      // (these keep the programs they built alive, until the next warm-up has built the same again: a program with no material
+      // left is deleted, and built again when the race needs it)
+      for (const m of this.warmDepth) m.dispose();
+      this.warmDepth = depth;
     }
   }
 
@@ -434,8 +521,24 @@ class RenderSystemImpl implements XenoRenderSystem {
     this.sky.setTime(t);
   }
 
+  setWeatherState(s: WeatherState): void {
+    const wx = this.wx;
+    wx.sky = Math.min(1, Math.max(0, s.sky));
+    wx.rain = Math.min(1, Math.max(0, s.rain));
+    wx.wetness = Math.min(1, Math.max(0, s.wetness));
+    // the rain and the water reach everyone who reads them at once (the effects, the track scene, the cars); the sky waits for render()
+    this.env.rain = wx.rain;
+    this.env.wetness = wx.wetness;
+  }
+
+  get changing(): boolean {
+    return this.fc !== null;
+  }
+
   lightning(strength: number, bearing?: number): void {
-    if (!(strength > 0.01)) return;
+    // a flash only belongs to storm-strength rain (a strike scheduled for a storm that has since eased, or a race that has not
+    // got there yet, shows nothing)
+    if (!(strength > 0.01) || this.env.rain < 0.7) return;
     this.flashAmp = Math.min(1, strength);
     this.flashT = 0;
     const az = bearing !== undefined && Number.isFinite(bearing) ? bearing : Math.random() * Math.PI * 2;
@@ -470,7 +573,7 @@ class RenderSystemImpl implements XenoRenderSystem {
     const add = f * 0.55 / Math.max(sol.exposure, 0.5);
     this.sky.setFlash(f, add * 0.92, add * 0.96, add * 1.06, this.flashDirX, this.flashDirZ);
     this.hemi.intensity = 1 + gain;
-    this.scene.environmentIntensity = sol.envIntensity * (1 + gain);
+    this.scene.environmentIntensity = sol.envIntensity * this.envScale * (1 + gain);
     const haze = 1 + f * (1.5 + 2 * dark);
     const fa = xrFogUniform.value;
     for (let k = 0; k < FOG_TABLE_SIZE; k++) {
@@ -540,13 +643,31 @@ class RenderSystemImpl implements XenoRenderSystem {
     dt = Number.isFinite(dt) && dt > 0 ? Math.min(Math.max(dt, 1 / 500), 0.25) : 1 / 60;
     if (!Number.isFinite(speed)) speed = 0;
 
+    // A pipeline rebuilt in the middle of a race (a change of the graphics settings) has new wet-weather passes, and a pass builds
+    // its programs when it is first drawn: so the first frame after the rebuild draws them once, as the warm-up frame does (nothing
+    // of them shows while there is no rain on the glass or water on the road), and the rain does not find them unbuilt.
+    this.warmPasses = this.warming || this.rewarm;
+    this.rewarm = false;
+
     this.sky.update(dt);
+    this.updateWeatherLook(dt);
     this.updateFlash(dt);
-    if (this.ssrPass) this.ssrPass.enabled = this.env.wetness > 0.02;
+    // (the warm-up frame runs the wet-road reflections too wherever rain can come, so their programs are built behind the loading screen)
+    if (this.ssrPass) this.ssrPass.enabled = this.env.wetness > 0.02 || (this.warmPasses && this.wetPossible);
     this.updateDroplets(camera, dt, speed);
     this.updateLamps(camera, dt);
     this.frameIndex++;
-    this.renderer.shadowMap.needsUpdate = this.sun.update(this.focus, this.frameIndex);
+    // A race whose weather changes keeps its cascades through the rain (taking them away would change every program) and fades
+    // their strength to nothing: with no sun to cast them the maps are not drawn at all, and drawn at once when it comes back.
+    // (The first draw of the shadow pass makes the maps and builds its depth programs, and nothing sampling a map that does not
+    // exist can be drawn at all: so the hidden warm-up frame draws them whatever the sky, and so does any frame that finds a map
+    // missing, as after a change of the shadow quality in the middle of a storm.)
+    const mapsReady = this.sun.mapsReady;
+    if (!mapsReady) this.sun.markDirty();
+    const sunny = !this.fc || this.warming || !mapsReady || (this.solution?.shadowIntensity ?? 1) >= 0.004;
+    if (sunny && !this.shadowsLive) this.sun.markDirty();
+    this.shadowsLive = sunny;
+    this.renderer.shadowMap.needsUpdate = this.sun.update(this.focus, this.frameIndex) && sunny;
     this.updateSpeedEffects(camera, dt, speed);
     this.updateShafts(camera);
     if (this.finalEffect) this.finalEffect.seed = (this.frameIndex % 64) / 64;
@@ -556,7 +677,7 @@ class RenderSystemImpl implements XenoRenderSystem {
     this.composer.render(dt);
     // The mirrors after the picture: this frame's shadow maps are done (no mirror pass draws them again) and the glass in
     // the next picture shows what is drawn here, a frame behind, which a mirror does not show.
-    this.mirrors.setWeather(this.env.rain);
+    this.mirrors.setWeather(this.glass);
     this.mirrors.render(camera, dt, this.stats.height, this.pixelRatio, this.cssW, this.cssH);
     this.mirrors.drawStrip(this.cssW, this.cssH, this.pixelRatio);
     this.endGpu();
@@ -579,6 +700,8 @@ class RenderSystemImpl implements XenoRenderSystem {
     this.disposePipeline();
     this.aoPass?.dispose();
     this.aoPass = null;
+    for (const m of this.warmDepth) m.dispose();
+    this.warmDepth = [];
     this.renderPass.dispose();
     this.particlePass.dispose();
     this.compileTarget?.dispose();
@@ -654,10 +777,21 @@ class RenderSystemImpl implements XenoRenderSystem {
     if (this.solution) this.applyExposure();
   }
 
-  /** Cascades follow the graphics setting, unless the weather has no sun to cast them (rain, storm). */
+  /** Is there a sun to cast shadows at some point of this weather (a changing one: at either end of it)? */
+  private shadowsWanted(sol: EnvSolution): boolean {
+    const fc = this.fc;
+    return (fc ? Math.max(fc.dry.shadowIntensity, fc.wet.shadowIntensity) : sol.shadowIntensity) >= SHADOWLESS_BELOW;
+  }
+
+  /** Rain can come in this race: the weather changes, or it is wet already. */
+  private get wetPossible(): boolean {
+    return this.fc !== null || this.env.rain > 0 || this.env.wetness > 0;
+  }
+
+  /** Cascades follow the graphics setting, unless the weather has no sun to cast them (rain, storm) at any point of the race. */
   private configureShadows(): void {
     const g = this.graphics;
-    const shadowless = this.solution !== null && this.solution.shadowIntensity < SHADOWLESS_BELOW;
+    const shadowless = this.solution !== null && !this.shadowsWanted(this.solution);
     const cfg = shadowless ? SHADOW_OFF : shadowConfigFor(g.shadows, g.quality);
     this.sun.configure(cfg);
     this.stats.cascades = this.sun.cascadeCount;
@@ -809,6 +943,8 @@ class RenderSystemImpl implements XenoRenderSystem {
     composer.setMainCamera(this.camera);
     if (this.aoPass) this.aoPass.camera = this.camera;
 
+    // (a rebuild in the middle of a race: the new wet-weather passes are drawn once on the next frame, see render)
+    this.rewarm = !force && this.wetPossible;
     if (this.solution) this.applyExposure();
   }
 
@@ -928,13 +1064,22 @@ class RenderSystemImpl implements XenoRenderSystem {
     const p = this.dropletPass;
     if (!p) return;
     const rain = this.env.rain;
+    // The glass wets within seconds of the first drops and dries more slowly than the rain stops: so the first drops are drops, and
+    // the last ones do not vanish.
+    this.glass += (rain - this.glass) * (1 - Math.exp(-dt / (rain > this.glass ? 2.5 : 16)));
+    if (rain === 0 && this.glass < 5e-4) this.glass = 0;
     camera.getWorldPosition(this._camPos);
     const d = this._camPos.distanceTo(this.focus);
     const interior = d < 3.4;
-    // (the hidden warm-up frame runs the pass wherever the camera is, so its program is built behind the loading screen)
-    p.enabled = rain > 0.02 && (interior || this.warming);
+    const live = this.glass > 0.004 && interior;
+    // (a warm-up frame runs the pass wherever the camera is, so that its program is built before the rain, wherever rain can
+    // come: with no drops to show there it leaves the picture as it is)
+    p.enabled = live || (this.warmPasses && this.wetPossible);
     if (!p.enabled) return;
-    p.rain = rain;
+    this.updateWiper(p.clock, dt);
+    p.rain = this.wipeRain;
+    p.glass = live ? this.glass : 0;
+    p.wiper = this.wiperOn;
     p.speed = speed;
     const cockpit = this.cockpitView ?? d < 1.4;
     p.lens = !cockpit;
@@ -949,6 +1094,31 @@ class RenderSystemImpl implements XenoRenderSystem {
     p.tick(dt);
   }
 
+  /**
+   * The driver's wipers: on once the glass is beaded (and off when it is clear), and set for the rain on the glass as it is, in
+   * steps. The setting is the rain the blade's schedule and its sound are built on, and a different one is a different period,
+   * which would put the blade somewhere else at once and make the sound start over: so a change is made while the blade is parked,
+   * in the schedule it leaves and in the one it joins (or after a few seconds, if that does not come).
+   */
+  private updateWiper(clock: number, dt: number): void {
+    const g = this.glass;
+    const on = this.wiperOn ? g >= 0.05 : g > 0.2;
+    const rain = on && (!this.wiperOn || Math.abs(g - this.wipeRain) > 0.1) ? g : this.wipeRain;
+    if (on === this.wiperOn && rain === this.wipeRain) {
+      this.wipeWait = 0;
+      return;
+    }
+    this.wipeWait += dt;
+    const s = this.wipeState;
+    const parkedNow = !this.wiperOn || wiperStateInto(s, clock, this.wipeRain).stroke === 'parked';
+    const parkedNext = !on || wiperStateInto(s, clock, rain).stroke === 'parked';
+    if ((parkedNow && parkedNext) || this.wipeWait > 6) {
+      this.wiperOn = on;
+      this.wipeRain = rain;
+      this.wipeWait = 0;
+    }
+  }
+
   private readonly _sunWorld = new Vector3();
   private readonly _sunNdc = new Vector3();
   private readonly _camFwd = new Vector3();
@@ -960,7 +1130,16 @@ class RenderSystemImpl implements XenoRenderSystem {
     const sol = this.solution;
     if (!pass || !blend || !sol) return;
     const sd = sol.sunDir;
-    if (sol.tod.moon || sd[1] < -0.02 || sol.weather.overcast > 0.6) {
+    // (a changing weather runs the pass in the hidden warm-up frame wherever the sun can come out, so that its two programs are
+    // built behind the loading screen and not when the sun first shows)
+    if (this.warmPasses && this.fc && !sol.tod.moon && sd[1] > -0.02) {
+      pass.strength = 0.001;
+      pass.enabled = true;
+      blend.blendMode.opacity.value = 0;
+      return;
+    }
+    // (the shafts are faded out by the cloud before they are cut: overcast 0.83 is where `clear` below reaches 0)
+    if (sol.tod.moon || sd[1] < -0.02 || sol.weather.overcast > 0.83) {
       pass.enabled = false;
       blend.blendMode.opacity.value = 0;
       return;
@@ -984,14 +1163,64 @@ class RenderSystemImpl implements XenoRenderSystem {
     blend.blendMode.opacity.value = on ? 1 : 0;
   }
 
+  /** Set the environment of a fixed weather, or the first look of a changing one (`sol` is then its blend): everything, once. */
   private applySolution(sol: EnvSolution): void {
     const hadShadows = this.sun.cascadeCount > 0;
     this.solution = sol;
-    this.sky.apply(sol);
-    if (this.graphics.shadows !== 'off' && hadShadows !== sol.shadowIntensity >= SHADOWLESS_BELOW) {
+    if (this.graphics.shadows !== 'off' && hadShadows !== this.shadowsWanted(sol)) {
       this.configureShadows();
       this.shadowProgramsChanged = true;
     }
+    this.applyLook(sol);
+    this.sun.setDirection(new Vector3(sol.sunDir[0], sol.sunDir[1], sol.sunDir[2]));
+    this.envScale = 1;
+    this.captureEnvironment(sol);
+
+    // public state
+    const env = this.env;
+    env.settings = { ...sol.settings };
+    env.sunDirection.set(sol.sunDir[0], sol.sunDir[1], sol.sunDir[2]);
+    if (!this.fc) {
+      const w = WEATHER_WATER[sol.settings.weather];
+      this.wx.sky = sol.deck > 0 ? 1 : 0;
+      this.wx.rain = w.rain;
+      this.wx.wetness = w.wetness;
+    }
+    env.rain = this.wx.rain;
+    env.wetness = this.wx.wetness;
+    // the rain is on the glass from the start (a changing weather starts with the glass as dry or as wet as its first weather)
+    this.glass = env.rain;
+    this.wiperOn = this.glass > 0.2;
+    this.wipeRain = env.rain;
+    this.wipeWait = 0;
+    const e = sol.exposure;
+    const toDisplay = (x: number) => 1 - Math.exp(-x * e * 1.1);
+    env.fogColor = '#' + new Color().setRGB(toDisplay(sol.fogColor[0]), toDisplay(sol.fogColor[1]), toDisplay(sol.fogColor[2])).getHexString();
+  }
+
+  /** A weather that changes: from now on the look is a blend of the two ends, starting from the end `start` is. */
+  private applyForecast(start: EnvSolution, other: EnvSolution): void {
+    const startWet = start.deck > 0;
+    const dry = startWet ? other : start;
+    const wet = startWet ? start : other;
+    const mix = cloneSolution(dry);
+    const w = WEATHER_WATER[start.settings.weather];
+    this.wx.sky = startWet ? 1 : 0;
+    this.wx.rain = w.rain;
+    this.wx.wetness = w.wetness;
+    this.fc = { dry, wet, mix, sky: this.wx.sky, rain: this.wx.rain, cap: { sky: this.wx.sky, at: 0, ambient: 1 } };
+    blendInto(mix, dry, wet, this.wx.sky, this.wx.rain);
+    this.applySolution(mix);
+    this.fc.cap.ambient = lumOf(mix.skyAmbient);
+  }
+
+  /**
+   * What follows the look of the weather and may change every frame of a changing one: the sky, fog, light, particles and
+   * exposure. Cheap (uniforms and colours); the sky LUT, the cascades and the environment map are not touched.
+   */
+  private applyLook(sol: EnvSolution): void {
+    this.solution = sol;
+    this.sky.apply(sol);
 
     // fog
     this.fog.density = sol.fogDensity;
@@ -1001,7 +1230,7 @@ class RenderSystemImpl implements XenoRenderSystem {
     fa[0] = hl > 1e-5 ? sol.sunDir[0] / hl : 1;
     fa[1] = hl > 1e-5 ? sol.sunDir[2] / hl : 0;
     fa[2] = sol.rainFog;
-    fa[3] = sol.deck > 0 ? 2 : 1;
+    fa[3] = 1 + sol.deck;
     for (let k = 0; k < FOG_TABLE_SIZE; k++) {
       fa[(k + 1) * 4] = sol.fogTable[k * 3];
       fa[(k + 1) * 4 + 1] = sol.fogTable[k * 3 + 1];
@@ -1015,7 +1244,6 @@ class RenderSystemImpl implements XenoRenderSystem {
     fa[dk + 3] = 0;
 
     // lights
-    this.sun.setDirection(new Vector3(sol.sunDir[0], sol.sunDir[1], sol.sunDir[2]));
     this.sun.setLight(sol.lightColor, sol.lightIntensity);
     this.sun.setShadowIntensity(sol.shadowIntensity);
     this.hemi.color.setRGB(sol.hemiSky[0], sol.hemiSky[1], sol.hemiSky[2]);
@@ -1032,20 +1260,44 @@ class RenderSystemImpl implements XenoRenderSystem {
     pu.uFogDensity.value = sol.fogDensity;
     pu.uFogLin.value = sol.rainFog;
 
-    this.captureEnvironment(sol);
     this.applyExposure();
 
-    // public state
     const env = this.env;
-    env.settings = { ...sol.settings };
-    env.sunDirection.set(sol.sunDir[0], sol.sunDir[1], sol.sunDir[2]);
     env.sunIntensity = sol.lightIntensity;
     env.darkness = sol.darkness;
-    env.rain = WEATHER_WATER[sol.settings.weather].rain;
-    env.wetness = WEATHER_WATER[sol.settings.weather].wetness;
-    const e = sol.exposure;
-    const toDisplay = (x: number) => 1 - Math.exp(-x * e * 1.1);
-    env.fogColor = '#' + new Color().setRGB(toDisplay(sol.fogColor[0]), toDisplay(sol.fogColor[1]), toDisplay(sol.fogColor[2])).getHexString();
+    env.peakDarkness = this.fc ? Math.max(this.fc.dry.darkness, this.fc.wet.darkness) : sol.darkness;
+  }
+
+  /** setWeatherState's sky, on screen: blend the two looks and apply the result. Runs at the top of every render(). */
+  private updateWeatherLook(dt: number): void {
+    this.clock += dt;
+    const fc = this.fc;
+    if (!fc) return;
+    const wx = this.wx;
+    if (Math.abs(wx.sky - fc.sky) < 1e-4 && Math.abs(wx.rain - fc.rain) < 1e-4) return;
+    fc.sky = wx.sky;
+    fc.rain = wx.rain;
+    blendInto(fc.mix, fc.dry, fc.wet, wx.sky, wx.rain);
+    this.applyLook(fc.mix);
+    this.refreshEnvironment(fc);
+  }
+
+  /**
+   * The environment map is the one thing of the look that is not a few uniforms: capturing it is a cube render and a convolution.
+   * So it is captured again when the sky has moved on and at most once a second, and the light it gives is scaled in between by
+   * how much the sky's light has changed since the capture (the colour of the reflections steps a little, the brightness does not).
+   */
+  private refreshEnvironment(fc: NonNullable<RenderSystemImpl['fc']>): void {
+    const sol = fc.mix;
+    const ambient = lumOf(sol.skyAmbient);
+    if (Math.abs(fc.sky - fc.cap.sky) >= 0.012 && this.clock - fc.cap.at >= 1) {
+      this.captureEnvironment(sol);
+      fc.cap.sky = fc.sky;
+      fc.cap.at = this.clock;
+      fc.cap.ambient = ambient;
+    }
+    this.envScale = fc.cap.ambient > 1e-9 ? ambient / fc.cap.ambient : 1;
+    this.scene.environmentIntensity = sol.envIntensity * this.envScale;
   }
 
   private captureEnvironment(sol: EnvSolution): void {

@@ -1,12 +1,12 @@
-import { WEATHER_WATER, type ChampionshipRoundDef, type InputFrame, type MinimapTrack, type RaceMode, type TrackInfo } from '../../core/contracts';
+import { WEATHER_WATER, type ChampionshipRoundDef, type Forecast, type InputFrame, type MinimapTrack, type RaceMode, type TrackInfo } from '../../core/contracts';
 import type { ScreenId } from '../../core/systems';
 import type { UiCtx } from '../ctx';
 import { clearEl, h } from '../dom';
 import { formatConditions, formatLapTime, formatLength, lapsLabel, TIME_OF_DAY_LABEL, WEATHER_LABEL } from '../format';
 import { iconPlay } from '../icons';
 import {
-  applyTrackDefaults, bestLapFor, buildChampionshipSetup, buildRaceConfig, carStatBars, CHAMP_OPPONENTS_MIN, defaultSetup, DIFFICULTIES, GRID_RULES, LAPS_MAX, LAPS_MIN, LENGTHS,
-  LIVERY_PRESETS, liveryFor, MODE_INFO, modeLabel, OPPONENTS_MAX, OPTION_LABELS, SETUP_STEPS, STARTS, TIMES, WEATHERS, type SetupMode, type SetupState, type SetupStep,
+  applyTrackDefaults, bestLapFor, buildChampionshipSetup, buildRaceConfig, carStatBars, CHAMP_OPPONENTS_MIN, defaultSetup, DIFFICULTIES, FORECAST_CHOICES, forecastNow, forecastOffered, GRID_RULES,
+  LAPS_MAX, LAPS_MIN, LENGTHS, LIVERY_PRESETS, liveryFor, MODE_INFO, modeLabel, OPPONENTS_MAX, OPTION_LABELS, SETUP_STEPS, STARTS, TIMES, WEATHERS, type SetupMode, type SetupState, type SetupStep,
 } from '../model';
 import { FocusList, type FocusRow } from '../nav';
 import { drawTrack, MENU_MAP_STYLE, sizeCanvas } from '../trackmap';
@@ -77,6 +77,7 @@ export class SetupScreen extends BaseScreen {
   private readonly sumTrack = h('div', 'v');
   private readonly sumCar = h('div', 'v');
   private readonly sumMode = h('div', 'v');
+  private readonly sumConditions = h('div', 'v');
   private readonly sumBest = h('div', 'v');
   private readonly sumCanvas = h('canvas', 'map-canvas');
   private raceSummary: HTMLElement = h('div');
@@ -461,6 +462,7 @@ export class SetupScreen extends BaseScreen {
       h('div', 'kv', h('span', 'k', 'Track'), this.sumTrack),
       h('div', 'kv', h('span', 'k', 'Car'), this.sumCar),
       h('div', 'kv', h('span', 'k', 'Mode'), this.sumMode),
+      h('div', 'kv', h('span', 'k', 'Conditions'), this.sumConditions),
       h('div', 'kv', h('span', 'k', 'Your best'), this.sumBest),
     );
     this.champSummary = h(
@@ -514,7 +516,8 @@ export class SetupScreen extends BaseScreen {
     } else {
       const info = MODE_INFO[s.mode as RaceMode];
       if (info.usesLaps) {
-        add(stepperRow(ctx, { label: 'Laps', min: LAPS_MIN, max: LAPS_MAX, get: () => s.laps, set: (v) => (s.laps = v), fmt: (v) => `${v} ${v === 1 ? 'lap' : 'laps'}` }, { onChange }));
+        // (a race of one lap cannot run a forecast: the Forecast row follows the laps)
+        add(stepperRow(ctx, { label: 'Laps', min: LAPS_MIN, max: LAPS_MAX, get: () => s.laps, set: (v) => (s.laps = v), fmt: (v) => `${v} ${v === 1 ? 'lap' : 'laps'}` }, { onChange: () => (onChange(), this.rebuildRaceRowsValues()) }));
       }
       if (info.usesOpponents) {
         add(stepperRow(ctx, { label: 'Opponents', min: 0, max: OPPONENTS_MAX, get: () => s.opponents, set: (v) => (s.opponents = v), fmt: (v) => (v === 0 ? 'None' : String(v)) }, { onChange }));
@@ -523,7 +526,24 @@ export class SetupScreen extends BaseScreen {
         add(selectRow(ctx, { label: 'Difficulty', options: DIFFICULTIES.map((d) => ({ value: d, label: OPTION_LABELS.difficulty[d] })), get: () => s.difficulty, set: (v) => (s.difficulty = v as SetupState['difficulty']) }, { onChange }));
       }
       add(selectRow(ctx, { label: 'Time of day', options: TIMES.map((t) => ({ value: t, label: OPTION_LABELS.time[t] })), get: () => s.timeOfDay, set: (v) => (s.timeOfDay = v as SetupState['timeOfDay']), wrap: true }, { onChange }));
-      add(selectRow(ctx, { label: 'Weather', options: WEATHERS.map((w) => ({ value: w, label: OPTION_LABELS.weather[w] })), get: () => s.weather, set: (v) => (s.weather = v as SetupState['weather']) }, { onChange }));
+      // a change of weather changes what the forecast can be (rain later from a dry start, clearing from a wet one)
+      add(selectRow(ctx, { label: 'Weather', options: WEATHERS.map((w) => ({ value: w, label: OPTION_LABELS.weather[w] })), get: () => s.weather, set: (v) => (s.weather = v as SetupState['weather']) }, { onChange: () => (onChange(), this.rebuildRaceRowsValues()) }));
+      if (s.mode !== 'timeTrial') {
+        add(
+          selectRow(
+            ctx,
+            {
+              label: 'Forecast',
+              options: FORECAST_CHOICES.map((f) => ({ value: f, label: OPTION_LABELS.forecast[f] })),
+              get: () => forecastNow(s),
+              set: (v) => (s.forecast = v as Forecast),
+              wrap: true,
+              enabled: (v) => forecastOffered(s, v as Forecast),
+            },
+            { onChange },
+          ),
+        );
+      }
       if (info.usesStart) {
         add(selectRow(ctx, { label: 'Start position', options: STARTS.map((p) => ({ value: p, label: p === 'back' ? 'Back' : p === 'middle' ? 'Middle' : 'Pole' })), get: () => s.startPosition, set: (v) => (s.startPosition = v as SetupState['startPosition']) }, { onChange }));
       }
@@ -586,6 +606,7 @@ export class SetupScreen extends BaseScreen {
     this.sumTrack.textContent = t.name;
     this.sumCar.textContent = `${c.name}  ·  ${LIVERY_PRESETS[this.state.liveryIndex].name}`;
     this.sumMode.textContent = MODE_INFO[this.state.mode as RaceMode].label;
+    this.sumConditions.textContent = formatConditions({ timeOfDay: this.state.timeOfDay, weather: this.state.weather }, forecastNow(this.state));
     const best = bestLapFor(this.ctx.bestLaps, this.recordTrack(t.id), c.id);
     this.sumBest.textContent = best ? formatLapTime(best.time) + (this.wet() ? '  (wet)' : '') : 'No lap yet';
     this.drawMaps();

@@ -250,12 +250,26 @@ export interface SelectBinding {
   wrap?: boolean;
   /** Render as a segmented control when there are at most this many options (default 4). */
   segmentedMax?: number;
+  /** An option that cannot be picked right now (the answer can change: refresh() asks again) is left out of the row and skipped. */
+  enabled?(value: string): boolean;
 }
 
 export function selectRow(ctx: UiCtx, b: SelectBinding, opts: RowOpts = {}): RowHandle {
   const { el, ctl } = shell('select', b.label, b.desc, opts);
   const segmented = b.options.length <= (b.segmentedMax ?? 4);
   const idx = (): number => Math.max(0, b.options.findIndex((o) => o.value === b.get()));
+  const on = (i: number): boolean => !b.enabled || b.enabled(b.options[i].value);
+  /** The index of the next option that can be picked from the current one in `dir` (the current one when there is none). */
+  const nextOn = (dir: 1 | -1): number => {
+    const n = b.options.length;
+    const cur = idx();
+    for (let k = 1; k < n; k++) {
+      const j = b.wrap ? (((cur + dir * k) % n) + n) % n : cur + dir * k;
+      if (j < 0 || j >= n) break;
+      if (on(j)) return j;
+    }
+    return cur;
+  };
   const apply = (i: number): boolean => {
     const n = b.options.length;
     const j = Math.min(n - 1, Math.max(0, i));
@@ -283,7 +297,10 @@ export function selectRow(ctx: UiCtx, b: SelectBinding, opts: RowOpts = {}): Row
       const cur = idx();
       const shown = b.display?.();
       const custom = shown !== undefined && shown.toLowerCase() !== b.options[cur].label.toLowerCase();
-      optEls.forEach((e, i) => e.classList.toggle('on', !custom && i === cur));
+      optEls.forEach((e, i) => {
+        e.classList.toggle('on', !custom && i === cur);
+        e.style.display = on(i) ? '' : 'none';
+      });
       note.textContent = custom ? shown : '';
       note.style.display = custom ? '' : 'none';
     };
@@ -291,8 +308,8 @@ export function selectRow(ctx: UiCtx, b: SelectBinding, opts: RowOpts = {}): Row
     const val = h('span', 'sel-val');
     const l = chevron('l');
     const r = chevron('r');
-    l.addEventListener('click', () => apply(idx() - 1) && ctx.sound('move'));
-    r.addEventListener('click', () => apply(idx() + 1) && ctx.sound('move'));
+    l.addEventListener('click', () => apply(b.enabled ? nextOn(-1) : idx() - 1) && ctx.sound('move'));
+    r.addEventListener('click', () => apply(b.enabled ? nextOn(1) : idx() + 1) && ctx.sound('move'));
     ctl.append(l, val, r);
     refresh = (): void => {
       val.textContent = b.display?.() ?? b.options[idx()].label;
@@ -303,9 +320,9 @@ export function selectRow(ctx: UiCtx, b: SelectBinding, opts: RowOpts = {}): Row
     el,
     refresh,
     row: focusRow(el, {
-      left: () => apply(idx() - 1),
-      right: () => apply(idx() + 1),
-      activate: () => (apply(b.wrap || !segmented ? idx() + 1 : (idx() + 1) % b.options.length), true),
+      left: () => apply(b.enabled ? nextOn(-1) : idx() - 1),
+      right: () => apply(b.enabled ? nextOn(1) : idx() + 1),
+      activate: () => (apply(b.enabled ? nextOn(1) : b.wrap || !segmented ? idx() + 1 : (idx() + 1) % b.options.length), true),
     }),
   };
 }

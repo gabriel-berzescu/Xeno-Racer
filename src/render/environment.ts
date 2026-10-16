@@ -2,7 +2,7 @@
  * Environment solver (owner: render). Pure maths, no three.js: turns (TimeOfDay, Weather) into the
  * numbers the sky shader, light rig, fog and tone mapper consume. Cached per (tod, weather).
  */
-import type { EnvironmentSettings } from '../core/contracts';
+import { WEATHER_WATER, type EnvironmentSettings } from '../core/contracts';
 import { computeSkyModel, FOG_TABLE_SIZE, type RGB, type SkyModel } from './atmosphere';
 import { directionFromAngles, TOD, WEATHER, type TodPreset, type WeatherPreset } from './presets';
 
@@ -56,6 +56,8 @@ export interface EnvSolution {
   glow: RGB;
   /** Beer-Lambert rain-haze extinction, 1/m (0 when dry). */
   rainFog: number;
+  /** How much of the moon shows (0 by day): the full disc in a clear night, a glow behind the deck in the rain. */
+  moonVis: number;
 }
 
 const cache = new Map<string, EnvSolution>();
@@ -252,6 +254,7 @@ export async function solveEnvironment(settings: EnvironmentSettings, yieldFn?: 
     deckHi,
     glow,
     rainFog: weather.rainFog * (0.8 + 0.2 * tod.haze),
+    moonVis: tod.moon ? (deck > 0 ? 0.6 : 1 - weather.overcast * 0.85) : 0,
   };
   cache.set(key, sol);
   return sol;
@@ -259,4 +262,165 @@ export async function solveEnvironment(settings: EnvironmentSettings, yieldFn?: 
 
 export function clearEnvironmentCache(): void {
   cache.clear();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Weather that changes
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Rain haze for a rain intensity: the presets' own pairs (rain 0.55 -> 0.0007 1/m, storm 1 -> 0.0016), straight lines between.
+ * The haze is made by the rain falling, not by the clouds, so in a changing race it follows the rain and not the sky.
+ */
+export function rainFogFor(rain: number): number {
+  const r = Math.min(1, Math.max(0, rain));
+  const ra = WEATHER_WATER.rain.rain;
+  const rb = WEATHER_WATER.storm.rain;
+  const fa = WEATHER.rain.rainFog;
+  const fb = WEATHER.storm.rainFog;
+  return r <= ra ? (fa * r) / ra : fa + ((fb - fa) * (r - ra)) / (rb - ra);
+}
+
+/** How far each family of the look has got when the sky is `s` of the way from its dry weather to its wet one. */
+export interface SkyCurves {
+  /** Direct sun: its light, the disc, the shadows. The clouds shut it out early. */
+  sun: number;
+  /** Ambient light, haze, fog and exposure: they follow the sky as a whole. */
+  amb: number;
+  /** The cumulus layer: more of the sky under cloud, thicker, darker, greyer. */
+  cloud: number;
+  /** How much of the sky the rain deck has closed over (it replaces the cumulus, in patches, and comes last). Its colours follow `amb`. */
+  deck: number;
+}
+
+const smooth01 = (a: number, b: number, x: number): number => {
+  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+};
+
+export function skyCurves(s: number, out: SkyCurves = { sun: 0, amb: 0, cloud: 0, deck: 0 }): SkyCurves {
+  const x = Math.min(1, Math.max(0, s));
+  out.sun = smooth01(0.05, 0.6, x);
+  out.amb = x;
+  out.cloud = smooth01(0, 0.7, x);
+  out.deck = smooth01(0.3, 0.92, x);
+  return out;
+}
+
+/** A copy of a solution that owns all of its arrays, to be rewritten by `blendInto`. */
+export function cloneSolution(a: EnvSolution): EnvSolution {
+  const rgb = (c: RGB): RGB => [c[0], c[1], c[2]];
+  return {
+    ...a,
+    settings: { ...a.settings },
+    weather: { ...a.weather },
+    sunDir: [a.sunDir[0], a.sunDir[1], a.sunDir[2]],
+    trueSunDir: [a.trueSunDir[0], a.trueSunDir[1], a.trueSunDir[2]],
+    lightColor: rgb(a.lightColor),
+    sunRadiance: rgb(a.sunRadiance),
+    ground: rgb(a.ground),
+    skyAmbient: rgb(a.skyAmbient),
+    cloudLight: rgb(a.cloudLight),
+    cloudAmbient: rgb(a.cloudAmbient),
+    haze: rgb(a.haze),
+    hemiSky: rgb(a.hemiSky),
+    hemiGround: rgb(a.hemiGround),
+    fogTable: new Float32Array(a.fogTable),
+    fogColor: rgb(a.fogColor),
+    moonLight: rgb(a.moonLight),
+    deckLo: rgb(a.deckLo),
+    deckHi: rgb(a.deckHi),
+    glow: rgb(a.glow),
+  };
+}
+
+const _curves: SkyCurves = { sun: 0, amb: 0, cloud: 0, deck: 0 };
+
+function mix(a: number, b: number, t: number): number {
+  return a + (b - a) * t;
+}
+
+/** Interpolate in the log domain (a ratio, like an exposure or a visibility, changes by the same factor per step). */
+function mixLog(a: number, b: number, t: number): number {
+  return a > 0 && b > 0 ? a * Math.pow(b / a, t) : mix(a, b, t);
+}
+
+function mixRgb(a: RGB, b: RGB, t: number, out: RGB): void {
+  out[0] = a[0] + (b[0] - a[0]) * t;
+  out[1] = a[1] + (b[1] - a[1]) * t;
+  out[2] = a[2] + (b[2] - a[2]) * t;
+}
+
+/**
+ * The look of a sky `s` of the way from `dry` to `wet` (the same time of day) with `rain` falling, written into `out` (a
+ * `cloneSolution`). Everything that is a number or a colour is blended, nothing is solved again: this runs every frame of a
+ * race whose weather changes. The families of the look move at their own pace (`skyCurves`): the sun is shut out early, the
+ * cumulus thickens, the rain deck comes last. The sky LUT is the dry weather's (the deck takes the sky over from it in the
+ * shader); the haze of the rain follows the rain itself.
+ */
+export function blendInto(out: EnvSolution, dry: EnvSolution, wet: EnvSolution, s: number, rain: number): EnvSolution {
+  const c = skyCurves(s, _curves);
+  const o = out;
+  o.settings.timeOfDay = dry.settings.timeOfDay;
+  o.settings.weather = s < 0.5 ? dry.settings.weather : wet.settings.weather;
+  o.tod = dry.tod;
+  o.model = dry.model;
+  const w = o.weather;
+  const dw = dry.weather;
+  const ww = wet.weather;
+  w.coverage = mix(dw.coverage, ww.coverage, c.cloud);
+  w.soft = mix(dw.soft, ww.soft, c.cloud);
+  w.cirrus = mix(dw.cirrus, ww.cirrus, c.cloud);
+  w.sun = mix(dw.sun, ww.sun, c.sun);
+  w.sky = mix(dw.sky, ww.sky, c.amb);
+  w.mie = mix(dw.mie, ww.mie, c.amb);
+  w.overcast = mix(dw.overcast, ww.overcast, c.cloud);
+  w.fog = mixLog(dw.fog, ww.fog, c.amb);
+  w.shadow = mix(dw.shadow, ww.shadow, c.sun);
+  w.exposure = mixLog(dw.exposure, ww.exposure, c.amb);
+  w.dark = mix(dw.dark, ww.dark, c.cloud);
+  w.deck = c.deck;
+  w.deckDark = mix(dw.deckDark, ww.deckDark, c.amb);
+  w.scud = mix(dw.scud, ww.scud, c.amb);
+  w.rainFog = rainFogFor(rain);
+  w.darken = mix(dw.darken, ww.darken, c.amb);
+  w.glow = mix(dw.glow, ww.glow, c.amb);
+
+  for (let i = 0; i < 3; i++) o.sunDir[i] = dry.sunDir[i];
+  for (let i = 0; i < 3; i++) o.trueSunDir[i] = dry.trueSunDir[i];
+  o.sunElevation = dry.sunElevation;
+  mixRgb(dry.lightColor, wet.lightColor, c.sun, o.lightColor);
+  o.lightIntensity = mix(dry.lightIntensity, wet.lightIntensity, c.sun);
+  o.skyScale = mix(dry.skyScale, wet.skyScale, c.amb);
+  mixRgb(dry.sunRadiance, wet.sunRadiance, c.sun, o.sunRadiance);
+  mixRgb(dry.ground, wet.ground, c.amb, o.ground);
+  mixRgb(dry.skyAmbient, wet.skyAmbient, c.amb, o.skyAmbient);
+  mixRgb(dry.cloudLight, wet.cloudLight, c.sun, o.cloudLight);
+  mixRgb(dry.cloudAmbient, wet.cloudAmbient, c.amb, o.cloudAmbient);
+  mixRgb(dry.haze, wet.haze, c.amb, o.haze);
+  mixRgb(dry.hemiSky, wet.hemiSky, c.amb, o.hemiSky);
+  mixRgb(dry.hemiGround, wet.hemiGround, c.amb, o.hemiGround);
+  o.fogDensity = mixLog(dry.fogDensity, wet.fogDensity, c.amb);
+  const ft = o.fogTable;
+  for (let i = 0; i < ft.length; i++) ft[i] = dry.fogTable[i] + (wet.fogTable[i] - dry.fogTable[i]) * c.amb;
+  const last = ft.length - 3;
+  o.fogColor[0] = ft[last];
+  o.fogColor[1] = ft[last + 1];
+  o.fogColor[2] = ft[last + 2];
+  o.exposure = mixLog(dry.exposure, wet.exposure, c.amb);
+  o.darkness = mix(dry.darkness, wet.darkness, c.amb);
+  o.envIntensity = dry.envIntensity;
+  o.shadowIntensity = mix(dry.shadowIntensity, wet.shadowIntensity, c.sun);
+  o.warmth = dry.warmth;
+  o.stars = mix(dry.stars, wet.stars, c.cloud);
+  mixRgb(dry.moonLight, wet.moonLight, c.amb, o.moonLight);
+  o.deck = c.deck;
+  o.deckDark = w.deckDark;
+  o.scud = w.scud;
+  mixRgb(dry.deckLo, wet.deckLo, c.amb, o.deckLo);
+  mixRgb(dry.deckHi, wet.deckHi, c.amb, o.deckHi);
+  mixRgb(dry.glow, wet.glow, c.amb, o.glow);
+  o.rainFog = rainFogFor(rain) * (0.8 + 0.2 * dry.tod.haze);
+  o.moonVis = mix(dry.moonVis, wet.moonVis, c.cloud);
+  return o;
 }

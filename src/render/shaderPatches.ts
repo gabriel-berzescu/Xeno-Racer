@@ -28,8 +28,9 @@
 import { ShaderChunk, ShaderLib, UniformsLib } from 'three';
 
 /**
- * vec4 xrFog[10]: [0] = (sunAz.x, sunAz.z, rain-haze extinction 1/m, mode: 0 off / 1 horizon table / 2 table + rain
- * deck), [1..8] = horizon table rgb, [9] = rgb of the thick rain deck overhead.
+ * vec4 xrFog[10]: [0] = (sunAz.x, sunAz.z, rain-haze extinction 1/m, mode: 0 off / 1 horizon table / 1 + d table + rain
+ * deck, d = 0..1 how much of the sky is under the deck: 2 is all of it), [1..8] = horizon table rgb, [9] = rgb of the thick
+ * rain deck overhead.
  */
 export const xrFogUniform = { value: new Float32Array(4 * 10) };
 /** vec4 xrCsm[4]: per cascade (planeGradientClamp, zBias, filterRadiusTexels, tapCount (cascade 0)). */
@@ -133,15 +134,18 @@ const FOG_PARS_FRAGMENT = /* glsl */ `
 		int i = clamp( int( floor( t ) ), 0, 6 );
 		vec3 c = mix( xrFog[ i + 1 ].rgb, xrFog[ i + 2 ].rgb, clamp( t - float( i ), 0.0, 1.0 ) );
 
-		if ( xrFog[ 0 ].w > 1.5 ) {
+		float deck = clamp( xrFog[ 0 ].w - 1.0, 0.0, 1.0 );
+
+		if ( deck > 0.001 ) {
 
 			// Under a rain deck the sky above the horizon haze is cooler and darker. Scenery that rises into it
 			// (far mountain tops, tall trees) must fade into the sky behind it, not into the bright haze: the same
-			// blend as the sky shader's, by the elevation of the view ray.
+			// blend as the sky shader's, by the elevation of the view ray (and by how much of the sky the deck has
+			// closed over, while a front passes).
 			float y = max( dirN.y, 0.0 );
 			float l = dot( c, vec3( 0.299, 0.587, 0.114 ) );
-			c = mix( c, l * vec3( 0.96, 1.0, 1.05 ), 0.8 * smoothstep( 0.02, 0.35, y ) );
-			c = mix( c, xrFog[ 9 ].rgb, smoothstep( 0.015, 0.8, y ) );
+			c = mix( c, l * vec3( 0.96, 1.0, 1.05 ), 0.8 * smoothstep( 0.02, 0.35, y ) * deck );
+			c = mix( c, xrFog[ 9 ].rgb, smoothstep( 0.015, 0.8, y ) * deck );
 
 		}
 
@@ -218,6 +222,10 @@ const CSM_FUNCTIONS = /* glsl */ `
 	}
 
 	float xrCascadeShadow() {
+
+		// no sun to speak of (a rain deck): nothing to sample. The same for every fragment, so it costs nothing where the
+		// intensity is up. A race whose weather changes keeps its cascades through the rain and fades this to 0.
+		if ( directionalLightShadows[ 0 ].shadowIntensity < 0.004 ) return 1.0;
 
 		vec4 c0 = vDirectionalShadowCoord[ 0 ];
 		vec3 s0 = c0.xyz / c0.w;
