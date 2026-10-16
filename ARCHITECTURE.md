@@ -131,6 +131,12 @@ purpose. Nothing else changes for the other four circuits: a road circuit gets t
   ice are patched `MeshStandardMaterial`s (sparkle from the light list, a bump from screen-space derivatives, blue shadows from the ground
   bounce); the snowbanks are extruded from the road's own wall line, lumpy with noise; spruce, pine and birch are the instanced trees with
   snow on their planes. Red cabins, the paddock, the poles on the ice, the reeds and the crowds are instanced and keep clear of each other.
+  The conifers and birches do not cast their shadows from their needle cards: `shadowProxy` in `trees.ts` draws a hull (five tiers of seven
+  sides, about 70 triangles, with a 16 by 16 noise cut at the alpha test for the gaps between the sprays) or a bare trunk with the very same
+  instance matrices, and the cards cast nothing. In the picture the proxy is a program that puts its vertices outside the view, so it is
+  free there. A forest of alpha-tested cards, drawn again into every cascade of the sun, was two thirds of the shadows' GPU time: over a
+  whole lap at 1920x1080 High the split screen went from 13.5 ms (p95 17.6) to 10.1 ms (p95 11.9) and one view from 8.4 (10.6) to 7.5 (8.7)
+  (`sandbox/render/perfab.mjs` switches one thing of the scene off at a time, interleaved with the rest, and says what it saves).
 - **Light and weather** (`src/render/presets.ts`, `environment.ts`): `TOD_WINTER` (a low sun, a blue hour) and `WEATHER_WINTER`
   (`rain` is a snowfall, `storm` a blizzard; the clear, cloudy and overcast skies are the ordinary ones), a ground albedo of 0.8 for the
   bounce, and an aurora in the sky shader (two curtains, a few texture reads, only on a clear winter night). `wet/snowfall.ts` is the

@@ -640,9 +640,81 @@ export function instantiateTrees(inst: Record<SpeciesId, Inst[]>, tier: number, 
     r: number;
     far: boolean;
     close?: boolean;
+    /** The mesh only casts the shadow of trees drawn by another (see shadowProxy). */
+    shadowOnly?: boolean;
+    /** The mesh is drawn with needle cards, and its shadow is cast by a proxy. */
+    proxied?: boolean;
   }
   const lodMeshes: LodMesh[] = [];
   let seedBase = seed;
+
+  // The conifers of a winter circuit cast their shadows from a hull of their own (five stacked tiers of seven sides, so that the outline
+  // of the shadow steps in and out like a spruce's, with the holes of a noise texture that let through about a third of the light, as
+  // the gaps between the needle sprays do) and the birches from a bare trunk, not from their cards: a dense forest of alpha-tested
+  // cards, drawn again into every cascade of the sun, cost two thirds of the GPU time of the shadows (6 ms of 16 in a split screen).
+  // The hull is drawn with the very same instance matrices; what it is drawn with in the picture is a program that puts every vertex
+  // outside the view (the shadow pass has a depth material of its own, made from the texture and the alpha test), so it costs nothing there.
+  let hullGeo: THREE.BufferGeometry | null = null;
+  let trunkGeo: THREE.BufferGeometry | null = null;
+  let hullMat: THREE.MeshBasicMaterial | null = null;
+  let trunkMat: THREE.MeshBasicMaterial | null = null;
+  const shadowProxy = (mesh: THREE.InstancedMesh, sp: SpeciesId, name: string): LodMesh => {
+    if (!hullMat) {
+      // (the unit tree: 1 high; each tier is a frustum, [radius at its foot, height of its foot, radius at its top, height of its top]; the
+      // hull stands a little inside the tips of the whorls, since the tips droop)
+      const tiers: Array<[number, number, number, number]> = [[0.4, 0.03, 0.16, 0.25], [0.34, 0.24, 0.13, 0.44], [0.26, 0.43, 0.1, 0.62], [0.18, 0.61, 0.08, 0.79], [0.115, 0.78, 0, 1]];
+      const sides = 7;
+      const verts: number[] = [];
+      const uvs: number[] = [];
+      const idx: number[] = [];
+      for (const [rb, yb, rt, yt] of tiers) {
+        const o = verts.length / 3;
+        for (const [r, y] of [[rb, yb], [rt, yt]]) {
+          for (let k = 0; k < sides; k++) {
+            const a = (k / sides) * Math.PI * 2;
+            verts.push(Math.cos(a) * r, y, Math.sin(a) * r);
+            uvs.push((k / sides) * 3.5, y * 2);
+          }
+        }
+        for (let k = 0; k < sides; k++) {
+          const n = (k + 1) % sides;
+          idx.push(o + k, o + n, o + sides + k, o + n, o + sides + n, o + sides + k);
+        }
+      }
+      hullGeo = new THREE.BufferGeometry();
+      hullGeo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+      hullGeo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+      hullGeo.setIndex(idx);
+      hullGeo.computeBoundingSphere();
+      trunkGeo = new THREE.CylinderGeometry(0.012, 0.02, 0.95, 5, 1, true).translate(0, 0.475, 0);
+      // (blotches, not speckle: a 16 by 16 noise, filtered, and cut at the alpha test)
+      const rnd = mulberry32(seed + 41);
+      const holes = new Uint8Array(16 * 16 * 4).fill(255);
+      for (let i = 0; i < 16 * 16; i++) holes[i * 4 + 3] = Math.floor(rnd() * 256);
+      const noise = new THREE.DataTexture(holes, 16, 16, THREE.RGBAFormat);
+      noise.wrapS = noise.wrapT = THREE.RepeatWrapping;
+      noise.magFilter = noise.minFilter = THREE.LinearFilter;
+      noise.needsUpdate = true;
+      const clipped = (m: THREE.MeshBasicMaterial): THREE.MeshBasicMaterial => {
+        m.onBeforeCompile = (shader) => {
+          shader.vertexShader = shader.vertexShader.replace('#include <project_vertex>', '#include <project_vertex>\n  gl_Position = vec4(2.0, 2.0, 2.0, 1.0);');
+        };
+        m.customProgramCacheKey = () => 'tree-shadow-proxy';
+        return m;
+      };
+      hullMat = clipped(new THREE.MeshBasicMaterial({ map: noise, alphaTest: 0.3, side: THREE.DoubleSide, colorWrite: false, depthWrite: false }));
+      trunkMat = clipped(new THREE.MeshBasicMaterial({ side: THREE.DoubleSide, colorWrite: false, depthWrite: false }));
+      disposables.push(hullGeo, trunkGeo, noise, hullMat, trunkMat);
+    }
+    const proxy = new THREE.InstancedMesh(sp === 'snowbirch' ? trunkGeo! : hullGeo!, sp === 'snowbirch' ? trunkMat! : hullMat, mesh.count);
+    proxy.instanceMatrix = mesh.instanceMatrix;
+    proxy.boundingSphere = mesh.boundingSphere!.clone();
+    proxy.castShadow = true;
+    proxy.receiveShadow = false;
+    proxy.name = name;
+    group.add(proxy);
+    return { mesh: proxy, center: proxy.boundingSphere.center.clone(), r: proxy.boundingSphere.radius, far: false, shadowOnly: true };
+  };
 
   // far LOD: one atlas for the three silhouettes, three crossed quads per tree
   const bbAtlas = makeBillboardAtlas(Math.min(aniso, 4), winter);
@@ -714,11 +786,13 @@ export function instantiateTrees(inst: Record<SpeciesId, Inst[]>, tier: number, 
         const mesh = new THREE.InstancedMesh(geos[vi], mat, vs.length);
         place(mesh, vs);
         mesh.boundingSphere!.radius += 28;
-        mesh.castShadow = true;
+        const proxied = winter && (sp === 'spruce' || sp === 'pine' || sp === 'snowbirch');
+        mesh.castShadow = !proxied;
         mesh.receiveShadow = true;
         mesh.name = `tree0_${sp}_${key}_${vi}`;
         group.add(mesh);
-        lodMeshes.push({ mesh, center: mesh.boundingSphere!.center.clone(), r: mesh.boundingSphere!.radius, far: false });
+        lodMeshes.push({ mesh, center: mesh.boundingSphere!.center.clone(), r: mesh.boundingSphere!.radius, far: false, proxied });
+        if (proxied) lodMeshes.push(shadowProxy(mesh, sp, `tree0s_${sp}_${key}_${vi}`));
       });
     }
   }
@@ -773,9 +847,13 @@ export function instantiateTrees(inst: Record<SpeciesId, Inst[]>, tier: number, 
           m.mesh.visible = d - m.r < rC + 4;
           continue;
         }
-        m.mesh.visible = m.far ? d + m.r > r0 - FADE_BAND : d - m.r < r0 + 4;
         // only trees whose (long, low-sun) shadows can reach the track area cast into the shadow cascades
-        if (!m.far) m.mesh.castShadow = d - m.r < 100;
+        if (m.shadowOnly) {
+          m.mesh.visible = m.mesh.castShadow = d - m.r < 100;
+          continue;
+        }
+        m.mesh.visible = m.far ? d + m.r > r0 - FADE_BAND : d - m.r < r0 + 4;
+        if (!m.far && !m.proxied) m.mesh.castShadow = d - m.r < 100;
       }
     },
     setSun(dir, intensity, glow = 1) {
