@@ -117,7 +117,7 @@ describe('weather inputs', () => {
     v[WCTL.SPEED] = Number.POSITIVE_INFINITY;
     v[WCTL.GAIN] = -2;
     readWeatherInputs(v, o);
-    expect(o).toEqual({ rain: 1, interior: 0, speed: 0, gain: 0 });
+    expect(o).toEqual({ rain: 1, interior: 0, speed: 0, gain: 0, snow: 0 });
     v[WCTL.SPEED] = 999;
     v[WCTL.GAIN] = 1;
     readWeatherInputs(v, o);
@@ -1539,3 +1539,80 @@ describe('engine.worklet.ts: the xr-weather and xr-car processors', () => {
   });
 });
 
+// ── snow: the precipitation of a winter circuit is a wind, not a rain ────────────────────────────
+
+describe('snow: no drops, only the wind', () => {
+  const P = makeRainProfile();
+
+  it('the profile has no drop stream and no bed at any snowfall, and a wind that grows with it (exactly zero when dry)', () => {
+    rainProfile(0, 0, 0.5, P, true);
+    expect(P.wind).toBe(0);
+    let prev = 0;
+    for (let r = 0.05; r <= 1.0001; r += 0.05) {
+      for (const interior of [0, 1]) {
+        rainProfile(r, interior, 0.7, P, true);
+        expect(P.rate.every((x) => x === 0)).toBe(true);
+        expect(P.bedHi + P.bedLo + P.bedCabin).toBe(0);
+      }
+      rainProfile(r, 0, 0.7, P, true);
+      expect(P.wind).toBeGreaterThanOrEqual(prev);
+      prev = P.wind;
+    }
+    rainProfile(0.55, 0, 0.5, P, true);
+    expect(P.wind).toBeGreaterThan(0.2); // a snowfall has a breath of wind (the rain's own preset has none)
+    expect(P.wind).toBeLessThan(0.7);
+    rainProfile(1, 0, 0.5, P, true);
+    expect(P.wind).toBeGreaterThan(0.95); // a blizzard is a gale
+  });
+
+  it('the rain profile is exactly what it was when it is not snow', () => {
+    const a = makeRainProfile();
+    const b = makeRainProfile();
+    for (const r of [0.1, 0.55, 1]) {
+      rainProfile(r, 0.3, 0.4, a);
+      rainProfile(r, 0.3, 0.4, b, false);
+      expect(Array.from(a.rate)).toEqual(Array.from(b.rate));
+      expect([a.bedHi, a.bedLo, a.bedCabin, a.wind, a.gustDepth]).toEqual([b.bedHi, b.bedLo, b.bedCabin, b.wind, b.gustDepth]);
+    }
+  });
+
+  it('the voice makes a wind and no rain in the snow: quieter than the rain, audible, and low where the rain is a hiss', () => {
+    const lv = (snow: boolean, rain: number): number => {
+      const { l, r } = renderRain(8, (v) => {
+        v.inp.rain = rain;
+        v.inp.snow = snow ? 1 : 0;
+      });
+      expect(hasNonFinite(l) || hasNonFinite(r)).toBe(false);
+      return db(Math.max(rms(l, 4 * SR, l.length), rms(r, 4 * SR, r.length)));
+    };
+    const rain = lv(false, 0.55);
+    const snow = lv(true, 0.55);
+    const blizzard = lv(true, 1);
+    expect(snow).toBeGreaterThan(-60);
+    expect(snow).toBeLessThan(rain);
+    expect(blizzard).toBeGreaterThan(snow + 2);
+    const cent = (snow2: boolean): number => {
+      const { l, r } = renderRain(8, (v) => {
+        v.inp.rain = 0.55;
+        v.inp.snow = snow2 ? 1 : 0;
+      });
+      const m = mono(l, r);
+      return spectralCentroid(welch(m, 8192, 4 * SR, m.length), SR, 40, 12000);
+    };
+    expect(cent(true)).toBeLessThan(cent(false) * 0.5);
+  });
+
+  it('the system tells the voice it is snow, and never thunders in a blizzard', () => {
+    const { sys, nodes } = makeSystem();
+    sys.setSnow(true);
+    sys.set(1);
+    for (let i = 0; i < 400 * 60; i++) sys.update(1 / 60, 0, 30, false);
+    expect(nodes[0].posts[nodes[0].posts.length - 1][WCTL.SNOW]).toBe(1);
+    expect(nodes[0].thunders.length).toBe(0);
+    expect(sys.strikes).toBe(0);
+    const rain = makeSystem();
+    rain.sys.set(0.55);
+    for (let i = 0; i < 10; i++) rain.sys.update(1 / 60, 0, 30, false);
+    expect(rain.nodes[0].posts[rain.nodes[0].posts.length - 1][WCTL.SNOW]).toBe(0);
+  });
+});

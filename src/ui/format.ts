@@ -73,6 +73,13 @@ export const TIME_OF_DAY_LABEL: Record<string, string> = {
 export const WEATHER_LABEL: Record<string, string> = { clear: 'Clear', cloudy: 'Cloudy', overcast: 'Overcast', rain: 'Rain', storm: 'Storm' };
 /** How the weather moves during the race (the Forecast row; "Stable" is the weather as set, all race long). */
 export const FORECAST_LABEL: Record<string, string> = { stable: 'Stable', rainLater: 'Rain later', clearing: 'Clearing' };
+/** The same weathers on a winter circuit: the rain is snow, the storm a blizzard. */
+export const WINTER_WEATHER_LABEL: Record<string, string> = { ...WEATHER_LABEL, rain: 'Snow', storm: 'Blizzard' };
+export const WINTER_FORECAST_LABEL: Record<string, string> = { ...FORECAST_LABEL, rainLater: 'Snow later' };
+/** What a weather is called at a circuit (`winter`: a snowy one). */
+export const weatherLabel = (weather: string, winter?: boolean): string => (winter ? WINTER_WEATHER_LABEL : WEATHER_LABEL)[weather] ?? weather;
+/** What a forecast is called at a circuit. */
+export const forecastLabel = (forecast: string, winter?: boolean): string => (winter ? WINTER_FORECAST_LABEL : FORECAST_LABEL)[forecast] ?? forecast;
 export const DIFFICULTY_LABEL: Record<string, string> = { rookie: 'Rookie', amateur: 'Amateur', pro: 'Pro', alien: 'Alien' };
 export const START_LABEL: Record<string, string> = { back: 'Back of the grid', middle: 'Mid grid', pole: 'Pole position' };
 export const LENGTH_LABEL: Record<string, string> = { short: 'Short', standard: 'Standard', long: 'Long' };
@@ -82,9 +89,9 @@ export const CAMERA_LABEL: Record<string, string> = {
 };
 
 /** "Golden hour  ·  Clear", or "Golden hour  ·  Clear, rain later" when the weather changes during the race. */
-export function formatConditions(env: { timeOfDay: string; weather: string }, forecast?: string): string {
-  const change = forecast && forecast !== 'stable' ? `, ${(FORECAST_LABEL[forecast] ?? forecast).toLowerCase()}` : '';
-  return `${TIME_OF_DAY_LABEL[env.timeOfDay] ?? env.timeOfDay}  ·  ${WEATHER_LABEL[env.weather] ?? env.weather}${change}`;
+export function formatConditions(env: { timeOfDay: string; weather: string }, forecast?: string, winter?: boolean): string {
+  const change = forecast && forecast !== 'stable' ? `, ${forecastLabel(forecast, winter).toLowerCase()}` : '';
+  return `${TIME_OF_DAY_LABEL[env.timeOfDay] ?? env.timeOfDay}  ·  ${weatherLabel(env.weather, winter)}${change}`;
 }
 
 /** Points behind the leader: "-7", nothing for the leader. */

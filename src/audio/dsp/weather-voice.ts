@@ -465,7 +465,7 @@ export class WeatherVoice {
     const r = this.sRain;
     const sI = this.sInt;
     const master = Math.pow(10, (RAIN_CAL.masterDb + RAIN_CAL.masterSlopeDb * (1 - r)) / 20);
-    const P = rainProfile(r, sI, this.sSpeed / 70, this.prof);
+    const P = rainProfile(r, sI, this.sSpeed / 70, this.prof, I.snow > 0.5);
     const rate = P.rate;
     let tot = 0;
     for (let s = 0; s < N_STREAMS; s++) {

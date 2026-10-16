@@ -16,10 +16,10 @@ const SURF_INDEX: Record<SurfaceType, number> = {
   gravel: 3,
   sand: 4,
   dirt: 5,
-  // (the winter surfaces get their own voices later: for now they sound like dirt)
-  snow: 5,
-  ice: 5,
-  deepsnow: 5,
+  // snow (packed and deep) crunches, studded ice rattles
+  snow: 6,
+  ice: 7,
+  deepsnow: 6,
 };
 
 /** Rotate (px,py,pz) by the inverse of quaternion q (world -> car frame), returning the local X (left). */
@@ -62,6 +62,8 @@ export class ChassisMapper {
     let gravel = 0;
     let sand = 0;
     let dirt = 0;
+    let snow = 0;
+    let ice = 0;
     for (let i = 0; i < 4; i++) {
       if (!w[i].contact) continue;
       nContact++;
@@ -81,6 +83,12 @@ export class ChassisMapper {
         case 4:
           sand++;
           break;
+        case 6:
+          snow++;
+          break;
+        case 7:
+          ice++;
+          break;
         default:
           dirt++;
       }
@@ -92,6 +100,8 @@ export class ChassisMapper {
     v[CTL.SURF_GRAVEL] = gravel * inv;
     v[CTL.SURF_SAND] = sand * inv;
     v[CTL.SURF_DIRT] = dirt * inv;
+    v[CTL.SURF_SNOW] = snow * inv;
+    v[CTL.SURF_ICE] = ice * inv;
     v[CTL.AIRBORNE] = st.airborne || nContact === 0 ? 1 : 0;
     for (let i = 0; i < 4; i++) v[CTL.CURB_FL + i] = w[i].contact && w[i].surface === 'curb' ? 1 : 0;
 
@@ -149,7 +159,7 @@ export class ChassisMapper {
       this.impactCount = (this.impactCount + 1) % 60000;
       const li = st.lastImpact;
       v[CTL.IMPACT_STRENGTH] = li.strength;
-      v[CTL.IMPACT_KIND] = li.kind === 'wall' ? 0 : li.kind === 'car' ? 1 : 2;
+      v[CTL.IMPACT_KIND] = li.kind === 'wall' ? 0 : li.kind === 'car' ? 1 : li.kind === 'snow' ? 3 : 2;
       const lx = localLeft(st.quaternion, li.point.x - st.position.x, li.point.y - st.position.y, li.point.z - st.position.z);
       // +X is the car's left; stereo pan -1 = left
       v[CTL.IMPACT_PAN] = clamp(-lx / 1.6, -1, 1) * smoothstep(0, 0.4, Math.abs(lx)) * 0.85;

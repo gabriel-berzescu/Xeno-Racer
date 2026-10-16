@@ -344,7 +344,7 @@ export class StandingsScreen extends BaseScreen {
       { cls: `cc ${state}` + (r.winner?.isPlayer ? ' won' : ''), style: { '--d': String(380 + i * 70), '--tx': '50px', '--accent': track?.color ?? '#16e0bd' } },
       h('i', 'cc-accent'),
       badge,
-      h('div', 'cc-main', h('div', 'cc-name', track?.name ?? r.trackId), h('div', 'cc-sub', conditionChips(r.environment, true, r.forecast), h('span', 'cc-laps', lapsLabel(r.laps))), r.done ? h('div', 'cc-won', won) : null),
+      h('div', 'cc-main', h('div', 'cc-name', track?.name ?? r.trackId), h('div', 'cc-sub', conditionChips(r.environment, true, r.forecast, track?.winter), h('span', 'cc-laps', lapsLabel(r.laps))), r.done ? h('div', 'cc-won', won) : null),
       right,
     );
   }

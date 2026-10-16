@@ -6,10 +6,12 @@
 import type { HudState, HudWeather, Weather } from '../../core/contracts';
 import { wetnessBars } from '../../core/forecast';
 import { ClassSlot, clearEl, h, Txt } from '../dom';
-import { WEATHER_LABEL } from '../format';
-import { iconCloud, iconRain, iconStorm, iconSun, iconSunCloud } from '../icons';
+import { weatherLabel } from '../format';
+import { iconBlizzard, iconCloud, iconRain, iconSnow, iconStorm, iconSun, iconSunCloud } from '../icons';
 
 const ICON: Record<Weather, (cls?: string) => SVGElement> = { clear: iconSun, cloudy: iconSunCloud, overcast: iconCloud, rain: iconRain, storm: iconStorm };
+/** The same, on a winter circuit: snow and a blizzard where the rain and the storm are. */
+const ICON_WINTER: Record<Weather, (cls?: string) => SVGElement> = { ...ICON, rain: iconSnow, storm: iconBlizzard };
 const SEGMENTS = 5;
 
 export class WeatherHud {
@@ -25,6 +27,7 @@ export class WeatherHud {
   private readonly noteTitle: Txt;
   private readonly noteSub: Txt;
   private lastSky: Weather | null = null;
+  private lastWinter = false;
   private lastLit = -1;
   private lastNotice: HudWeather['notice'] | undefined = undefined;
   private lastShown = false;
@@ -62,11 +65,13 @@ export class WeatherHud {
       this.chip.style.display = shown ? '' : 'none';
     }
     if (w) {
-      if (w.sky !== this.lastSky) {
+      const winter = w.winter === true;
+      if (w.sky !== this.lastSky || winter !== this.lastWinter) {
         this.lastSky = w.sky;
+        this.lastWinter = winter;
         clearEl(this.chipIcon);
-        this.chipIcon.appendChild(ICON[w.sky]());
-        this.sky.set(WEATHER_LABEL[w.sky] ?? w.sky);
+        this.chipIcon.appendChild((winter ? ICON_WINTER : ICON)[w.sky]());
+        this.sky.set(weatherLabel(w.sky, winter));
         this.chipCls.set('hud-wx' + (w.sky === 'rain' || w.sky === 'storm' ? ' wet' : ''));
       }
       this.track.set(w.track);
@@ -83,7 +88,7 @@ export class WeatherHud {
       this.lastNotice = n;
       if (n) {
         clearEl(this.noteIcon);
-        this.noteIcon.appendChild((n.kind === 'rain' ? iconRain : iconSunCloud)());
+        this.noteIcon.appendChild((n.kind === 'rain' ? (w?.winter ? iconSnow : iconRain) : iconSunCloud)());
         this.noteTitle.set(n.title);
         this.noteSub.set(n.sub);
         this.cardCls.set('hud-wxnote show ' + n.kind);

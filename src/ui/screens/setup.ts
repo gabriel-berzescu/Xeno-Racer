@@ -3,7 +3,7 @@ import { sanitizeForecast } from '../../core/forecast';
 import type { ScreenId } from '../../core/systems';
 import type { UiCtx } from '../ctx';
 import { clearEl, h } from '../dom';
-import { formatConditions, formatLapTime, formatLength, lapsLabel, TIME_OF_DAY_LABEL, WEATHER_LABEL } from '../format';
+import { forecastLabel, formatConditions, formatLapTime, formatLength, lapsLabel, TIME_OF_DAY_LABEL, weatherLabel } from '../format';
 import { iconPlay } from '../icons';
 import {
   type JoinView,
@@ -92,6 +92,10 @@ export class SetupScreen extends BaseScreen {
 
   // race step
   private raceRows: RowHandle[] = [];
+  /** The Weather row's options and the Forecast row (see relabelWeather). */
+  private weatherOptions: { value: string; label: string }[] = [];
+  private weatherRow: RowHandle | null = null;
+  private forecastRow: RowHandle | null = null;
   private raceList: HTMLElement = h('div', 'rows');
   private startBtn: HTMLElement = h('div');
   private readonly sumTrack = h('div', 'v');
@@ -382,7 +386,7 @@ export class SetupScreen extends BaseScreen {
         { cls: 'track-card focusable in', style: { '--d': String(160 + i * 60), '--tx': '-60px', '--accent': t.color } },
         h('i', 'tc-accent'),
         h('span', 'tc-idx', round ? 'R' + (i + 1) : String(i + 1).padStart(2, '0')),
-        h('div', 'tc-main', h('div', 'tc-name', t.name), h('div', 'tc-place', round ? formatConditions(round.environment, roundChange(round, round.laps[this.state.champ.length])) : t.location)),
+        h('div', 'tc-main', h('div', 'tc-name', t.name), h('div', 'tc-place', round ? formatConditions(round.environment, roundChange(round, round.laps[this.state.champ.length]), t.winter) : t.location)),
         h('div', 'tc-side', pips(t.difficulty, 5, t.difficulty >= 4), h('div', 'tc-len', round ? lapsLabel(round.laps[this.state.champ.length]) : formatLength(t.lengthHint, this.units()))),
       );
       card.addEventListener('pointermove', (e) => {
@@ -436,11 +440,11 @@ export class SetupScreen extends BaseScreen {
     this.tLength.textContent = formatLength(t.lengthHint, this.units());
     clearEl(this.tDiff);
     // a calendar round shows its own facts in the same four cells: length, laps, time of day, weather
-    this.kLabels.forEach((k, i) => (k.textContent = (round ? ['Length', 'Laps', 'Time', 'Weather'] : ['Length', 'Difficulty', 'Default laps', this.wet() ? 'Wet best lap' : 'Best lap'])[i]));
+    this.kLabels.forEach((k, i) => (k.textContent = (round ? ['Length', 'Laps', 'Time', 'Weather'] : ['Length', 'Difficulty', 'Default laps', this.wet() ? (t.winter ? 'Snow best lap' : 'Wet best lap') : 'Best lap'])[i]));
     if (round) {
       this.tDiff.textContent = String(round.laps[this.state.champ.length]);
       this.tLaps.textContent = TIME_OF_DAY_LABEL[round.environment.timeOfDay] ?? round.environment.timeOfDay;
-      this.tBest.textContent = WEATHER_LABEL[round.environment.weather] ?? round.environment.weather;
+      this.tBest.textContent = weatherLabel(round.environment.weather, t.winter);
       this.tBest.classList.remove('dim');
       this.tBest.title = '';
     } else {
@@ -671,23 +675,26 @@ export class SetupScreen extends BaseScreen {
       }
       add(selectRow(ctx, { label: 'Time of day', options: TIMES.map((t) => ({ value: t, label: OPTION_LABELS.time[t] })), get: () => s.timeOfDay, set: (v) => (s.timeOfDay = v as SetupState['timeOfDay']), wrap: true }, { onChange }));
       // a change of weather changes what the forecast can be (rain later from a dry start, clearing from a wet one)
-      add(selectRow(ctx, { label: 'Weather', options: WEATHERS.map((w) => ({ value: w, label: OPTION_LABELS.weather[w] })), get: () => s.weather, set: (v) => (s.weather = v as SetupState['weather']) }, { onChange: () => (onChange(), this.rebuildRaceRowsValues()) }));
+      this.weatherOptions = WEATHERS.map((w) => ({ value: w, label: OPTION_LABELS.weather[w] }));
+      this.weatherRow = selectRow(ctx, { label: 'Weather', options: this.weatherOptions, get: () => s.weather, set: (v) => (s.weather = v as SetupState['weather']) }, { onChange: () => (onChange(), this.rebuildRaceRowsValues()) });
+      add(this.weatherRow);
+      this.forecastRow = null;
       if (s.mode !== 'timeTrial') {
-        add(
-          selectRow(
-            ctx,
-            {
-              label: 'Forecast',
-              options: FORECAST_CHOICES.map((f) => ({ value: f, label: OPTION_LABELS.forecast[f] })),
-              get: () => forecastNow(s),
-              set: (v) => (s.forecast = v as Forecast),
-              wrap: true,
-              enabled: (v) => forecastOffered(s, v as Forecast),
-            },
-            { onChange },
-          ),
+        this.forecastRow = selectRow(
+          ctx,
+          {
+            label: 'Forecast',
+            options: FORECAST_CHOICES.map((f) => ({ value: f, label: OPTION_LABELS.forecast[f] })),
+            get: () => forecastNow(s),
+            set: (v) => (s.forecast = v as Forecast),
+            wrap: true,
+            enabled: (v) => forecastOffered(s, v as Forecast),
+          },
+          { onChange },
         );
+        add(this.forecastRow);
       }
+      this.relabelWeather();
       if (info.usesStart) {
         add(selectRow(ctx, { label: 'Start position', options: STARTS.map((p) => ({ value: p, label: p === 'back' ? 'Back' : p === 'middle' ? 'Middle' : 'Pole' })), get: () => s.startPosition, set: (v) => (s.startPosition = v as SetupState['startPosition']) }, { onChange }));
       }
@@ -717,7 +724,21 @@ export class SetupScreen extends BaseScreen {
   }
 
   private rebuildRaceRowsValues(): void {
+    this.relabelWeather();
     for (const r of this.raceRows) r.refresh();
+  }
+
+  /** The Weather and Forecast rows name the weathers of the chosen circuit: snow and a blizzard where the others have rain and a storm. */
+  private relabelWeather(): void {
+    const winter = this.track()?.winter === true;
+    for (const o of this.weatherOptions) o.label = weatherLabel(o.value, winter);
+    const f = this.forecastRow;
+    if (f) {
+      const els = f.el.querySelectorAll('.opt');
+      FORECAST_CHOICES.forEach((c, i) => {
+        if (els[i]) els[i].textContent = forecastLabel(c, winter);
+      });
+    }
   }
 
   /** The Players row: a second step appears for the second player's car, and the field shrinks to what the grid has room for. */
@@ -780,9 +801,9 @@ export class SetupScreen extends BaseScreen {
       this.sumCar2.textContent = `${this.carOf(1).name}  ·  ${LIVERY_PRESETS[this.state.liveryIndex2].name}`;
     }
     this.sumMode.textContent = MODE_INFO[this.state.mode as RaceMode].label;
-    this.sumConditions.textContent = formatConditions({ timeOfDay: this.state.timeOfDay, weather: this.state.weather }, forecastNow(this.state));
+    this.sumConditions.textContent = formatConditions({ timeOfDay: this.state.timeOfDay, weather: this.state.weather }, forecastNow(this.state), t.winter);
     const best = bestLapFor(this.ctx.bestLaps, this.recordTrack(t.id), c.id);
-    this.sumBest.textContent = best ? formatLapTime(best.time) + (this.wet() ? '  (wet)' : '') : 'No lap yet';
+    this.sumBest.textContent = best ? formatLapTime(best.time) + (this.wet() ? (t.winter ? '  (snow)' : '  (wet)') : '') : 'No lap yet';
     this.drawMaps();
   }
 
@@ -796,7 +817,7 @@ export class SetupScreen extends BaseScreen {
     def.rounds.forEach((r, i) => {
       const t = this.ctx.deps.tracks.find((x) => x.id === r.trackId);
       this.csRounds.appendChild(
-        h('div', 'cs-round', h('span', 'n', 'R' + (i + 1)), h('div', 'cs-main', h('b', null, t?.name ?? r.trackId), h('em', null, formatConditions(r.environment, roundChange(r, r.laps[c.length])))), h('span', 'cs-laps t-num', lapsLabel(r.laps[c.length]))),
+        h('div', 'cs-round', h('span', 'n', 'R' + (i + 1)), h('div', 'cs-main', h('b', null, t?.name ?? r.trackId), h('em', null, formatConditions(r.environment, roundChange(r, r.laps[c.length]), t?.winter))), h('span', 'cs-laps t-num', lapsLabel(r.laps[c.length]))),
       );
     });
     this.csCar.textContent = `${this.car().name}  ·  ${LIVERY_PRESETS[this.state.liveryIndex].name}`;

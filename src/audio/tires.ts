@@ -105,11 +105,23 @@ export function tireSqueal(w: WheelState, wheelIndex: number, speed: number, out
   const longShare = wetT > 0 ? longitudinalShare(w) : 0;
   if (wetT > 0 && w.contact) out.slush = slushFrom(w, speed, wetT, u, longShare);
   const surf = squealSurfaceFactor(w.surface);
-  if (!w.contact || surf === 0) return;
+  const snowy = w.surface === 'snow' || w.surface === 'deepsnow';
+  const icy = w.surface === 'ice';
+  if (!w.contact || (surf === 0 && !snowy && !icy)) return;
   const s = clamp(w.skid, 0, 1);
   const speedGate = smoothstep(1.2, 9, speed);
   if (speedGate <= 0) return;
   const loadF = clamp(Math.sqrt(Math.max(w.load, 0) / 4000), 0.35, 1.35);
+  if (surf === 0) {
+    // Snow and ice: no stick-slip. A tyre at the limit ploughs and hisses (the scrub band, the "shhh" of snow shearing under it),
+    // there is no howl; the studs on ice add a thin, high, ragged zip once it slides.
+    const approachS = smoothstep(0.5, 1.0, u) * 0.4;
+    const slide = smoothstep(0.03, 0.4, s);
+    out.scrub = clamp((approachS * (1 - smoothstep(0.2, 0.55, s)) + slide * (snowy ? 0.85 : 0.6)) * speedGate * loadF, 0, 1.2);
+    out.tone = icy ? clamp(smoothstep(0.12, 0.6, s) * 0.2 * speedGate * loadF, 0, 0.4) : 0;
+    out.pitch = TIRE_BASE_HZ[wheelIndex & 3] * (icy ? 1.7 : 1) * (0.86 + 0.26 * smoothstep(6, 50, speed));
+    return;
+  }
   const g = surf * speedGate * loadF;
 
   // faint scrub as you approach the limit (before skid exists), continuing through the squeal

@@ -3,7 +3,7 @@ import type { ScreenId } from '../../core/systems';
 import type { UiCtx } from '../ctx';
 import { h, clearEl } from '../dom';
 import { damageChip } from '../hud/damage';
-import { FORECAST_LABEL, formatLapTime, ordinal, WEATHER_LABEL } from '../format';
+import { forecastLabel, formatLapTime, ordinal, weatherLabel } from '../format';
 import { MODE_INFO, missingPadLine, pauseOwnerLine, seatName } from '../model';
 import { FocusList, type FocusRow } from '../nav';
 import { Dialog } from '../widgets';
@@ -142,7 +142,7 @@ export class PauseScreen extends BaseScreen {
     }
     // weather that changes: what it is now, or what is coming
     const wx = hud?.weather;
-    if (wx) this.info.append(chip('Weather', wx.called ? `${WEATHER_LABEL[wx.sky]}  ·  track ${wx.track.toLowerCase()}` : `${WEATHER_LABEL[wx.sky]}, ${FORECAST_LABEL[wx.forecast].toLowerCase()}`));
+    if (wx) this.info.append(chip('Weather', wx.called ? `${weatherLabel(wx.sky, wx.winter)}  ·  track ${wx.track.toLowerCase()}` : `${weatherLabel(wx.sky, wx.winter)}, ${forecastLabel(wx.forecast, wx.winter).toLowerCase()}`));
     // Damage: Full, and the car is bent (split screen: on each player's line)
     if (!cfg?.player2 && hud?.damage) this.info.append(damageChip(hud.damage));
     // where the season stands going into this round

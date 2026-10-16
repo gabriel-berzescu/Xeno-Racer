@@ -138,8 +138,9 @@ export function stepWetness(w: number, target: number, dt: number): number {
   return Math.max(target, Math.min(w, next));
 }
 
-/** What the road is like under the tyres, for the HUD. */
-export function trackCondition(wetness: number): string {
+/** What the road is like under the tyres, for the HUD (on a winter circuit the wetness is the fresh snow lying on the packed road). */
+export function trackCondition(wetness: number, winter = false): string {
+  if (winter) return wetness < DRY_BELOW ? 'Packed' : wetness < 0.25 ? 'Dusted' : wetness < 0.6 ? 'Fresh snow' : wetness < 0.9 ? 'Deep snow' : 'Drifting';
   return wetness < DRY_BELOW ? 'Dry' : wetness < 0.25 ? 'Damp' : wetness < 0.6 ? 'Wet' : wetness < 0.9 ? 'Very wet' : 'Soaked';
 }
 
@@ -164,6 +165,13 @@ const NOTICES = {
   stopped: { kind: 'clearing', title: 'The rain has stopped', sub: 'The track is drying: grip comes back slowly' },
 } as const;
 
+/** The same notices at a winter circuit: the snow is coming, and the fresh snow packs down under the cars. */
+const NOTICES_WINTER = {
+  rainLater: { kind: 'rain', title: 'Snow is coming', sub: 'Fresh snow will cover the track within a lap or two' },
+  clearing: { kind: 'clearing', title: 'Skies are clearing', sub: 'The snow is easing. The track will pack down slowly' },
+  stopped: { kind: 'clearing', title: 'The snow has stopped', sub: 'The fresh snow is packing down: grip comes back slowly' },
+} as const;
+
 /** Where a race's weather is: waits for the call, runs the change, then keeps drying (or wetting) until the road has caught up. */
 export class WeatherDirector {
   /** The state everyone reads; one object, rewritten in place. */
@@ -180,6 +188,8 @@ export class WeatherDirector {
   constructor(
     readonly plan: WeatherPlan | null,
     readonly speed = 1,
+    /** A winter circuit: the notices talk about snow. */
+    readonly winter = false,
   ) {
     this.state = plan ? startState(plan) : { sky: 0, rain: 0, wetness: 0 };
   }
@@ -195,7 +205,7 @@ export class WeatherDirector {
       const hit = 'progress' in plan.at ? progress >= plan.at.progress : seconds >= plan.at.seconds;
       if (!hit) return;
       this.called = true;
-      this.events.push({ kind: 'call', notice: NOTICES[plan.forecast] });
+      this.events.push({ kind: 'call', notice: (this.winter ? NOTICES_WINTER : NOTICES)[plan.forecast] });
     }
     this.advance(dt * this.speed);
   }
@@ -210,7 +220,7 @@ export class WeatherDirector {
     s.wetness = stepWetness(s.wetness, wetnessTarget(s.rain), dt);
     if (plan.forecast === 'clearing' && !this.stoppedSent && this.elapsed >= plan.lead + plan.span) {
       this.stoppedSent = true;
-      this.events.push({ kind: 'stopped', notice: NOTICES.stopped });
+      this.events.push({ kind: 'stopped', notice: (this.winter ? NOTICES_WINTER : NOTICES).stopped });
     }
   }
 

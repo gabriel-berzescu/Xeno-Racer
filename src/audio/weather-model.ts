@@ -34,6 +34,8 @@ export const WCTL = {
   INTERIOR: 1,
   SPEED: 2,
   GAIN: 3,
+  /** 1 = the precipitation is snow (a winter circuit): no drops, only the wind. */
+  SNOW: 4,
 } as const;
 export const WCTL_LEN = 8;
 
@@ -53,10 +55,12 @@ export interface WeatherInputs {
   speed: number;
   /** Output gain; ~0 puts the voice to sleep (pause, hidden tab). */
   gain: number;
+  /** The precipitation is snow: no drops on the ground, the roof or the glass, a wind bed that rises with the snowfall. */
+  snow: number;
 }
 
 export function makeWeatherInputs(): WeatherInputs {
-  return { rain: 0, interior: 0, speed: 0, gain: 1 };
+  return { rain: 0, interior: 0, speed: 0, gain: 1, snow: 0 };
 }
 
 export function readWeatherInputs(v: Float32Array, o: WeatherInputs): void {
@@ -64,6 +68,7 @@ export function readWeatherInputs(v: Float32Array, o: WeatherInputs): void {
   o.interior = unit(v[WCTL.INTERIOR]);
   o.speed = clamp(fin(v[WCTL.SPEED], 0), 0, 200);
   o.gain = Math.max(0, fin(v[WCTL.GAIN], 1));
+  o.snow = v[WCTL.SNOW] > 0.5 ? 1 : 0;
 }
 
 // ── rain profile ─────────────────────────────────────────────────────────────
@@ -100,7 +105,7 @@ export function makeRainProfile(): RainProfile {
  * `interior` (0..1) cross-fades the exterior set into the cabin set; `speedN` (0..1, player speed / 70 m/s)
  * feeds the windscreen.
  */
-export function rainProfile(rain: number, interior: number, speedN: number, out: RainProfile): RainProfile {
+export function rainProfile(rain: number, interior: number, speedN: number, out: RainProfile, snow = false): RainProfile {
   const r = unit(rain);
   const c = unit(interior);
   const e = 1 - c;
@@ -120,6 +125,13 @@ export function rainProfile(rain: number, interior: number, speedN: number, out:
   out.bedCabin = c * Math.pow(r, 1.2);
   out.wind = smoothstep(0.6, 1, r);
   out.gustDepth = 0.35 + 0.65 * smoothstep(0.4, 1, r);
+  if (snow) {
+    // snow falls silently: no drops, no roar; what is heard is the wind that carries it, a breath in a light fall, a gale in a blizzard
+    rate.fill(0);
+    out.bedHi = out.bedLo = out.bedCabin = 0;
+    out.wind = r > 0 ? clamp01(0.1 + 0.9 * smoothstep(0.05, 1, r)) : 0;
+    out.gustDepth = 0.3 + 0.7 * smoothstep(0.2, 1, r);
+  }
   return out;
 }
 

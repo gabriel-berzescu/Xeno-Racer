@@ -4,7 +4,7 @@
  */
 import type { EnvironmentSettings, Forecast } from '../core/contracts';
 import { h } from './dom';
-import { FORECAST_LABEL, TIME_OF_DAY_LABEL, WEATHER_LABEL } from './format';
+import { forecastLabel, TIME_OF_DAY_LABEL, weatherLabel } from './format';
 
 const DARK = new Set(['dusk', 'night']);
 const WET = new Set(['rain', 'storm']);
@@ -13,14 +13,14 @@ const WET = new Set(['rain', 'storm']);
  * Time of day and weather as two chips, and a third when the weather changes during the race; rain and low light get their own
  * tint so a calendar reads at a glance.
  */
-export function conditionChips(env: EnvironmentSettings, small = false, forecast?: Forecast): HTMLElement {
+export function conditionChips(env: EnvironmentSettings, small = false, forecast?: Forecast, winter?: boolean): HTMLElement {
   const sz = small ? ' sm' : '';
   return h(
     'span',
     'conds',
     h('span', 'chip' + sz + (DARK.has(env.timeOfDay) ? ' dusk' : ''), TIME_OF_DAY_LABEL[env.timeOfDay] ?? env.timeOfDay),
-    h('span', 'chip' + sz + (WET.has(env.weather) ? ' rain' : ''), WEATHER_LABEL[env.weather] ?? env.weather),
-    forecast && forecast !== 'stable' ? h('span', 'chip' + sz + ' rain', FORECAST_LABEL[forecast] ?? forecast) : null,
+    h('span', 'chip' + sz + (WET.has(env.weather) ? ' rain' : ''), weatherLabel(env.weather, winter)),
+    forecast && forecast !== 'stable' ? h('span', 'chip' + sz + ' rain', forecastLabel(forecast, winter)) : null,
   );
 }
 

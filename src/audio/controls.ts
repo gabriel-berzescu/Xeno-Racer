@@ -51,6 +51,9 @@ export const CTL = {
   WET: 56,
   /** Per wheel: wheelspin / lock-up slush level on a wet road (FL, FR, RL, RR) -> 57..60. */
   SLUSH0: 57,
+  // winter circuits: the share of the wheels on snow (packed or deep) and on studded ice -> 61, 62
+  SURF_SNOW: 61,
+  SURF_ICE: 62,
 } as const;
 
 export const CTL_LEN = 64;

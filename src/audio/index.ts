@@ -403,9 +403,11 @@ class AudioSystemImpl implements AudioSystem, CarHost {
    * ambience fades in / out over a few seconds; the tires follow the wetness smoothly. Call it whenever the
    * weather changes: at a session start, and with 0 / 0 for dry weather and the menus' attract mode.
    */
-  setWeather(rain: number, wetness: number): void {
+  setWeather(rain: number, wetness: number, winter = false): void {
     const w = sanitizeWeather(rain, wetness);
-    this.wetness = w.wetness;
+    // (on a winter circuit the wet is snow: the tyres do not hiss and splash, the ambience is the wind and no drops)
+    this.wetness = winter ? 0 : w.wetness;
+    this.weather.setSnow(winter);
     this.weather.set(w.rain);
   }
 

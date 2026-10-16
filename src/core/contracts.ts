@@ -869,8 +869,10 @@ export interface HudWeather {
   sky: Weather;
   rain: number;
   wetness: number;
-  /** What the track is like under the tyres: "Dry", "Damp", "Wet", "Very wet", "Soaked". */
+  /** What the track is like under the tyres: "Dry", "Damp", "Wet", "Very wet", "Soaked" ("Packed", "Dusted", "Fresh snow", ... on a winter circuit). */
   track: string;
+  /** A winter circuit: the rain is snow, the storm a blizzard (the words and the icon). */
+  winter?: boolean;
   forecast: Exclude<Forecast, 'stable'>;
   /** The change has begun (the call has been made); before it the weather is still the one the race started in. */
   called: boolean;

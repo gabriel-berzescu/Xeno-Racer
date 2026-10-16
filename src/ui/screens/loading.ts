@@ -98,8 +98,8 @@ export class LoadingScreen extends BaseScreen {
     this.kicker.textContent = ch ? `${ch.name}  ·  Round ${ch.round} / ${ch.rounds}` : duo ? `Split screen  ·  ${duo}` : 'LOADING';
     this.facts.textContent = track
       ? ch && cfg
-        ? `${formatLength(track.lengthHint, this.ctx.settings.units)}  ·  ${lapsLabel(cfg.laps)}  ·  ${formatConditions(cfg.environment, cfg.forecast)}`
-        : `${formatLength(track.lengthHint, this.ctx.settings.units)}  ·  ${cfg?.mode === 'race' ? cfg.laps + (cfg.laps === 1 ? ' lap' : ' laps') : cfg?.mode === 'timeTrial' ? 'Time trial' : 'Free roam'}${cfg?.forecast ? '  ·  ' + formatConditions(cfg.environment, cfg.forecast) : ''}`
+        ? `${formatLength(track.lengthHint, this.ctx.settings.units)}  ·  ${lapsLabel(cfg.laps)}  ·  ${formatConditions(cfg.environment, cfg.forecast, track.winter)}`
+        : `${formatLength(track.lengthHint, this.ctx.settings.units)}  ·  ${cfg?.mode === 'race' ? cfg.laps + (cfg.laps === 1 ? ' lap' : ' laps') : cfg?.mode === 'timeTrial' ? 'Time trial' : 'Free roam'}${cfg?.forecast ? '  ·  ' + formatConditions(cfg.environment, cfg.forecast, track.winter) : ''}`
       : '';
     clearEl(this.rounds);
     this.rounds.style.display = ch ? '' : 'none';

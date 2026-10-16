@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { Quaternion } from 'three';
 import { hasNonFinite, peakAbs, rms, spectralCentroid, strongestPeak, welch } from '../src/audio/analysis';
 import { ChassisMapper, localLeft } from '../src/audio/chassis-controls';
-import { CTL, TIRE_STRIDE, makeControlVector } from '../src/audio/controls';
+import { CTL, CTL_LEN, TIRE_STRIDE, makeControlVector } from '../src/audio/controls';
 import { ChassisVoice, impactNorm } from '../src/audio/dsp/chassis-voice';
 import { TIRE_BASE_HZ, makeSquealLevels, slipToLimit, tireSqueal } from '../src/audio/tires';
 import { makeVehicleState } from '../sandbox/audio/drive-sim';
@@ -373,5 +373,150 @@ describe('ChassisVoice DSP', () => {
       return spectralCentroid(welch(l, 8192, Math.floor(0.8 * SR), l.length), SR, 60, 12000);
     };
     expect(cent([0, 0, 0, 1, 0, 0])).toBeGreaterThan(cent([0, 0, 1, 0, 0, 0]) * 2);
+  });
+});
+
+describe('winter surfaces: the crunch of snow, the studs on ice, the whump of a snowbank', () => {
+  const lv = makeSquealLevels();
+  const at = (over: Partial<WheelState>, speed = 35): { scrub: number; tone: number; howl: number; pitch: number } => {
+    tireSqueal(wheel(over), 0, speed, lv);
+    return { ...lv };
+  };
+  function run(seconds: number, setup: (v: ChassisVoice, t: number) => void): Float32Array {
+    const v = new ChassisVoice(SR, 5);
+    const n = Math.floor(seconds * SR);
+    const l = new Float32Array(n);
+    const r = new Float32Array(n);
+    for (let f = 0; f * 800 < n; f++) {
+      setup(v, f / 60);
+      v.process(l.subarray(f * 800), r.subarray(f * 800), Math.min(800, n - f * 800));
+    }
+    return l;
+  }
+  const level = (surf: number[], speed: number): number => {
+    const l = run(1.6, (v) => {
+      v.inp.speed = speed;
+      v.inp.surf.fill(0);
+      v.inp.surf.set(surf);
+    });
+    return 20 * Math.log10(rms(l, Math.floor(0.8 * SR), l.length) + 1e-9);
+  };
+  const SNOW = [0, 0, 0, 0, 0, 0, 1, 0];
+  const ICE = [0, 0, 0, 0, 0, 0, 0, 1];
+  const GRAVEL = [0, 0, 0, 1, 0, 0, 0, 0];
+
+  it('a tyre on snow hisses and never squeals; on ice the studs add only a thin zip', () => {
+    const grip = at({ surface: 'snow' });
+    expect(grip.scrub + grip.tone + grip.howl).toBe(0);
+    expect(at({ surface: 'snow', slipAngle: 0.11 }).scrub).toBeGreaterThan(0.05); // a whisper before it lets go
+    for (const surface of ['snow', 'deepsnow'] as SurfaceType[]) {
+      const slide = at({ surface, skid: 1, slipAngle: 0.3 });
+      expect(slide.scrub).toBeGreaterThan(0.5);
+      expect(slide.tone).toBe(0);
+      expect(slide.howl).toBe(0);
+    }
+    const ice = at({ surface: 'ice', skid: 1, slipAngle: 0.3 });
+    expect(ice.scrub).toBeGreaterThan(0.3);
+    expect(ice.tone).toBeGreaterThan(0);
+    expect(ice.tone).toBeLessThan(0.45);
+    expect(ice.howl).toBe(0);
+    // and the asphalt is as it was
+    expect(at({ surface: 'asphalt', skid: 0.35, slipAngle: 0.14 }).tone).toBeGreaterThan(0.35);
+    const air = at({ surface: 'snow', skid: 1, contact: false });
+    expect(air.scrub + air.tone + air.howl).toBe(0);
+  });
+
+  it('the mapper gives snow and ice their own voices, and a snowbank its own kind of hit', () => {
+    const m = new ChassisMapper();
+    const st = makeVehicleState();
+    const v = makeControlVector();
+    st.wheels[0].surface = 'snow';
+    st.wheels[1].surface = 'deepsnow';
+    st.wheels[2].surface = 'ice';
+    st.wheels[3].surface = 'asphalt';
+    m.update(st, 1 / 60, v);
+    expect(v[CTL.SURF_SNOW]).toBeCloseTo(0.5);
+    expect(v[CTL.SURF_ICE]).toBeCloseTo(0.25);
+    expect(v[CTL.SURF_HARD]).toBeCloseTo(0.25);
+    expect(v[CTL.SURF_DIRT]).toBe(0);
+    expect(CTL.SURF_ICE).toBeLessThan(CTL_LEN);
+    st.impactCount = 1;
+    st.lastImpact.strength = 9;
+    st.lastImpact.kind = 'snow';
+    m.update(st, 1 / 60, v);
+    expect(v[CTL.IMPACT_KIND]).toBe(3);
+  });
+
+  it('the crunch grows with the speed and is softer than gravel; the studs are brighter than the snow', () => {
+    expect(level(SNOW, 40)).toBeGreaterThan(level(SNOW, 20) + 2);
+    expect(level(SNOW, 60)).toBeGreaterThan(level(SNOW, 40) + 1);
+    expect(level(ICE, 40)).toBeGreaterThan(level(ICE, 20) + 2);
+    expect(level(SNOW, 40)).toBeLessThan(level(GRAVEL, 40));
+    expect(level(SNOW, 40)).toBeGreaterThan(-45); // heard
+    expect(level(ICE, 40)).toBeGreaterThan(-45);
+    const cent = (surf: number[]): number => {
+      const l = run(1.6, (v) => {
+        v.inp.speed = 40;
+        v.inp.surf.fill(0);
+        v.inp.surf.set(surf);
+      });
+      return spectralCentroid(welch(l, 8192, Math.floor(0.8 * SR), l.length), SR, 60, 12000);
+    };
+    expect(cent(ICE)).toBeGreaterThan(cent(SNOW) * 1.3);
+  });
+
+  it('a hit on a snowbank is a low whump: bounded, with none of the high end of metal and glass', () => {
+    const hit = (kind: number): { peak: number; hf: number } => {
+      const l = run(1.5, (v, t) => {
+        if (t >= 0.1) {
+          v.inp.impactCount = 1;
+          v.inp.impactKind = kind;
+          v.inp.impactStrength = 12;
+        }
+      });
+      const a = Math.floor(0.1 * SR);
+      const psd = welch(l, 2048, a + Math.floor(0.2 * SR), a + Math.floor(0.9 * SR));
+      let hf = 0;
+      let all = 0;
+      const df = SR / 2048;
+      for (let k = 1; k < psd.length; k++) {
+        all += psd[k];
+        if (k * df > 3500) hf += psd[k];
+      }
+      return { peak: 20 * Math.log10(peakAbs(l, a, a + SR) + 1e-9), hf: hf / Math.max(all, 1e-18) };
+    };
+    const bank = hit(3);
+    const wall = hit(0);
+    expect(bank.peak).toBeGreaterThan(-30); // it is heard
+    expect(bank.peak).toBeLessThan(0);
+    expect(bank.hf).toBeLessThan(wall.hf * 0.3);
+  });
+
+  it('fuzz: the winter voices never produce NaN or runaway levels', () => {
+    const v = new ChassisVoice(SR, 11);
+    const out = new Float32Array(128);
+    const out2 = new Float32Array(128);
+    let s = 777;
+    const rnd = (): number => {
+      s = (Math.imul(s, 1664525) + 1013904223) | 0;
+      return (s >>> 0) / 4294967296;
+    };
+    let worst = 0;
+    for (let block = 0; block < 2000; block++) {
+      if (block % 5 === 0) {
+        v.inp.speed = rnd() * 100;
+        v.inp.surf[6] = rnd();
+        v.inp.surf[7] = rnd() > 0.5 ? rnd() : 0;
+        if (rnd() > 0.9) {
+          v.inp.impactCount++;
+          v.inp.impactKind = 3;
+          v.inp.impactStrength = rnd() * 30;
+        }
+      }
+      v.process(out, out2, 128);
+      expect(hasNonFinite(out) || hasNonFinite(out2)).toBe(false);
+      worst = Math.max(worst, peakAbs(out), peakAbs(out2));
+    }
+    expect(worst).toBeLessThan(3);
   });
 });

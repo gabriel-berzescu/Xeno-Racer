@@ -108,6 +108,8 @@ export class WeatherSystem {
   /** Called when a lightning strike happens (the thunder follows `delaySeconds` later). Optional. */
   onStrike: ((s: StrikeInfo) => void) | null = null;
   private target = 0;
+  /** The precipitation is snow (a winter circuit): the voice makes the wind and no drops, and there is no thunder. */
+  private snow = false;
   /** Keep the voice alive (asleep) while it is not raining, for a race that rain is coming to (see arm). */
   private armed = false;
   private node: WeatherNodeLike | null = null;
@@ -152,6 +154,11 @@ export class WeatherSystem {
     this.armed = on;
   }
 
+  /** Snow instead of rain (see WCTL.SNOW). */
+  setSnow(on: boolean): void {
+    this.snow = on;
+  }
+
   set(rain: number): void {
     const r = unit(rain);
     if (r === this.target) return;
@@ -188,12 +195,13 @@ export class WeatherSystem {
       v[WCTL.INTERIOR] = unit(interior);
       v[WCTL.SPEED] = Number.isFinite(speed) ? speed : 0;
       v[WCTL.GAIN] = gain;
+      v[WCTL.SNOW] = this.snow ? 1 : 0;
       node.post(v);
     }
     this.lastGain = gain;
 
     if (!muted && this.target > 0) {
-      const ev = this.sched.tick(dt, this.target);
+      const ev = this.snow ? null : this.sched.tick(dt, this.target);
       if (ev) this.strike(ev);
       for (let i = this.pending.length - 1; i >= 0; i--) {
         const p = this.pending[i];

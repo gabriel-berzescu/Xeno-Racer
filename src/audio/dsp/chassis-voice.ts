@@ -2,7 +2,8 @@
  * ChassisVoice — everything a car makes that is not the engine:
  *   - tire squeal x4 (scrub / tonal squeal / ragged howl, per-wheel pitch and stereo position)
  *   - rolling noise by surface (asphalt roar + tread whine, curb pulse train, gravel crunch,
- *     grass swish, sand hiss, dirt), blended by how many wheels are on each surface
+ *     grass swish, sand hiss, dirt, the crunch of packed snow, the rattle of studs on ice), blended by how many
+ *     wheels are on each surface
  *   - wind (speed^2, gusts, mirror whistle), suspension thumps, metal scrape grinding
  *   - impacts: modal metal/plastic crunch + body thump + glass tinkle (pool of 3)
  *   - wet road (wet > 0): tire hiss, spray wash, puddle splashes and wheelspin slush (WetRoad), the dry road roar
@@ -17,7 +18,7 @@ import { Resonator, SVF } from './filters';
 import { Rng, TAU, clamp, clamp01, lerp, sinCyc, smoothCoef, smoothstep, wrap1 } from './util';
 import { WetRoad } from './wet-road';
 
-export const SURF = { HARD: 0, CURB: 1, GRASS: 2, GRAVEL: 3, SAND: 4, DIRT: 5 } as const;
+export const SURF = { HARD: 0, CURB: 1, GRASS: 2, GRAVEL: 3, SAND: 4, DIRT: 5, SNOW: 6, ICE: 7 } as const;
 
 export interface ChassisInputs {
   speed: number;
@@ -25,7 +26,7 @@ export interface ChassisInputs {
   interior: number;
   airborne: number;
   scrape: number;
-  /** hard, curb, grass, gravel, sand, dirt (fractions of wheels, 0..1). */
+  /** hard, curb, grass, gravel, sand, dirt, snow, ice (fractions of wheels, 0..1). */
   surf: Float32Array;
   curb: Float32Array;
   /** per wheel: scrub, tone, howl, pitch */
@@ -54,7 +55,7 @@ export function makeChassisInputs(): ChassisInputs {
     interior: 0,
     airborne: 0,
     scrape: 0,
-    surf: new Float32Array([1, 0, 0, 0, 0, 0]),
+    surf: new Float32Array([1, 0, 0, 0, 0, 0, 0, 0]),
     curb: new Float32Array(4),
     tire: t,
     thumpCount: 0,
@@ -81,6 +82,8 @@ export function readChassisInputs(v: Float32Array, o: ChassisInputs): void {
   o.airborne = clamp01(fin(v[CTL.AIRBORNE], 0));
   o.scrape = clamp01(fin(v[CTL.SCRAPE], 0));
   for (let i = 0; i < 6; i++) o.surf[i] = clamp01(fin(v[CTL.SURF_HARD + i], 0));
+  o.surf[SURF.SNOW] = clamp01(fin(v[CTL.SURF_SNOW], 0));
+  o.surf[SURF.ICE] = clamp01(fin(v[CTL.SURF_ICE], 0));
   for (let i = 0; i < 4; i++) o.curb[i] = clamp01(fin(v[CTL.CURB_FL + i], 0));
   for (let i = 0; i < 16; i++) o.tire[i] = fin(v[CTL.TIRE0 + i], o.tire[i]);
   o.thumpCount = v[CTL.THUMP_COUNT];
@@ -161,11 +164,11 @@ export class ChassisVoice {
   private sInt = 0;
   private sAir = 0;
   private sScrape = 0;
-  private sSurf = new Float64Array(6);
+  private sSurf = new Float64Array(8);
   private sCurb = new Float64Array(4);
   private sTire = new Float64Array(16);
   private pTire = new Float64Array(16);
-  private pSurf = new Float64Array(6);
+  private pSurf = new Float64Array(8);
   private pScrape = 0;
   private pAir = 0;
   private lastThump = 0;
@@ -199,6 +202,15 @@ export class ChassisVoice {
   private svfGrass = new SVF();
   private svfSand = new SVF();
   private svfDirt = new SVF();
+  // snow: the crunch band, the soft rumble under it, the hiss of powder; ice: the studs and the hum of the hard floor
+  private svfSnow = new SVF();
+  private svfSnowLo = new SVF();
+  private svfSnowHi = new SVF();
+  private snowEnv = 0;
+  private snowEnv2 = 0;
+  private svfStud = new SVF();
+  private svfIceLo = new SVF();
+  private studEnv = 0;
   private svfWindL = new SVF();
   private svfWindR = new SVF();
   private svfWhistle = new SVF();
@@ -265,6 +277,11 @@ export class ChassisVoice {
     this.svfGrass.set(750, 0.7, sr);
     this.svfSand.set(520, 0.7, sr);
     this.svfDirt.set(1500, 0.9, sr);
+    this.svfSnow.set(1150, 0.8, sr);
+    this.svfSnowLo.set(300, 0.7, sr);
+    this.svfSnowHi.set(5200, 0.8, sr);
+    this.svfStud.set(3800, 1.6, sr);
+    this.svfIceLo.set(210, 0.8, sr);
     this.svfHumL.set(85, 1.4, sr);
     this.svfHumR.set(95, 1.4, sr);
     this.svfScr1.set(900, 7, sr);
@@ -285,6 +302,7 @@ export class ChassisVoice {
       for (const m of v.glass) m.reset();
     }
     this.gravelEnv = this.gravelEnv2 = this.thumpNoise = this.thumpIn = 0;
+    this.snowEnv = this.snowEnv2 = this.studEnv = 0;
     this.wet.reset();
   }
 
@@ -318,13 +336,14 @@ export class ChassisVoice {
       v = oldest;
     }
     this.impRR = (this.impRR + 1) % this.imp.length;
-    const kind = Math.round(kindIn); // 0 wall, 1 car, 2 ground
+    const kind = Math.round(kindIn); // 0 wall, 1 car, 2 ground, 3 snowbank
+    const snowBank = kind === 3;
     v.active = true;
     v.pan = pan;
     v.age = 0;
     const base = kind === 1 ? 320 + rng.u() * 380 : kind === 2 ? 110 + rng.u() * 150 : 170 + rng.u() * 250;
     const decScale = (kind === 1 ? 0.55 : kind === 2 ? 0.8 : 1) * (0.55 + 0.9 * s);
-    const modeAmp = kind === 1 ? 0.55 : kind === 2 ? 0.35 : 0.8;
+    const modeAmp = snowBank ? 0.06 : kind === 1 ? 0.55 : kind === 2 ? 0.35 : 0.8;
     for (let k = 0; k < N_MODES; k++) {
       const f = base * MODE_RATIO[k] * (0.97 + 0.06 * rng.u());
       v.modes[k].reset();
@@ -338,7 +357,7 @@ export class ChassisVoice {
     v.thumpEnv = 1;
     v.thumpK = Math.exp(-1 / (sr * (0.1 + 0.08 * s)));
     v.thumpDrop = Math.exp(-1 / (sr * 0.07));
-    v.thumpAmp = (kind === 1 ? 0.35 : 0.9) * Math.pow(s, 1.0);
+    v.thumpAmp = (kind === 1 ? 0.35 : snowBank ? 1.1 : 0.9) * Math.pow(s, 1.0);
     // crunch grains: clusters of band-limited noise bursts
     const nG = Math.min(N_GRAINS, 2 + Math.floor(s * 8));
     v.grN = nG;
@@ -352,15 +371,15 @@ export class ChassisVoice {
     v.svfCrunch.reset();
     v.svfCrunch.set(kind === 1 ? 900 + rng.u() * 1100 : 1500 + rng.u() * 2200, 1.0, sr);
     v.svfGrit.reset();
-    v.svfGrit.set(kind === 2 ? 450 : 700, 0.9, sr);
+    v.svfGrit.set(snowBank ? 280 : kind === 2 ? 450 : 700, 0.9, sr);
     v.grEnv = 0;
     v.grK = Math.exp(-1 / (sr * (kind === 1 ? 0.016 : 0.011)));
-    v.crunchAmp = (kind === 1 ? 0.95 : 0.7) * Math.pow(s, 1.1);
-    v.gritAmp = (kind === 2 ? 0.6 : 0.3) * s;
+    v.crunchAmp = (snowBank ? 0.1 : kind === 1 ? 0.95 : 0.7) * Math.pow(s, 1.1);
+    v.gritAmp = (snowBank ? 0.9 : kind === 2 ? 0.6 : 0.3) * s;
     // glass tinkle on big hits
     v.piN = 0;
     v.piI = 0;
-    if (kind !== 2 && s > (kind === 1 ? 0.55 : 0.42)) {
+    if (kind !== 2 && !snowBank && s > (kind === 1 ? 0.55 : 0.42)) {
       const nP = Math.min(N_PINGS, 6 + Math.floor((s - 0.4) * 24));
       v.piN = nP;
       let tt = 0.012;
@@ -392,7 +411,7 @@ export class ChassisVoice {
       this.sInt = I.interior;
       this.sAir = I.airborne;
       this.sScrape = I.scrape;
-      for (let i = 0; i < 6; i++) this.sSurf[i] = I.surf[i];
+      for (let i = 0; i < 8; i++) this.sSurf[i] = I.surf[i];
       for (let i = 0; i < 4; i++) this.sCurb[i] = I.curb[i];
       for (let i = 0; i < 16; i++) this.sTire[i] = I.tire[i];
       this.pTire.set(this.sTire);
@@ -428,7 +447,7 @@ export class ChassisVoice {
     this.sAir += smoothCoef(0.03, dt) * (I.airborne - this.sAir);
     this.sScrape += smoothCoef(0.025, dt) * (I.scrape - this.sScrape);
     const kS = smoothCoef(0.04, dt);
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 8; i++) {
       this.pSurf[i] = this.sSurf[i];
       this.sSurf[i] += kS * (I.surf[i] - this.sSurf[i]);
     }
@@ -502,6 +521,8 @@ export class ChassisVoice {
     const wGravel = this.sSurf[SURF.GRAVEL];
     const wSand = this.sSurf[SURF.SAND];
     const wDirt = this.sSurf[SURF.DIRT];
+    const wSnow = this.sSurf[SURF.SNOW];
+    const wIce = this.sSurf[SURF.ICE];
     // wet road: only wheels on pavement carry a film for the squeal; every surface throws some spray
     const wetNow = this.sWet;
     const wT = wetNow > 0.002 ? wetNow * Math.min(1, wHard + 0.9 * wCurb) : 0;
@@ -531,6 +552,12 @@ export class ChassisVoice {
     const gravelLevel = (wGravel + 0.55 * wDirt) * 0.4 * Math.pow(sN, 0.9) * roadAir;
     const grassLevel = (wGrass + 0.4 * wDirt) * 0.3 * Math.pow(sN, 1.1) * roadAir;
     const sandLevel = wSand * 0.26 * Math.pow(sN, 1.0) * roadAir;
+    // snow: grains of a crunch at a rate that follows the speed, over a soft rumble and a little hiss; softer than gravel, which it is not.
+    // ice: the studs, a fine ratchet of ticks on a hard floor (the rate is the passing of the studs), and a low hum
+    const snowLevel = wSnow * 0.34 * Math.pow(sN, 0.85) * roadAir;
+    const snowRate = (35 + 9 * speed) * invSr;
+    const iceLevel = wIce * 0.3 * Math.pow(sN, 0.9) * roadAir;
+    const studRate = (260 + 60 * speed) * invSr;
     const windLevel = full ? 0.5 * sN * sN * gustF * gWind : 0;
     const whistleLevel = full ? 0.045 * smoothstep(0.5, 1.1, sN) * gWind : 0;
     const gravelRate = (140 + 11 * speed) * invSr;
@@ -665,6 +692,28 @@ export class ChassisVoice {
         const v = this.svfSand.lp * sandLevel * 2.0 * (0.7 + 0.6 * this.grassMod);
         mixL += v;
         mixR += v;
+      }
+
+      if (snowLevel > 1e-5) {
+        if (rng.u() < snowRate) this.snowEnv = 0.35 + 0.65 * rng.u();
+        if (rng.u() < snowRate * 0.5) this.snowEnv2 = 0.3 + 0.5 * rng.u();
+        const c1 = this.svfSnow.step(nL);
+        this.snowEnv *= 0.9955;
+        this.snowEnv2 *= 0.9978;
+        this.svfSnowLo.step(nR);
+        const hi = this.svfSnowHi.step(nL);
+        const v = (c1 * (this.snowEnv * 1.0 + this.snowEnv2 * 0.5) + this.svfSnowLo.lp * 0.55 + hi * 0.05) * snowLevel;
+        mixL += v;
+        mixR += stereo ? v * 0.92 : v;
+      }
+      if (iceLevel > 1e-5) {
+        if (rng.u() < studRate) this.studEnv = 0.4 + 0.6 * rng.u();
+        const t = this.svfStud.step(nL);
+        this.studEnv *= 0.991;
+        this.svfIceLo.step(nR);
+        const v = (t * this.studEnv * 1.2 + this.svfIceLo.lp * 0.2) * iceLevel;
+        mixL += v;
+        mixR += stereo ? v * 0.9 : v;
       }
 
       // ── curb pulse train: one thump per ridge, per wheel side ───────────────

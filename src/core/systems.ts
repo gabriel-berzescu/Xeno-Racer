@@ -195,8 +195,11 @@ export interface AudioSystem {
   setPaused(p: boolean): void;
   /** Menu / results music on or off. */
   setMusic(on: boolean): void;
-  /** Weather for the ambience and tire sounds: rain intensity and track water, both 0..1. */
-  setWeather(rain: number, wetness: number): void;
+  /**
+   * Weather for the ambience and tire sounds: rain intensity and track water, both 0..1. On a winter circuit (`winter`) the
+   * precipitation is snow: the ambience is the wind and the tyres do not hiss on the wet.
+   */
+  setWeather(rain: number, wetness: number, winter?: boolean): void;
   update(dt: number): void;
   dispose(): void;
 }

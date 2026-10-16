@@ -61,6 +61,16 @@ export const iconRain = (cls = ''): SVGElement => wrap('0 0 32 32', CLOUD + LINE
 
 export const iconStorm = (cls = ''): SVGElement => wrap('0 0 32 32', CLOUD + '<path d="M17.4 21.5l-5 6.6h3.3l-1.4 4.4 6.2-7.6h-3.6l2.1-3.4z"/>', cls);
 
+/** A snowflake: a plus and a cross, short strokes, centred on (x, y). */
+const FLAKE = (x: number, y: number): string =>
+  `<path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" d="M${x} ${y - 2.4}v4.8M${x - 2.1} ${y - 1.2}l4.2 2.4M${x + 2.1} ${y - 1.2}l-4.2 2.4"/>`;
+
+/** A cloud with flakes under it: the snowfall (the rain's icon on a winter circuit). */
+export const iconSnow = (cls = ''): SVGElement => wrap('0 0 32 32', CLOUD + FLAKE(10, 26) + FLAKE(16.5, 28.6) + FLAKE(23, 26), cls);
+
+/** More flakes, and the wind that carries them: the blizzard (the storm's icon on a winter circuit). */
+export const iconBlizzard = (cls = ''): SVGElement => wrap('0 0 32 32', CLOUD + FLAKE(8.5, 25.5) + FLAKE(15, 28.8) + FLAKE(21.5, 25.5) + FLAKE(27.5, 28.8) + LINES('M3 28.6h3'), cls);
+
 export const iconSun = (cls = ''): SVGElement =>
   wrap('0 0 32 32', '<circle cx="16" cy="16" r="5.8"/>' + LINES('M16 3.5v3M16 25.5v3M3.5 16h3M25.5 16h3M7.2 7.2l2.1 2.1M22.7 22.7l2.1 2.1M7.2 24.8l2.1-2.1M22.7 9.3l2.1-2.1'), cls);
 

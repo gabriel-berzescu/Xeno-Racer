@@ -682,7 +682,7 @@ export class Game {
     // weather that changes: its plan is fixed by the config (so a restart repeats it); the renderer gets both ends of it to
     // solve and fit before the track is built
     const plan = this.weatherPlan(config);
-    this.wx = plan ? new WeatherDirector(plan, Math.max(0.1, +(this.params.get('wxspeed') ?? 1) || 1)) : null;
+    this.wx = plan ? new WeatherDirector(plan, Math.max(0.1, +(this.params.get('wxspeed') ?? 1) || 1), TRACKS.find((t) => t.info.id === config.trackId)?.info.winter === true) : null;
     armWeather(this.audio, plan !== null);
     this.wxNotice = null;
     this.wxLog.reset();
@@ -692,7 +692,7 @@ export class Game {
     this.world = new PhysicsWorld(track);
     // rain: water on the track for the tires and the AI, the rain bed and wet tires for the audio
     this.world.wetness = this.render.env.wetness;
-    this.audio.setWeather(this.render.env.rain, this.render.env.wetness);
+    this.audio.setWeather(this.render.env.rain, this.render.env.wetness, track.info.winter === true);
     this.wxStartWet = this.world.wetness;
     this.wxSent.rain = this.wxSent.wetness = this.wxSent.darkness = -1;
     const def = getCar(config.carId);
@@ -1728,7 +1728,7 @@ export class Game {
       this.world.wetness = s.wetness;
       this.retuneDrivers(s.wetness);
     }
-    this.audio.setWeather(s.rain, s.wetness);
+    this.audio.setWeather(s.rain, s.wetness, this.track?.info.winter === true);
     const xr = this.render as XenoRenderSystem;
     xr.setWeatherState(s);
     // the track scene reads the environment (the wet look, the lamps' pools): tell it once the weather has moved on a little
@@ -1943,7 +1943,8 @@ export class Game {
     h.sky = nearestWeather(wx.plan!, s);
     h.rain = s.rain;
     h.wetness = s.wetness;
-    h.track = trackCondition(s.wetness);
+    h.track = trackCondition(s.wetness, wx.winter);
+    h.winter = wx.winter;
     h.forecast = wx.plan!.forecast;
     h.called = wx.called;
     if (this.wxNotice && now > this.wxNotice.until) this.wxNotice = null;
