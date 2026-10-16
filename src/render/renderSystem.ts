@@ -1222,7 +1222,8 @@ class RenderSystemImpl implements XenoRenderSystem {
     }
     this.lampLit = true;
     // same switch-on and colour as the wet road's own lamp lighting (track/scene/wet.ts)
-    const k = Math.min(1, (dark - 0.45) / 0.4);
+    // (snow gives back five times the light of asphalt: the floodlights of a winter circuit shine a little over a quarter as strongly, or they white it out)
+    const k = Math.min(1, (dark - 0.45) / 0.4) * (this.env.settings.winter ? 0.28 : 1);
     col[0] = 7.5 * k;
     col[1] = 6.1 * k;
     col[2] = 4.4 * k;
@@ -1276,9 +1277,9 @@ class RenderSystemImpl implements XenoRenderSystem {
     xrLampUpUniform.value.set([v.x, v.y, v.z]);
   }
 
-  /** The rain that reaches the glass. Snow does not bead: the flakes that melt on a windscreen leave a few small drops, a third of what a rain of the same strength would. */
+  /** The rain that reaches the glass. Snow does not bead: the flakes that melt on a windscreen leave a fine mist and a few small drops, a seventh of what a rain of the same strength would. */
   private glassRain(): number {
-    return this.env.settings.winter ? this.env.rain * 0.34 : this.env.rain;
+    return this.env.settings.winter ? this.env.rain * 0.14 : this.env.rain;
   }
 
   /** `focus` is the car the camera rides on, `cockpitHint` how the rain on the glass is seen (see ViewSpec.cockpit). */

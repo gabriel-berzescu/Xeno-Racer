@@ -13,5 +13,5 @@ it.skipIf(!process.env.PACKONE)('one pack race (set PACKONE=1)', () => {
     wetness: +(process.env.WET ?? 0),
   });
   mkdirSync('.cache', { recursive: true });
-  writeFileSync('.cache/pack-one.txt', r.rows.join('\n') + '\n');
+  writeFileSync(`.cache/pack-one-s${process.env.SEED ?? 0}-w${process.env.WET ?? 0}.txt`, r.rows.join('\n') + '\n');
 }, 900000);

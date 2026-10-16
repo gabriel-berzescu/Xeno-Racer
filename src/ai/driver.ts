@@ -22,6 +22,7 @@ import { Vector3 } from 'three';
 import type { CarControls, CarDefinition, Difficulty, GroundSample, SurfaceType, TrackPoint, TrackRuntime, VehicleState } from '../core/contracts';
 import { cloneEffects, isNeutral, type MechEffects } from '../core/mechanical';
 import { fitCar } from '../physics/compound';
+import { peakPower } from '../physics/engine';
 import { SURFACES, wetGripFactor, type SurfaceProps } from '../physics/surfaces';
 import { computeRacingLine, computeSpeedProfile, damageFactors, lineSurfaces, type LineSurfaces, type RacingLine, type SpeedProfile } from './racing-line';
 
@@ -54,6 +55,16 @@ const RHO = 1.225;
  * and rises again beyond it, with the car running at 20 to 40 degrees of body slip.
  */
 const WINTER_GRIP_USE = 0.06;
+/**
+ * The share of what the friction circle leaves for the driven axle that a driver on snow asks of the throttle. A lane change, a catch-up
+ * after a mistake or the corner exit all use grip the corner has already used: with half the grip of asphalt the throttle that would be
+ * nothing on a dry road is a spun axle here, and a car that has run wide on the outside of a sweeper is on its way to the snowbank.
+ */
+const WINTER_AX_USE = 1.1;
+/** The most a car's engine and gearing can push it along (m/s^2), at any speed (the first gear's thrust). */
+const THRUST_MAX = 1.5 * 9.81;
+/** The throttle at which an engine neither pushes nor holds the car back (its own friction against what it makes): the thrust grows from here. */
+const THR_NEUTRAL = 0.22;
 
 // ── tuning ────────────────────────────────────────────────────────────────────
 /** Water on the track at which the cautious behaviours are fully on is 1 / WET_RAMP (rain, 0.75, is past it). */
@@ -222,6 +233,12 @@ export class AIDriver {
   private readonly road: SurfaceProps;
   /** A winter circuit: the road is slippery all the time (the cautious racecraft of a wet road is on whatever the snow), the line keeps off the edge. */
   private readonly winter: boolean;
+  /** The engine's power at the wheels per kilogram of car (W/kg): the thrust it has at a speed v is this over v. */
+  private readonly powerPerKg: number;
+  /** The share of the car's weight on the driven axle (a little more for the load it picks up under power). */
+  private readonly drivenShare: number;
+  /** Aerodynamic drag per kilogram and per (m/s)^2. */
+  private readonly cDrag: number;
 
   constructor(
     readonly track: TrackRuntime,
@@ -254,6 +271,11 @@ export class AIDriver {
     this.alphaPkF = ph.tireFront.peakSlipAngle;
     this.alphaPkR = ph.tireRear.peakSlipAngle;
     this.rearDriven = ph.drivetrain.layout !== 'FWD';
+    this.powerPerKg = (peakPower(ph.engine).watts * ph.drivetrain.efficiency * 0.92) / ph.chassis.mass;
+    const wb = ph.chassis.wheelbase;
+    const cgA = ph.chassis.cgToFrontAxle;
+    this.drivenShare = ph.drivetrain.layout === 'FWD' ? ((wb - cgA) / wb) * 0.92 : ph.drivetrain.layout === 'RWD' ? Math.min(1, (cgA / wb) * 1.1) : 1;
+    this.cDrag = (0.5 * RHO * ph.aero.dragArea) / ph.chassis.mass;
   }
 
   // ── weather ─────────────────────────────────────────────────────────────────
@@ -538,7 +560,9 @@ export class AIDriver {
     const want = this.offset + (this.planTarget - this.offset) * kOff;
     let latScale = 1;
     if (this.wetF > 0 && !this.forceMove) latScale = 1 - this.wetF * (1 - Math.max(LATERAL_RATE_MIN, Math.min(1, 1.25 - this.usage * this.usage * 1.1)));
-    const rate = (1.2 + 0.05 * v) * dt * latScale;
+    // (on snow a lane change is cornering with half the grip to do it in: the same lateral acceleration takes twice the distance)
+    const gripScale = this.winter ? Math.max(0.3, sGrip) : 1;
+    const rate = (1.2 + 0.05 * v) * dt * latScale * gripScale;
     this.offset += Math.max(-rate, Math.min(rate, want - this.offset));
 
     // ── steering: path following on the (offset) racing line ──
@@ -673,6 +697,15 @@ export class AIDriver {
     if (this.brakeReq > 0) {
       brk = Math.max(brk, this.brakeReq);
       thr = 0;
+    }
+    // on snow: the throttle is limited to what the corner leaves of the driven axle's grip (the friction circle), where the governor below
+    // only lifts after the axle has begun to slide
+    if (this.winter && v > 5) {
+      const aLatNeed = Math.max(aLatM, v * v * Math.abs(kappa));
+      const r = Math.min(1, aLatNeed / Math.max(aGrip, 2));
+      const axLeft = this.drivenShare * aGrip * Math.sqrt(1 - r * r) * WINTER_AX_USE;
+      const thrust = Math.min(THRUST_MAX, this.powerPerKg / Math.max(v, 3));
+      thr = Math.min(thr, THR_NEUTRAL + (1 - THR_NEUTRAL) * Math.min(1, (axLeft + this.cDrag * v * v + 0.12) / thrust));
     }
     // governor: lift while an axle is sliding past its peak (front = understeer, driven rear = oversteer) or the driven
     // tyres use more than they have (wheelspin on top of the sideways slip)
