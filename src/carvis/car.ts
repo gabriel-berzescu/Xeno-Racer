@@ -699,8 +699,9 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
         for (const s of spots) s.visible = playerMode && spotsOn && beamsOn;
       }
       // (a broken headlight goes dark; the spot stays "visible" at zero so the lights in the scene never change count)
-      // (snow gives back five times the light of asphalt: on a winter circuit the beams are dimmed, or they burn it out into a hard white box)
-      const snowK = env.settings.winter ? 0.4 : 1;
+      // (snow gives back five times the light of asphalt: on a winter circuit the beams are dimmed, or they burn it out into a hard white box;
+      // 0.4 still whited out the first metres of snow in the hood and bumper cameras, which look down into the near end of the pool)
+      const snowK = env.settings.winter ? 0.25 : 1;
       if (spotsOn) {
         spots[0].intensity = CARVIS_TUNING.headlightIntensity * snowK * head * lampOut.x;
         spots[1].intensity = CARVIS_TUNING.headlightIntensity * snowK * head * lampOut.y;
