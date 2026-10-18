@@ -195,6 +195,7 @@ export class StandingsScreen extends BaseScreen {
     const n = v.rounds.length;
     const last = v.done - 1;
     this.table.style.setProperty('--rounds', String(n));
+    this.table.classList.toggle('many', n > 8);
     this.table.appendChild(
       h(
         'div',
@@ -307,6 +308,7 @@ export class StandingsScreen extends BaseScreen {
     // more than four rounds only fit the panel as slimmer cards
     this.cal.classList.toggle('compact', v.rounds.length > 4);
     this.cal.classList.toggle('tight', v.rounds.length > 6);
+    this.cal.classList.toggle('dense', v.rounds.length > 8);
     v.rounds.forEach((r, i) => this.cal.appendChild(this.card(r, i, v)));
     // the season's rules, as a reminder
     const car = this.ctx.deps.cars.find((c) => c.id === v.carId);

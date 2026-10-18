@@ -380,6 +380,7 @@ export class SetupScreen extends BaseScreen {
       ? def.rounds.map((round) => ({ t: tracks.find((x) => x.id === round.trackId) ?? tracks[0], round }))
       : tracks.map((t) => ({ t, round: null }));
     this.trackList.classList.toggle('compact', entries.length > 6);
+    this.trackList.classList.toggle('dense', entries.length > 8);
     const rows: FocusRow[] = entries.map(({ t, round }, i) => {
       const card = h(
         'div',

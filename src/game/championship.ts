@@ -46,15 +46,18 @@ const PLAYER_COLOR = '#16e0bd';
 const FALLBACK_COLOR = '#8a93a3';
 
 /**
- * The calendar is fixed: four circuits, eight very different days. Porto Vela's night round starts dry under cloud and the rain
- * comes during the race (when and how hard is fixed for the season, so a restart repeats it); a thunderstorm to finish.
+ * The calendar is fixed: five circuits, ten very different days. Isvik's winter comes twice: a clear night under the northern lights, and
+ * a golden hour that starts in falling snow and clears to the low sun. Porto Vela's night round starts dry under cloud and the rain comes
+ * during the race (when and how hard is fixed for the season, so a restart repeats it); a thunderstorm to finish.
  */
 export const CALENDAR: readonly { trackId: string; environment: EnvironmentSettings; forecast?: Forecast }[] = [
   { trackId: 'aurelia', environment: { timeOfDay: 'golden', weather: 'clear' } },
   { trackId: 'kuroyama', environment: { timeOfDay: 'morning', weather: 'cloudy' } },
   { trackId: 'portovela', environment: { timeOfDay: 'dusk', weather: 'clear' } },
+  { trackId: 'isvik', environment: { timeOfDay: 'night', weather: 'clear' } },
   { trackId: 'brennwald', environment: { timeOfDay: 'morning', weather: 'clear' } },
   { trackId: 'kuroyama', environment: { timeOfDay: 'dusk', weather: 'rain' } },
+  { trackId: 'isvik', environment: { timeOfDay: 'golden', weather: 'rain' }, forecast: 'clearing' },
   { trackId: 'aurelia', environment: { timeOfDay: 'night', weather: 'clear' } },
   { trackId: 'portovela', environment: { timeOfDay: 'night', weather: 'cloudy' }, forecast: 'rainLater' },
   { trackId: 'brennwald', environment: { timeOfDay: 'noon', weather: 'storm' } },

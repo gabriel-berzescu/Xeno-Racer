@@ -704,28 +704,28 @@ describe('championship menu text', () => {
 
   it('describes the championship before there is one', () => {
     const t = championshipHint(def, null);
-    expect(t).toContain('8 rounds across 4 circuits');
+    expect(t).toContain('10 rounds across 5 circuits');
     expect(t).toContain('Xeno Cup');
     expect(championshipHint(undefined, null).length).toBeGreaterThan(20);
   });
 
   it('says where a saved season stands', () => {
     let s = start();
-    expect(championshipHint(def, buildView(s))).toBe('Xeno Cup: round 1 of 8 is next. Nobody has scored yet.');
+    expect(championshipHint(def, buildView(s))).toBe('Xeno Cup: round 1 of 10 is next. Nobody has scored yet.');
     s = recordRound(s, finish([...ids(s)].reverse())); // the player (listed first) finishes last: 12 points... on 4 cars: P4 = 12
     const v = buildView(s);
-    expect(championshipHint(def, v)).toBe(`Xeno Cup, round 2 of 8. 4th with 12 points. Pick up where you left off.`);
+    expect(championshipHint(def, v)).toBe(`Xeno Cup, round 2 of 10. 4th with 12 points. Pick up where you left off.`);
     s = recordRound(s, finish([ids(s)[0], ...ids(s).slice(1)]));
-    expect(championshipHint(def, buildView(s))).toContain('round 3 of 8');
+    expect(championshipHint(def, buildView(s))).toContain('round 3 of 10');
   });
 
   it('congratulates a champion and shows a runner-up their place once the season is over', () => {
     let win = start();
     for (let i = 0; i < def.rounds.length; i++) win = recordRound(win, finish(ids(win)));
-    expect(championshipHint(def, buildView(win))).toBe('Xeno Cup won with 200 points. See the final standings.');
+    expect(championshipHint(def, buildView(win))).toBe('Xeno Cup won with 250 points. See the final standings.');
     let lose = start();
     for (let i = 0; i < def.rounds.length; i++) lose = recordRound(lose, finish([ids(lose)[1], ids(lose)[0], ...ids(lose).slice(2)]));
-    expect(championshipHint(def, buildView(lose))).toBe('Xeno Cup finished: 2nd with 144 points. See the final standings.');
+    expect(championshipHint(def, buildView(lose))).toBe('Xeno Cup finished: 2nd with 180 points. See the final standings.');
   });
 
   it('formats conditions, laps, gaps, track codes and season titles', () => {
