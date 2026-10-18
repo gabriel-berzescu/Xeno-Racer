@@ -149,10 +149,14 @@ export function bestLapFor(best: Record<string, number>, trackId: string, carId?
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type SetupStep = 'track' | 'car' | 'race';
-export const SETUP_STEPS: readonly SetupStep[] = ['track', 'car', 'race'];
-/** A split-screen setup has a fourth step, the second player's car (behind the join): the wizard's steps are these. */
+/** Where, then how, then who drives what: the car comes last, and its step starts the race. */
+export const SETUP_STEPS: readonly SetupStep[] = ['track', 'race', 'car'];
+/**
+ * A split-screen setup has a fourth step, the second player's car (behind the join), last: two players chosen on the race step add the
+ * step ahead of them, not behind.
+ */
 export type WizardStep = SetupStep | 'car2';
-export const SPLIT_SETUP_STEPS: readonly WizardStep[] = ['track', 'car', 'car2', 'race'];
+export const SPLIT_SETUP_STEPS: readonly WizardStep[] = ['track', 'race', 'car', 'car2'];
 
 /** The setup wizard serves the three race modes and the championship. */
 export type SetupMode = RaceMode | 'championship';

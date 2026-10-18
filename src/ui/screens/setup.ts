@@ -20,8 +20,8 @@ import { BaseScreen } from './base';
 
 const STEP_LABEL: Record<SetupStep, string> = { track: 'Track', car: 'Car', race: 'Race' };
 const STEP_TITLE: Record<SetupStep, string> = { track: 'Choose your track', car: 'Choose your car', race: 'Race setup' };
-/** The car step's rows: the car, the driver's name, the livery, the button. */
-const CAR_ROW_DRIVER = 1;
+/** The car step's rows: the car, the livery, the driver's name, the button. */
+const CAR_ROW_DRIVER = 2;
 
 /** A championship's first step is its fixed calendar, not a choice of track. */
 /** The change of weather a calendar round runs at this many laps (none in a one-lap race). */
@@ -105,6 +105,8 @@ export class SetupScreen extends BaseScreen {
   private forecastRow: RowHandle | null = null;
   private raceList: HTMLElement = h('div', 'rows');
   private startBtn: HTMLElement = h('div');
+  /** The race step's button: on to the car (or the cars). */
+  private readonly raceNext = h('span');
   private readonly sumTrack = h('div', 'v');
   private readonly sumCar = h('div', 'v');
   private readonly sumMode = h('div', 'v');
@@ -332,7 +334,7 @@ export class SetupScreen extends BaseScreen {
     if (i < steps.length - 1) {
       if (sound) this.ctx.sound('select');
       this.goStep(steps[i + 1], false);
-    }
+    } else this.start(sound);
   }
 
   private prevStep(): void {
@@ -354,9 +356,9 @@ export class SetupScreen extends BaseScreen {
       this.prompts.set([{ action: 'tabs', label: 'Step' }, { action: 'back', label: 'Back' }]);
     } else if (this.step === 'car' || this.step === 'car2') {
       const swap = this.splitOn() && this.ctx.players.joined ? [{ action: 'camera' as const, label: 'Swap players' }] : [];
-      // (on the Driver row, A renames)
+      // (on the Driver row, A renames; on the last car step, anywhere else, it starts)
       const naming = this.lists.car.index === CAR_ROW_DRIVER;
-      this.prompts.set([{ action: 'adjust', label: 'Change' }, { action: 'navigate', label: 'Select' }, { action: 'confirm', label: naming ? 'Rename' : 'Continue' }, ...swap, { action: 'tabs', label: 'Step' }, { action: 'back', label: 'Back' }]);
+      this.prompts.set([{ action: 'adjust', label: 'Change' }, { action: 'navigate', label: 'Select' }, { action: 'confirm', label: naming ? 'Rename' : this.lastStep() ? 'Start' : 'Continue' }, ...swap, { action: 'tabs', label: 'Step' }, { action: 'back', label: 'Back' }]);
     } else {
       this.prompts.set([{ action: 'navigate', label: 'Select' }, { action: 'adjust', label: 'Change' }, { action: 'confirm', label: 'Confirm' }, { action: 'tabs', label: 'Step' }, { action: 'back', label: 'Back' }]);
     }
@@ -497,13 +499,13 @@ export class SetupScreen extends BaseScreen {
       sw.appendChild(e);
     });
     const livRow = h('div', { cls: 'liv-row focusable in', style: { '--d': '420', '--tx': '-60px' } }, h('div', 'liv-k', h('span', null, 'Livery'), this.liveryName), sw);
-    const drvRow = h('div', { cls: 'liv-row drv-row focusable in', style: { '--d': '380', '--tx': '-60px' } }, h('div', 'liv-k', h('span', null, 'Driver'), this.driverName));
+    const drvRow = h('div', { cls: 'liv-row drv-row focusable in', style: { '--d': '470', '--tx': '60px' } }, h('div', 'liv-k', h('span', null, 'Driver'), this.driverName));
     drvRow.addEventListener('click', () => this.renameDriver());
 
     const next = h('div', { cls: 'btn primary focusable in', style: { '--d': '520', '--tx': '-60px' } }, this.nextLabel, iconPlay('ico'));
     next.addEventListener('click', () => this.nextStep(true));
 
-    // (in this order: CAR_ROW_DRIVER is the second; the prompts say Rename on it)
+    // (in this order: CAR_ROW_DRIVER is the third; the prompts say Rename on it)
     const prompts = (): void => this.updatePrompts();
     const rows: FocusRow[] = [
       {
@@ -513,7 +515,6 @@ export class SetupScreen extends BaseScreen {
         activate: () => (this.nextStep(), true),
         onFocus: prompts,
       },
-      { setFocused: (on) => drvRow.classList.toggle('is-focus', on), activate: () => (this.renameDriver(), true), onFocus: prompts },
       {
         setFocused: (on) => livRow.classList.toggle('is-focus', on),
         left: () => this.setLivery(this.liveryIndexOf(this.seat()) - 1),
@@ -521,10 +522,11 @@ export class SetupScreen extends BaseScreen {
         activate: () => (this.nextStep(), true),
         onFocus: prompts,
       },
+      { setFocused: (on) => drvRow.classList.toggle('is-focus', on), activate: () => (this.renameDriver(), true), onFocus: prompts },
       { setFocused: (on) => next.classList.toggle('is-focus', on), activate: () => (this.nextStep(), true), onFocus: prompts },
     ];
     this.lists.car.setRows(rows, 0);
-    for (const [i, el] of [this.carRow, drvRow, livRow, next].entries()) {
+    for (const [i, el] of [this.carRow, livRow, drvRow, next].entries()) {
       el.addEventListener('pointermove', (e) => {
         if ((e as PointerEvent).movementX !== 0 || (e as PointerEvent).movementY !== 0) {
           if (this.lists.car.focus(i)) this.ctx.sound('move');
@@ -533,7 +535,7 @@ export class SetupScreen extends BaseScreen {
     }
 
     const info = h('div', { cls: 'car-info in', style: { '--d': '260', '--tx': '-60px' } }, this.cDesc, this.cStats.el, this.cBest);
-    return h('div', 'setup-view view-car', this.seatTag, h('div', 'car-col', this.carRow, info), h('div', 'car-actions', h('div', 'car-picks', drvRow, livRow), next));
+    return h('div', 'setup-view view-car', this.seatTag, h('div', 'car-col', this.carRow, info), h('div', 'car-actions', livRow, h('div', 'car-go', drvRow, next)));
   }
 
   /** Renames the driver whose car the step is picking: the on-screen keyboard on a pad, typed in place on the keyboard. */
@@ -609,7 +611,7 @@ export class SetupScreen extends BaseScreen {
     this.cStats.set(carStatBars(c, this.units()));
     // a championship runs on several tracks: no single best lap to show
     this.cBest.style.display = this.champMode() ? 'none' : '';
-    this.nextLabel.textContent = this.champMode() ? 'Season options' : 'Race options';
+    this.labelNext();
     const best = bestLapFor(this.ctx.bestLaps, this.recordTrack(this.track().id), c.id);
     this.cBest.textContent = '';
     this.cBest.append(h('span', 'k', `${this.wet() ? 'Wet best lap' : 'Best lap'} at ${this.track().name}`), h('span', 'v t-num', best ? formatLapTime(best.time) : 'No lap yet'));
@@ -738,9 +740,9 @@ export class SetupScreen extends BaseScreen {
         add(selectRow(ctx, { label: 'Start position', options: STARTS.map((p) => ({ value: p, label: p === 'back' ? 'Back' : p === 'middle' ? 'Middle' : 'Pole' })), get: () => s.startPosition, set: (v) => (s.startPosition = v as SetupState['startPosition']) }, { onChange }));
       }
     }
-    const label = champ ? 'Start championship' : s.mode === 'race' ? 'Start race' : s.mode === 'timeTrial' ? 'Start time trial' : 'Start free roam';
-    this.startBtn = h('div', 'btn primary start-btn focusable', h('span', null, label), iconPlay('ico'));
-    this.startBtn.addEventListener('click', () => this.start(true));
+    this.startBtn = h('div', 'btn primary start-btn focusable', this.raceNext, iconPlay('ico'));
+    this.labelNext();
+    this.startBtn.addEventListener('click', () => this.nextStep(true));
     this.raceList.appendChild(h('div', 'race-start', this.startBtn));
     const sbIndex = rows.length;
     this.startBtn.addEventListener('pointermove', (e) => {
@@ -752,10 +754,10 @@ export class SetupScreen extends BaseScreen {
       setFocused: (on) => this.startBtn.classList.toggle('is-focus', on),
       onFocus: champ
         ? () => {
-            this.csHelp.textContent = 'Race round 1 of the season. Your progress is saved after every round, so you can stop whenever you like.';
+            this.csHelp.textContent = 'Then the car you race all season. Your progress is saved after every round, so you can stop whenever you like.';
           }
         : undefined,
-      activate: () => (this.start(), true),
+      activate: () => (this.nextStep(), true),
     });
     // (a race with the Players row has eight rows: they are set a little tighter so the Start button stays above the prompts)
     this.raceList.classList.toggle('dense', this.raceRows.length >= 8);
@@ -791,6 +793,21 @@ export class SetupScreen extends BaseScreen {
     // one player again: the second one (in, or waited for) goes home
     if (n === 1 && this.ctx.players.joined) this.ctx.emit({ type: 'split', action: 'unbind' });
     this.rebuildRaceRowsValues();
+    this.labelNext();
+  }
+
+  /** The step the setup is on is its last: the car step (the second player's, with two) starts the race. */
+  private lastStep(): boolean {
+    const steps = this.steps();
+    return steps.indexOf(this.step) === steps.length - 1;
+  }
+
+  /** What the buttons say: the race step's goes on to the car (the cars), a car step's to the second player's car or the start. */
+  private labelNext(): void {
+    const s = this.state;
+    this.raceNext.textContent = this.splitOn() ? 'Choose the cars' : 'Choose your car';
+    const start = this.champMode() ? 'Start championship' : s.mode === 'race' ? 'Start race' : s.mode === 'timeTrial' ? 'Start time trial' : 'Start free roam';
+    this.nextLabel.textContent = this.splitOn() && this.step !== 'car2' ? 'Player 2 car' : start;
   }
 
   private start(sound = false): void {

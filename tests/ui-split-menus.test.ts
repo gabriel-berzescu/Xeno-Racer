@@ -93,18 +93,20 @@ describe('two players in the setup', () => {
     expect(defaultSetup('race', TRACKS, CARS, { car2Index: 99 }).car2Index).toBe(CARS.length - 1);
   });
 
-  it('two players add the second player\'s car as a fourth step; one player and a championship keep three', () => {
+  it('two players add the second player\'s car as a fourth step, the last; one player and a championship keep three, the car last', () => {
+    expect(SETUP_STEPS).toEqual(['track', 'race', 'car']);
     expect(setupSteps(defaultSetup('race', TRACKS, CARS))).toEqual(SETUP_STEPS);
-    expect(setupSteps(defaultSetup('race', TRACKS, CARS, { players: 2 }))).toEqual(['track', 'car', 'car2', 'race']);
-    expect(SPLIT_SETUP_STEPS).toEqual(['track', 'car', 'car2', 'race']);
+    // (the Players row is on the race step: the step it adds comes after it)
+    expect(setupSteps(defaultSetup('race', TRACKS, CARS, { players: 2 }))).toEqual(['track', 'race', 'car', 'car2']);
+    expect(SPLIT_SETUP_STEPS).toEqual(['track', 'race', 'car', 'car2']);
     expect(setupSteps({ mode: 'championship', players: 2 })).toEqual(SETUP_STEPS);
     expect(setupSteps({ mode: 'timeTrial', players: 2 })).toEqual(SETUP_STEPS);
   });
 
   it('labels the steps for one player and for two, and knows whose car a step picks', () => {
-    expect(['track', 'car', 'race'].map((s) => setupStepLabel(s as 'track', 1))).toEqual(['Track', 'Car', 'Race']);
-    expect(SPLIT_SETUP_STEPS.map((s) => setupStepLabel(s, 2))).toEqual(['Track', 'P1 car', 'P2 car', 'Race']);
-    expect(SPLIT_SETUP_STEPS.map(stepSeat)).toEqual([0, 0, 1, 0]);
+    expect(SETUP_STEPS.map((s) => setupStepLabel(s, 1))).toEqual(['Track', 'Race', 'Car']);
+    expect(SPLIT_SETUP_STEPS.map((s) => setupStepLabel(s, 2))).toEqual(['Track', 'Race', 'P1 car', 'P2 car']);
+    expect(SPLIT_SETUP_STEPS.map(stepSeat)).toEqual([0, 0, 0, 1]);
   });
 
   it('names the drivers: the settings\' own, never empty', () => {

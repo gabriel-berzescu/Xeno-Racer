@@ -198,9 +198,9 @@
 .swatch.on { background: #fff; transform: translateY(-4px) scale(1.1); box-shadow: 0 0 20px rgba(22, 224, 189, 0.7); }
 .liv-row.is-focus .swatch.on { background: var(--teal); }
 .car-actions .btn { margin: 0; }
-/* the driver's name, above the livery: A renames them */
-.car-picks { display: flex; flex-direction: column; gap: 2px; }
-.drv-row { padding-top: 6px; padding-bottom: 6px; }
+/* the driver's name, above the button: A renames them */
+.car-go { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
+.car-go .drv-row { margin: 0; padding: 6px 14px 6px 20px; }
 .drv-row .liv-k { align-items: center; margin-bottom: 0; }
 .drv-row .drv-name { font: 800 italic 30px / 1 var(--f-display); letter-spacing: 0.08em; }
 .drv-row .drv-name input { width: 440px; padding: 2px 10px; font: inherit; letter-spacing: inherit; text-transform: uppercase; color: var(--text); background: rgba(0, 0, 0, 0.5); border: 0; border-bottom: 3px solid var(--teal); outline: none; }
