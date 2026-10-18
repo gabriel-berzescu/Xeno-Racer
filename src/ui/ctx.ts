@@ -1,7 +1,7 @@
 /**
  * Shared context every screen receives.
  */
-import type { ChampionshipDef, ChampionshipSetup, ChampionshipView, HudState, InputFrame, PlayersInfo, RaceConfig, RaceResults, Settings, SplitLayout, UIIntent, UiSound } from '../core/contracts';
+import type { ChampionshipDef, ChampionshipSetup, ChampionshipView, HudState, InputFrame, NowPlaying, PlayersInfo, RaceConfig, RaceResults, Settings, SplitLayout, UIIntent, UiSound } from '../core/contracts';
 import type { ScreenId, UIDeps } from '../core/systems';
 import type { SetupMode, SetupOpts } from './model';
 
@@ -26,6 +26,8 @@ export interface UiCtx {
   readonly championshipDef: ChampionshipDef | null;
   /** Split screen: who plays on what (the join step, the pause menu); the game updates it through `setPlayers()`. */
   players: PlayersInfo;
+  /** The song of the race music being heard (the pause menu says so), or null; the game updates it through `setNowPlaying()`. */
+  nowPlaying: NowPlaying | null;
   /** Split screen: the layout the HUDs are in, or null while the screen is whole. */
   split: SplitLayout | null;
   /** Device pixels per stage CSS pixel (stage scale x devicePixelRatio) for crisp canvases. */

@@ -13,7 +13,7 @@ export const QUALITY_PRESETS: Record<QualityLevel, GraphicsSettings> = {
 
 export const DEFAULT_SETTINGS: Settings = {
   graphics: { ...QUALITY_PRESETS.high },
-  audio: { master: 0.85, engine: 0.9, effects: 0.85, music: 0.5, ui: 0.6 },
+  audio: { master: 0.85, engine: 0.9, effects: 0.85, music: 0.5, raceMusic: 0.45, ui: 0.6 },
   controls: { steerDeadzone: 0.08, steerLinearity: 1.6, pedalDeadzone: 0.04, speedSensitivity: 0.6, steerSpeed: 1, vibration: true, invertLookY: false },
   // (the standard aids for each human; the opponents' are fixed, in game.ts)
   assists: { ...ASSIST_PRESETS.standard },
@@ -70,6 +70,8 @@ function keepKnownChoices(s: Settings): Settings {
     if (!ok.includes(o[last] as string)) o[last] = d[last];
   }
   s.graphics.renderScale = Math.min(1.5, Math.max(0.5, s.graphics.renderScale));
+  // (a hand-edited volume past the ends of its slider is held to them; a save from before the race music has the default for it)
+  for (const k of Object.keys(s.audio) as (keyof Settings['audio'])[]) s.audio[k] = Math.min(1, Math.max(0, s.audio[k]));
   for (const a of [s.assists, s.assists2]) a.steeringAssist = Math.min(1, Math.max(0, a.steeringAssist));
   return s;
 }

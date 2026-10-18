@@ -8,7 +8,15 @@ export interface MasterGraph {
   readonly ctx: BaseAudioContext;
   readonly engineBus: GainNode;
   readonly effectsBus: GainNode;
+  /** The menu theme (its level is the Menu music slider, and `setMusicGate` fades it in and out). */
   readonly musicBus: GainNode;
+  /**
+   * The race music's own stage, beside the menu theme's and not behind it: its level is the Race music slider alone, so the two
+   * sliders do not touch each other. The album (album-player.ts) fades itself in and out, and ducks for the pause menu, before it.
+   */
+  readonly raceMusicBus: GainNode;
+  /** The menu theme's on/off fade (0..1, between musicBus and the master): what `setMusicGate` moves. */
+  readonly musicGate: GainNode;
   readonly uiBus: GainNode;
   readonly master: GainNode;
   readonly compressor: DynamicsCompressorNode;
@@ -47,6 +55,7 @@ export function buildMasterGraph(ctx: BaseAudioContext, v: AudioSettings, opts: 
   const engineBus = mk();
   const effectsBus = mk();
   const musicBus = mk();
+  const raceMusicBus = mk();
   const uiBus = mk();
   const musicGate = mk();
   const master = mk();
@@ -64,6 +73,7 @@ export function buildMasterGraph(ctx: BaseAudioContext, v: AudioSettings, opts: 
   effectsBus.connect(master);
   musicBus.connect(musicGate);
   musicGate.connect(master);
+  raceMusicBus.connect(master);
   uiBus.connect(master);
   if (opts.raw) {
     // analysis mode: no compressor / limiter in the path
@@ -84,6 +94,7 @@ export function buildMasterGraph(ctx: BaseAudioContext, v: AudioSettings, opts: 
     engineBus.gain.setTargetAtTime(volumeCurve(vols.engine) * carsMul, t, paused ? 0.06 : tc);
     effectsBus.gain.setTargetAtTime(volumeCurve(vols.effects) * carsMul, t, paused ? 0.06 : tc);
     musicBus.gain.setTargetAtTime(volumeCurve(vols.music), t, tc);
+    raceMusicBus.gain.setTargetAtTime(volumeCurve(vols.raceMusic), t, tc);
     uiBus.gain.setTargetAtTime(volumeCurve(vols.ui), t, tc);
   };
   // initial values without a ramp
@@ -91,6 +102,7 @@ export function buildMasterGraph(ctx: BaseAudioContext, v: AudioSettings, opts: 
   engineBus.gain.value = volumeCurve(v.engine);
   effectsBus.gain.value = volumeCurve(v.effects);
   musicBus.gain.value = volumeCurve(v.music);
+  raceMusicBus.gain.value = volumeCurve(v.raceMusic);
   uiBus.gain.value = volumeCurve(v.ui);
   musicGate.gain.value = 0;
 
@@ -99,6 +111,8 @@ export function buildMasterGraph(ctx: BaseAudioContext, v: AudioSettings, opts: 
     engineBus,
     effectsBus,
     musicBus,
+    raceMusicBus,
+    musicGate,
     uiBus,
     master,
     compressor,
@@ -119,7 +133,7 @@ export function buildMasterGraph(ctx: BaseAudioContext, v: AudioSettings, opts: 
       musicGate.gain.linearRampToValueAtTime(g, t + Math.max(seconds, 0.01));
     },
     dispose(): void {
-      for (const n of [engineBus, effectsBus, musicBus, uiBus, musicGate, master, compressor, limiter]) n.disconnect();
+      for (const n of [engineBus, effectsBus, musicBus, raceMusicBus, uiBus, musicGate, master, compressor, limiter]) n.disconnect();
     },
   };
 }

@@ -1,6 +1,7 @@
 /**
  * Pure formatting helpers for the UI (no DOM). All times are seconds.
  */
+import type { NowPlaying } from '../core/contracts';
 
 const pad2 = (n: number): string => (n < 10 ? '0' + n : '' + n);
 const pad3 = (n: number): string => (n < 10 ? '00' + n : n < 100 ? '0' + n : '' + n);
@@ -65,6 +66,15 @@ export function gearLabel(gear: number): string {
 
 /** "0.85" -> "85%" style helper for sliders. */
 export const pct = (v: number): string => Math.round(v * 100) + '%';
+
+/**
+ * The words of the "now playing" card and the pause menu: the song, and under it "Genre · Xeno-Racer Vol. 1". The note (♪) goes
+ * in front of the title.
+ */
+export function nowPlayingLines(np: NowPlaying): { note: string; title: string; sub: string } {
+  const album = ['Xeno-Racer', np.album].filter((w) => w.trim() !== '').join(' ');
+  return { note: '\u266A', title: np.title, sub: [np.genre, album].filter((w) => w.trim() !== '').join(' \u00B7 ') };
+}
 
 /** Display name for a time of day / weather / etc: "golden" -> "Golden hour". */
 export const TIME_OF_DAY_LABEL: Record<string, string> = {

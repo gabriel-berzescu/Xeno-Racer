@@ -697,7 +697,12 @@ export const SETTINGS_TABS: TabDef[] = [
       { kind: 'slider', id: 'master', label: 'Master volume', min: 0, max: 1, step: 0.05, desc: 'Everything at once.', get: (s) => s.audio.master, set: (s, v) => { s.audio.master = v; }, fmt: pct },
       { kind: 'slider', id: 'engine', label: 'Engine', min: 0, max: 1, step: 0.05, desc: 'Your engine and the cars around you.', get: (s) => s.audio.engine, set: (s, v) => { s.audio.engine = v; }, fmt: pct },
       { kind: 'slider', id: 'effects', label: 'Effects', min: 0, max: 1, step: 0.05, desc: 'Tires, wind, impacts and the crowd.', get: (s) => s.audio.effects, set: (s, v) => { s.audio.effects = v; }, fmt: pct },
-      { kind: 'slider', id: 'music', label: 'Music', min: 0, max: 1, step: 0.05, desc: 'Menu and results music.', get: (s) => s.audio.music, set: (s, v) => { s.audio.music = v; }, fmt: pct },
+      { kind: 'slider', id: 'music', label: 'Menu music', min: 0, max: 1, step: 0.05, desc: 'The menu theme.', get: (s) => s.audio.music, set: (s, v) => { s.audio.music = v; }, fmt: pct },
+      {
+        kind: 'slider', id: 'raceMusic', label: 'Race music', min: 0, max: 1, step: 0.05,
+        desc: 'The album that plays, shuffled, while you drive. D‑pad right or N skips to the next song. 0 turns it off.',
+        get: (s) => s.audio.raceMusic, set: (s, v) => { s.audio.raceMusic = v; }, fmt: pct,
+      },
       { kind: 'slider', id: 'ui', label: 'Interface', min: 0, max: 1, step: 0.05, desc: 'Menu clicks and race beeps.', get: (s) => s.audio.ui, set: (s, v) => { s.audio.ui = v; }, fmt: pct },
     ],
   },

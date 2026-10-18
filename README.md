@@ -33,6 +33,7 @@ window (**Alt+F4** in full screen).
 | Reset car to track | Back | R |
 | Pause | Start | Esc |
 | HUD / telemetry | D-pad up / D-pad down | H / T |
+| Next track (race music) | D-pad right | N |
 
 Menus use the D-pad or left stick: A confirms, B goes back, and LB/RB step between setup pages and settings tabs (in split screen, either player's pad works in the menus). Settings, Assists has the driving line, the braking assist and a Pro / Standard / Beginner preset, and a tab of its own for player 2 while a second controller is plugged in.
 During a replay, LB/RB switch cars, Y changes the camera and B exits. On a pad with rumble
@@ -74,6 +75,14 @@ Two players, one screen, two controllers. Choose **Split screen** in the main me
 - **Spotter:** the edge of the screen glows amber, then red, while a car is alongside you.
 - **Cameras:** chase, far chase, hood, bumper, cockpit, TV and orbit. The right stick looks around, and clicking it looks back.
 - **Replays:** every race can be watched again from start to finish, from any car and camera.
+
+## Music
+
+Xeno-Racer has an album of its own: instrumental race music, composed in code and synthesized sample by sample (no recordings), which plays **shuffled whenever you drive**, on any circuit: a race, a time trial, free roam or a championship round, through the results and the replay. Every song plays once before any plays again and never the same one twice in a row, and the order carries on where it stopped last time. A restart keeps the song that is playing; going back to the menus fades it out and brings the menu theme back.
+
+- **Next track:** D-pad right (either player's, in split screen) or **N** skips to the next song, with a short fade. The pause menu has a **Next track** item too and says what is playing, and the music drops by 10 dB while the game is paused.
+- **Now playing:** when a song starts, a small card in the corner above the minimap shows its title, its genre and the album ("♪ Neon Overdrive, Cyberpunk · Xeno-Racer Vol. 1") for about five seconds. In split screen it is shown once, in player 1's view.
+- **Volume:** Settings, Audio: **Race music** (0 turns it off, and nothing is rendered then) and **Menu music**, the theme of the menus, which keeps its own slider.
 
 ## Cars
 
@@ -174,7 +183,7 @@ The setup's **Forecast** row (Stable, Rain later, Clearing) makes the weather mo
   - **Mirrors:** each mirror is the scene drawn again from the driver's reflected eye into a small HDR texture, reusing the frame's shadow maps. They add about 0.6 ms of GPU and 1-2 ms of CPU time per frame at 1080p high, and less on the lower presets.
   - **Tracks:** terrain, trees, buildings and props are all procedural, plus CC0 surface textures. Porto Vela's town is built from instanced blocks whose windows, shutters and shop fronts are drawn in the fragment shader.
   - **Performance:** the high preset renders 1080p in 7.5 to 10 ms on an RTX 3050 laptop GPU, depending on the track and the weather. Shaders are compiled behind the loading screen, not in the first frames of the race.
-- **Audio** (`src/audio`) synthesizes engines in AudioWorklets, with intake, exhaust, turbo whistle, backfires, tire squeal, wind, impacts and 3D positioning. It also synthesizes rain (outside and inside the car), rolling thunder, wet-tyre hiss and spray, and the cockpit wiper, timed to the blade on screen.
+- **Audio** (`src/audio`) synthesizes engines in AudioWorklets, with intake, exhaust, turbo whistle, backfires, tire squeal, wind, impacts and 3D positioning. It also synthesizes rain (outside and inside the car), rolling thunder, wet-tyre hiss and spray, and the cockpit wiper, timed to the blade on screen. The race music (`src/audio/album-player.ts`) is rendered in a Web Worker a few seconds ahead of the playhead and streamed straight to an AudioWorklet ring buffer, so the main thread does nothing per frame for it: the songs are crossfaded into one stream, the next one is rendered before it is needed, and the buffer runs through a stalled frame or a suspended audio context without a gap.
 
 ![TV camera](docs/img/tv.jpg)
 ![Car select](docs/img/showroom.jpg)

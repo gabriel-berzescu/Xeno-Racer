@@ -22,7 +22,7 @@ import './styles/base.css';
 import './styles/screens.css';
 import './styles/hud.css';
 
-import type { ChampionshipSetup, ChampionshipView, HudState, InputFrame, MinimapTrack, PlayersInfo, RaceConfig, RaceResults, Seat, Settings, SplitLayout, UIIntent, UiSound } from '../core/contracts';
+import type { ChampionshipSetup, ChampionshipView, HudState, InputFrame, MinimapTrack, NowPlaying, PlayersInfo, RaceConfig, RaceResults, Seat, Settings, SplitLayout, UIIntent, UiSound } from '../core/contracts';
 import type { ReplayInfo, ScreenId, UIDeps, UISystem } from '../core/systems';
 import { prettyPadName } from '../input/processing';
 import type { Device, UiCtx } from './ctx';
@@ -121,6 +121,7 @@ class UiImpl implements XenoUI {
       championship: deps.championship ?? null,
       championshipDef: deps.championshipDef ?? null,
       players: { devices: [null, null], pads: 0, joined: false, owner: null, missing: null },
+      nowPlaying: null,
       split: null,
       pxScale: 1,
       sound: (s: UiSound) => this.playSound(s),
@@ -151,7 +152,7 @@ class UiImpl implements XenoUI {
 
     this.fcopy = {
       device: 'keyboard', gamepadId: null, steer: 0, throttle: 0, brake: 0, handbrake: 0, clutch: 0, lookX: 0, lookY: 0, lookBack: false,
-      shiftUp: false, shiftDown: false, cameraNext: false, resetCar: false, pause: false, toggleHud: false, toggleTelemetry: false,
+      shiftUp: false, shiftDown: false, cameraNext: false, resetCar: false, pause: false, toggleHud: false, toggleTelemetry: false, nextTrack: false,
       nav: { up: false, down: false, left: false, right: false, confirm: false, back: false, tabLeft: false, tabRight: false },
       anyPressed: false,
     };
@@ -376,6 +377,13 @@ class UiImpl implements XenoUI {
 
   setReplay(r: ReplayInfo | null): void {
     this.replay.set(r);
+  }
+
+  /** The card is in the first seat's HUD only (a split screen shows it once, in player 1's view); the pause menu says what plays. */
+  setNowPlaying(np: NowPlaying | null): void {
+    this.ctx.nowPlaying = np;
+    this.huds[0].nowPlaying(np);
+    this.screens.get('pause')?.refresh();
   }
 
   handleInput(f: InputFrame): boolean {

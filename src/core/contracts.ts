@@ -511,6 +511,8 @@ export interface InputFrame {
   pause: boolean;
   toggleHud: boolean;
   toggleTelemetry: boolean;
+  /** D-pad right / N: skip to the next song of the race music. */
+  nextTrack: boolean;
   /** Menu navigation edges, with auto-repeat while held. */
   nav: { up: boolean; down: boolean; left: boolean; right: boolean; confirm: boolean; back: boolean; tabLeft: boolean; tabRight: boolean };
   /** True on any button/key press this poll (used to unlock audio / dismiss title). */
@@ -540,8 +542,20 @@ export interface AudioSettings {
   master: number; // 0..1
   engine: number;
   effects: number;
+  /** The menu theme (it plays on the menus, and on the results screen when the race music is off). */
   music: number;
+  /** The race music: the album that plays, shuffled, while someone drives. 0 turns it off. */
+  raceMusic: number;
   ui: number;
+}
+
+/** A song of the race music, as the "now playing" card and the pause menu show it. */
+export interface NowPlaying {
+  id: string;
+  title: string;
+  genre: string;
+  /** The album's name, as the card prints it after "Xeno-Racer": "Vol. 1". */
+  album: string;
 }
 
 export type CameraMode = 'chase' | 'chase-far' | 'hood' | 'bumper' | 'cockpit' | 'tv' | 'orbit';
@@ -943,6 +957,8 @@ export type UIIntent =
    * 'cancel': stop listening; 'swap': player 1 and player 2 change devices; 'unbind': there is no second player any more (back to the
    * menu, or a one-player setup). The game answers with `setPlayers()`.
    */
-  | { type: 'split'; action: 'join' | 'cancel' | 'swap' | 'unbind' };
+  | { type: 'split'; action: 'join' | 'cancel' | 'swap' | 'unbind' }
+  /** Skip to the next song of the race music (the pause menu's "Next track"). */
+  | { type: 'nextTrack' };
 
 export type UiSound = 'move' | 'select' | 'back' | 'error' | 'countdown' | 'go' | 'lap' | 'bestLap' | 'finish';

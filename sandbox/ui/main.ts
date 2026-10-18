@@ -96,7 +96,7 @@ function blank(device: 'gamepad' | 'keyboard'): InputFrame {
   return {
     device, gamepadId: device === 'gamepad' ? fakePad.id : null,
     steer: 0, throttle: 0, brake: 0, handbrake: 0, clutch: 0, lookX: 0, lookY: 0, lookBack: false,
-    shiftUp: false, shiftDown: false, cameraNext: false, resetCar: false, pause: false, toggleHud: false, toggleTelemetry: false,
+    shiftUp: false, shiftDown: false, cameraNext: false, resetCar: false, pause: false, toggleHud: false, toggleTelemetry: false, nextTrack: false,
     nav: { up: false, down: false, left: false, right: false, confirm: false, back: false, tabLeft: false, tabRight: false },
     anyPressed: false,
   };

@@ -63,6 +63,11 @@
 .scr-pause .pause-head { position: absolute; left: 72px; top: 70px; }
 .scr-pause .pause-info { display: flex; gap: 56px; margin-top: 34px; }
 .scr-pause .pause-menu { position: absolute; left: 72px; top: 400px; width: 760px; }
+/* the race music: what is playing, under the numbers */
+.scr-pause .pause-music { display: flex; align-items: baseline; gap: 14px; margin-top: 24px; font: 700 28px / 1 var(--f-display); letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+.scr-pause .pause-music .note { color: var(--teal); font-size: 30px; }
+.scr-pause .pause-music b { font-weight: 800; font-style: italic; letter-spacing: 0.04em; color: #fff; }
+.scr-pause .pause-music .sub { font-size: 21px; letter-spacing: 0.16em; color: var(--dim); }
 
 /* ── loading ───────────────────────────────────────────────────────────────── */
 
