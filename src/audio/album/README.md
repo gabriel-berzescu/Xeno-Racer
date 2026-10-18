@@ -276,7 +276,7 @@ pad.play(rich, S.outro);
 take the same step characters as drum lanes (`x X g . 1-9`) and `{ res, gate, vel }`; a rhythm shorter than the chord loops inside it (an 8-step
 rhythm on a 16-step bar plays twice). `roots` also takes `low`: each root goes into the octave that starts at that MIDI note, so `low: 28` gives
 roots from E1 to D#2 and `low: 33` from A1 to G#2. Without a `rhythm`, `roots()` plays one long note per chord (90 % of its length); with one, each
-hit lasts until the next hit (also x 0.9).
+hit lasts until the next hit (also x 0.9), or `len` steps when you give it (never past the next hit: `len: 1` keeps a roll's notes inside their sixteenths).
 Other helpers on `s`: `s.note('A2')` (MIDI number), `s.chordNotes('Am7', { octave: 3 })`, `s.degree(5, 3)` (MIDI note of a scale degree),
 and `guitarChord('Em')` / `guitarChord('A5')` (playable guitar voicings as MIDI notes).
 
@@ -982,9 +982,10 @@ for a half-time section put the snare only on beat 3 and use `dark-sustain` bass
 minor's raised seventh (`#7`, or the V chord `B7` in E minor) adds tension. Builds: section 10.
 
 **Goa trance (140-148 BPM).** Kick `psy-kick` four on the floor (`s.hits('X...X...X...X...')`). The rolling off-beat bass is
-`s.reese('rolling-bass', { gain: -6, duck: 1 })` playing `prog.roots({ rhythm: '.xxx.xxx.xxx.xxx', low: 28 })`, the three sixteenths after each
-kick: the preset's notes are a sixteenth long (a held-note preset would run its release into the next note) and it is narrow (`width` 0.4: a wide
-bass under a kick smears the low end). Set `s.setSidechain({ release: 0.1 })`: the duck is gone 0.1 s after its hold, so the first off-beat
+`s.synth('psy-bass', { gain: -6, duck: 1 })` playing `prog.roots({ rhythm: '.xxx.xxx.xxx.xxx', len: 1, low: 28 })`, the three sixteenths after each
+kick: its saw restarts on every note, so every sixteenth hits the same (Third Eye Highway's roll, sd 0.03 dB from note to note), it is mono, and
+`len: 1` keeps each note inside its sixteenth so that the third one does not ring into the kick. (`s.reese('rolling-bass')` is the older recipe:
+its free-running detuned saws make the notes wander over about 8 dB; `sandbox/album/lab/goa-roll.ts` measures both.) Set `s.setSidechain({ release: 0.1 })`: the duck is gone 0.1 s after its hold, so the first off-beat
 sixteenth (0.106 s after the kick at 142 BPM) is within 0.1 dB of full level (with the default 0.2 it is still 0.8 dB down). Acid: `acid('goa-acid')` sixteen-step lines (gain -9) with `!` accents and `~` slides on the
 notes you glide into (`'F#2 . F#3! F#2 G2 A2~ ...'`: `G2 A2~` glides, `. A2~` would not), and `ramp('cutoff', ...)` over the groove (300 to 2000 Hz,
 then 900 to 2400 in the drop). Arps and leads: `trance-pluck` (-7) over `s.arp(chords, { order: 'up', octaves: 2, res: 4 })`, `trance-lead` (-6)
@@ -1520,6 +1521,7 @@ Presets:
 | `fm-bell` | DX-style bell: inharmonic FM ratio, index that dies away. | layers fm, fmRatio 3.5, fmIndex 4.5, fmDecay 1.2, fmSustain 0.05, filter off, attack 0.002, decay 2.2, sustain 0, release 0.8, mono true, voices 8 |
 | `fm-epiano` | Electric piano (Rhodes-ish): FM with a tine overtone and a quickly falling index. | layers fm + sine, fmRatio 1, fmIndex 2.4, fmDecay 0.45, fmSustain 0.12, fmFeedback 0.1, filter off, attack 0.003, decay 1.4, sustain 0.25, release 0.4, mono true, voices 10 |
 | `fm-bass-pluck` | Punchy FM pluck for melodic lines (works one or two octaves below middle C). | layers fm, fmRatio 1, fmIndex 3.2, fmDecay 0.12, fmSustain 0.1, filter off, attack 0.002, decay 0.3, sustain 0.4, release 0.15, mono true, voices 6, drive 3 |
+| `psy-bass` | Goa / psytrance off-beat roll: one saw restarted on every note (each sixteenth hits the same), a ladder that snaps shut, mono. Play the three sixteenths after each kick: chords.roots({ rhythm: ".xxx", len: 1, low: 28 }). | mode mono, voices 1, mono true, layers saw, filter ladder, cutoff 600, res 0.35, envAmt 2.4, fAttack 0.0005, fDecay 0.09, fSustain 0.2, fRelease 0.01, keytrack 0, velFilter 0.2, attack 0.0008, decay 0.1, sustain 0.6, release 0.006, velAmp 0.15, drive 5 |
 | `noise-pad` | Airy noise texture with a filter that follows the pitch (wind, breath). | layers noise, filter bp, cutoff 1500, res 0.55, keytrack 1, attack 1, decay 1, sustain 0.8, release 1.5, mono false, spread 1, unisonDetune 0 |
 <!-- /gen -->
 

@@ -461,6 +461,9 @@ export class MasterBus extends ParamBase<typeof MASTER_SPECS> {
   private cache = { low: NaN, high: NaN, rel: NaN };
   private gTrim = -1;
   private readonly dcL = new Biquad();
+  // after the saturation: a lopsided waveform through tanh comes out with an offset (a Goa bass alone read 1e-3 at sat 0.25)
+  private readonly dc2L = new Biquad();
+  private readonly dc2R = new Biquad();
   private readonly dcR = new Biquad();
   /** Largest gain reduction of the glue compressor since last read (dB). */
   glueMax = 0;
@@ -476,6 +479,8 @@ export class MasterBus extends ParamBase<typeof MASTER_SPECS> {
     this.hp.highpass(24, 0.7071, sr);
     this.hp2.highpass(24, 0.7071, sr);
     this.dcL.highpass(24, 0.7071, sr);
+    this.dc2L.highpass(5, 0.7071, sr);
+    this.dc2R.highpass(5, 0.7071, sr);
     this.dcR.highpass(24, 0.7071, sr);
   }
   /** Master processing in place (l/r hold the summed mix). Output is delayed by the limiter latency. */
@@ -547,6 +552,8 @@ export class MasterBus extends ParamBase<typeof MASTER_SPECS> {
         r[i] = tanh3(r[i] * dr) * inv;
       }
     }
+    this.dc2L.block(l, n);
+    this.dc2R.block(r, n);
     // mono bass: remove the side signal below `monoBelow`
     {
       const k = 1 - Math.exp((-TAU * p.monoBelow) / sr);

@@ -464,9 +464,10 @@ export class Pattern {
   /**
    * Root notes of the chords as a bass line. `rhythm` is a step string like 'x.xx' (default: one long note per chord; it loops inside
    * each chord like the one of `rhythm()`); `low` is the lowest MIDI note the roots may take (default 28 = E1: every root is put in the
-   * octave that starts at `low`, so with 28 the roots fall between E1 and D#2, with 33 between A1 and G#2).
+   * octave that starts at `low`, so with 28 the roots fall between E1 and D#2, with 33 between A1 and G#2). With a rhythm each hit lasts
+   * until the next one, or `len` steps (never past the next hit): a Goa roll `.xxx` with `len: 1` leaves the kick's step free.
    */
-  roots(o: { low?: number; rhythm?: string; res?: number; gate?: number; vel?: number } = {}): Pattern {
+  roots(o: { low?: number; rhythm?: string; res?: number; gate?: number; vel?: number; len?: number } = {}): Pattern {
     checkKeys('roots', o, ROOTS_KEYS);
     const low = o.low ?? 28;
     const res = o.res ?? 4;
@@ -488,7 +489,8 @@ export class Pattern {
       }
       hits.forEach((h, k) => {
         const next = k + 1 < hits.length ? hits[k + 1].i : n;
-        out.push({ t: seg.t + h.i / res, d: Math.max(0.02, ((next - h.i) * gate) / res), n: root, v: Math.min(1, (o.vel ?? 0.85) * (h.v / 0.8)), f: h.f, part: '' });
+        const steps = o.len !== undefined ? Math.min(o.len, next - h.i) : next - h.i; // `len`: a fixed length, never past the next hit
+        out.push({ t: seg.t + h.i / res, d: Math.max(0.02, (steps * gate) / res), n: root, v: Math.min(1, (o.vel ?? 0.85) * (h.v / 0.8)), f: h.f, part: '' });
       });
     }
     return new Pattern(out, this.beats, this.chords, 1 / res);
@@ -558,7 +560,7 @@ export class Pattern {
 export const ARP_KEYS = ['res', 'order', 'octaves', 'gate', 'vel', 'mask', 'accent'];
 export const ARP_ORDERS = ['up', 'down', 'updown', 'downup', 'converge', 'diverge', 'random', 'asplayed'] as const;
 export const RHYTHM_KEYS = ['res', 'gate', 'vel'];
-export const ROOTS_KEYS = ['low', 'rhythm', 'res', 'gate', 'vel'];
+export const ROOTS_KEYS = ['low', 'rhythm', 'res', 'gate', 'vel', 'len'];
 
 export interface ArpOpts {
   /** Steps per beat (4 = sixteenths, the default). */

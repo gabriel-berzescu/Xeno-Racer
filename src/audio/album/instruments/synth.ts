@@ -748,6 +748,10 @@ export const SYNTH_PRESETS: Record<string, PresetDef> = {
     doc: 'Punchy FM pluck for melodic lines (works one or two octaves below middle C).',
     opts: { level: 1.5, layers: [{ wave: 'fm' }], fmRatio: 1, fmIndex: 3.2, fmDecay: 0.12, fmSustain: 0.1, filter: 'off', attack: 0.002, decay: 0.3, sustain: 0.4, release: 0.15, mono: true, voices: 6, drive: 3 },
   },
+  'psy-bass': {
+    doc: 'Goa / psytrance off-beat roll: one saw restarted on every note (each sixteenth hits the same), a ladder that snaps shut, mono. Play the three sixteenths after each kick: chords.roots({ rhythm: ".xxx", len: 1, low: 28 }).',
+    opts: { mode: 'mono', voices: 1, mono: true, layers: [{ wave: 'saw', phase: 'reset' }], filter: 'ladder', cutoff: 600, res: 0.35, envAmt: 2.4, fAttack: 0.0005, fDecay: 0.09, fSustain: 0.2, fRelease: 0.01, keytrack: 0, velFilter: 0.2, attack: 0.0008, decay: 0.1, sustain: 0.6, release: 0.006, velAmp: 0.15, drive: 5, level: 17.5 },
+  },
   'noise-pad': {
     doc: 'Airy noise texture with a filter that follows the pitch (wind, breath).',
     opts: { level: 11.5, layers: [{ wave: 'noise' }], filter: 'bp', cutoff: 1500, res: 0.55, keytrack: 1, attack: 1, decay: 1, sustain: 0.8, release: 1.5, mono: false, spread: 1, unisonDetune: 0 },
