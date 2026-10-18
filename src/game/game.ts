@@ -15,6 +15,7 @@
  * results come up the finishing order is scored, the season saved and the UI sent a fresh view model.
  */
 import { Matrix4, Quaternion, Vector3 } from 'three';
+import { version } from '../../package.json';
 import { AIDriver } from '../ai';
 import { CARS, getCar } from '../cars';
 import { armWeather, createAudioSystem, onLightning, primeCarVoices, setWiper } from '../audio';
@@ -72,7 +73,8 @@ import { makePlan, nearestWeather, trackCondition, WET_RECORD, WeatherDirector, 
 /** Camera names for the replay overlay. */
 const CAMERA_LABEL: Record<CameraMode, string> = { chase: 'Chase', 'chase-far': 'Chase far', hood: 'Hood', bumper: 'Bumper', cockpit: 'Cockpit', tv: 'TV', orbit: 'Orbit' };
 
-export const VERSION = '0.9.0';
+/** The game's version: package.json's, the one place it is written (bump it with `npm version patch|minor|major`). */
+export const VERSION: string = version;
 
 interface RaceCar {
   entrant: Entrant;

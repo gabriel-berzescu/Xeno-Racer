@@ -188,6 +188,7 @@ npm test           # vitest: physics, AI, handling, tracks, session, UI, audio, 
 npm run typecheck
 ```
 
+- The version is written in one place, `package.json`; the title screen and the credits read it from there. Bump it with `npm version patch` (or `minor`, `major`), which also updates `package-lock.json`.
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) describes the subsystems and the shared contracts in `src/core`.
 - `sandbox/*.html` holds standalone labs for the car models, tracks, rendering, audio and UI.
 - `scripts/tour.mjs` scripts a play-through in headless Chrome. It can wait, press keys, take screenshots, evaluate code and collect perf stats. With `--init scripts/fixtures/fake-pad.js` it drives a fake F310.
@@ -201,3 +202,7 @@ Surface textures are CC0 from [Poly Haven](https://polyhaven.com) (see `public/a
 Everything else is generated in code: cars, terrain, trees, buildings, signage, sky, engine sound and music.
 
 Built by Claude (Anthropic) for Gabriel.
+
+## License
+
+Xeno-Racer is released under the [MIT License](LICENSE). The bundled fonts keep their own license, the SIL Open Font License 1.1 (`public/assets/ui/fonts/OFL-*.txt`), and the Poly Haven textures are CC0.
