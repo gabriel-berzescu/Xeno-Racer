@@ -281,8 +281,8 @@ export interface VehicleState {
 export type BodyStyle = 'gt' | 'hatch' | 'coupe' | 'prototype';
 
 /** Everything the car-visual builder needs. Body geometry origin: on the ground, centered
- *  between the axles and between the wheels. The center of mass sits at
- *  (0, cgHeight, cgToFrontAxle - wheelbase/2) relative to that origin. */
+ *  between the axles and between the wheels, +z forward. The center of mass sits at
+ *  (0, cgHeight, bodyCgZ(spec)) relative to that origin. */
 export interface CarVisualSpec {
   style: BodyStyle;
   length: number;
@@ -308,6 +308,16 @@ export interface CarVisualSpec {
   exhaust: { count: 1 | 2 | 4; side: 'center' | 'split' | 'side' };
   /** Seat position relative to body origin, for cockpit camera / driver (left-hand drive). */
   seat: { x: number; y: number; z: number };
+}
+
+/**
+ * Where the center of mass sits along the body, from the body origin (the middle of the wheelbase), +z forward. `cgToFrontAxle` is
+ * measured back from the front axle, so a car heavier at the front has its center of mass ahead of the middle. Every conversion between
+ * the physics frame (centred on the center of mass, the wheels at +cgToFrontAxle and -(wheelbase - cgToFrontAxle)) and the body frame
+ * goes through this.
+ */
+export function bodyCgZ(v: { wheelbase: number; cgToFrontAxle: number }): number {
+  return v.wheelbase / 2 - v.cgToFrontAxle;
 }
 
 /**

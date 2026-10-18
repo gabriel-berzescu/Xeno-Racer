@@ -23,7 +23,7 @@ import {
   type Camera,
   type Scene,
 } from 'three';
-import type { CarDefinition, EnvironmentState, QualityLevel, SurfaceType, TrackPoint, TrackRuntime, VehicleState } from '../core/contracts';
+import { bodyCgZ, type CarDefinition, type EnvironmentState, type QualityLevel, type SurfaceType, type TrackPoint, type TrackRuntime, type VehicleState } from '../core/contracts';
 import type { CarDamageControl } from '../core/damage';
 import type { EffectsSystem, RenderSystem } from '../core/systems';
 import { makeSmokeAtlas } from './noise';
@@ -548,7 +548,7 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
     const load = clamp(0.2 + 0.8 * s.engineLoad + 0.3 * s.throttle, 0, 1);
     // (a camera far down the straight sees the plume of the whole grid: fewer puffs, each bigger)
     const lod = clamp(1.4 - dcam / 160, 0.25, 1);
-    _v1.set(0, v.cgHeight, v.cgToFrontAxle - v.wheelbase / 2).applyQuaternion(s.quaternion);
+    _v1.set(0, v.cgHeight, bodyCgZ(v)).applyQuaternion(s.quaternion);
     const ox = s.position.x - _v1.x, oy = s.position.y - _v1.y, oz = s.position.z - _v1.z;
     const nt = Math.min(rec.tips.length, 4);
     for (let i = 0; i < nt; i++) {
@@ -633,7 +633,7 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
     if (kd <= 0 && !hit.lamp && !hit.glass) return;
     // where it came off, in the world: the body-frame point on the car's surface
     const v = rec.def.visual;
-    _v1.set(hit.c[0], hit.c[1] - v.cgHeight, hit.c[2] - (v.cgToFrontAxle - v.wheelbase / 2)).applyQuaternion(s.quaternion).add(s.position);
+    _v1.set(hit.c[0], hit.c[1] - v.cgHeight, hit.c[2] - bodyCgZ(v)).applyQuaternion(s.quaternion).add(s.position);
     // out of the car: against the way the metal was pushed
     _v2.set(-hit.n[0], -hit.n[1], -hit.n[2]).applyQuaternion(s.quaternion);
     const paint = rec.damage!.paint;
@@ -669,7 +669,7 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
     if (hit.glass) {
       // a window cracked: a few crumbs of glass jump off it, from the glass and not from the point of impact
       const g = hit.glass;
-      _v1.set(g[0], g[1] - v.cgHeight, g[2] - (v.cgToFrontAxle - v.wheelbase / 2)).applyQuaternion(s.quaternion).add(s.position);
+      _v1.set(g[0], g[1] - v.cgHeight, g[2] - bodyCgZ(v)).applyQuaternion(s.quaternion).add(s.position);
       for (let i = 0; i < 6; i++) {
         const t = rr(0.7, 1.1);
         const sp = rr(0.6, 2.6);
@@ -732,7 +732,7 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
 
   function backfire(rec: CarFx, s: VehicleState): void {
     const v = rec.def.visual;
-    _v1.set(0, v.cgHeight, v.cgToFrontAxle - v.wheelbase / 2).applyQuaternion(s.quaternion);
+    _v1.set(0, v.cgHeight, bodyCgZ(v)).applyQuaternion(s.quaternion);
     const ox = s.position.x - _v1.x, oy = s.position.y - _v1.y, oz = s.position.z - _v1.z;
     for (let i = 0; i < rec.tips.length; i++) {
       if (i > 0 && rnd() > 0.8) continue;
@@ -793,7 +793,7 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
     const real = xr.graphics && xr.graphics.shadows !== 'off';
     const bodyOp = (real ? 0.3 : 0.55) * lift * (s.airborne ? 0 : 1);
     // body centre along the car: offset from CG toward the body middle
-    const zOff = (v.wheelbase + 2 * v.frontOverhang - v.length) / 2 - (v.cgToFrontAxle - v.wheelbase / 2);
+    const zOff = (v.wheelbase + 2 * v.frontOverhang - v.length) / 2 - bodyCgZ(v);
     for (let i = 0; i < 4; i++) {
       const w = s.wheels[i];
       wX[i] = w.contactPoint.x + nx * 0.012; wY[i] = w.contactPoint.y + ny * 0.012; wZ[i] = w.contactPoint.z + nz * 0.012;
@@ -1071,7 +1071,7 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
       if (!rec) continue;
       const v = rec.def.visual;
       const q = s.quaternion;
-      _v1.set(0, v.cgHeight, v.cgToFrontAxle - v.wheelbase / 2).applyQuaternion(q);
+      _v1.set(0, v.cgHeight, bodyCgZ(v)).applyQuaternion(q);
       const ox = s.position.x - _v1.x, oy = s.position.y - _v1.y, oz = s.position.z - _v1.z;
       _v3.set(0, 0, 1).applyQuaternion(q);
       const fx = _v3.x, fy = _v3.y, fz = _v3.z;

@@ -16,7 +16,7 @@ import {
   SphereGeometry,
   Vector3,
 } from 'three';
-import type { CarDefinition, GroundSample, TrackFrame, TrackRuntime, VehicleState, WheelState } from '../../src/core/contracts';
+import { bodyCgZ, type CarDefinition, type GroundSample, type TrackFrame, type TrackRuntime, type VehicleState, type WheelState } from '../../src/core/contracts';
 
 export interface Anchors {
   hood: Object3D;
@@ -118,8 +118,8 @@ export class PlaceholderCar {
   /** Pose the visual from a vehicle state (chassis, steering, wheel spin). */
   update(state: VehicleState): void {
     const v = this.def.visual;
-    // body origin = CG - q * (0, cgHeight, cgToFrontAxle - wheelbase/2)
-    this.offset.set(0, v.cgHeight, v.cgToFrontAxle - v.wheelbase / 2).applyQuaternion(state.quaternion);
+    // body origin = CG - q * (0, cgHeight, bodyCgZ)
+    this.offset.set(0, v.cgHeight, bodyCgZ(v)).applyQuaternion(state.quaternion);
     this.root.position.copy(state.position).sub(this.offset);
     this.root.quaternion.copy(state.quaternion);
     for (let i = 0; i < 4; i++) {

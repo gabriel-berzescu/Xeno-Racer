@@ -1,7 +1,7 @@
 /**
  * The car roster. All makes and models are fictional.
  */
-import type { CarDefinition, CarVisualSpec } from '../core/contracts';
+import { bodyCgZ, type CarDefinition, type CarVisualSpec } from '../core/contracts';
 import type { TireSpec, VehicleSpec } from '../physics/spec';
 
 const DEG = Math.PI / 180;
@@ -36,7 +36,7 @@ function hullFromVisual(v: CarVisualSpec, cgToFrontAxle: number): Pick<VehicleSp
   const rearOverhang = v.length - v.wheelbase - v.frontOverhang;
   const front = v.wheelbase / 2 + v.frontOverhang;
   const rear = -(v.wheelbase / 2 + rearOverhang);
-  const cgZ = cgToFrontAxle - v.wheelbase / 2; // CG position along body origin
+  const cgZ = bodyCgZ({ wheelbase: v.wheelbase, cgToFrontAxle }); // the CG along the body, from the body origin
   const bottom = v.rideHeight;
   const top = v.height * 0.92; // the roof is narrower than the box; shave it a bit
   return {
