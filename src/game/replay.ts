@@ -206,7 +206,9 @@ export class ReplayPlayer {
 }
 
 function cloneWheel(w: WheelState): WheelState {
-  return { ...w, hub: w.hub.clone(), contactPoint: w.contactPoint.clone(), contactNormal: w.contactNormal.clone() };
+  // (the suspension's velocity is not recorded: the stand-in carries none, not the one the template had when the replay began, which
+  // the sound would have taken for a wheel hitting a kerb at that very moment, over and over, for the whole replay)
+  return { ...w, hub: w.hub.clone(), contactPoint: w.contactPoint.clone(), contactNormal: w.contactNormal.clone(), suspensionVelocity: 0 };
 }
 
 function cloneState(s: VehicleState): VehicleState {

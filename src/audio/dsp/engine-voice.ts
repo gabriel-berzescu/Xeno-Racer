@@ -651,6 +651,9 @@ export class EngineVoice {
     if (this.asleep) {
       this.reset();
       this.asleep = false;
+      // (what the car did while it was out of earshot, its shifts and backfires, is not played now as if it had just happened)
+      this.lastShift = I.shiftCount;
+      this.lastBackfire = I.backfireCount;
     }
 
     // ── control smoothing ─────────────────────────────────────────────────────
@@ -680,19 +683,25 @@ export class EngineVoice {
     const rpmN = clamp(rpm / limiterRpm, 0, 1.1);
     const idle = Math.max(I.idleRpm, 300);
 
-    // counters -> events
+    // counters -> events (a counter that went back is a replay starting over, not a shift: it is taken as the new count, silently)
     if (I.shiftCount !== this.lastShift) {
+      const fresh = I.shiftCount > this.lastShift;
       this.lastShift = I.shiftCount;
-      this.dipT = 0.07;
-      this.clunkIn += 0.5 + 0.5 * this.sLoad;
-      this.clunkNoise = 1;
-      if (V.crackle > 0.3 && this.ovr > 0.2) this.burstLeft += 1;
+      if (fresh) {
+        this.dipT = 0.07;
+        this.clunkIn += 0.5 + 0.5 * this.sLoad;
+        this.clunkNoise = 1;
+        if (V.crackle > 0.3 && this.ovr > 0.2) this.burstLeft += 1;
+      }
     }
     if (I.backfireCount !== this.lastBackfire) {
+      const fresh = I.backfireCount > this.lastBackfire;
       this.lastBackfire = I.backfireCount;
-      this.firePop(1 + 0.3 * rng.u());
-      this.burstLeft += Math.floor(V.crackle * 1.6 * rng.u());
-      this.burstGap = 0.03;
+      if (fresh) {
+        this.firePop(1 + 0.3 * rng.u());
+        this.burstLeft += Math.floor(V.crackle * 1.6 * rng.u());
+        this.burstGap = 0.03;
+      }
     }
 
     // shift torque-cut dip
@@ -1287,6 +1296,13 @@ export class EngineVoice {
           const pair = sinCyc(whPh3) + (pairHz * 2 < nyq ? 0.3 * sinCyc(wrap1(whPh3 * 2)) : 0);
           whine = (pin * whA1 + pair * whA3) * 0.05;
         }
+      } else {
+        // A lite voice renders neither the block nor the ticks, but what feeds them (every combustion, every valve tick) must not pile
+        // up: a voice promoted to full (an opponent coming within 80 m, a TV camera cutting onto a pack) used to throw the whole heap
+        // into the resonators in one sample, a loud crack that grew with the seconds spent in lite (24 times the level of the engine
+        // after one, 370 times after twenty). A blow-off that began in lite dies out unheard.
+        blkIn = blkInN = tickIn = tickInN = 0;
+        if (bovEnv > 0.002) bovEnv *= bovK;
       }
 
       // ── discrete event sounds: shift clunk, backfire pops ─────────────────
