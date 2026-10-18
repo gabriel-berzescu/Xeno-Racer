@@ -24,6 +24,22 @@ export interface PluckParams {
   mute: boolean;
   /** Pitch bend at the start in semitones (positive = starts sharp), fading in 40 ms (string tension). */
   attackBend: number;
+  /** Seconds for a palm-muted string to fall 60 dB at the fundamental (default 0.16). */
+  muteDecay?: number;
+  /** 0..1: how much darker a palm-muted string gets in the loop (the palm near the bridge kills the high harmonics first). Default 0.86. */
+  muteDark?: number;
+  /** Finger vibrato: peak depth in semitones (one-sided, up from the note and back, as a guitarist bends), 0 = none. */
+  vibDepth?: number;
+  /** Vibrato rate in Hz. */
+  vibRate?: number;
+  /** Seconds before the vibrato starts (short notes stay straight); it then fades in over 0.25 s. */
+  vibDelay?: number;
+}
+
+/** Phase delay (samples) of the one-pole low-pass (1 - a) / (1 - a z^-1) at the normalised frequency w (rad/sample). */
+function onePoleDelay(a: number, w: number): number {
+  if (a <= 0) return 0;
+  return Math.atan2(a * Math.sin(w), 1 - a * Math.cos(w)) / w;
 }
 
 export class KsString {
@@ -52,6 +68,14 @@ export class KsString {
   private slideSemis = 0;
   private slideLeft = 0;
   private slideStep = 0;
+  /** One-pole loop low-pass of a palm-muted string (0 = off) and its state. */
+  private a1 = 0;
+  private lp1 = 0;
+  private vibDepth = 0;
+  private vibW = 0;
+  private vibStart = 0;
+  /** Pitch offset in semitones the loop is tuned to right now (slide + bend + vibrato + external bend). */
+  private tunedSemis = 0;
   active = false;
   /** Samples since the pluck. */
   age = 0;
@@ -71,9 +95,10 @@ export class KsString {
     this.tmp = new Float64Array(maxN + 8);
   }
 
-  /** Total loop delay in samples for a given fundamental and loop-filter coefficient. */
+  /** Total loop delay in samples for a given fundamental and loop-filter coefficients. */
   private retune(freq: number): void {
-    const T = this.sr / freq - this.S; // delay the delay line + all-pass must provide
+    // delay the delay line + all-pass must provide: the period minus the loop filters' own delay at the fundamental
+    const T = this.sr / freq - this.S - (this.a1 > 0 ? onePoleDelay(this.a1, (2 * Math.PI * freq) / this.sr) : 0);
     const N = Math.max(2, Math.floor(T - 0.5));
     const d = T - N; // in [0.5, 1.5)
     this.N = N;
@@ -85,16 +110,30 @@ export class KsString {
     this.freq = freq;
     // loop filter: S = 0.5 (dull) .. 0.08 (bright); rho from the requested decay time
     this.S = 0.5 - 0.42 * Math.min(1, Math.max(0, p.bright));
-    const decay = p.mute ? 0.16 : p.decay;
+    const decay = p.mute ? (p.muteDecay ?? 0.16) : p.decay;
     if (p.mute) this.S = 0.5;
+    // a palm-muted string also runs through a one-pole low-pass in the loop: its highs die within a few periods (the pick click stays,
+    // the body thumps), while rho sets how long the low harmonics last
+    this.a1 = p.mute ? Math.min(0.97, Math.max(0, p.muteDark ?? 0.86)) : 0;
+    this.lp1 = 0;
     this.rho = Math.pow(10, -3 / (Math.max(decay, 0.02) * freq));
+    // the one-pole loses a little at the fundamental too: give it back so that muteDecay is the time the fundamental takes to fall 60 dB
+    if (this.a1 > 0) {
+      const w = (2 * Math.PI * freq) / sr;
+      const g = (1 - this.a1) / Math.sqrt(1 - 2 * this.a1 * Math.cos(w) + this.a1 * this.a1);
+      this.rho = Math.min(0.998, this.rho / g);
+    }
     this.baseT = sr / freq;
     this.slideSemis = slideFrom;
     this.slideLeft = slideFrom !== 0 ? Math.round(slideTime * sr) : 0;
     this.slideStep = this.slideLeft > 0 ? slideFrom / this.slideLeft : 0;
     this.bendSemis = p.attackBend;
     this.bendT = 0;
-    this.retune(slideFrom !== 0 ? freq * Math.pow(2, slideFrom / 12) : freq * Math.pow(2, p.attackBend / 12));
+    this.vibDepth = p.vibDepth ?? 0;
+    this.vibW = (2 * Math.PI * (p.vibRate ?? 5.5)) / sr;
+    this.vibStart = Math.round((p.vibDelay ?? 0.22) * sr);
+    this.tunedSemis = slideFrom !== 0 ? slideFrom : p.attackBend;
+    this.retune(freq * Math.pow(2, this.tunedSemis / 12));
     // excitation: the string is pulled into a triangle whose peak sits at the pick position and released (so the harmonics fall
     // off as 1/n^2 and the pick-position comb comes out by itself). A rounded pick = a smoothed corner; a hard pick keeps the
     // corner sharp (more high harmonics). A little noise and a short pick-scrape burst give the attack its bite.
@@ -153,6 +192,7 @@ export class KsString {
     this.apX = 0;
     this.apY = 0;
     this.lpPrev = 0;
+    this.lp1 = 0;
     this.age = 0;
     this.level = vel;
     this.active = true;
@@ -165,8 +205,11 @@ export class KsString {
     this.relRho = Math.pow(10, -3 / (Math.max(time, 0.004) * this.freq));
   }
 
-  /** Adds n samples of this string into out (with the pickup comb applied). */
-  process(out: Float64Array, n: number, start = 0): void {
+  /**
+   * Adds n samples of this string into out (with the pickup comb applied). `extBend` is a pitch offset in semitones applied on top
+   * of everything (the player bending the string: the guitar's automatable `bend`).
+   */
+  process(out: Float64Array, n: number, start = 0, extBend = 0): void {
     if (!this.active) return;
     const buf = this.buf;
     const mask = this.mask;
@@ -174,6 +217,9 @@ export class KsString {
     let apX = this.apX;
     let apY = this.apY;
     let lpPrev = this.lpPrev;
+    let lp1 = this.lp1;
+    const a1 = this.a1;
+    const b1 = 1 - a1;
     const S = this.S;
     const rho = this.releasing ? this.relRho : this.rho;
     const ex = this.exc;
@@ -182,10 +228,11 @@ export class KsString {
     let N = this.N;
     let c = this.apC;
     const pOff = this.pickupOff;
+    const moving = this.vibDepth > 0 || extBend !== 0 || this.tunedSemis !== 0;
     let peak = 0;
     for (let i = start; i < n; i++) {
-      // pitch movements (slides, string-tension bend) re-tune once per 32 samples
-      if (((i - start) & 31) === 0 && (this.slideLeft > 0 || this.bendSemis !== 0)) {
+      // pitch movements (slides, string-tension bend, vibrato, a bend of the player) re-tune once per 32 samples
+      if (((i - start) & 31) === 0 && (moving || this.slideLeft > 0 || this.bendSemis !== 0)) {
         if (this.slideLeft > 0) {
           this.slideSemis -= this.slideStep * 32;
           this.slideLeft -= 32;
@@ -197,14 +244,27 @@ export class KsString {
         this.bendT += 32;
         const bend = this.bendSemis * Math.exp(-this.bendT / (0.04 * this.sr));
         if (Math.abs(bend) < 0.004) this.bendSemis = 0;
-        const semis = this.slideSemis + bend;
-        this.retune(this.freq * Math.pow(2, semis / 12));
-        N = this.N;
-        c = this.apC;
+        let semis = this.slideSemis + bend + extBend;
+        const age = this.age + (i - start);
+        if (this.vibDepth > 0 && age > this.vibStart) {
+          const t = age - this.vibStart;
+          const fade = Math.min(1, t / (0.25 * this.sr));
+          semis += this.vibDepth * fade * 0.5 * (1 - Math.cos(this.vibW * t));
+        }
+        if (semis !== this.tunedSemis || this.slideLeft > 0) {
+          this.tunedSemis = Math.abs(semis) < 1e-6 ? 0 : semis;
+          this.retune(this.freq * Math.pow(2, semis / 12));
+          N = this.N;
+          c = this.apC;
+        }
       }
       const yN = buf[(wp - N) & mask];
-      // loop filter (one zero) and loop gain
-      const v = rho * ((1 - S) * yN + S * lpPrev);
+      // loop filter (one zero, plus the palm-mute one-pole) and loop gain
+      let v = rho * ((1 - S) * yN + S * lpPrev);
+      if (a1 > 0) {
+        lp1 = b1 * v + a1 * lp1;
+        v = lp1;
+      }
       lpPrev = yN;
       // all-pass tuning
       const a = c * v + apX - c * apY;
@@ -225,6 +285,7 @@ export class KsString {
     this.apX = apX;
     this.apY = apY;
     this.lpPrev = lpPrev;
+    this.lp1 = lp1;
     this.excPos = excPos;
     this.age += n - start;
     this.level = Math.max(peak, this.level * 0.9);

@@ -860,7 +860,9 @@ export class Song {
       if (hum) {
         if (hum.time) {
           const jitter = (rng.bi() * hum.time * (this.bpm / 60)) / 1000;
+          const t0 = t;
           t = t >= 0 ? Math.max(0, t + jitter) : t + jitter; // a note on the very first beat is not pushed out in front of the song and lost
+          end += t - t0; // the whole note moves: a late start must not eat into its length, nor its end cut the next note of the same pitch
         }
         if (hum.vel) v *= 1 + rng.bi() * hum.vel;
       }
@@ -1085,6 +1087,75 @@ export class Song {
   }
   get eventCount(): number {
     return this.events.length;
+  }
+
+  /**
+   * The harmony check, for composers who cannot listen: every place where two pitched notes sound together a minor second or a
+   * minor ninth apart (the intervals that sound like a wrong note: C over B, Db over C), and, below C3, a major second (two bass
+   * notes a tone apart are mud). It reads the score, not the audio: notes from their start to their end (not the release tails),
+   * sampled on every sixteenth; drum channels and muted channels are left out, and so are ghost notes (`?`) and notes quieter than `minVel`. Lines
+   * are grouped by bar: `bar 33 (beat 2.75): lead C5 / saws Db4, minor 9th`; a pair that repeats is listed once per bar with a count.
+   * With `layers` (the probe's CLASH=2), an instrument's layers above the written note (`supersaw-chord` sounds every note an octave up
+   * too: `Instrument.pitches`) are checked against the other channels' written notes, marked `(octave layer)`: a harmony line a semitone
+   * under the chords' upper octave. Off by default: a layer blends into its note, so these are milder than a clash of written notes.
+   * The probe prints it with CLASH=1. A clash can be meant (a passing note, an appoggiatura): the list says where to look.
+   */
+  clashes(opts: { maxLines?: number; minVel?: number; layers?: boolean } = {}): string {
+    const minVel = opts.minVel ?? 0.25;
+    const maxLines = opts.maxLines ?? 60;
+    const pitched = this.channels.map((c, i) => !c.inst.parts && !this.mutes[i] && (this.soloNames === null || this.soloNames.includes(c.name)));
+    // with `layers`, the upper octave layers of an instrument too (a sub-octave layer blends into its note; it is not checked)
+    const offsets = this.channels.map((c) => (opts.layers && c.inst.pitches ? [0, ...c.inst.pitches.filter((o) => o > 0)] : [0]));
+    // every sounding pitch: the note itself, and the octave layers of its instrument ("layer": offset other than 0)
+    interface Sounding { beat: number; end: number; ch: number; n: number; src: EventDef; layer: boolean }
+    const sounding: Sounding[] = [];
+    for (const e of this.events) {
+      if (e.kind !== 'on' || !pitched[e.ch] || e.vel < minVel || e.flags & FLAG.GHOST) continue;
+      for (const o of offsets[e.ch]) sounding.push({ beat: e.beat, end: e.beat + e.durBeats, ch: e.ch, n: e.note + o, src: e, layer: o !== 0 });
+    }
+    sounding.sort((a, b) => a.beat - b.beat);
+    const step = 0.25;
+    const total = this.bars * this.barBeats;
+    const byBar = new Map<number, Map<string, { beat: number; count: number }>>();
+    const nameOf = (x: Sounding): string => `${this.channels[x.ch].name} ${midiToName(x.n, true)}${x.layer ? ' (octave layer)' : ''}`;
+    let active: Sounding[] = [];
+    let next = 0;
+    for (let k = 0; k * step < total - 1e-9; k++) {
+      const t = k * step + 0.02;
+      while (next < sounding.length && sounding[next].beat <= t) active.push(sounding[next++]);
+      active = active.filter((e) => e.end > t);
+      for (let i = 0; i < active.length; i++) {
+        for (let j = i + 1; j < active.length; j++) {
+          const a = active[i];
+          const b = active[j];
+          if (a.src === b.src) continue; // one note's own layers
+          if (a.layer && b.layer) continue; // two layers: colour, not a wrong note
+          if (a.ch === b.ch && (a.layer || b.layer)) continue; // a chord against its own octave layers is the patch's colour
+          const d = Math.abs(a.n - b.n);
+          const lo = Math.min(a.n, b.n);
+          const what = d === 1 ? 'minor 2nd' : d === 13 ? 'minor 9th' : d === 2 && lo < 48 ? 'major 2nd in the bass' : '';
+          if (!what) continue;
+          const [x, y] = a.n >= b.n ? [a, b] : [b, a];
+          const key = `${nameOf(x)} / ${nameOf(y)}, ${what}`;
+          const bar = Math.floor(t / this.barBeats);
+          let m = byBar.get(bar);
+          if (!m) byBar.set(bar, (m = new Map()));
+          const hit = m.get(key);
+          if (hit) hit.count++;
+          else m.set(key, { beat: Math.round((t - bar * this.barBeats) / step) * step + 1, count: 1 });
+        }
+      }
+    }
+    const lines: string[] = [];
+    let n = 0;
+    for (const bar of [...byBar.keys()].sort((a, b) => a - b)) {
+      for (const [key, v] of byBar.get(bar)!) {
+        n++;
+        if (lines.length < maxLines) lines.push(`bar ${bar} (beat ${v.beat}): ${key}${v.count > 1 ? ` (${v.count} sixteenths)` : ''}`);
+      }
+    }
+    if (n > lines.length) lines.push(`... ${n - lines.length} more`);
+    return n ? lines.join('\n') : 'no clashes';
   }
 }
 

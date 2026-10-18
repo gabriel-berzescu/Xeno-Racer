@@ -261,7 +261,8 @@ export function saveAlbumSpectrogram(path: string, x: Float32Array, sr: number, 
   const totalH = STRIP + H;
   const img = new Uint8Array(W * totalH * 4);
   // music falls off by about 4.5 dB per octave: tilt the picture so that bass and treble can be read on one scale, then scale it so
-  // that the loudest 0.3 % of the picture is white and 80 dB below that is black
+  // that the loudest 0.3 % of the picture is white and 55 dB below that is black (each pixel holds the loudest moment of its column, so a
+  // dense mix fills the top of the scale: a wider range paints a whole arrangement the same orange)
   const sample: number[] = [];
   for (let r = 0; r < H; r++) {
     const f = FMIN * Math.pow(FMAX / FMIN, 1 - (r + 0.5) / H);
@@ -273,7 +274,7 @@ export function saveAlbumSpectrogram(path: string, x: Float32Array, sr: number, 
   }
   sample.sort((a, b) => a - b);
   const dbTop = sample[Math.floor(sample.length * 0.997)];
-  const dbRange = 80;
+  const dbRange = 55;
   for (let r = 0; r < H; r++) {
     for (let c = 0; c < W; c++) magma((grid[r * W + c] - (dbTop - dbRange)) / dbRange, img, ((STRIP + r) * W + c) * 4);
   }

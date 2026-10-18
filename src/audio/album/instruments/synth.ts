@@ -207,6 +207,15 @@ export class Synth extends ParamBase<typeof SYNTH_SPECS> implements Instrument {
   private readonly dtu = new Float64Array(MAXL * MAXU);
   private readonly mod = { cutoff: 0, res: 0, pitch: 0, amp: 0, pw: 0, fm: 0, drive: 0 };
 
+  /** The pitches a note sounds at, in semitones from it: the layers loud enough to hear (noise aside) and the sub oscillator. */
+  get pitches(): number[] {
+    const loud = Math.max(...this.layers.map((l) => l.level));
+    const out = new Set<number>();
+    for (const l of this.layers) if (l.wave !== 'noise' && l.level >= 0.3 * loud) out.add(l.octave * 12 + l.semi);
+    if (this.params.sub >= 0.3) out.add(this.layers[0].octave * 12 + this.layers[0].semi - 12);
+    return [...out].sort((x, y) => x - y);
+  }
+
   constructor(ctx: Ctx, input: SynthOpts | string | undefined) {
     const o = resolveOpts('synth', SYNTH_PRESETS, input ?? 'default', SYNTH_SPECS, STRUCT);
     super('Synth', SYNTH_SPECS, o);

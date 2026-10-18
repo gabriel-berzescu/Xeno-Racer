@@ -13,6 +13,8 @@
  *                                          and reports the track rendered with it
  *   ALBUM=1 ONLY=my-track BANDS=1 ...   adds a table of the band levels of every channel in every section (each channel is rendered alone,
  *                                          so this takes one extra render per channel): which channel owns a band
+ *   ALBUM=1 ONLY=my-track CLASH=1 ...   the harmony check: every minor 2nd / minor 9th between two parts (and a tone between bass notes), by bar;
+ *                                        CLASH=2 also checks the synths' upper octave layers against the other parts
  *   ALBUM=1 ONLY=my-track SOLO=acid,bass ...   renders only those channels (files get a .solo-acid+bass suffix; the loudness gates are skipped)
  *   ALBUM=1 ONLY=my-track SPEC=1 BARS=16-24 ...   the spectrogram of bars 16 to 24 only (a zoom; combine with SOLO to see one channel)
  *   ALBUM=1 SR=44100 ...   renders at another sample rate
@@ -168,6 +170,10 @@ describe.skipIf(!RUN)('album render', () => {
       lines.push(`  file: previews/album/${stem}.wav${specName ? ` and ${specName}` : ''}`);
       lines.push('\n  arrangement (bars, section, channels that play notes or hits in it):');
       lines.push(song.describe().split('\n').map((l) => `    ${l}`).join('\n'));
+      if (process.env.CLASH === '1' || process.env.CLASH === '2') {
+        lines.push(`\n  harmony check (CLASH=${process.env.CLASH}: notes a minor 2nd / minor 9th apart, a tone apart in the bass${process.env.CLASH === '2' ? ', and the synths\' upper octave layers' : ''}; bar, beat counted from 1):`);
+        lines.push(song.clashes({ layers: process.env.CLASH === '2' }).split('\n').map((l) => `    ${l}`).join('\n'));
+      }
       const auto = song.describeAutomation();
       if (auto) {
         const al = auto.split('\n');

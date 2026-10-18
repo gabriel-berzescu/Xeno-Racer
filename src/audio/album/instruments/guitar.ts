@@ -37,8 +37,14 @@ export const GUITAR_SPECS = {
   timing: { default: 4, min: 0, max: 30, unit: 'ms', doc: 'Random timing error of each take (the looseness of a human double-track).' },
   detune: { default: 3, min: 0, max: 20, unit: 'cents', doc: 'Random tuning error of each take.' },
   muteDecay: { default: 0.16, min: 0.04, max: 0.6, unit: 's', doc: 'Ring time of palm-muted notes.' },
+  muteDark: { default: 0.86, min: 0, max: 0.97, doc: 'How dark a palm-muted note gets after its pick click (the palm kills the high harmonics first): 0 = only shorter, 0.9 = a deep chug.' },
   releaseDamp: { default: 0.04, min: 0.01, max: 0.5, unit: 's', doc: 'How quickly the strings are silenced at the end of a note (unless {ring}).' },
   attackBend: { default: 0.12, min: 0, max: 1, unit: 'semitones', doc: 'Sharpness of a hard-picked string at the very start (it settles within 40 ms).' },
+  vibrato: { default: 0, min: 0, max: 1.5, unit: 'semitones', doc: 'Finger vibrato on held notes: how far the pitch swings up and back (0 = none; 0.3-0.5 for a singing lead).' },
+  vibratoRate: { default: 5.6, min: 1, max: 10, unit: 'Hz', doc: 'Speed of the vibrato.' },
+  vibratoDelay: { default: 0.2, min: 0, max: 1.5, unit: 's', doc: 'How long a note sounds before the vibrato starts (then it fades in over 0.25 s): short notes stay straight.' },
+  bend: { default: 0, min: -12, max: 12, unit: 'semitones', doc: 'String bend of every sounding string (automate it: `lead.auto(\'bend\', ...)` bends a held note up and back).' },
+  pickVar: { default: 0.1, min: 0, max: 0.4, doc: 'Random variation of the pick position and hardness from note to note (a human hand never picks twice the same).' },
   velocity: { default: 0.7, min: 0, max: 1, doc: 'How much velocity changes the picking strength and brightness.' },
   width: { default: 1, min: 0, max: 1, doc: 'Stereo width of a double-tracked pair (1 = hard left and right, 0 = both in the centre).' },
 } satisfies ParamSpecs;
@@ -148,15 +154,24 @@ export class Guitar extends ParamBase<typeof GUITAR_SPECS> implements Instrument
   }
 
   noteOff(note: number): void {
-    // strings of this pitch: damp them unless they were played with {ring}
+    // A note-off belongs to the oldest string of its pitch. With humanize (or the timing of a take) the next note of the same pitch can
+    // start a few milliseconds before the end of the one before it: that new string (younger than 12 ms, or still waiting in the strum)
+    // must not be cut. Strings of this pitch: damp them unless they were played with {ring}.
+    const minAge = Math.round(0.012 * this.sr);
+    let older = false;
     for (let ti = 0; ti < this.takes.length; ti++) {
       const t = this.takes[ti];
+      let mine = false;
       for (let i = 0; i < t.strings.length; i++) {
-        if (t.notes[i] === note && t.strings[i].active && !(t.flagsOf[i] & FLAG.RING)) t.strings[i].damp(this.params.releaseDamp);
+        const st = t.strings[i];
+        if (t.notes[i] !== note || !st.active || st.age < minAge) continue;
+        mine = true;
+        if (!(t.flagsOf[i] & FLAG.RING)) st.damp(this.params.releaseDamp);
       }
+      if (mine) older = true;
+      else for (const p of this.pending) if (p.take === ti && p.note === note && !(p.flags & FLAG.RING)) p.released = true;
     }
-    for (const p of this.pending) if (p.note === note && !(p.flags & FLAG.RING)) p.released = true;
-    for (let i = this.chordBuf.length - 1; i >= 0; i--) if (this.chordBuf[i].note === note && !(this.chordBuf[i].flags & FLAG.RING)) this.chordBuf[i].flags |= 1 << 20; // ended in the same instant
+    if (!older) for (let i = this.chordBuf.length - 1; i >= 0; i--) if (this.chordBuf[i].note === note && !(this.chordBuf[i].flags & FLAG.RING)) this.chordBuf[i].flags |= 1 << 20; // ended in the same instant
   }
 
   hit(_part: string, vel: number, dur: number, flags: number): void {
@@ -171,6 +186,19 @@ export class Guitar extends ParamBase<typeof GUITAR_SPECS> implements Instrument
     const ch = this.chordBuf.slice().sort((a, b) => a.note - b.note);
     const up = ch.some((c) => (c.flags & FLAG.UP) !== 0);
     if (up) ch.reverse();
+    // strings left ringing ({ring}) stop when the hand moves: a new chord damps them all, a single note the string of its own pitch
+    // (a re-picked string cannot keep its old vibration; a pedal tone under a single-note line rings on)
+    const isChord = ch.length > 1;
+    // a slid single note is the same string moving to a new fret: the note it slides from stops sounding (the song drops that note's
+    // end when the two are written legato, so nothing else would stop it)
+    const slid = !isChord && (ch[0].flags & FLAG.SLIDE) !== 0;
+    for (const t of this.takes) {
+      for (let i = 0; i < t.strings.length; i++) {
+        const st = t.strings[i];
+        if (!st.active) continue;
+        if (t.flagsOf[i] & FLAG.RING ? isChord || ch.some((c) => c.note === t.notes[i]) : slid) st.damp(Math.max(p.releaseDamp, 0.03));
+      }
+    }
     const strumS = (p.strum / 1000) * sr;
     for (let ti = 0; ti < this.takes.length; ti++) {
       const tOff = this.rng.next() * (p.timing / 1000) * sr;
@@ -204,14 +232,21 @@ export class Guitar extends ParamBase<typeof GUITAR_SPECS> implements Instrument
     let vel = pd.vel;
     if (pd.flags & FLAG.ACCENT) vel = Math.min(1, vel * 1.1);
     const vv = 1 - p.velocity + p.velocity * vel;
+    // no two strokes are the same: the pick lands a little nearer or further from the bridge, a little harder or softer
+    const pv = p.pickVar;
     const pp: PluckParams = {
       decay: p.decay,
-      bright: p.bright * (0.7 + 0.3 * vv),
-      pickPos: p.pickPos,
-      pickHard: p.pickHard * (0.6 + 0.4 * vv),
+      bright: Math.min(1, p.bright * (0.7 + 0.3 * vv) * (1 + 0.25 * pv * this.rng.bi())),
+      pickPos: Math.min(0.5, Math.max(0.05, p.pickPos * (1 + pv * this.rng.bi()))),
+      pickHard: Math.min(1, Math.max(0, p.pickHard * (0.6 + 0.4 * vv) * (1 + 0.6 * pv * this.rng.bi()))),
       pickup: p.pickup,
       mute,
       attackBend: p.attackBend * vv,
+      muteDecay: ghost ? Math.min(p.muteDecay, 0.08) : p.muteDecay,
+      muteDark: p.muteDark,
+      vibDepth: p.vibrato,
+      vibRate: p.vibratoRate,
+      vibDelay: p.vibratoDelay,
     };
     const s = t.strings[k];
     s.pluck(f, ghost ? vv * 0.5 : vv, pp, pd.flags & FLAG.SLIDE ? -2 : 0, 0.06);
@@ -220,7 +255,7 @@ export class Guitar extends ParamBase<typeof GUITAR_SPECS> implements Instrument
     if (pd.released) s.damp(p.releaseDamp);
     if (ghost) s.damp(0.05);
     // render the part of this segment that follows the start
-    if (atSample < n) s.process(t.buf, n, atSample);
+    if (atSample < n) s.process(t.buf, n, atSample, p.bend);
     // mark "already rendered this segment"
     this.rendered.add(s);
   }
@@ -247,7 +282,7 @@ export class Guitar extends ParamBase<typeof GUITAR_SPECS> implements Instrument
     }
     for (let ti = 0; ti < this.takes.length; ti++) {
       const t = this.takes[ti];
-      for (const s of t.strings) if (s.active && !this.rendered.has(s)) s.process(t.buf, n, 0);
+      for (const s of t.strings) if (s.active && !this.rendered.has(s)) s.process(t.buf, n, 0, p.bend);
       // pickup: a slight resonance and top roll-off, then the amp and cabinet
       t.pickupF.block(t.buf, n);
       t.pickupL.block(t.buf, n);
@@ -282,35 +317,35 @@ export class Guitar extends ParamBase<typeof GUITAR_SPECS> implements Instrument
 export const GUITAR_PRESETS: Record<string, PresetDef> = {
   'punk-guitar': {
     doc: 'Double-tracked punk rhythm guitar (hard left and right): a Marshall-style crunch with plenty of mids, tight palm mutes. Use power chords like [A2,E3,A3] and {pm} for the chugging verses.',
-    opts: { level: 0, takes: 2, gain: 0.62, tight: 0.5, bass: 1.5, mid: 0.5, treble: 2, presence: 2, boost: 0.45, strum: 5, timing: 5 },
+    opts: { level: 1.3, takes: 2, gain: 0.62, tight: 0.5, bass: 1.5, mid: 0.5, treble: 2, presence: 2, boost: 0.45, strum: 5, timing: 5 },
   },
   'punk-guitar-L': {
     doc: 'Single punk guitar panned hard LEFT (use with punk-guitar-R playing the same part for a manual double-track, or a different part for harmony).',
-    opts: { level: 0, takes: 1, pan: -1, gain: 0.62, tight: 0.5, bass: 1.5, mid: 0.5, treble: 2, presence: 2, boost: 0.45, strum: 5, timing: 6, detune: 4 },
+    opts: { level: 1.3, takes: 1, pan: -1, gain: 0.62, tight: 0.5, bass: 1.5, mid: 0.5, treble: 2, presence: 2, boost: 0.45, strum: 5, timing: 6, detune: 4 },
   },
   'punk-guitar-R': {
     doc: 'Single punk guitar panned hard RIGHT (slightly different tone from -L for a realistic double-track).',
-    opts: { level: 0, takes: 1, pan: 1, gain: 0.66, tight: 0.45, bass: 1, mid: 1, treble: 2.5, presence: 2.5, boost: 0.4, strum: 5, timing: 6, detune: 4, cabBright: 0.2 },
+    opts: { level: 0.9, takes: 1, pan: 1, gain: 0.66, tight: 0.45, bass: 1, mid: 1, treble: 2.5, presence: 2.5, boost: 0.4, strum: 5, timing: 6, detune: 4, cabBright: 0.2 },
   },
   'power-chord-wall': {
     doc: 'Bigger and thicker for choruses: more gain, more low end, longer strum.',
-    opts: { level: -0.5, takes: 2, gain: 0.72, tight: 0.4, bass: 3, mid: 0, treble: 2, presence: 2, boost: 0.5, sag: 0.5, strum: 7 },
+    opts: { level: 0.7, takes: 2, gain: 0.72, tight: 0.4, bass: 3, mid: 0, treble: 2, presence: 2, boost: 0.5, sag: 0.5, strum: 7 },
   },
   'crunch-guitar': {
     doc: 'Open, ringing crunch (lighter gain): strummed open chords like E, A, D, Em, Am.',
-    opts: { level: 3, takes: 2, gain: 0.42, tight: 0.3, bass: 1, mid: 1, treble: 3.5, presence: 3, cabBright: 0.8, boost: 0.2, sag: 0.5, strum: 9, decay: 3.2, bright: 0.65 },
+    opts: { level: 4.5, takes: 2, gain: 0.42, tight: 0.3, bass: 1, mid: 1, treble: 3.5, presence: 3, cabBright: 0.8, boost: 0.2, sag: 0.5, strum: 9, decay: 3.2, bright: 0.65 },
   },
   'clean-guitar': {
     doc: 'Clean, chiming electric guitar (intros, quiet parts).',
     opts: { level: 6, takes: 1, gain: 0.05, tight: 0.2, bass: 0, mid: 0, treble: 3, presence: 3, boost: 0, sag: 0.1, gate: -80, strum: 10, decay: 3.5, bright: 0.7, cab: '2x12' },
   },
   'lead-guitar': {
-    doc: 'Singing lead: higher gain with a mid push, single mono take (play single notes; slides ~ add expression).',
-    opts: { level: -1, takes: 1, gain: 0.8, tight: 0.35, bass: -1, mid: 2, treble: 1, presence: 1, boost: 0.7, sag: 0.4, strum: 0, decay: 4, bright: 0.6, pickPos: 0.22, pickup: 0.2 },
+    doc: 'Singing lead: higher gain with a mid push, single mono take, finger vibrato on held notes (play single notes; slides ~ and an automated bend add expression).',
+    opts: { level: 0.5, takes: 1, gain: 0.8, tight: 0.35, bass: -1, mid: 2, treble: 1, presence: 1, boost: 0.7, sag: 0.4, strum: 0, decay: 4, bright: 0.6, pickPos: 0.22, pickup: 0.2, vibrato: 0.4, vibratoRate: 5.6, vibratoDelay: 0.2 },
   },
   'metal-guitar': {
     doc: 'High-gain scooped tone with very tight palm mutes (for heavier moments).',
-    opts: { level: -1.5, takes: 2, gain: 0.88, tight: 0.75, bass: 2, mid: -3, treble: 3, presence: 3, boost: 0.65, sag: 0.3, strum: 4 },
+    opts: { level: -0.7, takes: 2, gain: 0.88, tight: 0.75, bass: 2, mid: -3, treble: 3, presence: 3, boost: 0.65, sag: 0.3, strum: 4 },
   },
 };
 
@@ -385,10 +420,17 @@ export class BassGuitar extends ParamBase<typeof BASSG_SPECS> implements Instrum
     this.pending.push({ delay: 0, note, vel, flags, released: false });
   }
   noteOff(note: number): void {
+    // the end of a note belongs to the older string of its pitch: a repeated note that started a few milliseconds early (humanize) is
+    // younger than 12 ms, or still pending, and is left alone
+    const minAge = Math.round(0.012 * this.sr);
+    let mine = false;
     for (let i = 0; i < this.strings.length; i++) {
-      if (this.notes[i] === note && this.strings[i].active && !(this.flagsOf[i] & FLAG.RING)) this.strings[i].damp(this.params.releaseDamp);
+      const st = this.strings[i];
+      if (this.notes[i] !== note || !st.active || st.age < minAge) continue;
+      mine = true;
+      if (!(this.flagsOf[i] & FLAG.RING)) st.damp(this.params.releaseDamp);
     }
-    for (const p of this.pending) if (p.note === note && !(p.flags & FLAG.RING)) p.released = true;
+    if (!mine) for (const p of this.pending) if (p.note === note && !(p.flags & FLAG.RING)) p.released = true;
   }
   hit(_part: string, vel: number, dur: number, flags: number): void {
     this.noteOn(28, vel, dur, flags);
@@ -425,6 +467,8 @@ export class BassGuitar extends ParamBase<typeof BASSG_SPECS> implements Instrum
           pickup: p.pickup,
           mute,
           attackBend: p.attackBend * vv,
+          muteDecay: p.muteDecay,
+          muteDark: 0.8,
         };
         const s = this.strings[k];
         s.pluck(mtof(pd.note), (pd.flags & FLAG.GHOST) !== 0 ? vv * 0.5 : vv, pp, pd.flags & FLAG.SLIDE ? -1 : 0, 0.05);
@@ -447,10 +491,10 @@ export class BassGuitar extends ParamBase<typeof BASSG_SPECS> implements Instrum
 }
 
 export const BASSG_PRESETS: Record<string, PresetDef> = {
-  'punk-bass': { doc: 'Picked, bright, driven punk bass: roots in eighth notes (with {pm} for the muted verses).', opts: { level: -2, bright: 0.65, pickHard: 0.75, pickPos: 0.17, drive: 0.4, comp: 0.5, bass: 2, treble: 2.5 } },
-  'rock-bass': { doc: 'Round, growly rock bass with a little drive.', opts: { level: -1, bright: 0.5, pickHard: 0.5, drive: 0.28, comp: 0.4, mid: 1.5 } },
-  'finger-bass': { doc: 'Warm fingerstyle bass, clean and round.', opts: { level: 1.5, bright: 0.3, pickHard: 0.2, pickPos: 0.3, drive: 0.05, comp: 0.35, bass: 3, treble: 0, decay: 3 } },
-  'dirty-bass': { doc: 'Fuzzy, overdriven bass for garage and noisy parts.', opts: { level: -4.5, bright: 0.6, pickHard: 0.7, drive: 0.75, comp: 0.5, mid: 2, treble: 1 } },
+  'punk-bass': { doc: 'Picked, bright, driven punk bass: roots in eighth notes (with {pm} for the muted verses).', opts: { level: -0.9, bright: 0.65, pickHard: 0.75, pickPos: 0.17, drive: 0.4, comp: 0.5, bass: 2, treble: 2.5 } },
+  'rock-bass': { doc: 'Round, growly rock bass with a little drive.', opts: { level: 1.2, bright: 0.5, pickHard: 0.5, drive: 0.28, comp: 0.4, mid: 1.5 } },
+  'finger-bass': { doc: 'Warm fingerstyle bass, clean and round.', opts: { level: 4.6, bright: 0.3, pickHard: 0.2, pickPos: 0.3, drive: 0.05, comp: 0.35, bass: 3, treble: 0, decay: 3 } },
+  'dirty-bass': { doc: 'Fuzzy, overdriven bass for garage and noisy parts.', opts: { level: -6.5, bright: 0.6, pickHard: 0.7, drive: 0.75, comp: 0.5, mid: 2, treble: 1 } },
 };
 
 export interface GuitarChordOpts {

@@ -55,7 +55,7 @@ export const AMP_DEFAULTS: AmpParams = {
 
 /** The cabinet: biquad chain, rebuilt when the type or brightness changes. */
 export class Cabinet {
-  private readonly chain = new BiquadChain(8);
+  private readonly chain = new BiquadChain(9);
   private type: CabType = 'none';
   private bright = 9;
   constructor(private readonly sr: number) {}
@@ -68,15 +68,18 @@ export class Cabinet {
     for (const b of s) b.setIdentity();
     switch (type) {
       case '4x12': {
-        const lp = 4900 * Math.pow(2, 0.35 * bright);
-        s[0].highpass(72, 0.72, sr);
-        s[1].peaking(125, 1.2, 1.5, sr);
-        s[2].peaking(420, 0.9, -3.5, sr);
-        s[3].peaking(1400, 1.2, 1.0, sr);
-        s[4].peaking(2600 * Math.pow(2, 0.15 * bright), 1.0, 3 + 1.5 * bright, sr);
-        s[5].peaking(4000, 2.6, 1.0, sr);
-        s[6].lowpass(lp, 0.62, sr);
-        s[7].lowpass(lp * 1.12, 0.72, sr);
+        // closed-back 4x12 with a dynamic mic near the cap edge: a cabinet thump at 110 Hz, a broad dip through the boxy low mids, the
+        // speaker's presence rise at 2-3 kHz with a cone-breakup notch above it and a last peak near 5 kHz, then the steep fall of the cone
+        const lp = 5700 * Math.pow(2, 0.35 * bright);
+        s[0].highpass(70, 0.72, sr);
+        s[1].peaking(112, 1.1, 2.5, sr);
+        s[2].peaking(330, 0.7, -5.5, sr);
+        s[3].peaking(1500, 1.0, 1.0, sr);
+        s[4].peaking(2500 * Math.pow(2, 0.15 * bright), 1.1, 3.5 + 1.5 * bright, sr);
+        s[5].peaking(3500, 4.0, -3.5, sr);
+        s[6].peaking(4900, 2.2, 1.5, sr);
+        s[7].lowpass(lp, 0.6, sr);
+        s[8].lowpass(lp * 1.6, 0.7, sr); // the cone stops radiating: no fizz above 10 kHz
         break;
       }
       case '2x12': {
@@ -325,6 +328,9 @@ export class GuitarAmp {
 
 // ── bass amp (DI + a tube-ish preamp + cabinet) ──────────────────────────────
 
+/** Crossover of the bass amp's split drive (Hz): below it the bass stays clean, above it it growls. */
+const BASS_SPLIT = 220;
+
 export interface BassAmpParams {
   /** 0..1 overdrive of the preamp. */
   drive: number;
@@ -354,11 +360,19 @@ export class BassAmp {
   private dcX = 0;
   private dcY = 0;
   private lp = 0;
+  private lp2 = 0;
   private dirty = true;
+  // the growl: the band above SPLIT Hz is driven on its own, the lows stay clean (the classic split bass rig)
+  private readonly split = new Biquad();
+  private readonly emph = new Biquad();
+  private readonly lo = new Float64Array(256);
+  private readonly hi = new Float64Array(256);
   constructor(sr: number, params: Partial<BassAmpParams> = {}) {
     this.sr = sr;
     this.p = { drive: 0.3, bass: 2, mid: 0, treble: 1, level: 0, cab: 'bass-8x10', comp: 0.4, ...params };
     this.cab = new Cabinet(sr);
+    this.split.lowpass(BASS_SPLIT, 0.7071, sr);
+    this.emph.peaking(1100, 0.9, 8, sr);
   }
   setParam(name: keyof BassAmpParams, v: number | CabType): void {
     (this.p as unknown as Record<string, number | string>)[name] = v;
@@ -390,20 +404,39 @@ export class BassAmp {
       this.env = env;
     }
     if (p.drive > 0) {
-      const g = 1 + 22 * p.drive * p.drive;
-      const norm = 1 / tanh3(Math.min(g, 3) * 0.9);
+      // split at BASS_SPLIT Hz: lows + highs = the input exactly
+      const lo = this.lo;
+      const hi = this.hi;
+      for (let i = 0; i < n; i++) {
+        lo[i] = this.split.process(buf[i]);
+        hi[i] = buf[i] - lo[i];
+      }
+      // the lows: a gentle tube-ish squash that keeps the fundamental round and solid (no fizz, no flub)
+      const gl = 1 + 2.5 * p.drive;
+      const nl = 1 / gl;
+      for (let i = 0; i < n; i++) lo[i] = tanh3(lo[i] * gl) * nl;
+      // the highs: a mid push, then driven hard at 2x oversampling (the growl and the pick clank), tamed by two poles at 3.8 kHz
+      this.emph.block(hi, n);
+      const g = 2 + 70 * p.drive * p.drive;
       const b2 = this.b2;
-      this.up.process(buf, n, b2);
+      this.up.process(hi, n, b2);
       let lp = this.lp;
-      const k = 1 - Math.exp((-2 * Math.PI * 4500) / (sr * 2));
+      let lp2 = this.lp2;
+      const k = 1 - Math.exp((-2 * Math.PI * 3800) / (sr * 2));
+      const bias = 0.12;
+      const dc = tanh3(bias);
       for (let j = 0; j < 2 * n; j++) {
-        const x = tanh3(b2[j] * g + 0.1) - tanh3(0.1);
+        const x = tanh3(b2[j] * g + bias) - dc;
         lp += k * (x - lp);
-        b2[j] = lp * norm;
+        lp2 += k * (lp - lp2);
+        b2[j] = lp2;
       }
       this.lp = lp;
-      this.down.process(b2, n, buf);
-      // blend a little of the clean low end back so the fundamental stays solid
+      this.lp2 = lp2;
+      this.down.process(b2, n, hi);
+      // the driven band comes back at a level that grows with the drive (0.05 = barely there, 0.4 = punk, 0.75 = fuzz)
+      const hl = 1.5 * Math.pow(p.drive, 0.8);
+      for (let i = 0; i < n; i++) buf[i] = lo[i] + hi[i] * hl;
     }
     if (p.bass !== 0) this.lowSh.block(buf, n);
     if (p.mid !== 0) this.midPk.block(buf, n);

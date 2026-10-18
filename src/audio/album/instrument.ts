@@ -96,6 +96,11 @@ export interface Instrument extends ParamHost {
    * Instruments that do not say are drums and effects, where `~` means nothing.
    */
   readonly slides?: 'tie' | 'scoop' | 'none';
+  /**
+   * Optional: the pitches every note really sounds at, as semitones from it (default [0]): a synth with a layer an octave up answers
+   * [0, 12]. The harmony check (Song.clashes) checks each of them, so a clash with a hidden octave is found too.
+   */
+  readonly pitches?: readonly number[];
   /** Starts a note. `note` is a MIDI number (A4 = 69; fractions allowed), `vel` 0..1, `dur` the planned length in samples. */
   noteOn(note: number, vel: number, dur: number, flags: number): void;
   noteOff(note: number): void;

@@ -98,6 +98,10 @@ interface DrumVoice {
   eq: Biquad;
   hp: Biquad;
   pk: Biquad;
+  /** Band-pass for the attack (the kick's beater, the snare's stick crack, the toms' stick). */
+  bp: Biquad;
+  /** Low-pass on the snare wires (real wires roll off above 8-10 kHz: without it the snare hisses). */
+  lp: Biquad;
 }
 
 const SNARE_MODES: Mode[] = [
@@ -201,6 +205,8 @@ export class AcousticKit extends ParamBase<typeof AKIT_SPECS> implements Instrum
       eq: new Biquad(),
       hp: new Biquad(),
       pk: new Biquad(),
+      bp: new Biquad(),
+      lp: new Biquad(),
     });
     for (let i = 0; i < 3; i++) this.kickV.push(mk(3));
     for (let i = 0; i < 3; i++) this.snareV.push(mk(SNARE_MODES.length));
@@ -286,8 +292,10 @@ export class AcousticKit extends ParamBase<typeof AKIT_SPECS> implements Instrum
     // static tone: scoop the boxiness, add beater presence
     v.eq.peaking(380, 1.1, -5, this.sr);
     v.pk.peaking(3400, 0.9, 3, this.sr);
+    v.bp.bandpass(3800, 0.8, this.sr);
     v.eq.reset();
     v.pk.reset();
+    v.bp.reset();
   }
 
   private trigSnare(vel: number, g: number, flags: number, rim: boolean): void {
@@ -315,9 +323,13 @@ export class AcousticKit extends ParamBase<typeof AKIT_SPECS> implements Instrum
     v.wireLp = 0;
     v.rattle = 0;
     v.hp.highpass(1700, 0.8, this.sr);
-    v.pk.peaking(5200, 0.9, 4.5, this.sr);
+    v.pk.peaking(4200, 0.9, 3, this.sr);
+    v.lp.lowpass(9000, 0.6, this.sr);
+    v.bp.bandpass(rim ? 2400 : 1800, 1.1, this.sr);
     v.hp.reset();
     v.pk.reset();
+    v.lp.reset();
+    v.bp.reset();
     v.eq.peaking(3300, 1.2, 2, this.sr);
     v.eq.reset();
     // wire decay constants are stored in ks beyond the modes? keep them in locals of process via params
@@ -350,6 +362,8 @@ export class AcousticKit extends ParamBase<typeof AKIT_SPECS> implements Instrum
     v.flags = flags & 0xffff;
     v.eq.peaking(2400, 1, 2, this.sr);
     v.eq.reset();
+    v.bp.bandpass(2700, 0.9, this.sr);
+    v.bp.reset();
   }
 
   private trigCymbal(part: PartName, vel: number, g: number, flags: number): void {
@@ -449,11 +463,14 @@ export class AcousticKit extends ParamBase<typeof AKIT_SPECS> implements Instrum
         y += sinCyc(v.ph[k]) * v.amps[k];
         v.amps[k] *= v.ks[k];
       }
-      // beater click (band-limited noise burst) and a thump of air
+      // beater click: a hard beater slaps the head, a short burst centred near 4 kHz (what cuts through the guitars), a pitched tick and
+      // a thump of air; only a little of the burst is left broadband
       let c = 0;
-      if (t < 0.012 * sr) {
+      if (t < 0.014 * sr) {
         const w = nz.next();
-        c = w * Math.exp(-t / (0.0014 * sr)) * click * 0.9;
+        const e = Math.exp(-t / (0.0019 * sr));
+        c = (v.bp.process(w) * 2.6 + w * 0.22) * e * click;
+        c += sinCyc((ts * 2900) % 1) * Math.exp(-t / (0.0011 * sr)) * click * 0.45;
         c += sinCyc((ts * 1800) % 1) * Math.exp(-t / (0.0025 * sr)) * click * 0.35;
       }
       let x = (y * 0.9 + c) * v.g;
@@ -512,11 +529,15 @@ export class AcousticKit extends ParamBase<typeof AKIT_SPECS> implements Instrum
         const rat = 1 + 3.2 * v.rattle;
         const env = v.noiseAmp * (0.8 * Math.pow(w1, t) + 0.28 * Math.pow(w2, t));
         wire = v.hp.process(w) * env * rat * 0.9;
-        wire = v.pk.process(wire);
+        wire = v.lp.process(v.pk.process(wire));
       }
-      // stick tick
+      // stick: a bright tick, then the crack of the stick on the head (band-passed, a few milliseconds)
       let tick = 0;
-      if (t < 0.006 * sr) tick = nz.next() * Math.exp(-t / (0.0009 * sr)) * v.clk * 0.9;
+      if (t < 0.02 * sr) {
+        const w = nz.next();
+        tick = (t < 0.006 * sr ? w * Math.exp(-t / (0.0008 * sr)) * 0.75 : 0) + v.bp.process(w) * Math.exp(-t / (0.0032 * sr)) * 2.2;
+        tick *= v.clk;
+      }
       let x = (y * 0.7 + wire * 0.75 + tick) * v.g;
       x = tanh3(x * 1.5) * 0.8;
       x = v.eq.process(x);
@@ -550,7 +571,11 @@ export class AcousticKit extends ParamBase<typeof AKIT_SPECS> implements Instrum
         y += sinCyc(v.ph[k]) * v.amps[k];
         v.amps[k] *= v.ks[k];
       }
-      const c = t < 0.01 * sr ? nz.next() * Math.exp(-t / (0.0012 * sr)) * v.clk : 0;
+      let c = 0;
+      if (t < 0.016 * sr) {
+        const w = nz.next();
+        c = (w * Math.exp(-t / (0.0012 * sr)) + v.bp.process(w) * Math.exp(-t / (0.0026 * sr)) * 2.4) * v.clk;
+      }
       let x = (y * 0.85 + c) * v.g;
       x = tanh3(x * 1.3) * 0.85;
       x = v.eq.process(x);
@@ -629,13 +654,13 @@ function clampPan(x: number): number {
 }
 
 export const AKIT_PRESETS: Record<string, PresetDef> = {
-  'rock-kit': { doc: 'A natural, medium-sized rock kit with a lively room.', opts: { level: -0.5 } },
+  'rock-kit': { doc: 'A natural, medium-sized rock kit with a lively room.', opts: { level: 0.2 } },
   'punk-kit': {
     doc: 'Tight, loud, clicky punk kit: high-tuned snare with plenty of rattle, short kick with a strong beater, bright hats, a small room.',
-    opts: { level: 0, kickTune: 68, kickDecay: 0.16, kickClick: 0.95, snareTune: 225, snareDecay: 0.13, snareWires: 1, snareSnap: 0.8, tomTune: 1.1, room: 0.3, roomTime: 0.35, hatTone: 0.2, tight: 0.15 },
+    opts: { level: 0.6, kickTune: 68, kickDecay: 0.16, kickClick: 0.95, snareTune: 225, snareDecay: 0.13, snareWires: 1, snareSnap: 0.8, tomTune: 1.1, room: 0.3, roomTime: 0.35, hatTone: 0.2, tight: 0.15 },
   },
-  'dry-kit': { doc: 'Close-miked, dry and tight (no room): easy to fit in a dense mix.', opts: { level: 1.5, room: 0.05, tight: 0.5, kickDecay: 0.14, snareDecay: 0.11, kickClick: 0.7 } },
-  'big-room-kit': { doc: 'Large, open kit with a long room: epic punk / rock choruses.', opts: { level: -1, kickTune: 58, kickDecay: 0.26, snareTune: 195, snareDecay: 0.2, room: 0.8, roomTime: 1.1, tomDecay: 1.3 } },
-  'garage-kit': { doc: 'Loose, lo-fi garage kit: low-tuned, rattly, boxy room.', opts: { level: -2, kickTune: 56, kickDecay: 0.18, snareTune: 180, snareDecay: 0.2, snareWires: 1.2, room: 0.55, roomTime: 0.3, hatTone: -0.3, tomTune: 0.85 } },
+  'dry-kit': { doc: 'Close-miked, dry and tight (no room): easy to fit in a dense mix.', opts: { level: 1.9, room: 0.05, tight: 0.5, kickDecay: 0.14, snareDecay: 0.11, kickClick: 0.7 } },
+  'big-room-kit': { doc: 'Large, open kit with a long room: epic punk / rock choruses.', opts: { level: -0.4, kickTune: 58, kickDecay: 0.26, snareTune: 195, snareDecay: 0.2, room: 0.8, roomTime: 1.1, tomDecay: 1.3 } },
+  'garage-kit': { doc: 'Loose, lo-fi garage kit: low-tuned, rattly, boxy room.', opts: { level: -0.3, kickTune: 56, kickDecay: 0.18, snareTune: 180, snareDecay: 0.2, snareWires: 1.2, room: 0.55, roomTime: 0.3, hatTone: -0.3, tomTune: 0.85 } },
 };
 

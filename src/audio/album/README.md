@@ -100,7 +100,7 @@ ALBUM=1 ONLY=my-track AUTOTRIM=1 SPEC=1 npx vitest run tests/probes/album-render
 ```
 
 `AUTOTRIM=1` finds the master trim that gives -14 LUFS and prints the line to write; `SPEC=1` also writes a spectrogram PNG (section 12 explains
-the report). Without them the probe just renders and reports. More switches, all in section 12: `BANDS=1` (which channel owns which frequency band),
+the report). Without them the probe just renders and reports. More switches, all in section 12: `CLASH=1` (the harmony check: wrong notes between parts), `BANDS=1` (which channel owns which frequency band),
 `SOLO=acid,bass` (render only those channels) and `BARS=16-24` (zoom the spectrogram into those bars). `TRACK=path/to/file.ts` (instead of `ONLY`)
 probes a track file that is not in the album; it imports the engine by a path that resolves from where it lies (as the files in
 `sandbox/album/examples/` do), and the probe writes `previews/album/<id>.*` for it as for any track.
@@ -329,7 +329,10 @@ riser.hit(S.drop.bar - 2, '', 1, 0, 8); // a one-shot with a length: bar, part, 
 (beats, may be negative), `gate` (note-length multiplier), `from` (start inside the pattern, in beats), `art`, `only` (drum parts),
 `rename` (drum parts), `humanize`, `swing`. A clip outside the track, or a drum part the instrument does not have, is an error that says
 where. Several `play` calls on one channel simply add up. A clip ends where you say: a note still sounding at the end of the clip is
-cut there (use fractional bars for stops: `play(p, S.bridge.bar, S.bridge.bars - 0.25)` leaves the last beat silent).
+cut there (use fractional bars for stops: `play(p, S.bridge.bar, S.bridge.bars - 0.25)` leaves the last beat silent). A clip always starts
+at the **beginning** of its pattern, wherever it is placed: to play bars 5-8 of a long chord pattern at bar 20, either build the pattern for
+those bars or pass `from` (in beats: `from: 16`). Placing a 16-bar progression at bar 4 of its section plays its first bar there, not its
+fifth: the CLASH=1 check catches the wrong chords this gives.
 
 In `note(bar, note, beats, vel, flags)` and `hit(bar, part, vel, flags, beats)` the `flags` are a bit set of articulations (`FLAG.ACCENT`,
 `FLAG.MUTE` = palm mute, `FLAG.RING`, `FLAG.SLIDE`, `FLAG.GHOST`, `FLAG.RIM`, `FLAG.FLAM`, `FLAG.OPEN`, `FLAG.UP`, `FLAG.STACCATO`, exported
@@ -826,6 +829,15 @@ How to read it:
   left to right for the balance: from `mid` upwards it should fall away; a `pres`, `high` or `air` more than 3-4 dB above `upmid` is bright and
   harsh (hats, shakers, tambourines, cymbals and bright leads are the usual cause), a `sub` far above `bass` is boomy. Read a column top to
   bottom for how the sections differ. To find out *which channel* a band comes from, use `BANDS=1` (next).
+- **`CLASH=1`: the harmony check.** Numbers and pictures cannot tell a right note from a wrong one; the score can. `CLASH=1` lists every place
+  where two pitched notes sound together a minor second or a minor ninth apart (C5 over a B4, a Db5 over the C of a C chord: the intervals that
+  sound like a mistake) and, below C3, a major second (two bass notes a tone apart are mud), grouped by bar with the channels and the notes:
+  `bar 39 (beat 3): lead F5 / saws E4, minor 9th (4 sixteenths)`. It reads the score, not the audio (notes from start to end, not their release
+  tails; drums, muted channels and ghost notes are left out), so it is instant. A clash can be meant (a passing note, an appoggiatura that
+  resolves on the next sixteenth); one that lasts several sixteenths on a strong beat usually is not. Run it after every change of notes or
+  voicings; `song.clashes()` returns the same text in code. `no clashes` is the goal for a lead over its chords. `CLASH=2` also checks the
+  synths' octave layers above the written note (`supersaw-chord` sounds every note an octave up too) against the other parts: a harmony line a
+  semitone under the chords' upper octave shows up there.
 - **`BANDS=1`: which channel owns a band.** The probe renders every channel that sounds alone (with the master's glue and saturation off, so that
   the numbers add up the way the mix's do; one extra render per channel, a few seconds each) and prints, for every section, the band levels of
   each channel under the mix's own row. A `.` means more than 25 dB under the mix in that band. In the Goa example's groove section:
@@ -1047,9 +1059,16 @@ needs a human ear to confirm. The numbers below come from `sandbox/album/lab/` (
   darkest of the presets, `metal-guitar` the brightest). That curve is my own rough reference, not a measured corpus. So it is
   clearly a distorted guitar in every measurement, but a recorded rhythm guitar has micro-timing, pick noise, string buzz and
   amp-and-speaker interaction that are only approximated: next to a real one it will sound like a good simulation. Clean and crunch tones
-  are less convincing than high-gain ones, because the string model's attack is the weak point, and there are no hammer-ons, pull-offs,
-  bends or harmonics (a slide `~` is the only pitch articulation).
-- **Bass guitar.** The same string model through a bass amp; picked punk tones are better than fingerstyle.
+  are less convincing than high-gain ones, because the string model's attack is the weak point. Since the punk track (Flat Out): palm mutes
+  darken after their pick click as a palm does (`muteDark`: 60-100 ms after the pick a muted chord's centroid is 239 Hz against 652 Hz for an
+  open one), held notes take a finger vibrato (`vibrato`, `vibratoRate`, `vibratoDelay`; `lead-guitar` swings 5-39 cents at 5.6 Hz), `bend` bends
+  every sounding string (automate it), `pickVar` varies the pick from note to note, a new chord damps one left ringing, and the 4x12 cabinet
+  sits within about 2 dB of the reference curve from 125 Hz to 8 kHz. Still missing: hammer-ons, pull-offs and harmonics.
+- **Bass guitar.** The same string model through a bass amp that keeps the lows under 220 Hz clean and drives the band above with a mid push
+  (`punk-bass` has 9 dB more energy above 400 Hz than before: the growl that cuts through guitars); picked punk tones are better than
+  fingerstyle, which stays clean.
+- **Acoustic kit, since Flat Out.** A beater click on the kick (3-6 kHz in its first 8 ms up 10 dB), a stick crack on the snare with far
+  less hiss above 12 kHz, a stick attack on the toms. Every guitar and bass preset is calibrated to -18 LUFS, every kit to -16.
 - **Risers, impacts, zaps.** Simple and effective; the impact's character depends heavily on the reverb send.
 - **Mastering.** Real BS.1770 loudness and inter-sample peak detection, but a single simple limiter: dense, heavily limited material can
   pump. Lower the trim and the master saturation rather than pushing.
@@ -1917,8 +1936,14 @@ Parameters (all automatable; also usable as options):
 | `timing` | 4 | 0 .. 30 | ms | Random timing error of each take (the looseness of a human double-track). |
 | `detune` | 3 | 0 .. 20 | cents | Random tuning error of each take. |
 | `muteDecay` | 0.16 | 0.04 .. 0.6 | s | Ring time of palm-muted notes. |
+| `muteDark` | 0.86 | 0 .. 0.97 |  | How dark a palm-muted note gets after its pick click (the palm kills the high harmonics first): 0 = only shorter, 0.9 = a deep chug. |
 | `releaseDamp` | 0.04 | 0.01 .. 0.5 | s | How quickly the strings are silenced at the end of a note (unless {ring}). |
 | `attackBend` | 0.12 | 0 .. 1 | semitones | Sharpness of a hard-picked string at the very start (it settles within 40 ms). |
+| `vibrato` | 0 | 0 .. 1.5 | semitones | Finger vibrato on held notes: how far the pitch swings up and back (0 = none; 0.3-0.5 for a singing lead). |
+| `vibratoRate` | 5.6 | 1 .. 10 | Hz | Speed of the vibrato. |
+| `vibratoDelay` | 0.2 | 0 .. 1.5 | s | How long a note sounds before the vibrato starts (then it fades in over 0.25 s): short notes stay straight. |
+| `bend` | 0 | -12 .. 12 | semitones | String bend of every sounding string (automate it: `lead.auto('bend', ...)` bends a held note up and back). |
+| `pickVar` | 0.1 | 0 .. 0.4 |  | Random variation of the pick position and hardness from note to note (a human hand never picks twice the same). |
 | `velocity` | 0.7 | 0 .. 1 |  | How much velocity changes the picking strength and brightness. |
 | `width` | 1 | 0 .. 1 |  | Stereo width of a double-tracked pair (1 = hard left and right, 0 = both in the centre). |
 
@@ -1932,7 +1957,7 @@ Presets:
 | `power-chord-wall` | Bigger and thicker for choruses: more gain, more low end, longer strum. | takes 2, gain 0.72, tight 0.4, bass 3, mid 0, treble 2, presence 2, boost 0.5, sag 0.5, strum 7 |
 | `crunch-guitar` | Open, ringing crunch (lighter gain): strummed open chords like E, A, D, Em, Am. | takes 2, gain 0.42, tight 0.3, bass 1, mid 1, treble 3.5, presence 3, cabBright 0.8, boost 0.2, sag 0.5, strum 9, decay 3.2, bright 0.65 |
 | `clean-guitar` | Clean, chiming electric guitar (intros, quiet parts). | takes 1, gain 0.05, tight 0.2, bass 0, mid 0, treble 3, presence 3, boost 0, sag 0.1, gate -80, strum 10, decay 3.5, bright 0.7, cab 2x12 |
-| `lead-guitar` | Singing lead: higher gain with a mid push, single mono take (play single notes; slides ~ add expression). | takes 1, gain 0.8, tight 0.35, bass -1, mid 2, treble 1, presence 1, boost 0.7, sag 0.4, strum 0, decay 4, bright 0.6, pickPos 0.22, pickup 0.2 |
+| `lead-guitar` | Singing lead: higher gain with a mid push, single mono take, finger vibrato on held notes (play single notes; slides ~ and an automated bend add expression). | takes 1, gain 0.8, tight 0.35, bass -1, mid 2, treble 1, presence 1, boost 0.7, sag 0.4, strum 0, decay 4, bright 0.6, pickPos 0.22, pickup 0.2, vibrato 0.4, vibratoRate 5.6, vibratoDelay 0.2 |
 | `metal-guitar` | High-gain scooped tone with very tight palm mutes (for heavier moments). | takes 2, gain 0.88, tight 0.75, bass 2, mid -3, treble 3, presence 3, boost 0.65, sag 0.3, strum 4 |
 <!-- /gen -->
 
