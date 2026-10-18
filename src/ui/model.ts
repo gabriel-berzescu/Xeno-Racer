@@ -237,6 +237,9 @@ export const setupSteps = (s: Pick<SetupState, 'mode' | 'players'>): readonly Wi
 export const opponentsMax = (s: Pick<SetupState, 'mode' | 'players'>): number => opponentLimit(playersNow(s));
 
 /** The name of a seat's driver: the settings' own, never empty. */
+/** The longest a driver's name can be. */
+export const NAME_MAX = 16;
+
 export const seatName = (settings: Pick<Settings, 'playerName' | 'player2Name'>, seat: Seat): string =>
   (seat === 0 ? settings.playerName.trim() || 'You' : settings.player2Name.trim() || 'Player 2');
 
@@ -764,6 +767,8 @@ export const SETTINGS_TABS: TabDef[] = [
       s.split = structuredClone(DEFAULT_SETTINGS.split);
     },
     rows: [
+      { kind: 'text', id: 'playerName', label: 'Player 1 name', maxLength: NAME_MAX, desc: 'Your name: on your car, the tower, the standings and the results. You can also change it when you choose your car.', get: (s) => s.playerName, set: (s, v) => { s.playerName = v; } },
+      { kind: 'text', id: 'player2Name', label: 'Player 2 name', maxLength: NAME_MAX, desc: "The second player's name in split screen: on the tower, their HUD and the results. They can also change it when they choose their car.", get: (s) => s.player2Name, set: (s, v) => { s.player2Name = v; } },
       {
         kind: 'select', id: 'units', label: 'Units', desc: 'Speed and distance in kilometers or miles.',
         options: opts([['kmh', 'km/h'], ['mph', 'mph']]),
@@ -800,8 +805,6 @@ export const SETTINGS_TABS: TabDef[] = [
         options: CAMERA_MODES.map((m) => ({ value: m, label: CAMERA_LABEL[m] })),
         get: (s) => s.camera.defaultMode, set: (s, v) => { s.camera.defaultMode = v as CameraMode; }, wrap: true,
       },
-      { kind: 'text', id: 'playerName', label: 'Driver name', maxLength: 16, desc: 'Shown in the standings and on your car.', get: (s) => s.playerName, set: (s, v) => { s.playerName = v; } },
-      { kind: 'text', id: 'player2Name', label: 'Player 2 name', maxLength: 16, desc: 'Shown on the tower, the HUD and the results in split screen.', get: (s) => s.player2Name, set: (s, v) => { s.player2Name = v; } },
       {
         kind: 'select', id: 'splitLayout', label: 'Split screen layout',
         desc: 'How two players share the screen. Top and bottom gives each a wide view and suits a 16:9 screen; side by side suits an ultrawide one.',

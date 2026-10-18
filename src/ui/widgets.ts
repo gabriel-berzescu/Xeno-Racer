@@ -372,6 +372,42 @@ export interface TextBinding {
   set(v: string): void;
 }
 
+/**
+ * Edits a short text where it is shown, with the keyboard: an input in `host` (emptied for it). Enter, or leaving the field, keeps what was
+ * typed; Esc puts it back. `done` gets the text as typed, or null when it was put back, and redraws `host`. The keys typed never reach
+ * the game's controls.
+ */
+export function editInline(ctx: UiCtx, host: HTMLElement, initial: string, max: number, done: (v: string | null) => void): void {
+  const input = h('input', { attrs: { type: 'text', maxlength: max, spellcheck: 'false', autocomplete: 'off' } });
+  input.value = initial;
+  clearEl(host);
+  host.appendChild(input);
+  input.focus();
+  input.select();
+  let over = false;
+  const finish = (save: boolean): void => {
+    if (over) return;
+    over = true;
+    const v = input.value;
+    if (input.parentNode) input.remove();
+    input.blur();
+    done(save ? v : null);
+  };
+  input.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      finish(true);
+      ctx.sound('select');
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      finish(false);
+      ctx.sound('back');
+    }
+  });
+  input.addEventListener('blur', () => finish(true));
+}
+
 /** A text row. Keyboard: edits inline. Gamepad: calls `osk` (the on-screen keyboard) if provided. */
 export function textRow(ctx: UiCtx, b: TextBinding, opts: RowOpts & { osk?: (initial: string, max: number, done: (v: string | null) => void) => void } = {}): RowHandle {
   const { el, ctl } = shell('text', b.label, b.desc, opts);
@@ -395,35 +431,7 @@ export function textRow(ctx: UiCtx, b: TextBinding, opts: RowOpts & { osk?: (ini
       });
       return true;
     }
-    const input = h('input', { attrs: { type: 'text', maxlength: b.maxLength, spellcheck: 'false', autocomplete: 'off' } });
-    input.value = b.get();
-    clearEl(val);
-    val.appendChild(input);
-    input.focus();
-    input.select();
-    let done = false;
-    const finish = (save: boolean): void => {
-      if (done) return;
-      done = true;
-      if (save) commit(input.value);
-      else refresh();
-      if (input.parentNode) clearEl(val);
-      refresh();
-      input.blur();
-    };
-    input.addEventListener('keydown', (e) => {
-      e.stopPropagation();
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        finish(true);
-        ctx.sound('select');
-      } else if (e.key === 'Escape') {
-        e.preventDefault();
-        finish(false);
-        ctx.sound('back');
-      }
-    });
-    input.addEventListener('blur', () => finish(true));
+    editInline(ctx, val, b.get(), b.maxLength, (v) => (v !== null ? commit(v) : refresh()));
     return true;
   };
   el.addEventListener('click', (e) => {

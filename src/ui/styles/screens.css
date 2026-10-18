@@ -198,6 +198,12 @@
 .swatch.on { background: #fff; transform: translateY(-4px) scale(1.1); box-shadow: 0 0 20px rgba(22, 224, 189, 0.7); }
 .liv-row.is-focus .swatch.on { background: var(--teal); }
 .car-actions .btn { margin: 0; }
+/* the driver's name, above the livery: A renames them */
+.car-picks { display: flex; flex-direction: column; gap: 2px; }
+.drv-row { padding-top: 6px; padding-bottom: 6px; }
+.drv-row .liv-k { align-items: center; margin-bottom: 0; }
+.drv-row .drv-name { font: 800 italic 30px / 1 var(--f-display); letter-spacing: 0.08em; }
+.drv-row .drv-name input { width: 440px; padding: 2px 10px; font: inherit; letter-spacing: inherit; text-transform: uppercase; color: var(--text); background: rgba(0, 0, 0, 0.5); border: 0; border-bottom: 3px solid var(--teal); outline: none; }
 
 /* race step */
 .race-panel { min-width: 0; padding: 12px 0 28px; }
@@ -663,7 +669,7 @@
 .seat-tag.s1 b { color: #fff; background: var(--pink); }
 .seat-tag em { font-style: normal; font-size: 21px; letter-spacing: 0.12em; color: var(--dim); }
 .view-car.seat1 { --teal: #ff2e63; --teal-d: #b3143f; }
-.view-car.seat1 .liv-row.is-focus { background: linear-gradient(90deg, rgba(255, 46, 99, 0.16), transparent 80%); }
+.view-car.seat1 .drv-row.is-focus, .view-car.seat1 .liv-row.is-focus { background: linear-gradient(90deg, rgba(255, 46, 99, 0.16), transparent 80%); }
 .view-car.seat1 .swatch.on { box-shadow: 0 0 20px rgba(255, 46, 99, 0.7); }
 .view-car.seat1 .btn.primary { background: rgba(255, 46, 99, 0.22); }
 .view-car.seat1 .btn.primary.is-focus { color: #fff; filter: drop-shadow(0 0 22px rgba(255, 46, 99, 0.55)); }

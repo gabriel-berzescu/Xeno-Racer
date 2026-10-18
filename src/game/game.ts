@@ -630,7 +630,7 @@ export class Game {
   private async showPreview(carId: string, liveryOver?: Partial<Livery>): Promise<void> {
     if (!this.track) return;
     const def = getCar(carId);
-    const livery: Livery = { ...def.defaultLivery, ...liveryOver, driver: this.settings.playerName };
+    const livery: Livery = { ...def.defaultLivery, ...liveryOver, driver: liveryOver?.driver || this.settings.playerName };
     const key = JSON.stringify(livery);
     if (this.preview && this.preview.carId === carId) {
       if (this.preview.liveryKey !== key) {

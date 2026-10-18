@@ -22,6 +22,7 @@ import {
   parseDuelGap,
   pauseOwnerLine,
   playersNow,
+  NAME_MAX,
   possessive,
   seatName,
   SETTINGS_TABS,
@@ -308,6 +309,11 @@ describe('the split-screen settings', () => {
       name.set(s, 'Silviu');
       expect(s.player2Name).toBe('Silviu');
     }
+  });
+
+  it('puts the two names first, where they are easy to find, as long as a name can be', () => {
+    expect(gameplay.rows.slice(0, 2).map((r) => [r.id, r.label])).toEqual([['playerName', 'Player 1 name'], ['player2Name', 'Player 2 name']]);
+    for (const r of gameplay.rows.slice(0, 2)) if (r.kind === 'text') expect(r.maxLength).toBe(NAME_MAX);
   });
 
   it('offers the two layouts, top and bottom first, and writes the choice', () => {

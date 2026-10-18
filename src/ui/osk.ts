@@ -91,6 +91,13 @@ export class Osk {
     this.ctx.sound('select');
   }
 
+  /** Closes it without an answer (the screen it is on is going). */
+  hide(): void {
+    this.open = false;
+    this.done = null;
+    this.el.classList.remove('on');
+  }
+
   private close(result: string | null): void {
     const cb = this.done;
     this.open = false;

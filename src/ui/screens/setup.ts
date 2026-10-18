@@ -8,17 +8,21 @@ import { iconPlay } from '../icons';
 import {
   type JoinView,
   applyTrackDefaults, bestLapFor, buildChampionshipSetup, buildRaceConfig, carStatBars, CHAMP_OPPONENTS_MIN, defaultSetup, DIFFICULTIES, FORECAST_CHOICES, forecastNow, forecastOffered, GRID_RULES,
-  joinView, LAPS_MAX, LAPS_MIN, LENGTHS, LIVERY_PRESETS, liveryFor, MODE_INFO, modeLabel, OPPONENTS_MAX, opponentsMax, OPTION_LABELS, playersNow, seatName, SETUP_STEPS, setupStepLabel, setupSteps, splitAllowed, STARTS, stepSeat, TIMES, WEATHERS,
+  joinView, LAPS_MAX, LAPS_MIN, LENGTHS, LIVERY_PRESETS, liveryFor, MODE_INFO, modeLabel, NAME_MAX, OPPONENTS_MAX, opponentsMax, OPTION_LABELS, playersNow, seatName, SETUP_STEPS, setupStepLabel, setupSteps, splitAllowed, STARTS, stepSeat, TIMES, WEATHERS,
   type SetupMode, type SetupOpts, type SetupState, type SetupStep, type WizardStep,
 } from '../model';
 import { FocusList, type FocusRow } from '../nav';
+import { Osk } from '../osk';
 import { drawTrack, MENU_MAP_STYLE, sizeCanvas } from '../trackmap';
 import type { MapFit } from '../hudlogic';
-import { chevron, keyGlyph, padGlyph, pips, selectRow, stepperRow, StatBars, TabBar, type RowHandle } from '../widgets';
+import { chevron, editInline, keyGlyph, padGlyph, pips, selectRow, stepperRow, StatBars, TabBar, type RowHandle } from '../widgets';
 import { BaseScreen } from './base';
 
 const STEP_LABEL: Record<SetupStep, string> = { track: 'Track', car: 'Car', race: 'Race' };
 const STEP_TITLE: Record<SetupStep, string> = { track: 'Choose your track', car: 'Choose your car', race: 'Race setup' };
+/** The car step's rows: the car, the driver's name, the livery, the button. */
+const CAR_ROW_DRIVER = 1;
+
 /** A championship's first step is its fixed calendar, not a choice of track. */
 /** The change of weather a calendar round runs at this many laps (none in a one-lap race). */
 const roundChange = (r: ChampionshipRoundDef, laps: number): Forecast => sanitizeForecast(r.forecast, r.environment.weather, 'race', laps);
@@ -79,6 +83,9 @@ export class SetupScreen extends BaseScreen {
   private carRow!: HTMLElement;
   private swatches: HTMLElement[] = [];
   private readonly liveryName = h('span', 'liv-name');
+  /** The name of the driver whose car this is (A renames them: the on-screen keyboard on a pad, typed in place on the keyboard). */
+  private readonly driverName = h('span', 'liv-name drv-name');
+  private readonly osk: Osk;
   private readonly nextLabel = h('span', null, 'Race options');
   /** Split screen: whose car this is ("Player 2 · Silviu · Logitech Gamepad F310"), above the car. */
   private readonly seatTag = h('div', 'seat-tag');
@@ -124,6 +131,7 @@ export class SetupScreen extends BaseScreen {
   constructor(ctx: UiCtx) {
     super(ctx, 'setup');
     this.state = defaultSetup('race', ctx.deps.tracks, ctx.deps.cars);
+    this.osk = new Osk(ctx);
     this.tabs = new TabBar(ctx, this.steps().map((s, i) => ({ id: s, label: this.tabLabel(s, i) })), (i) => this.goStep(this.steps()[i], false));
     this.views.track = this.buildTrackView();
     this.views.car = this.buildCarView();
@@ -139,6 +147,7 @@ export class SetupScreen extends BaseScreen {
       h('header', 'topbar', h('div', { cls: 'in', style: { '--d': '60', '--tx': '-60px' } }, this.kicker, this.title), h('div', { cls: 'in', style: { '--d': '160', '--tx': '0px', '--ty': '-24px' } }, this.tabs.el)),
       body,
       this.prompts.el,
+      this.osk.el,
     );
     ctx.onSettings(() => this.refresh());
     ctx.onResize(() => this.drawMaps());
@@ -172,6 +181,7 @@ export class SetupScreen extends BaseScreen {
 
   leave(): void {
     this.open = false;
+    this.osk.hide();
     this.stopAnim();
     this.endJoin();
   }
@@ -344,7 +354,9 @@ export class SetupScreen extends BaseScreen {
       this.prompts.set([{ action: 'tabs', label: 'Step' }, { action: 'back', label: 'Back' }]);
     } else if (this.step === 'car' || this.step === 'car2') {
       const swap = this.splitOn() && this.ctx.players.joined ? [{ action: 'camera' as const, label: 'Swap players' }] : [];
-      this.prompts.set([{ action: 'adjust', label: 'Change' }, { action: 'navigate', label: 'Livery' }, { action: 'confirm', label: 'Continue' }, ...swap, { action: 'tabs', label: 'Step' }, { action: 'back', label: 'Back' }]);
+      // (on the Driver row, A renames)
+      const naming = this.lists.car.index === CAR_ROW_DRIVER;
+      this.prompts.set([{ action: 'adjust', label: 'Change' }, { action: 'navigate', label: 'Select' }, { action: 'confirm', label: naming ? 'Rename' : 'Continue' }, ...swap, { action: 'tabs', label: 'Step' }, { action: 'back', label: 'Back' }]);
     } else {
       this.prompts.set([{ action: 'navigate', label: 'Select' }, { action: 'adjust', label: 'Change' }, { action: 'confirm', label: 'Confirm' }, { action: 'tabs', label: 'Step' }, { action: 'back', label: 'Back' }]);
     }
@@ -485,27 +497,34 @@ export class SetupScreen extends BaseScreen {
       sw.appendChild(e);
     });
     const livRow = h('div', { cls: 'liv-row focusable in', style: { '--d': '420', '--tx': '-60px' } }, h('div', 'liv-k', h('span', null, 'Livery'), this.liveryName), sw);
+    const drvRow = h('div', { cls: 'liv-row drv-row focusable in', style: { '--d': '380', '--tx': '-60px' } }, h('div', 'liv-k', h('span', null, 'Driver'), this.driverName));
+    drvRow.addEventListener('click', () => this.renameDriver());
 
     const next = h('div', { cls: 'btn primary focusable in', style: { '--d': '520', '--tx': '-60px' } }, this.nextLabel, iconPlay('ico'));
     next.addEventListener('click', () => this.nextStep(true));
 
+    // (in this order: CAR_ROW_DRIVER is the second; the prompts say Rename on it)
+    const prompts = (): void => this.updatePrompts();
     const rows: FocusRow[] = [
       {
         setFocused: (on) => this.carRow.classList.toggle('is-focus', on),
         left: () => this.setCar(this.carIndexOf(this.seat()) - 1),
         right: () => this.setCar(this.carIndexOf(this.seat()) + 1),
         activate: () => (this.nextStep(), true),
+        onFocus: prompts,
       },
+      { setFocused: (on) => drvRow.classList.toggle('is-focus', on), activate: () => (this.renameDriver(), true), onFocus: prompts },
       {
         setFocused: (on) => livRow.classList.toggle('is-focus', on),
         left: () => this.setLivery(this.liveryIndexOf(this.seat()) - 1),
         right: () => this.setLivery(this.liveryIndexOf(this.seat()) + 1),
         activate: () => (this.nextStep(), true),
+        onFocus: prompts,
       },
-      { setFocused: (on) => next.classList.toggle('is-focus', on), activate: () => (this.nextStep(), true) },
+      { setFocused: (on) => next.classList.toggle('is-focus', on), activate: () => (this.nextStep(), true), onFocus: prompts },
     ];
     this.lists.car.setRows(rows, 0);
-    for (const [i, el] of [this.carRow, livRow, next].entries()) {
+    for (const [i, el] of [this.carRow, drvRow, livRow, next].entries()) {
       el.addEventListener('pointermove', (e) => {
         if ((e as PointerEvent).movementX !== 0 || (e as PointerEvent).movementY !== 0) {
           if (this.lists.car.focus(i)) this.ctx.sound('move');
@@ -514,7 +533,25 @@ export class SetupScreen extends BaseScreen {
     }
 
     const info = h('div', { cls: 'car-info in', style: { '--d': '260', '--tx': '-60px' } }, this.cDesc, this.cStats.el, this.cBest);
-    return h('div', 'setup-view view-car', this.seatTag, h('div', 'car-col', this.carRow, info), h('div', 'car-actions', livRow, next));
+    return h('div', 'setup-view view-car', this.seatTag, h('div', 'car-col', this.carRow, info), h('div', 'car-actions', h('div', 'car-picks', drvRow, livRow), next));
+  }
+
+  /** Renames the driver whose car the step is picking: the on-screen keyboard on a pad, typed in place on the keyboard. */
+  private renameDriver(): void {
+    const seat = this.seat();
+    const key = seat === 1 ? 'player2Name' : 'playerName';
+    const save = (v: string | null): void => {
+      const t = (v ?? '').trim().slice(0, NAME_MAX);
+      if (t && t !== this.ctx.settings[key]) {
+        this.ctx.settings[key] = t;
+        this.ctx.changed();
+      }
+      this.renderTitle(this.step);
+      this.renderAll();
+      this.previewCar();
+    };
+    if (this.ctx.device === 'gamepad') this.osk.show(this.splitOn() ? `Player ${seat + 1} name` : 'Your name', this.ctx.settings[key], NAME_MAX, save);
+    else editInline(this.ctx, this.driverName, this.ctx.settings[key], NAME_MAX, save);
   }
 
   /** The picker works on the seat the step belongs to: the first player's car and livery, or the second player's. */
@@ -550,6 +587,7 @@ export class SetupScreen extends BaseScreen {
   private renderSeat(): void {
     const split = this.splitOn();
     const seat = this.seat();
+    this.driverName.textContent = this.names()[seat];
     this.views.car.classList.toggle('seat1', split && seat === 1);
     this.seatTag.style.display = split ? '' : 'none';
     if (!split) return;
@@ -961,6 +999,10 @@ export class SetupScreen extends BaseScreen {
   // ── input ──────────────────────────────────────────────────────────────────
 
   nav(f: InputFrame): void {
+    if (this.osk.open) {
+      this.osk.handle(f);
+      return;
+    }
     const n = f.nav;
     if (this.tabs.handle(n)) return; // TabBar -> goStep
 
