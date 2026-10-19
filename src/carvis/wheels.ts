@@ -10,7 +10,7 @@ import type { QualityLevel } from '../core/contracts';
 import { PART } from './blueprint';
 import { PartBuilder, frameFromAxis, type Frame, type V3 } from './parts';
 
-export type WheelStyle = 'multi' | 'split5' | 'six' | 'centerlock';
+export type WheelStyle = 'multi' | 'split5' | 'six' | 'centerlock' | 'beadlock';
 
 export interface WheelParams {
   R: number; // tire outer radius
@@ -34,7 +34,7 @@ const SEGS: Record<QualityLevel, number> = { low: 32, medium: 48, high: 64, ultr
 
 export function wheelLayout(p: WheelParams): WheelLayout {
   const xo = 0.43 * p.W;
-  const dish = p.style === 'centerlock' ? 0.016 : p.style === 'six' ? 0.045 : p.style === 'multi' ? 0.03 : 0.026;
+  const dish = p.style === 'centerlock' ? 0.016 : p.style === 'six' ? 0.045 : p.style === 'multi' ? 0.03 : p.style === 'beadlock' ? 0.04 : 0.026;
   const xOut = xo - dish;
   const discOuter = Math.min(p.rimR - 0.04, 0.215);
   return { xOut, xDisc: xOut - 0.062, discInner: 0.1, discOuter, discHalf: 0.014 };
@@ -104,6 +104,174 @@ function rotPoly(poly: number[], ang: number): number[] {
   return o;
 }
 
+/** A hex bolt head: a six-sided prism standing out of the wheel along +x, only its outer face capped (the rest is never seen). */
+function hexBolt(pb: PartBuilder, x0: number, y: number, z: number, r0: number, r1: number, h: number): void {
+  const ring = (x: number, r: number): V3[] => {
+    const o: V3[] = [];
+    for (let k = 0; k < 6; k++) {
+      const a = (k / 6) * Math.PI * 2;
+      o.push([x, y + Math.cos(a) * r, z + Math.sin(a) * r]);
+    }
+    return o;
+  };
+  pb.loft([ring(x0, r0), ring(x0 + h, r1)], { capEnd: true });
+}
+
+/** How tall the lugs of the all-terrain tyre stand over the floor of its grooves (m). */
+const AT_LUG = 0.017;
+
+/** Lug blocks per row round the tyre, by quality. */
+const AT_PITCH: Record<QualityLevel, number> = { low: 18, medium: 21, high: 24, ultra: 28 };
+
+/**
+ * One lug: a prism whose cross-section (the closed polygon `poly` in (x, r); the first `nTop` points are the top surface, the rest
+ * is the base sunk into the carcass) is swept between two angles, the section sheared by `skew` (rad per metre across the tyre) so
+ * the block leans. `rnd` is a per-block number the shader uses to vary the wear. Smooth normals round the edges a little, the
+ * base ring is darkened (ambient occlusion) so the grooves read as deep.
+ */
+function addLug(pb: PartBuilder, poly: ReadonlyArray<readonly [number, number]>, nTop: number, th0: number, th1: number, skew: number, rnd: number, rimR: number, h: number): void {
+  const np = poly.length;
+  const ring = (th: number): V3[] =>
+    poly.map(([x, r]) => {
+      const a = th + skew * x;
+      return [x, Math.cos(a) * r, Math.sin(a) * r] as V3;
+    });
+  const v0 = pb.vertexCount;
+  pb.loft([ring(th0), ring(th1)], { capStart: true, capEnd: true });
+  const v1 = pb.vertexCount;
+  setZ(pb, v0, v1, 13, 21);
+  // how far up the block a point is (0 base .. 1 top), for the dust and the occlusion; the ends' caps repeat the two rings
+  const mark = (vi: number, q: number): void => {
+    const top = q < nTop ? 1 : 0;
+    pb.zon[vi * 16 + 0] = rnd;
+    pb.zon[vi * 16 + 1] = top;
+    pb.zon[vi * 16 + 12] = 0.32 + 0.68 * top;
+  };
+  for (let r = 0; r < 2; r++) for (let q = 0; q < np; q++) mark(v0 + r * np + q, q);
+  let o = v0 + 2 * np;
+  for (let c = 0; c < 2; c++) {
+    mark(o, 0);
+    pb.zon[o * 16 + 1] = 0.5;
+    pb.zon[o * 16 + 12] = 0.7;
+    for (let q = 0; q < np; q++) mark(o + 1 + q, q);
+    o += 1 + np;
+  }
+  void rimR;
+  void h;
+}
+
+/**
+ * An all-terrain tyre: a smooth carcass (its crown is the floor of the grooves) carrying real lugs, so the silhouette is cut
+ * like a saw: a centre row of blocks, two staggered rows beside it and shoulder blocks that wrap over the edge and bite
+ * into the sidewall, each row angled and out of step with the next. Carcass vertices carry zone channel 14 = -1 so the shader
+ * knows not to paint its own grooves on them.
+ */
+function buildAllTerrainTire(pb: PartBuilder, p: WheelParams, segs: number): void {
+  const { R, W, rimR } = p;
+  const h = R - rimR;
+  const gH = AT_LUG;
+  // ── carcass ────────────────────────────────────────────────────────────────
+  {
+    const half: Array<[number, number]> = [
+      [0, R - gH],
+      [0.14 * W, R - gH],
+      [0.3 * W, R - gH - 0.002],
+      [0.4 * W, R - gH - 0.011],
+    ];
+    const steps = p.quality === 'low' ? 3 : p.quality === 'medium' ? 4 : 5;
+    const rTop = R - 0.034;
+    for (let i = 0; i <= steps; i++) {
+      const f = i / steps;
+      const r = rTop + (rimR + 0.006 - rTop) * f;
+      const x = 0.5 * W * (0.9 + 0.1 * Math.sin(Math.PI * (0.14 + 0.86 * f)));
+      half.push([x, r]);
+    }
+    const prof: Array<[number, number]> = [];
+    const sw0 = 4;
+    const inner = [half[half.length - 1], half[Math.min(sw0 + 4, half.length - 1)], half[sw0]];
+    for (const [x, r] of inner) prof.push([-x, r]);
+    for (let i = 3; i >= 1; i--) prof.push([-half[i][0], half[i][1]]);
+    for (let i = 0; i < half.length; i++) prof.push(half[i]);
+    const v0 = revolveX(pb, prof, segs);
+    setZ(pb, v0, v0 + prof.length * segs, 13, PART.tire);
+    setZ(pb, v0, v0 + prof.length * segs, 14, -1);
+    for (let r = 0; r < prof.length; r++) {
+      const [x, rad] = prof[r];
+      const side = Math.abs(x) > 0.42 * W ? 1 : 0;
+      const f = (rad - rimR) / h;
+      for (let s = 0; s < segs; s++) {
+        const i = v0 + r * segs + s;
+        pb.zon[i * 16 + 0] = s / segs;
+        pb.zon[i * 16 + 1] = f;
+        pb.zon[i * 16 + 2] = side;
+        pb.zon[i * 16 + 3] = x / W;
+        pb.zon[i * 16 + 12] = side ? 0.55 + 0.45 * Math.min(1, Math.max(0, f * 1.6)) : 0.7;
+      }
+    }
+  }
+
+  // ── lugs ───────────────────────────────────────────────────────────────────
+  // the crown of an ordinary tyre: the envelope the tops of the blocks follow
+  const E = (ax: number): number => {
+    const u = ax / W;
+    if (u < 0.14) return R + 0.0008 - 0.0008 * (u / 0.14);
+    if (u < 0.3) return R - 0.002 * ((u - 0.14) / 0.16);
+    return R - 0.002 - 0.009 * ((u - 0.3) / 0.1);
+  };
+  const sink = gH + 0.006;
+  const N = AT_PITCH[p.quality];
+  const pitch = (Math.PI * 2) / N;
+  const rows = p.quality === 'low' ? 1 : 2;
+  let seed = 7;
+  const rnd = (): number => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) | 0;
+    return (seed >>> 0) / 4294967296;
+  };
+  // centre row
+  {
+    const poly: Array<[number, number]> = [[-0.021, E(0.021)], [0, E(0)], [0.021, E(0.021)], [0.021, E(0.021) - sink], [-0.021, E(0.021) - sink]];
+    for (let i = 0; i < N; i++) {
+      const c = i * pitch;
+      addLug(pb, poly, 3, c - pitch * 0.25, c + pitch * 0.25, 0, rnd(), rimR, h);
+    }
+  }
+  // intermediate rows (skipped at low quality)
+  if (rows > 1) {
+    for (const sg of [-1, 1]) {
+      const x0 = 0.034, x1 = 0.079;
+      const poly: Array<[number, number]> = [[sg * x0, E(x0)], [sg * x1, E(x1)], [sg * x1, E(x1) - sink], [sg * x0, E(x0) - sink]];
+      for (let i = 0; i < N; i++) {
+        const c = (i + 0.5) * pitch;
+        addLug(pb, poly, 2, c - pitch * 0.24, c + pitch * 0.24, sg * 1.8, rnd(), rimR, h);
+      }
+    }
+  }
+  // shoulder blocks: over the edge of the tread and down the sidewall
+  for (const sg of [-1, 1]) {
+    const top: Array<[number, number]> = [
+      [0.09, E(0.09) - 0.001],
+      [0.122, E(0.122) - 0.001],
+      [0.145, R - 0.0235],
+      [0.1645, R - 0.0475],
+      [0.1715, R - 0.0745],
+    ];
+    // sunk by 2.3 cm on the crown, less down the sidewall, along the inward normal of the path
+    const depth = [sink, sink, 0.019, 0.017, 0.017];
+    const base: Array<[number, number]> = top.map(([x, r], i) => {
+      const a = top[Math.max(i - 1, 0)], b = top[Math.min(i + 1, top.length - 1)];
+      const tx = b[0] - a[0], tr = b[1] - a[1];
+      const tl = Math.hypot(tx, tr) || 1;
+      // outward normal of the path (x growing, r falling): (-tr, tx) / |t|
+      return [x - (-tr / tl) * depth[i], r - (tx / tl) * depth[i]];
+    });
+    const poly: Array<[number, number]> = [...top, base[4], base[2], base[0]].map(([x, r]) => [sg * x, r] as [number, number]);
+    for (let i = 0; i < N; i++) {
+      const c = (i + (sg > 0 ? 0.25 : 0.75)) * pitch;
+      addLug(pb, poly, top.length, c - pitch * 0.27, c + pitch * 0.27, sg * 1.2, rnd(), rimR, h);
+    }
+  }
+}
+
 export function buildWheel(p: WheelParams): PartBuilder {
   const pb = new PartBuilder();
   const segs = SEGS[p.quality];
@@ -113,7 +281,8 @@ export function buildWheel(p: WheelParams): PartBuilder {
   const h = R - rimR;
 
   // ── tire ──────────────────────────────────────────────────────────────────
-  {
+  if (p.style === 'beadlock') buildAllTerrainTire(pb, p, segs);
+  else {
     const half: Array<[number, number]> = [
       [0, R + 0.0008],
       [0.14 * W, R],
@@ -177,7 +346,7 @@ export function buildWheel(p: WheelParams): PartBuilder {
 
   // ── spokes ────────────────────────────────────────────────────────────────
   const xOut = lay.xOut;
-  const dpt = p.style === 'centerlock' ? 0.026 : 0.021;
+  const dpt = p.style === 'centerlock' ? 0.026 : p.style === 'beadlock' ? 0.032 : 0.021;
   const frame: Frame = { o: [xOut - dpt, 0, 0], u: [0, 1, 0], v: [0, 0, 1] };
   const rIn = 0.05;
   const rEnd = rimR - 0.006;
@@ -222,6 +391,15 @@ export function buildWheel(p: WheelParams): PartBuilder {
       }
       break;
     }
+    case 'beadlock': {
+      // eight heavy wedge spokes, narrow at the hub and broad where they meet the barrel
+      const n = 8;
+      for (let i = 0; i < n; i++) {
+        const ang = (i / n) * Math.PI * 2;
+        addSpoke(rotPoly(spokePoly(0.07, rEnd, 0.027, 0.05, 0, 1.3, 4), ang));
+      }
+      break;
+    }
     case 'centerlock': {
       const n = 5;
       for (let i = 0; i < n; i++) {
@@ -243,6 +421,30 @@ export function buildWheel(p: WheelParams): PartBuilder {
     setZ(pb, v0, v0 + prof.length * segs, 12, 0.9);
   }
 
+  // beadlock: a broad retaining ring on the outer lip, held by a ring of bolts (the 4x4's look: raw hardware on the rim's face)
+  if (p.style === 'beadlock') {
+    const ring: Array<[number, number]> = [
+      [xo - 0.018, rimR - 0.036],
+      [xo + 0.001, rimR - 0.036],
+      [xo + 0.0045, rimR - 0.03],
+      [xo + 0.0045, rimR + 0.004],
+      [xo + 0.001, rimR + 0.0115],
+      [xo - 0.018, rimR + 0.0115],
+    ];
+    const rs = Math.min(segs, 48);
+    const v0 = revolveX(pb, ring, rs);
+    setZ(pb, v0, v0 + ring.length * rs, 13, PART.rimFace);
+    setZ(pb, v0, v0 + ring.length * rs, 12, 0.9);
+    const nb = p.quality === 'low' ? 12 : p.quality === 'medium' ? 18 : 24;
+    for (let i = 0; i < nb; i++) {
+      const a = ((i + 0.5) / nb) * Math.PI * 2;
+      const cy = Math.cos(a) * (rimR - 0.0125), cz = Math.sin(a) * (rimR - 0.0125);
+      const nv0 = pb.vertexCount;
+      hexBolt(pb, xo + 0.004, cy, cz, 0.0078, 0.0072, 0.0085);
+      setZ(pb, nv0, pb.vertexCount, 13, PART.nut);
+    }
+  }
+
   // ── hub, centre cap, lug nuts ─────────────────────────────────────────────
   {
     const x0 = xOut - dpt;
@@ -255,7 +457,8 @@ export function buildWheel(p: WheelParams): PartBuilder {
       [xOut + 0.0095, 0.0],
     ];
     const v0 = revolveX(pb, prof, 40);
-    setZ(pb, v0, v0 + prof.length * 40, 13, PART.hub);
+    // (the beadlock's centre cap is satin black like its spokes: a polished one only reflected the white of the studio)
+    setZ(pb, v0, v0 + prof.length * 40, 13, p.style === 'beadlock' ? PART.rimFace : PART.hub);
     setZ(pb, v0, v0 + prof.length * 40, 12, 0.9);
     if (p.style === 'centerlock') {
       // big knurled centre-lock nut
@@ -268,12 +471,16 @@ export function buildWheel(p: WheelParams): PartBuilder {
       const nv0 = revolveX(pb, nProf, 6);
       setZ(pb, nv0, nv0 + nProf.length * 6, 13, PART.nut);
     } else {
-      const nn = 5;
+      // (the beadlock's eight nuts sit on the roots of its eight spokes)
+      const bl = p.style === 'beadlock';
+      const nn = bl ? 8 : 5;
       for (let i = 0; i < nn; i++) {
-        const a = (i / nn) * Math.PI * 2 + 0.31;
-        const cy = Math.cos(a) * 0.052, cz = Math.sin(a) * 0.052;
+        const a = (i / nn) * Math.PI * 2 + (bl ? 0 : 0.31);
+        const rn = bl ? 0.083 : 0.052;
+        const cy = Math.cos(a) * rn, cz = Math.sin(a) * rn;
         const nv0 = pb.vertexCount;
-        pb.cylinder([xOut + 0.004, cy, cz], [xOut + 0.0125, cy, cz], 0.0105, 0.0095, 6, true);
+        if (bl) hexBolt(pb, xOut + 0.004, cy, cz, 0.0105, 0.0095, 0.0085);
+        else pb.cylinder([xOut + 0.004, cy, cz], [xOut + 0.0125, cy, cz], 0.0105, 0.0095, 6, true);
         setZ(pb, nv0, pb.vertexCount, 13, PART.nut);
       }
     }
@@ -365,6 +572,8 @@ export function styleForBody(style: string): WheelStyle {
       return 'split5';
     case 'coupe':
       return 'six';
+    case 'suv':
+      return 'beadlock';
     default:
       return 'centerlock';
   }
