@@ -1,19 +1,21 @@
 # Publishes the game to GitHub Pages (https://gabriel-berzescu.github.io/Xeno-Racer/) on every push to main: the same static build
 # play.bat serves, built for the repository's subfolder. Nothing deploys unless the type check and the tests pass.
+# A pull request into main runs the same checks without deploying: `build` is the status check main's ruleset asks for before a merge.
 name: Pages
 
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
+# (a pull request's runs only replace that pull request's older runs: they never cancel a deploy of main)
 concurrency:
-  group: pages
+  group: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || 'pages' }}
   cancel-in-progress: true
 
 jobs:
@@ -29,13 +31,18 @@ jobs:
       - run: npx tsc --noEmit
       - run: npm test
       - run: npx vite build --base=/${{ github.event.repository.name }}/
-      - uses: actions/upload-pages-artifact@v5
+      - if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v5
         with:
           path: dist
 
   deploy:
+    if: github.event_name != 'pull_request'
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
