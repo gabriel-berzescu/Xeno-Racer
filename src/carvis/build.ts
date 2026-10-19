@@ -31,6 +31,14 @@ export interface BodyData {
 export const CELL_SIZE: Record<QualityLevel, number> = { low: 0.045, medium: 0.034, high: 0.027, ultra: 0.027 };
 export const LOD2_CELL = 0.085;
 
+/**
+ * A 4.9 x 2 x 1.8 m slab-sided box has half as much surface again as the 4.3 m coupes the budgets (110k triangles near, 10k far) were set
+ * for, and nearly all of it is flat: its meshes are a little coarser so the same budgets hold. (1 for every other body: exact.)
+ */
+export function cellScale(style: CarVisualSpec['style']): number {
+  return style === 'suv' ? 1.13 : 1;
+}
+
 const AO_H = [0.035, 0.1, 0.2, 0.36];
 const AO_W = [0.45, 0.3, 0.2, 0.1];
 
@@ -238,10 +246,11 @@ export function buildWheels(spec: CarVisualSpec, quality: QualityLevel): WheelDa
 
 export async function buildCarData(spec: CarVisualSpec, quality: QualityLevel, cellOverride?: number): Promise<CarData> {
   const bp = BLUEPRINTS[spec.style](spec);
-  const cell0 = cellOverride ?? CELL_SIZE[quality];
+  const k = cellScale(spec.style);
+  const cell0 = (cellOverride ?? CELL_SIZE[quality]) * k;
   const lod0 = buildBody(bp, spec, { cell: cell0, parts: true });
   const lod1 = buildBody(bp, spec, { cell: Math.max(cell0 * 1.3, 0.036), parts: true });
-  const lod2 = buildBody(bp, spec, { cell: LOD2_CELL, parts: false, colors: true });
+  const lod2 = buildBody(bp, spec, { cell: LOD2_CELL * k, parts: false, colors: true });
   const wheels0 = buildWheels(spec, quality);
   const wheels1 = buildWheels(spec, 'low');
   const interior = makeInterior(spec, quality);

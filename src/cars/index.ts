@@ -447,7 +447,7 @@ const mammothVisual: CarVisualSpec = {
   style: 'suv',
   length: 4.9,
   width: 2.04,
-  height: 1.9,
+  height: 1.84,
   wheelbase: 2.95,
   trackFront: 1.72,
   trackRear: 1.72,
