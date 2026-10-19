@@ -344,7 +344,7 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
   const qBase = new Quaternion().setFromAxisAngle(AX_X, tiltAng).multiply(new Quaternion().setFromAxisAngle(AX_Y, Math.PI));
   steerGroup.quaternion.copy(qBase);
   steerGroup.add(steerMesh);
-  const steerRatio = spec.style === 'prototype' ? 7 : spec.style === 'coupe' ? 12.5 : 13;
+  const steerRatio = spec.style === 'prototype' ? 7 : spec.style === 'coupe' ? 12.5 : spec.style === 'suv' ? 15 : 13;
   const steerLock = Math.min(Math.PI * 2.5, def.physics.chassis.maxSteer * steerRatio);
   const qSteer = new Quaternion();
 

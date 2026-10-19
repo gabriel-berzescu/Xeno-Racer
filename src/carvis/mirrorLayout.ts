@@ -113,6 +113,16 @@ function styleFor(style: BodyStyle, spec: CarVisualSpec): Style {
         screen: null,
         rear: { y: 1.02, fromTail: 0.12, pitch: 1.5 },
       };
+    case 'suv':
+      // big flat-backed truck mirrors out on arms at the foot of the A-pillars (a metre from the eye and well forward of it, so the
+      // driver-side one stays inside the cockpit view), a wide interior mirror hung from the header, a rear camera over the roof edge
+      return {
+        door: { pos: [1.08, 1.43, 0.78], hw: 0.078, hh: 0.056, out: 11 },
+        housing: { depth: 0.11, carbon: false },
+        inside: { pos: [0.15, 1.7, 0.44], hw: 0.088, hh: 0.03 },
+        screen: null,
+        rear: { y: 1.97, fromTail: 0.45, pitch: 3 },
+      };
     default:
       return {
         door: { pos: [0.745, 0.97 * hk, 0.66], hw: 0.058, hh: 0.04, out: 10 },

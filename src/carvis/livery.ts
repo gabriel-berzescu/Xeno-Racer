@@ -19,6 +19,11 @@ export interface LiveryLayout {
   roof?: { z: number; r: number };
   /** beltline height used by split patterns */
   belt: number;
+  /**
+   * The patterns below are drawn for a car about 1.3 m tall (a stripe at 29 cm, a split at 50 cm, a chevron band centred at 52 cm).
+   * A taller body lifts them: a height `y` is drawn at `y * scale + shift`, an extent `h` at `h * scale`. Absent: drawn as they are.
+   */
+  rise?: { scale: number; shift: number };
 }
 
 export interface LiveryTextures {
@@ -114,6 +119,11 @@ export function paintLivery(l: Livery, lay: LiveryLayout, q: LiveryTier, tex?: L
   const ex = (half: number, x: number): number => (half === 0 ? (0.5 + x / (2 * lay.halfW)) * (EW / 2) : EW / 2 + (0.5 - x / (2 * lay.halfW)) * (EW / 2));
   const ey = (y: number): number => (1 - y / lay.yMax) * EH;
 
+  // pattern heights as drawn for a 1.3 m car, lifted onto this car's panels (the identity for every car without a `rise`)
+  const rs = lay.rise;
+  const hy = (y: number): number => (rs ? y * rs.scale + rs.shift : y);
+  const hs = (h: number): number => (rs ? h * rs.scale : h);
+
   const P = l.primary, S = l.secondary, A = l.accent;
   for (const c of [sctx, tctx, ectx]) {
     c.fillStyle = P;
@@ -151,31 +161,31 @@ export function paintLivery(l: Livery, lay: LiveryLayout, q: LiveryTier, tex?: L
       both((h) => {
         sctx.fillStyle = A;
         const x0 = sx(h, lay.zNose), x1 = sx(h, lay.zTail);
-        sctx.fillRect(Math.min(x0, x1), sy(0.3), Math.abs(x1 - x0), sy(0.288) - sy(0.3));
+        sctx.fillRect(Math.min(x0, x1), sy(hy(0.3)), Math.abs(x1 - x0), sy(hy(0.288)) - sy(hy(0.3)));
       });
       break;
     }
     case 'split': {
       // lower body in the secondary colour, rising rearwards, accent line on the break
       both((h) => {
-        const yA = 0.5, yB = lay.belt + 0.02;
+        const yA = hy(0.5), yB = lay.belt + 0.02;
         poly(sctx, [[sx(h, lay.zNose), sy(0)], [sx(h, lay.zNose), sy(yA)], [sx(h, lay.zTail), sy(yB)], [sx(h, lay.zTail), sy(0)]], S);
-        const yA2 = yA + 0.014, yB2 = yB + 0.014;
+        const yA2 = yA + hs(0.014), yB2 = yB + hs(0.014);
         poly(sctx, [[sx(h, lay.zNose), sy(yA)], [sx(h, lay.zNose), sy(yA2)], [sx(h, lay.zTail), sy(yB2)], [sx(h, lay.zTail), sy(yB)]], A);
       });
       for (let half = 0; half < 2; half++) {
         ectx.fillStyle = S;
         const x0 = half === 0 ? 0 : EW / 2;
-        ectx.fillRect(x0, ey(0.5), EW / 2, EH - ey(0.5));
+        ectx.fillRect(x0, ey(hy(0.5)), EW / 2, EH - ey(hy(0.5)));
         ectx.fillStyle = A;
-        ectx.fillRect(x0, ey(0.514), EW / 2, ey(0.5) - ey(0.514));
+        ectx.fillRect(x0, ey(hy(0.5) + hs(0.014)), EW / 2, ey(hy(0.5)) - ey(hy(0.5) + hs(0.014)));
       }
       break;
     }
     case 'arrow': {
       // three forward-pointing chevron bands along each flank, a bold arrow on the hood
       const chev = (h: number, zt: number, w: number, c: string): void => {
-        const ym = 0.52, hh = 0.36, a = 0.5;
+        const ym = hy(0.52), hh = hs(0.36), a = 0.5;
         poly(sctx, [[sx(h, zt), sy(ym)], [sx(h, zt - a), sy(ym + hh)], [sx(h, zt - a - w), sy(ym + hh)], [sx(h, zt - w), sy(ym)], [sx(h, zt - a - w), sy(ym - hh)], [sx(h, zt - a), sy(ym - hh)]], c);
       };
       both((h) => {
@@ -216,10 +226,10 @@ export function paintLivery(l: Livery, lay: LiveryLayout, q: LiveryTier, tex?: L
         for (let i = 0; i < 9; i++) {
           const z0 = lay.zTail + 0.1 + i * 0.48;
           const L = 1.0 + 0.25 * (i % 3);
-          const y0 = 0.14 + 0.07 * (i % 3);
-          const H = 0.38 + 0.12 * ((i + 1) % 3);
+          const y0 = hy(0.14 + 0.07 * (i % 3));
+          const H = hs(0.38 + 0.12 * ((i + 1) % 3));
           const c = i % 3 === 1 ? A : S;
-          poly(sctx, [[sx(h, z0), sy(y0)], [sx(h, z0 + L), sy(y0 + 0.1)], [sx(h, z0 + L - 0.32), sy(y0 + H)], [sx(h, z0 - 0.32), sy(y0 + H - 0.1)]], c);
+          poly(sctx, [[sx(h, z0), sy(y0)], [sx(h, z0 + L), sy(y0 + hs(0.1))], [sx(h, z0 + L - 0.32), sy(y0 + H)], [sx(h, z0 - 0.32), sy(y0 + H - hs(0.1))]], c);
         }
       });
       for (let i = 0; i < 7; i++) {
