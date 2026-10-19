@@ -33,6 +33,8 @@ export const PART = {
   lightBar: 13,
   /** textured black plastic (bolted flares, rock sliders, bumper steps): a moulded grain on the matte black. */
   rugged: 14,
+  /** the livery's accent colour on hardware that must not crumple in a crash (tow hooks, the spare's ring, the badge's X): satin, not clearcoat */
+  signal: 15,
   // wheel parts (wheel shader)
   tire: 20,
   rimFace: 22,

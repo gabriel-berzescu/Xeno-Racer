@@ -24,6 +24,10 @@ export interface LiveryLayout {
    * A taller body lifts them: a height `y` is drawn at `y * scale + shift`, an extent `h` at `h * scale`. Absent: drawn as they are.
    */
   rise?: { scale: number; shift: number };
+  /** The z the door-relative patterns (the hoops, the chevrons) hang from; absent: the door roundel's z. */
+  patternZ?: number;
+  /** The z the hood arrow hangs from (its tail 0.3 behind, its tip 0.8 ahead); absent: the hood number's z. */
+  hoodArrow?: number;
 }
 
 export interface LiveryTextures {
@@ -189,12 +193,12 @@ export function paintLivery(l: Livery, lay: LiveryLayout, q: LiveryTier, tex?: L
         poly(sctx, [[sx(h, zt), sy(ym)], [sx(h, zt - a), sy(ym + hh)], [sx(h, zt - a - w), sy(ym + hh)], [sx(h, zt - w), sy(ym)], [sx(h, zt - a - w), sy(ym - hh)], [sx(h, zt - a), sy(ym - hh)]], c);
       };
       both((h) => {
-        const z0 = lay.door.z + 1.18;
+        const z0 = (lay.patternZ ?? lay.door.z) + 1.18;
         chev(h, z0, 0.13, S);
         chev(h, z0 - 0.3, 0.07, A);
         chev(h, z0 - 0.56, 0.13, S);
       });
-      const hz = lay.hood.z;
+      const hz = lay.hoodArrow ?? lay.hood.z;
       poly(tctx, [[tx(0), ty(hz + 0.8)], [tx(0.44), ty(hz - 0.3)], [tx(0.22), ty(hz - 0.3)], [tx(0), ty(hz + 0.22)], [tx(-0.22), ty(hz - 0.3)], [tx(-0.44), ty(hz - 0.3)]], S);
       poly(tctx, [[tx(0), ty(hz + 0.56)], [tx(0.24), ty(hz - 0.1)], [tx(0.14), ty(hz - 0.1)], [tx(0), ty(hz + 0.24)], [tx(-0.14), ty(hz - 0.1)], [tx(-0.24), ty(hz - 0.1)]], A);
       // roof + deck centre stripe
@@ -206,7 +210,8 @@ export function paintLivery(l: Livery, lay: LiveryLayout, q: LiveryTier, tex?: L
     }
     case 'hoops': {
       // bold transverse hoops: vertical bars on the flanks, bands across the roof/hood/deck
-      const zs = [lay.door.z + 0.95, lay.door.z - 0.05, lay.door.z - 1.05];
+      const pz = lay.patternZ ?? lay.door.z;
+      const zs = [pz + 0.95, pz - 0.05, pz - 1.05];
       zs.forEach((z, i) => {
         const w = 0.16;
         const c = i === 1 ? A : S;

@@ -331,8 +331,14 @@ float zPx = length(fwidth(vObjPos));
       zCC = 0.0;
       zFlake = 0.0;
       zGrain = 1.0 - smoothstep(0.0015, 0.004, zPx);
+    } else if (zPart == 15) {    // signal-coloured hardware: powder-coated in the accent colour, rigid in a crash
+      zCol = uAccent;
+      zRough = 0.46;
+      zMetal = 0.0;
+      zCC = 0.0;
+      zFlake = 0.0;
     }
-    if (zPart == 1 || zPart == 2 || zPart == 3 || zPart == 4 || zPart == 6 || zPart == 7 || zPart == 8 || zPart == 9 || zPart == 11 || zPart == 12 || zPart == 13 || zPart == 14) zIsPaint = 0.0;
+    if (zPart == 1 || zPart == 2 || zPart == 3 || zPart == 4 || zPart == 6 || zPart == 7 || zPart == 8 || zPart == 9 || zPart == 11 || zPart == 12 || zPart == 13 || zPart == 14 || zPart == 15) zIsPaint = 0.0;
   } else {
     // ---------- sculpted-body zones ----------
     float mTrim = zmask(vZ0.y);

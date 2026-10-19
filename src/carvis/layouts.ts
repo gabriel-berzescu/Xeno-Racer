@@ -60,7 +60,13 @@ export function computeLayout(s: CarVisualSpec): CarLayout {
     belt: style === 'hatch' ? 0.98 : suv ? 1.22 : 0.93,
   };
   // the livery patterns are drawn for a car 1.3 m tall: a 4x4's flank is lifted onto its own body panels (see livery.ts)
-  if (suv) lay.rise = { scale: 1.12, shift: 0.2 };
+  // (and the chevrons and hoops hang from the middle of the wheelbase as on the other cars, not from the roundel on the front door)
+  if (suv) {
+    lay.rise = { scale: 1.12, shift: 0.2 };
+    lay.patternZ = (zF + zR) * 0.5 - 0.1;
+    // (the arrow's tip stops at the grille, not over the nose: the number plate sits on the dome ahead of the hood camera)
+    lay.hoodArrow = zNose - 0.92;
+  }
   return {
     zNose,
     zTail,

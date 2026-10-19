@@ -38,7 +38,7 @@ export const makeSuv: BlueprintFactory = (s) => {
   const zFas = zNose - 0.075;
   /** the windscreen: an almost-upright plane (28 degrees off vertical) from the cowl to the header */
   const zWsBase = 0.7;
-  const zWsTop = 0.45;
+  const zWsTop = 0.5;
   const kWs = (zWsBase - zWsTop) / (yRoof - yFend);
   const zero = curve([zTail, 0, zNose, 0]);
 
@@ -204,7 +204,7 @@ export const makeSuv: BlueprintFactory = (s) => {
   void smax;
   void rR;
   return {
-    bounds: { min: [-hw - 0.15, 0.02, zTail - 0.2], max: [hw + 0.15, s.height + 0.2, zNose + 0.2] },
+    bounds: { min: [-hw - 0.15, 0.02, zTail - 0.2], max: [hw + 0.15, s.height + 0.3, zNose + 0.2] },
     body,
     zones,
     parts,

@@ -133,7 +133,7 @@ function addSlider(b: PartBuilder, side: 1 | -1, z0: number, z1: number): void {
   const poly = rrect((z1 - z0) / 2, 0.036, 0.03, (z0 + z1) / 2, 0.36);
   b.extrude(poly, { o: [side * (x + 0.075), 0, 0], u: [0, 0, 1], v: [0, 1, 0] }, side * 0.15, 0.022, 2);
   // orange end caps
-  b.setPart(PART.paintDark);
+  b.setPart(PART.signal);
   for (const z of [z0 + 0.004, z1 - 0.004]) {
     b.extrude(rrect(0.006, 0.03, 0.01, z, 0.36), { o: [side * (x + 0.0745), 0, 0], u: [0, 0, 1], v: [0, 1, 0] }, side * 0.145, 0.004, 1);
   }
@@ -157,7 +157,7 @@ function addTowHook(b: PartBuilder, x: number, y0: number, zBase: number, dir: 1
     ring.push([x, y0 + r * Math.sin(a), zc - dir * r * Math.cos(a)]);
   }
   const first = ring[0], last = ring[ring.length - 1];
-  b.setPart(PART.paintDark);
+  b.setPart(PART.signal);
   b.tube(ring, rt, 8, true);
   b.tube([[x, first[1], zBase - dir * 0.015], first], rt, 8, false);
   b.tube([last, [x, last[1], zBase - dir * 0.015]], rt, 8, false);
@@ -175,7 +175,8 @@ function boltRow(b: PartBuilder, x0: number, y0: number, z0: number, x1: number,
 
 /** The LED light bar across the front of the roof: a black housing with cooling fins, a lens of LED pockets, four feet. */
 function addLightBar(b: PartBuilder, d: SuvDims): void {
-  const zb = 0.58;
+  // (on the roof, its rear feet a hand behind the windscreen header)
+  const zb = d.zWsTop - 0.075;
   const yb = d.yRoof + 0.053;
   const half = 0.66;
   b.setPart(PART.lightBar);
@@ -200,7 +201,7 @@ function addRack(b: PartBuilder, d: SuvDims): void {
     for (let i = 0; i < 5; i++) b.box([sg * 0.7, d.yRoof + 0.01, zA + (zB - zA) * (i / 4)], 0.022, 0.014, 0.028);
   }
   for (let i = 0; i < 9; i++) b.box([0, y + 0.004, zA - 0.03 - i * ((zA - zB - 0.06) / 8)], 0.7, 0.008, 0.014);
-  b.setPart(PART.paintDark);
+  b.setPart(PART.signal);
   for (const sg of [-1, 1]) for (const z of [zA, zB]) b.box([sg * 0.7, y, z + (z === zA ? 0.012 : -0.012)], 0.016, 0.016, 0.012);
 }
 
@@ -210,7 +211,7 @@ function addRackGear(b: PartBuilder, d: SuvDims): void {
   // recovery boards: a plate, a ladder of ribs and two black straps each
   for (const x of [0.5, 0.17]) {
     const zc = -0.9;
-    b.setPart(PART.paintDark);
+    b.setPart(PART.signal);
     b.extrude(rrect(0.14, 0.56, 0.03, x, zc), { o: [0, yb + 0.014, 0], u: [1, 0, 0], v: [0, 0, 1] }, 0.012, 0.003, 1);
     for (let i = 0; i < 11; i++) b.box([x, yb + 0.017, zc - 0.5 + i * 0.1], 0.125, 0.007, 0.018);
     b.setPart(PART.rugged);
@@ -219,27 +220,29 @@ function addRackGear(b: PartBuilder, d: SuvDims): void {
   // cargo box: a black lidded box with two orange latches
   b.setPart(PART.rugged);
   b.extrude(rrect(0.25, 0.31, 0.04, -0.4, -1.57), { o: [0, yb + 0.16, 0], u: [1, 0, 0], v: [0, 0, 1] }, 0.14, 0.02, 2);
-  b.setPart(PART.paintDark);
+  b.setPart(PART.signal);
   for (const z of [-1.4, -1.74]) b.box([-0.15, yb + 0.085, z], 0.005, 0.02, 0.022);
 }
 
-/** The snorkel: a 7 cm pipe up the right A-pillar to a forward-facing ram head over the roof edge. */
+/** The snorkel: a 7 cm pipe up the right A-pillar (it follows the screen's rake) to a forward-facing ram head over the roof edge. */
 function addSnorkel(b: PartBuilder, d: SuvDims): void {
   const yr = d.yRoof;
+  // z of the pillar's edge at height y
+  const zp = (y: number): number => d.zWsBase - d.kWs * (y - d.yFend);
   const path: V3[] = [];
   const r: number[] = [];
   const pts: Array<[number, number, number, number]> = [
     // x, y, z, radius
-    [-0.965, 1.3, 0.76, 0.03],
-    [-0.992, 1.4, 0.69, 0.031],
-    [-0.985, 1.55, 0.608, 0.031],
-    [-0.968, 1.7, 0.528, 0.031],
-    [-0.952, yr - 0.04, 0.466, 0.032],
-    [-0.948, yr + 0.02, 0.45, 0.034],
-    [-0.948, yr + 0.075, 0.462, 0.038],
-    [-0.948, yr + 0.108, 0.5, 0.046],
-    [-0.948, yr + 0.112, 0.54, 0.056],
-    [-0.948, yr + 0.108, 0.575, 0.058],
+    [-0.965, 1.3, zp(1.3) + 0.045, 0.03],
+    [-0.99, 1.42, zp(1.42) + 0.02, 0.031],
+    [-0.985, 1.58, zp(1.58) + 0.012, 0.031],
+    [-0.968, 1.72, zp(1.72) + 0.012, 0.031],
+    [-0.952, yr - 0.03, zp(yr - 0.03) + 0.012, 0.032],
+    [-0.948, yr + 0.03, zp(yr) + 0.0, 0.034],
+    [-0.948, yr + 0.08, zp(yr) + 0.014, 0.038],
+    [-0.948, yr + 0.112, zp(yr) + 0.05, 0.046],
+    [-0.948, yr + 0.116, zp(yr) + 0.092, 0.056],
+    [-0.948, yr + 0.112, zp(yr) + 0.127, 0.058],
   ];
   for (const [x, y, z, rr] of pts) {
     path.push([x, y, z]);
@@ -273,7 +276,7 @@ function addSpare(b: PartBuilder, d: SuvDims, R: number, W: number): void {
   // the cover: a shallow black dome with an orange ring, bolted on
   b.setPart(PART.rugged);
   b.lathe(o, axis, [0, W + 0.003, 0.14, W + 0.0025, 0.26, W - 0.004, 0.3, W - 0.006, 0.305, W], 40, false);
-  b.setPart(PART.paintDark);
+  b.setPart(PART.signal);
   b.lathe(o, axis, [0.268, W - 0.0005, 0.268, W + 0.0035, 0.288, W + 0.0035, 0.288, W - 0.0005], 40, false);
   // the X (the badge's, big): two bars across the cover
   for (const sgn of [-1, 1]) {
@@ -299,7 +302,7 @@ function addGrilleBars(b: PartBuilder, d: SuvDims): void {
   b.cylinder([0, d.grilleY, zb], [0, d.grilleY, zb + 0.008], 0.082, 0.08, 32, true);
   b.setPart(PART.plastic);
   b.cylinder([0, d.grilleY, zb], [0, d.grilleY, zb + 0.0105], 0.068, 0.068, 32, true);
-  b.setPart(PART.paintDark);
+  b.setPart(PART.signal);
   for (const sgn of [-1, 1]) {
     const ang = sgn * (PI / 4);
     const ca = Math.cos(ang), sa = Math.sin(ang);
@@ -361,11 +364,56 @@ function addExhaust(b: PartBuilder, s: CarVisualSpec, d: SuvDims): void {
   }
 }
 
+/** Wipers parked along the foot of the windscreen: two arms and blades lying on the glass (in the plane of the screen). */
+function addWipers(b: PartBuilder, d: SuvDims): void {
+  const slope = Math.hypot(1, d.kWs);
+  // up the screen (v) and out of the glass (w = u x v)
+  const v: V3 = [0, 1 / slope, -d.kWs / slope];
+  const zOn = (y: number): number => d.zWsBase - d.kWs * (y - d.yFend);
+  b.setPart(PART.plastic);
+  for (const sg of [-1, 1]) {
+    // the blade: from the middle of the screen out towards the pillar, a little above the foot of the glass
+    const y = 1.428;
+    const x0 = sg * 0.1, x1 = sg * 0.56;
+    const cx = (x0 + x1) / 2;
+    b.box([cx, y, zOn(y) + 0.009], Math.abs(x1 - x0) / 2, 0.0065, 0.0045, { o: [0, 0, 0], u: [1, 0, 0], v });
+    // the arm: from a pivot on the cowl up to the blade, slightly raised
+    const px = sg * 0.42;
+    b.tube([[px, 1.385, zOn(1.385) + 0.014], [px + sg * 0.08, y, zOn(y) + 0.016]], 0.0045, 6, false);
+  }
+}
+
 /** A small lip over the top of the tailgate glass, in body paint: it carries the roof's line a hand's width past the tail. */
 function addRoofLip(b: PartBuilder, d: SuvDims): void {
+  // the high-mount stop lamp: a thin red lens under the lip (lit like the tail lamps: dim with the lights, bright on the brake)
+  b.setPart(PART.lampRed);
+  b.box([0, d.yRoof - 0.07, d.zTg - 0.003], 0.26, 0.011, 0.004);
   b.setPart(PART.body);
   const y = d.yRoof - 0.052;
   b.extrude(roundPoly([-0.82, d.zTg + 0.012, 0.82, d.zTg + 0.012, 0.82, d.zTg - 0.075, 0.74, d.zTg - 0.09, -0.74, d.zTg - 0.09, -0.82, d.zTg - 0.075], 0.02), { o: [0, y + 0.012, 0], u: [1, 0, 0], v: [0, 0, 1] }, 0.012, 0.004, 1);
+}
+
+/** Hood pins at the four corners of the dome's flat (the rally touch), and mud flaps behind the rear wheels. */
+function addHoodPins(b: PartBuilder, d: SuvDims): void {
+  b.setPart(PART.silver);
+  for (const sg of [-1, 1]) {
+    for (const z of [1.18, 1.95]) {
+      const x = sg * 0.46;
+      b.cylinder([x, d.yHood - 0.004, z], [x, d.yHood + 0.016, z], 0.011, 0.009, 10, true);
+      b.tube([[x, d.yHood + 0.016, z], [x + sg * 0.03, d.yHood + 0.024, z]], 0.0028, 6, true);
+    }
+  }
+}
+
+function addMudFlaps(b: PartBuilder, s: CarVisualSpec, d: SuvDims): void {
+  b.setPart(PART.rubber);
+  for (const sg of [-1, 1]) {
+    // hung from the rear edge of the arch, behind the tyre: a thin black plate with a heavier lower lip
+    const x = sg * (s.trackRear / 2);
+    const z = d.zR - d.archHz(d.rR) + 0.014;
+    b.box([x, 0.56, z], 0.15, 0.24, 0.006);
+    b.box([x, 0.335, z + 0.002], 0.15, 0.03, 0.01);
+  }
 }
 
 /** Door hinges and handles: the exposed hardware that makes a flat door read as a door. */
@@ -406,6 +454,9 @@ export function addSuvParts(b: PartBuilder, s: CarVisualSpec, d: SuvDims): void 
   addExhaust(b, s, d);
   addHardware(b, d);
   addRoofLip(b, d);
+  addWipers(b, d);
+  addHoodPins(b, d);
+  addMudFlaps(b, s, d);
 
   // mirrors: housing, stalk and glass face, set where the live mirror glass sits (carvis/mirrorLayout.ts)
   addDoorMirrors(b, s);
