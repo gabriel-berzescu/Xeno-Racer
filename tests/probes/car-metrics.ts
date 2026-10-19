@@ -5,9 +5,11 @@
  * how far the body leans over, squats under power and dives under the brakes, how fast it is still going after a spell on gravel.
  */
 import { Quaternion, Vector3 } from 'three';
-import type { Assists, CarDefinition, GroundSample, SurfaceType, TrackRuntime } from '../../src/core/contracts';
-import { PhysicsWorld, SteeringFilter, createFlatTrack, type Vehicle } from '../../src/physics';
+import { AIDriver } from '../../src/ai';
+import type { Assists, CarDefinition, Difficulty, GroundSample, SurfaceType, TrackPoint, TrackRuntime } from '../../src/core/contracts';
 import { DEFAULT_SETTINGS } from '../../src/core/settings';
+import { PhysicsWorld, SteeringFilter, createFlatTrack, type Vehicle } from '../../src/physics';
+import { loadTrackRuntime } from '../../src/track';
 
 export const G = 9.81;
 export const DT = 1 / 60;
@@ -283,4 +285,43 @@ export function kerbStrike(def: CarDefinition, kmh: number, height = 0.07, steer
     maxRoll = Math.max(maxRoll, Math.abs(attitude(car).rollDeg));
   }
   return { minLoadShare: minShare, wheel: minLoadWheel, wheelsUp: maxUp, maxRollDeg: maxRoll, upright: attitude(car).rollDeg < 20 };
+}
+
+/**
+ * The time (s) of the second lap of an AI driver alone on a circuit, as tests/ai.test.ts takes it (a standing start, a lap to warm up,
+ * the aids of the AI drivers), and what it hit on the way.
+ */
+export function aiLap(trackId: string, def: CarDefinition, wetness = 0, difficulty: Difficulty = 'alien') {
+  const track = loadTrackRuntime(trackId);
+  const world = new PhysicsWorld(track);
+  world.wetness = wetness;
+  const car = world.addVehicle(def);
+  car.assists = { abs: true, tcs: 'low', esc: false, autoShift: true, steeringAssist: 0, autoClutch: true };
+  const slot = track.grid[0];
+  car.placeOnGround(slot.position, slot.quaternion, 0);
+  car.setTemperatures(1);
+  const ai = new AIDriver(track, def, { difficulty, seed: 1, wetness });
+  const tp: TrackPoint = { s: 0, d: 0, segment: 0, widthLeft: 0, widthRight: 0, wallLeft: 0, wallRight: 0, tx: 0, tz: 1, lx: 1, lz: 0, y: 0 };
+  let hint = track.project(car.p.x, car.p.z, tp, -1);
+  let prev = tp.s;
+  let crossings = 0;
+  let lapStart = 0;
+  let lap = Number.NaN;
+  let resets = 0;
+  while (world.time < 900 && crossings < 3) {
+    ai.update(DT, car.state, world.states, car.controls, true);
+    if (ai.needsReset) {
+      resets++;
+      ai.onReset();
+    }
+    world.step(DT);
+    hint = track.project(car.p.x, car.p.z, tp, hint);
+    if (tp.s - prev < -track.length / 2) {
+      crossings++;
+      if (crossings === 2) lap = world.time - lapStart;
+      lapStart = world.time;
+    }
+    prev = tp.s;
+  }
+  return { lap, resets, impacts: car.state.impactCount };
 }

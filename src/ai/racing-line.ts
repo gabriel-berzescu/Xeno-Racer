@@ -374,7 +374,8 @@ export class ProfileJob {
     for (let i = 0; i < this.n; i++) {
       // (a road of one surface is the road's own: x / x is exactly 1, so the profile of a circuit of plain asphalt is the one it always was)
       const k = surf.at[i];
-      const grip = own === SURFACES ? surf.grip[i] : props[k].grip;
+      // (the track's table keeps its grip as 32-bit floats: so does this one, and the same ground gives the same number for every car)
+      const grip = own === SURFACES ? surf.grip[i] : Math.fround(props[k].grip);
       this.surfaceFactor[i] = (wet0s[k] / wetRoad) * grip;
       this.muAt[i] = this.gm.mu * (wet0s[k] / wetRoad) * grip;
     }
