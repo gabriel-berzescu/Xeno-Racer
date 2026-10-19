@@ -38,6 +38,22 @@ describe('long replays', () => {
     expect(f / rec.rate).toBeLessThan(hitAt + 1 / rec.rate);
   });
 
+  it('replays every surface under the wheels, the winter ones too', () => {
+    const states = [makeVehicleState(0)];
+    const rec = new ReplayRecorder(1, 0);
+    const kinds = ['asphalt', 'curb', 'concrete', 'grass', 'gravel', 'sand', 'dirt', 'snow', 'ice', 'deepsnow'] as const;
+    kinds.forEach((s, k) => {
+      for (const w of states[0].wheels) w.surface = s;
+      rec.capture(k / 30, states); // (one frame each: the recorder keeps 30 a second)
+    });
+    rec.capture(kinds.length / 30, states); // (and one past the last, which is a frame's end)
+    const player = new ReplayPlayer(rec, [makeVehicleState(0)]);
+    kinds.forEach((s, k) => {
+      player.apply((k + 0.25) / 30);
+      expect(player.states[0].wheels.map((w) => w.surface)).toEqual([s, s, s, s]);
+    });
+  });
+
   it('records a short race at the full rate', () => {
     const states = [makeVehicleState(0)];
     const rec = new ReplayRecorder(1, 0);

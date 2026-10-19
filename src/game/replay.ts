@@ -6,7 +6,8 @@ import { Quaternion, Vector3 } from 'three';
 import type { ImpactKind, SurfaceType, VehicleState, WheelState } from '../core/contracts';
 import type { DamageEvent, StampedEvent } from '../core/damage';
 
-const SURFACES: SurfaceType[] = ['asphalt', 'curb', 'concrete', 'grass', 'gravel', 'sand', 'dirt'];
+// (every surface, the winter ones too: a replay at Isvik had its wheels on asphalt, with the sound and the spray of asphalt)
+const SURFACES: SurfaceType[] = ['asphalt', 'curb', 'concrete', 'grass', 'gravel', 'sand', 'dirt', 'snow', 'ice', 'deepsnow'];
 const IMPACT_KINDS: ImpactKind[] = ['wall', 'car', 'ground'];
 /**
  * Floats per car before the wheels. 0..23 the pose and the drivetrain; 24..30 the last impact (world point, normal, kind), 31..33
