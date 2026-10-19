@@ -13,7 +13,7 @@
 import { CARS } from '../../../src/cars';
 import type { CarDefinition, EngineSoundProfile } from '../../../src/core/contracts';
 import { EngineVoice, createEngineDebug } from '../../../src/audio/dsp/engine-voice';
-import { welch } from '../../../src/audio/analysis';
+import { orderFamilies, welch } from '../../../src/audio/analysis';
 import { Biquad } from '../../../src/audio/dsp/filters';
 
 const SR = 48000;
@@ -83,33 +83,13 @@ function lineFamilies(x: Float32Array, rpm: number, fLo: number, fHi: number): {
   const f0 = rpm / 120;
   let nfft = 1 << 15;
   while (SR / nfft > f0 / 9 && nfft < 1 << 18) nfft <<= 1;
-  const a = Math.floor(1.5 * SR);
-  const psd = welch(x, nfft, a, x.length);
-  const df = SR / nfft;
-  const sum = { fire: 0, half: 0, whole: 0 };
-  const lines = { fire: new Set<number>(), half: new Set<number>(), whole: new Set<number>() };
-  let between = 0;
-  const tol = 0.13 * f0;
-  for (let i = Math.floor(fLo / df); i <= Math.min(psd.length - 1, Math.ceil(fHi / df)); i++) {
-    const f = i * df;
-    const m = Math.round(f / f0);
-    const d = Math.abs(f - m * f0);
-    if (m < 1) continue;
-    if (d > tol) {
-      between += psd[i];
-      continue;
-    }
-    const fam = m % 8 === 0 ? 'fire' : m % 2 === 1 ? 'half' : 'whole';
-    sum[fam] += psd[i];
-    lines[fam].add(m);
-  }
+  const L = orderFamilies(welch(x, nfft, Math.floor(1.5 * SR), x.length), SR, f0, car.sound.cylinders, fLo, fHi);
   return {
-    fire: sum.fire / Math.max(lines.fire.size, 1),
-    half: sum.half / Math.max(lines.half.size, 1),
-    whole: sum.whole / Math.max(lines.whole.size, 1),
-    between,
-    // the share of all the power in the band that sits in the half-order lines (the lines themselves, not what lies between them)
-    share: sum.half / Math.max(sum.fire + sum.half + sum.whole + between, 1e-30),
+    fire: L.fire / Math.max(L.lines.fire, 1),
+    half: L.half / Math.max(L.lines.half, 1),
+    whole: L.whole / Math.max(L.lines.whole, 1),
+    between: L.between,
+    share: L.halfShare,
   };
 }
 

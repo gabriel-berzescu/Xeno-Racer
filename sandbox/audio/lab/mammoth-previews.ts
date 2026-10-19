@@ -10,7 +10,7 @@
  *   03-run3-cockpit           the same, as heard in the cabin
  *   04-vanta-run3-exterior    the Vanta GT's run3 for comparison (flat-plane V8, turbo)
  *   05-lift-off-overrun       a lift from 5000 rpm at full throttle: the burble and the pops
- *   06-ab-merged-vs-dual      the same cross-plane V8 twice, its banks merged in an X-pipe and then in a true dual exhaust
+ *   06-ab-merged-then-dual    the same cross-plane V8 twice, its banks merged in an X-pipe and then in a true dual exhaust
  *   07-cockpit-idle-and-blips the idle and the blips in the cabin
  * The scenes that are not about the Mammoth use the same engine code as the game: nothing here is mixed or EQ'd.
  */
@@ -174,14 +174,29 @@ if (want('run3')) {
 }
 if (want('overrun')) save('05-lift-off-overrun', renderScript(mammoth, mammoth.sound, 8, liftOff(mammoth, 1.6)));
 if (want('ab')) {
-  // the same scene twice, the banks merged and then in a true dual exhaust: idle, a blip, a pull
+  // the same scene twice, the banks merged in an X-pipe and then in a true dual exhaust: a warm idle, a roll up through 1000..2200 rpm on a light
+  // pedal (where the lope lives), then a pull at full throttle through 2200..4600
   const scene = (): Script => {
-    const idle = idleAndBlips(mammoth, 9, [{ t: 4.2, size: 0.6 }]);
-    const p = pull(1800, 4600, 6.2, 9);
-    return (t, i) => (t < 6.2 ? idle(t, i) : p(t, i));
+    const e = mammoth.physics.engine;
+    return (t, i) => {
+      if (t < 2.4) {
+        i.rpm = e.idleRpm * 1.06;
+        i.throttle = i.pedal = 0;
+        i.load = 0.06;
+      } else if (t < 5.2) {
+        const u = (t - 2.4) / 2.8;
+        i.rpm = e.idleRpm * 1.06 + (2200 - e.idleRpm * 1.06) * u * u;
+        i.throttle = i.pedal = 0.22;
+        i.load = 0.2;
+      } else {
+        const u = Math.min(1, (t - 5.2) / 3);
+        i.rpm = 2200 + 2400 * u;
+        i.throttle = i.pedal = i.load = 1;
+      }
+    };
   };
-  const a = renderScript(mammoth, { ...mammoth.sound, exhaustSystem: 'merged' }, 9, scene());
-  const b = renderScript(mammoth, { ...mammoth.sound, exhaustSystem: 'dual' }, 9, scene());
+  const a = renderScript(mammoth, { ...mammoth.sound, exhaustSystem: 'merged' }, 8.4, scene());
+  const b = renderScript(mammoth, { ...mammoth.sound, exhaustSystem: 'dual' }, 8.4, scene());
   const gap = new Float32Array(Math.floor(0.8 * SR));
   const both = new Float32Array(a.length + gap.length + b.length);
   both.set(a, 0);

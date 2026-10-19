@@ -17,6 +17,20 @@
  *   + turbo (spool whistle / flutter / blow-off), gear whine, shift clunk, backfire pops, rev limiter
  *   + interior / exterior mix (cabin resonance, muffled exhaust path)
  *
+ * Two things a profile can ask for beyond that (both off, and costing nothing, for every other engine):
+ *
+ *   `exhaustSystem: 'dual'`  the secondaries do not meet: each bank goes on through a main pipe, muffler and tailpipe of its own (TailChain)
+ *        and the listener hears the sum, a little nearer one tailpipe than the other. Through twin pipes the sum of a cross-plane V8's banks
+ *        (which fire 90 / 180 / 270 / 180 degrees apart, copies of each other 360 degrees apart) is the same even train as a flat-plane's:
+ *        a linear system cannot tell them apart. The lope is the difference between the two pipes, small in level, length and delay and
+ *        fading with the rpm as the pulses crowd into the roar; an X-pipe throws that difference away, which is why a merged exhaust is smoother.
+ *   `supercharger`  a positive-displacement blower: a whine locked to the crank (rpm/60 x pulley ratio x lobes) with its harmonics, the rotor's
+ *        own turn and the hiss of the air, following the pedal through the bypass valve (a whirr off the throttle, a whine on it).
+ *
+ * A cross-plane V8 (crankType 'crossplane') is also lumpier, strongest at idle: what each bank's pipe still holds of its last pulse, the cammed
+ * idle's cycle-to-cycle spread and weak cylinders, a bank that runs richer for a while, and a burble of unburnt charge on a lift-off
+ * (see pulseFactor, burnFactor, and the burble in block()). These are events, so the lite voice has them too.
+ *
  * No allocation after construction; process() is safe to call from an AudioWorklet.
  */
 import type { EngineSoundProfile } from '../../core/contracts';
@@ -264,8 +278,8 @@ export function deriveVoicing(p: EngineSoundProfile, layout: EngineLayout): Voic
     whine: p.gearWhine,
     crackle: p.crackle,
     // (the dual exhaust is louder through its two separate chains than the one shared chain of lite: averaged over the rev range, with
-    // the same pulses, the lite voice came out 5.6 dB under the full one, where the others' lite voices come out within 2 dB of theirs)
-    liteGain: dual ? 1.35 * 1.9 : 1.35,
+    // the same pulses, the lite voice came out 5.6 dB under the full one at a gain of 1.35, and a little above it at 1.7, where the others' lite voices come out within 2 dB of theirs)
+    liteGain: dual ? 1.35 * 1.7 : 1.35,
     blower: sc !== undefined && sc.ratio > 0 && lobes > 0,
     blowerHzPerRpm: sc ? (sc.ratio * lobes) / 60 : 0,
     blowerLobes: lobes,
@@ -535,6 +549,8 @@ export class EngineVoice {
   private lopeH: Float64Array;
   private lopeT: Float64Array;
   private lopeAvg = 0.3;
+  /** How strongly each cylinder burned in its last cycle (its combustion thump and, 130 degrees later, its exhaust pulse). */
+  private cylBurn: Float64Array;
   private bankDr = new Float64Array(2);
   private bankDrW = 0;
   private lopeDepth = 0;
@@ -640,6 +656,7 @@ export class EngineVoice {
     this.asA = mk(B);
     this.lopeH = mk(B);
     this.lopeT = mk(B);
+    this.cylBurn = mk(this.N).fill(1);
     for (let g = 0; g < G; g++) {
       this.grpCnt[g] = L.groups[g].count;
       this.grpBank[g] = L.groups[g].bank;
@@ -751,6 +768,23 @@ export class EngineVoice {
     this.popToneEnv = 0;
     this.flutT = 0;
     this.blkIn = this.blkInN = this.tickIn = this.tickInN = this.clunkIn = 0;
+  }
+
+  /**
+   * The chain a lite voice shares between its banks (the merged system's main pipe, muffler and tailpipe) is not run by a dual exhaust at full
+   * quality, which has a chain per bank: what it held when the voice last was lite is old news when the voice goes lite again.
+   */
+  private clearShared(): void {
+    this.mf.clear();
+    this.mb.clear();
+    this.cf.clear();
+    this.cb.clear();
+    this.qd.clear();
+    this.tf.clear();
+    this.tb.clear();
+    this.lpMf.y = this.lpMb.y = this.lpCf.y = this.lpCb.y = this.lpQ.y = this.lpTf.y = this.lpEnd.y = 0;
+    this.dcEx.x1 = this.dcEx.y1 = 0;
+    this.uPrev = 0;
   }
 
   /** A dual exhaust's pipes are not run in lite quality: what they held when the voice went lite is old news when it comes back. */
@@ -876,7 +910,10 @@ export class EngineVoice {
       this.lastShift = I.shiftCount;
       this.lastBackfire = I.backfireCount;
     }
-    if (full && !this.wasFull && this.tails.length > 0) this.clearPipes();
+    if (this.tails.length > 0) {
+      if (full && !this.wasFull) this.clearPipes();
+      else if (!full && this.wasFull) this.clearShared();
+    }
     this.wasFull = full;
 
     // ── control smoothing ─────────────────────────────────────────────────────
@@ -1028,7 +1065,8 @@ export class EngineVoice {
     // the burble of a cross-plane V8 that is being lifted off: unburnt charge lights in the pipe on some of the exhaust events (see below), a
     // dozen to thirty a second through the middle of the rev range while the exhaust is hot, and none at idle or near the limiter
     if (V.burble > 0) {
-      this.burbleP = V.burble * ovr * (0.25 + 0.75 * this.heat) * smoothstep(idle * 1.5, idle * 2.6, rpm) * smoothstep(5200, 3600, rpm) * 0.12;
+      // (it is the driver's foot that is off: an automatic's ignition cut on a shift, with the pedal down, is not a lift-off)
+      this.burbleP = V.burble * ovr * smoothstep(0.35, 0.08, this.sPlate) * (0.25 + 0.75 * this.heat) * smoothstep(idle * 1.5, idle * 2.6, rpm) * smoothstep(5200, 3600, rpm) * 0.1;
     }
 
     // ── turbo spool state ────────────────────────────────────────────────────
@@ -1327,15 +1365,15 @@ export class EngineVoice {
           let burb = 0;
           let pf = 1;
           if (lopeOn) {
-            pf = this.pulseFactor(cs.bank, this.clock + i + 1 - frac, !full);
+            pf = this.pulseFactor(cs.bank, this.clock + i + 1 - frac, !full) * this.cylBurn[cy];
             amp *= pf;
             // a burble comes in runs ("brrrap"): once the charge has lit in the pipe, the next few exhaust events are likely to light it too
             if (burbleP > 0) {
               if (this.burbleRun > 0) {
                 this.burbleRun--;
-                burb = 0.5 + 1.5 * rng.u() * rng.u();
+                burb = 0.5 + 1.2 * rng.u() * rng.u();
               } else if (rng.u() < burbleP) {
-                burb = 0.8 + 2.4 * rng.u() * rng.u();
+                burb = 0.8 + 2.0 * rng.u() * rng.u();
                 this.burbleRun = (rng.u() * 3.5) | 0;
               }
               if (burb > 0) this.burbles++;
@@ -1358,7 +1396,9 @@ export class EngineVoice {
             crackInN += ca * (1 - frac);
           }
         } else if (ty === EV_COMBUSTION) {
-          const a = combAmp * L.cyl[cy].gain * (cutActive ? 0.05 : 1) * (1 + 0.3 * rng.s2());
+          // (a cylinder that burns weakly thumps weakly, and its exhaust pulse, 130 degrees later, is as weak)
+          if (lopeOn) this.cylBurn[cy] = this.burnFactor(L.cyl[cy].bank);
+          const a = combAmp * L.cyl[cy].gain * (cutActive ? 0.05 : 1) * (1 + 0.3 * rng.s2()) * (lopeOn ? this.cylBurn[cy] : 1);
           blkIn += a * frac;
           blkInN += a * (1 - frac);
         } else {
@@ -1771,18 +1811,14 @@ export class EngineVoice {
   private idlenessPrev = 0;
 
   /**
-   * The strength of one exhaust pulse of a cross-plane V8 relative to an even one, `t` the time of the event in samples. Three things
-   * make a cross-plane's pulses unequal, and they are all strongest where the engine is slow and the pulses are single events:
-   *
-   *  - what the bank's pipe still holds of the last pulse. A bank fires 90, 180, 270 and 180 degrees apart; the pulse that comes 90
-   *    degrees after another meets a pipe still full of it, with less pressure to drive it out (and a weaker blowdown), and the one
-   *    after the long 270 degree gap meets an empty pipe. The pipe forgets a pulse in about `lopeTau`, a time and not an angle, so
-   *    the memory gets longer than the gaps as the rpm rises and every pulse sees much the same pipe: the pattern fades into the roar.
-   *    (Both banks are copies of each other 360 degrees apart, so this alone makes a pattern that repeats every crank turn: whole
-   *    orders. The half orders, the lope itself, need the two pipes to differ, which is what the dual exhaust is.)
-   *  - the cammed idle's irregularity: a big overlap leaves an idle that burns a little differently every cycle (a log-normal spread
-   *    of the pulse strengths) and now and then a cylinder that hardly burns at all.
-   *  - in lite quality, where the banks do not have pipes of their own, the loudness of the side the listener hears more of.
+   * The strength of one exhaust pulse of a cross-plane V8 relative to an even one, `t` the time of the event in samples: what the bank's
+   * pipe still holds of its last pulse (and, in lite quality, where the banks have no pipes of their own, the loudness of the side the
+   * listener hears more of). A bank fires 90, 180, 270 and 180 degrees apart; the pulse that comes 90 degrees after another meets a
+   * pipe still full of it, with less pressure to drive it out and a weaker blowdown, and the one after the long 270 degree gap meets an
+   * empty pipe. The pipe forgets a pulse in about `lopeTau`, a time and not an angle, so the memory gets longer than the gaps as the rpm
+   * rises and every pulse sees much the same pipe: the pattern fades into the roar. (Both banks are copies of each other 360 degrees
+   * apart, so this alone makes a pattern that repeats every crank turn: whole orders. The half orders, the lope itself, need the
+   * two pipes to differ, which is what the dual exhaust is.)
    */
   private pulseFactor(bank: number, t: number, lite: boolean): number {
     const V = this.V;
@@ -1794,12 +1830,20 @@ export class EngineVoice {
     this.lopeAvg += 0.12 * (held - avg);
     let f = 1 - this.lopeDepth * (held / Math.max(avg, 0.15) - 1);
     f = f < 0.4 ? 0.4 : f > 1.5 ? 1.5 : f;
-    const s = this.lumpSigma;
-    if (s > 0.001) {
-      f *= Math.exp(s * 1.732 * this.rng.g() - 0.5 * s * s + this.bankDrW * this.bankDr[bank]);
-      if (this.rng.u() < this.misProb) f *= 0.2 + 0.25 * this.rng.u();
-    }
     if (lite && V.dual) f *= this.liteBias[bank];
+    return f;
+  }
+
+  /**
+   * How well a cylinder burns this cycle, relative to an even one: the cammed idle's irregularity. A big cam overlaps the valves for
+   * so long that an idle burns a little differently every cycle (a log-normal spread of the strengths), now and then a cylinder
+   * hardly burns at all, and one bank runs a little richer than the other for a second or so, then the other (`bankDrift`).
+   */
+  private burnFactor(bank: number): number {
+    const s = this.lumpSigma;
+    if (s <= 0.001) return 1;
+    let f = Math.exp(s * 1.732 * this.rng.g() - 0.5 * s * s + this.bankDrW * this.bankDr[bank]);
+    if (this.rng.u() < this.misProb) f *= 0.2 + 0.25 * this.rng.u();
     return f;
   }
 

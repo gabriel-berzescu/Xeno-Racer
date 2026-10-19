@@ -2,8 +2,8 @@
  * Engine lab (Node). Renders each car's engine through scenarios and prints measurements.
  *
  *   node sandbox/audio/lab/run.mjs engine-lab.ts steady [--car lmp-x] [--rpm 3000] [--load 1]
- *   node sandbox/audio/lab/run.mjs engine-lab.ts run3   [--car all]
- *   node sandbox/audio/lab/run.mjs engine-lab.ts cpu
+ *   node sandbox/audio/lab/run.mjs engine-lab.ts run3   [--car all] [--secs 8] [--interior 1]   (WAV + spectrogram in .cache/audio-lab, the cabin mix with --interior 1)
+ *   node sandbox/audio/lab/run.mjs engine-lab.ts cpu    [--car mammoth] [--quality 1]   (one car per process: the JIT of the others skews the numbers)
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -47,7 +47,7 @@ function db(x: number): string {
 }
 
 /** Render a run through the gears. */
-function run3(car: CarDefinition, seconds: number, seed = 1): { sig: Float32Array; dbg: ReturnType<typeof createEngineDebug>; marks: string[] } {
+function run3(car: CarDefinition, seconds: number, seed = 1, interior = 0): { sig: Float32Array; dbg: ReturnType<typeof createEngineDebug>; marks: string[] } {
   const e = car.physics.engine;
   const startRpm = e.idleRpm + 0.38 * (e.redlineRpm - e.idleRpm);
   const sim = new DriveSim(car, { gear: 1, rpm: startRpm });
@@ -77,7 +77,7 @@ function run3(car: CarDefinition, seconds: number, seed = 1): { sig: Float32Arra
     }
     writeEngineControls(vec, sim.st);
     readEngineInputs(vec, voice.inp);
-    voice.inp.interior = 0;
+    voice.inp.interior = interior;
     const off = f * spf;
     const len = Math.min(spf, n - off);
     voice.debug = {
@@ -151,16 +151,18 @@ if (cmd === 'steady') {
 } else if (cmd === 'run3') {
   for (const car of cars) {
     const secs = +opt('secs', '8');
-    const { sig, dbg, marks } = run3(car, secs);
+    const interior = +opt('interior', '0');
+    const { sig, dbg, marks } = run3(car, secs, 1, interior);
     const wav = encodeWav16([sig], SR);
-    writeFileSync(resolve(outDir, `run3-${car.id}.wav`), wav);
+    const tag = `${car.id}${interior ? '-cockpit' : ''}`;
+    writeFileSync(resolve(outDir, `run3-${tag}.wav`), wav);
     const png = spectrogramPng(sig, SR, [
       { nfft: 4096, hop: 256, fMax: 1500, grid: 100, height: 300 },
       { nfft: 2048, hop: 256, fMax: 12000, grid: 1000, height: 300 },
     ]);
-    writeFileSync(resolve(outDir, `run3-${car.id}.png`), png);
+    writeFileSync(resolve(outDir, `run3-${tag}.png`), png);
     console.log(
-      `${car.id}: ${secs}s rms ${rmsDb(sig).toFixed(1)}dB peak ${db(peakAbs(sig))}dB nonfinite=${hasNonFinite(sig)} marks: ${marks.join(' ')}`,
+      `${tag}: ${secs}s rms ${rmsDb(sig).toFixed(1)}dB peak ${db(peakAbs(sig))}dB nonfinite=${hasNonFinite(sig)} marks: ${marks.join(' ')}`,
     );
     void dbg;
   }
