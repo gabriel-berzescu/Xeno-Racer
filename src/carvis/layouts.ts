@@ -46,7 +46,7 @@ export function computeLayout(s: CarVisualSpec): CarLayout {
   const roofY = s.height;
   const style = s.style;
   const suv = style === 'suv';
-  // (the 4x4's is the height of its eyes' side of the hood: the power dome tops out at 1.37 and the camera rides 8 cm above this)
+  // (the 4x4's hood is 1.32 m up and its power dome 1.37: the hood camera rides 8 cm over this, and the headlamp spots sit at the lamps' 1.12 m)
   const hoodY = style === 'prototype' ? 0.62 : style === 'gt' ? 0.9 : style === 'coupe' ? 0.88 : suv ? 1.4 : 0.97;
   const lay: LiveryLayout = {
     zNose: zNose + 0.06,
@@ -54,7 +54,7 @@ export function computeLayout(s: CarVisualSpec): CarLayout {
     yMax: Math.max(1.5, s.height + 0.15),
     halfW: hw + 0.06,
     // (the roundel rides the front door of the 4x4: its panel is a metre taller than a coupe's)
-    door: suv ? { z: 0.16, y: 0.98, r: 0.25 } : { z: style === 'prototype' ? 0.2 : (zF + zR) * 0.5 - 0.1, y: style === 'prototype' ? 0.5 : 0.6, r: style === 'prototype' ? 0.17 : 0.2 },
+    door: suv ? { z: 0.16, y: 1.0, r: 0.2 } : { z: style === 'prototype' ? 0.2 : (zF + zR) * 0.5 - 0.1, y: style === 'prototype' ? 0.5 : 0.6, r: style === 'prototype' ? 0.17 : 0.2 },
     // (the 4x4's hood number rides the front of the power dome, clear of the hood camera that sits 1.2 m behind the nose)
     hood: { z: style === 'coupe' ? zNose - 1.25 : suv ? zNose - 0.385 : zNose - 0.9, r: suv ? 0.17 : 0.2 },
     belt: style === 'hatch' ? 0.98 : suv ? 1.22 : 0.93,
@@ -66,7 +66,8 @@ export function computeLayout(s: CarVisualSpec): CarLayout {
     lay.patternZ = (zF + zR) * 0.5 - 0.1;
     // (the arrow's tip stops at the grille, not over the nose: the number plate sits on the dome ahead of the hood camera)
     lay.hoodArrow = zNose - 0.92;
-    lay.dust = 1;
+    lay.dust = { amount: 1, wheelZ: [zF, zR] };
+    lay.trueRound = true;
   }
   return {
     zNose,

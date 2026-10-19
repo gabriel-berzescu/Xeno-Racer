@@ -24,12 +24,12 @@ export function inGlassFrame(m: MirrorPose, a: number, b: number, t: number): V3
 /** Both door mirrors of a car. */
 export function addDoorMirrors(b: PartBuilder, spec: CarVisualSpec): void {
   const L = mirrorLayout(spec);
-  addDoorMirror(b, L.left, L.housing.depth, L.housing.carbon);
-  addDoorMirror(b, L.right, L.housing.depth, L.housing.carbon);
+  addDoorMirror(b, L.left, L.housing.depth, L.housing.carbon, L.housing.black);
+  addDoorMirror(b, L.right, L.housing.depth, L.housing.carbon, L.housing.black);
 }
 
 /** One housing + stalk + glass face. `depth` is how far the housing reaches forward of the glass. */
-export function addDoorMirror(b: PartBuilder, m: MirrorPose, depth: number, carbon: boolean): void {
+export function addDoorMirror(b: PartBuilder, m: MirrorPose, depth: number, carbon: boolean, black = false): void {
   const side = m.pos[0] >= 0 ? 1 : -1;
   const hw = m.halfW;
   const hh = m.halfH;
@@ -44,7 +44,7 @@ export function addDoorMirror(b: PartBuilder, m: MirrorPose, depth: number, carb
     const c = Math.cos(phi);
     rings.push(at(1.07 * c, 1.14 * c, -depth * Math.sin(phi)));
   }
-  b.setPart(carbon ? PART.carbon : PART.body);
+  b.setPart(carbon ? PART.carbon : black ? PART.rugged : PART.body);
   b.loft(rings);
 
   // the face: a black frame, the glass in it

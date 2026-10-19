@@ -121,7 +121,7 @@ function hexBolt(pb: PartBuilder, x0: number, y: number, z: number, r0: number, 
 const AT_LUG = 0.017;
 
 /** Lug blocks per row round the tyre, by quality. */
-const AT_PITCH: Record<QualityLevel, number> = { low: 18, medium: 21, high: 24, ultra: 28 };
+const AT_PITCH: Record<QualityLevel, number> = { low: 18, medium: 21, high: 24, ultra: 25 };
 
 /**
  * One lug: a prism whose cross-section (the closed polygon `poly` in (x, r); the first `nTop` points are the top surface, the rest
