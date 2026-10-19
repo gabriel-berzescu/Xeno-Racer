@@ -232,16 +232,18 @@ function viewFor(name: string, d: CarDefinition): ViewDef {
     return { pos: [c[0], c[1], c[2]], look: [l[0], l[1], l[2]], fov: parseFloat(q.get('fov') ?? '30') };
   }
   const L = v.length;
-  const s = (L / 4.6) * (v.style === 'prototype' ? 1.22 : 1);
+  // a tall body (the 4x4, 1.84 m) is framed higher and from a little further back, so its roof and the light bar stay in the picture
+  const ky = v.height > 1.5 ? v.height / 1.3 : 1;
+  const s = (L / 4.6) * (v.style === 'prototype' ? 1.22 : 1) * (ky > 1 ? 1.12 : 1);
   const table: Record<string, ViewDef> = {
-    front34: { pos: [3.7 * s, 1.25, 5.1 * s], look: [0, 0.52, 0.15], fov: 26 },
-    rear34: { pos: [-3.7 * s, 1.35, -5.1 * s], look: [0, 0.55, -0.15], fov: 26 },
-    side: { pos: [8.6 * s, 0.68, 0], look: [0, 0.58, 0], fov: 21 },
+    front34: { pos: [3.7 * s, 1.25 * ky, 5.1 * s], look: [0, 0.52 * ky, 0.15], fov: 26 },
+    rear34: { pos: [-3.7 * s, 1.35 * ky, -5.1 * s], look: [0, 0.55 * ky, -0.15], fov: 26 },
+    side: { pos: [8.6 * s, 0.68 * ky, 0], look: [0, 0.58 * ky, 0], fov: 21 },
     top: { pos: [0, 9.5, 0.01], look: [0, 0, 0], fov: 22, up: [-1, 0, 0] },
-    front: { pos: [0, 0.75, 8.5 * s], look: [0, 0.58, 0], fov: 21 },
-    rear: { pos: [0, 0.95, -8.5 * s], look: [0, 0.6, 0], fov: 21 },
-    low: { pos: [2.6 * s, 0.42, 3.4 * s], look: [0, 0.45, 0.2], fov: 32 },
-    lowrear: { pos: [-2.6 * s, 0.5, -3.6 * s], look: [0, 0.5, -0.2], fov: 32 },
+    front: { pos: [0, 0.75 * ky, 8.5 * s], look: [0, 0.58 * ky, 0], fov: 21 },
+    rear: { pos: [0, 0.95 * ky, -8.5 * s], look: [0, 0.6 * ky, 0], fov: 21 },
+    low: { pos: [2.6 * s, 0.42, 3.4 * s], look: [0, 0.45 * ky, 0.2], fov: 32 },
+    lowrear: { pos: [-2.6 * s, 0.5, -3.6 * s], look: [0, 0.5 * ky, -0.2], fov: 32 },
     chase: { pos: [0, 1.8, -6.0], look: [0, v.height, -0.2], fov: 62, carRelative: true },
     cockpit: { pos: [0, 0, 0], look: [0, 0, 0], fov: 75, carRelative: true },
     wheelF: { pos: [3.0, 0.45, 1.4 + (v.wheelbase / 2 - 1.35)], look: [v.trackFront / 2, 0.36, v.wheelbase / 2], fov: 28 },

@@ -388,11 +388,15 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
 
   // ── lights ─────────────────────────────────────────────────────────────────
   const hl = layout.headlight;
+  // (the Mammoth's roof light bar floods the road ahead as well as its lamps do: its two beams are a little wider and brighter)
+  const suvBeams = spec.style === 'suv';
+  const beamAngle = suvBeams ? CARVIS_TUNING.headlightAngle * 1.12 : CARVIS_TUNING.headlightAngle;
+  const beamK = suvBeams ? 1.3 : 1;
   const spots: SpotLight[] = [];
   for (const sg of [1, -1]) {
     // low beam: aimed ~45 m down the road with a gentle decay, so the pool reaches far instead of
     // burning out the tarmac just ahead of the bumper
-    const sp = new SpotLight(0xfff0dc, 0, CARVIS_TUNING.headlightDistance, CARVIS_TUNING.headlightAngle, 1.0, 1.0);
+    const sp = new SpotLight(0xfff0dc, 0, CARVIS_TUNING.headlightDistance, beamAngle, 1.0, 1.0);
     sp.position.set(sg * hl[0], hl[1], hl[2]);
     sp.target.position.set(sg * hl[0] * 0.85, 0, hl[2] + 45);
     sp.castShadow = false;
@@ -703,8 +707,8 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
       // 0.4 still whited out the first metres of snow in the hood and bumper cameras, which look down into the near end of the pool)
       const snowK = env.settings.winter ? 0.25 : 1;
       if (spotsOn) {
-        spots[0].intensity = CARVIS_TUNING.headlightIntensity * snowK * head * lampOut.x;
-        spots[1].intensity = CARVIS_TUNING.headlightIntensity * snowK * head * lampOut.y;
+        spots[0].intensity = CARVIS_TUNING.headlightIntensity * beamK * snowK * head * lampOut.x;
+        spots[1].intensity = CARVIS_TUNING.headlightIntensity * beamK * snowK * head * lampOut.y;
       }
       // (a player's car has the glow only where beams are switched per view: another player's car in a split screen)
       const showGlow = (!playerMode || beamControl) && head > 0.02;

@@ -127,6 +127,8 @@ export const makeSuv: BlueprintFactory = (s) => {
   const features = (d: number, ax: number, y: number, z: number): number => {
     // the grille: a deep black pocket the bars sit in
     d = ssub(d, sdRoundBox(ax, y - grilleY, z - zFas, grilleHx, grilleHy, 0.1, 0.03), 0.02);
+    // two air intakes in the bumper face, either side of the winch
+    d = ssub(d, sdRoundBox(ax - 0.36, y - 0.5, z - zNose, 0.18, 0.04, 0.05, 0.02), 0.01);
     // the body-side groove: one crisp horizontal line the length of the doors
     d = dent(d, Math.max(Math.abs(y - 0.93) - 0.014, 0.7 - ax), 0.008, 0.012);
     // door handles
@@ -171,7 +173,8 @@ export const makeSuv: BlueprintFactory = (s) => {
     const grille = sdRoundBox(ax, y - grilleY, z - (zFas - 0.005), grilleHx + 0.005, grilleHy + 0.005, 0.1, 0.03);
     // (and the dome's air intake: a black band across its front face)
     const intake = Math.max(sdRoundRect2(ax, y - (yHood + 0.026), 0.22, 0.022, 0.01), 2.0 - z);
-    out[o + 3] = Math.min(grille, intake);
+    const bumperVent = Math.max(sdRoundRect2(ax - 0.36, y - 0.5, 0.185, 0.045, 0.022), zNose - 0.06 - z);
+    out[o + 3] = Math.min(grille, intake, bumperVent);
     out[o + 4] = headLamp(ax, y, z);
     out[o + 6] = tailLamp(ax, y, z);
     out[o + 7] = Math.max(sdRoundRect2(ax - 0.74, y - 0.56, 0.06, 0.03, 0.012), z - (zTail + 0.06));

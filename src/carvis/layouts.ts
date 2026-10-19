@@ -54,7 +54,7 @@ export function computeLayout(s: CarVisualSpec): CarLayout {
     halfW: hw + 0.06,
     // (the roundel rides the front door of the 4x4: its panel is a metre taller than a coupe's)
     door: suv ? { z: 0.16, y: 0.98, r: 0.25 } : { z: style === 'prototype' ? 0.2 : (zF + zR) * 0.5 - 0.1, y: style === 'prototype' ? 0.5 : 0.6, r: style === 'prototype' ? 0.17 : 0.2 },
-    hood: { z: style === 'coupe' ? zNose - 1.25 : suv ? zNose - 1.1 : zNose - 0.9, r: suv ? 0.3 : 0.2 },
+    hood: { z: style === 'coupe' ? zNose - 1.25 : suv ? zNose - 0.785 : zNose - 0.9, r: suv ? 0.235 : 0.2 },
     belt: style === 'hatch' ? 0.98 : suv ? 1.22 : 0.93,
   };
   // the livery patterns are drawn for a car 1.3 m tall: a 4x4's flank is lifted onto its own body panels (see livery.ts)

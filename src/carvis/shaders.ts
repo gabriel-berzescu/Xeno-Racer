@@ -322,7 +322,7 @@ float zPx = length(fwidth(vObjPos));
       zFlake = 0.0;
       // lit with the headlamps (uHead), dimly with the daytime running lights, dark when both headlamps are broken
       float barOut = max(uLampOut.x, uLampOut.y);
-      zEmis = vec3(1.0, 0.96, 0.88) * lens * (0.3 + 0.7 * pocket) * (uHead * 15.0 + uDrl * 0.12) * barOut;
+      zEmis = vec3(1.0, 0.96, 0.88) * lens * (0.3 + 0.7 * pocket) * (uHead * 8.0 + uDrl * 0.12) * barOut;
     } else if (zPart == 14) {    // textured black plastic: bolted flares, sliders, bumper steps
       float g = hash13(floor(vObjPos * 380.0));
       zCol = vec3(0.013 + 0.012 * g);

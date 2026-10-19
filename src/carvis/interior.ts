@@ -82,6 +82,9 @@ interface IStyle {
   doorZ: number;
   doorHz: number;
   doorCut: number;
+  /** how far behind the cowl the door cards run (m), and whether there is a second card for a rear door */
+  doorBack: number;
+  rearDoor: boolean;
 }
 
 /** What the older (low, narrow) cabins use for everything the 4x4 raises. */
@@ -103,6 +106,8 @@ const LOW_CABIN = {
   doorZ: 0.62,
   doorHz: 0.62,
   doorCut: 0.7,
+  doorBack: 1.3,
+  rearDoor: false,
 };
 
 function styleFor(style: BodyStyle): IStyle {
@@ -134,15 +139,17 @@ function styleFor(style: BodyStyle): IStyle {
         top: 1.62,
         floorHalfW: 0.88,
         dashHalfW: 0.9,
-        dashHy: 0.3,
+        dashHy: 0.22,
         benchHalfW: 0.82,
         ventX: 0.76,
         doorX: 0.89,
         doorY: 0.93,
         doorHy: 0.4,
-        doorZ: 0.55,
-        doorHz: 0.9,
+        doorZ: 0.535,
+        doorHz: 0.47,
         doorCut: 0.86,
+        doorBack: 1.95,
+        rearDoor: true,
       };
     default:
       return { twoSeats: false, rearBench: false, cage: true, doorCards: false, bucket: true, seatTilt: 0.62, cowlZ: 0.9, cowlY: 0.64, floorY: 0.14, ...LOW_CABIN, wheelUp: 0.34, wheelFwd: 0.6, wheelTilt: 0.9 };
@@ -225,6 +232,7 @@ export function makeInterior(spec: CarVisualSpec, quality: QualityLevel): Interi
       // centre console
       d = Math.min(d, sdRoundBox(ax, y - (floorY + 0.19), z - (sz + 0.45), 0.1, 0.13, 0.62, 0.05));
       if (st.doorCards) d = Math.min(d, sdRoundBox(ax - st.doorX, y - st.doorY, z - (st.cowlZ - st.doorZ), 0.02, st.doorHy, st.doorHz, 0.015));
+      if (st.rearDoor) d = Math.min(d, sdRoundBox(ax - st.doorX, y - st.doorY, z - (st.cowlZ - 1.45), 0.02, st.doorHy, 0.46, 0.015));
     } else {
       // monocoque: nose bulkhead ahead of the pedals, tunnel, a small dash display pod
       d = Math.min(d, sdRoundBox(ax, y - (floorY + 0.2), z - (st.cowlZ + 0.1), 0.34, 0.22, 0.1, 0.06));
@@ -283,7 +291,7 @@ export function makeInterior(spec: CarVisualSpec, quality: QualityLevel): Interi
   const cabinKind = (x: number, y: number, z: number, _nx: number, _ny: number, nz: number): number => {
     const ax = Math.abs(x);
     if (y < floorY + 0.045 && !(Math.abs(x - sx) < 0.25 && z > sz - 0.35 && z < sz + 0.4)) return IPART.floor;
-    if (st.doorCards && !proto && ax > st.doorCut && z > st.cowlZ - 1.3) return IPART.doorCard;
+    if (st.doorCards && !proto && ax > st.doorCut && z > st.cowlZ - st.doorBack) return IPART.doorCard;
     if (!proto && z > wheelPos[2] - 0.05 && y > floorY + 0.2 && ax > 0.15) return IPART.dash;
     if (!proto && z > wheelPos[2] - 0.05 && y > floorY + 0.35) return IPART.dash;
     if (!proto && ax < 0.14 && z > sz + 0.1) return IPART.console;
@@ -395,14 +403,16 @@ function buildSteeringWheel(pb: PartBuilder, style: BodyStyle): void {
     for (const sg of [-1, 1]) pb.ellipsoid([sg * 0.2, 0.0, -0.01], 0.05, 0.065, 0.045, 14, 9);
     return;
   }
-  const R = style === 'hatch' ? 0.18 : 0.175;
-  const tube = style === 'coupe' ? 0.0145 : 0.018;
+  // (the 4x4's wheel is a big round chunky one: 41 cm across, a 4.7 cm rim, no flat bottom)
+  const suv = style === 'suv';
+  const R = suv ? 0.205 : style === 'hatch' ? 0.18 : 0.175;
+  const tube = suv ? 0.0235 : style === 'coupe' ? 0.0145 : 0.018;
   const N = 40;
   const rings: V3[][] = [];
   for (let i = 0; i <= N; i++) {
     const t = (i / N) * Math.PI * 2;
     let r = R;
-    if (style !== 'hatch') {
+    if (style !== 'hatch' && !suv) {
       const cy = Math.sin(t);
       if (cy < -0.78) r = R * (0.78 / -cy);
     }
@@ -420,9 +430,9 @@ function buildSteeringWheel(pb: PartBuilder, style: BodyStyle): void {
   pb.setPart(IPART.wheelRim);
   pb.loft(rings);
   pb.setPart(IPART.wheelSpoke);
-  pb.cylinder([0, 0, -0.012], [0, 0, 0.028], 0.05, 0.045, 24, true);
-  pb.box([0, 0, 0.0], R * 0.95, 0.017, 0.007);
-  pb.box([0, -0.07, 0.0], 0.017, 0.07, 0.007);
+  pb.cylinder([0, 0, -0.012], [0, 0, 0.028], suv ? 0.062 : 0.05, suv ? 0.056 : 0.045, 24, true);
+  pb.box([0, 0, 0.0], R * 0.95, suv ? 0.026 : 0.017, 0.007);
+  pb.box([0, suv ? -0.1 : -0.07, 0.0], suv ? 0.026 : 0.017, suv ? 0.1 : 0.07, 0.007);
   pb.setPart(IPART.seatAccent);
   pb.box([0, R, 0.0], 0.007, 0.012, tube * 1.15);
   pb.setPart(IPART.glove);

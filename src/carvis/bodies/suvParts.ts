@@ -260,12 +260,11 @@ function addSpare(b: PartBuilder, d: SuvDims, R: number, W: number): void {
   for (const sgn of [-1, 1]) {
     const ang = sgn * (PI / 4);
     const ca = Math.cos(ang), sa = Math.sin(ang);
-    b.extrude(roundPoly([-0.17, -0.026, 0.17, -0.026, 0.17, 0.026, -0.17, 0.026], 0.012), { o: [0, y0, zFace - W - 0.002], u: [ca, sa, 0], v: [-sa, ca, 0] }, -0.006, 0.002, 1);
+    b.extrude(roundPoly([-0.165, -0.034, 0.165, -0.034, 0.165, 0.034, -0.165, 0.034], 0.016), { o: [0, y0, zFace - W - 0.002], u: [ca, sa, 0], v: [-sa, ca, 0] }, -0.006, 0.002, 1);
   }
   // carrier: a hinge block and an arm on the tailgate behind it
   b.setPart(PART.rugged);
   b.box([0, y0, d.zTg - 0.006], 0.07, 0.07, 0.008);
-  b.box([0.62, y0 - 0.2, d.zTg - 0.014], 0.025, 0.28, 0.014);
 }
 
 /** Heavy horizontal bars across the grille pocket, with the X badge on the middle two. */
@@ -302,7 +301,18 @@ function addUnderguards(b: PartBuilder, d: SuvDims): void {
   b.box([0, 0.55, zN + 0.014], 0.2, 0.036, 0.012);
   b.setPart(PART.silver);
   b.cylinder([-0.12, 0.55, zN + 0.03], [0.12, 0.55, zN + 0.03], 0.018, 0.018, 12, true);
+  // fog lamps in the bumper corners: a chrome bezel round a clear lens (not lit: the bumper is not a headlamp)
+  for (const sg of [-1, 1]) {
+    b.setPart(PART.chrome);
+    b.cylinder([sg * 0.76, 0.585, zN - 0.004], [sg * 0.76, 0.585, zN + 0.009], 0.06, 0.058, 22, true);
+    b.setPart(PART.lampWhite);
+    b.cylinder([sg * 0.76, 0.585, zN + 0.004], [sg * 0.76, 0.585, zN + 0.0105], 0.046, 0.046, 22, true);
+    // amber side markers on the fender tops, over the lamps
+    b.setPart(PART.lampAmber);
+    b.box([sg * 0.9, d.yFend + 0.004, zN - 0.28], 0.032, 0.006, 0.014);
+  }
   // rear: a recovery plate under the tail
+  b.setPart(PART.silver);
   b.extrude(roundPoly([-0.5, d.zTail + 0.04, 0.5, d.zTail + 0.04, 0.5, d.zTail + 0.4, -0.5, d.zTail + 0.4], 0.04), { o: [0, 0.368, 0], u: [1, 0, 0], v: [0, 0, 1] }, 0.016, 0.004, 2);
 }
 

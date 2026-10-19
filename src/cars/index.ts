@@ -481,7 +481,8 @@ const mammoth: CarDefinition = {
     cylinders: 8, layout: 'v', crankType: 'crossplane', displacement: 6.2, turbo: false, exhaustOpenness: 0.7, brightness: 0.42, gearWhine: 0.15, crackle: 0.5,
     supercharger: { ratio: 2.4, lobes: 4 }, exhaustSystem: 'dual',
   },
-  defaultLivery: { primary: '#3b4030', secondary: '#121314', accent: '#ff7a00', pattern: 'split', number: 4, driver: 'You', finish: 0, metallic: false },
+  // (satin dark olive over black cladding, an orange break line, orange recovery hooks: the accent colour is the hooks')
+  defaultLivery: { primary: '#444b34', secondary: '#101112', accent: '#ff7a00', pattern: 'split', number: 4, driver: 'You', finish: 0.78, metallic: false },
   physics: {
     chassis: {
       mass: 2450,
