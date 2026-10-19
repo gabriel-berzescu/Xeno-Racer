@@ -551,13 +551,13 @@ const mammoth: CarDefinition = {
     tireFront: allTerrainTire(315, 55, 20, 1.045),
     tireRear: allTerrainTire(315, 55, 20, 1.045),
     // Long travel and soft: 24 and 26 cm, so that a 12 cm kerb or the foot of a snowbank is a bump and not a launch ramp. Wheel rates of 32 and 36 kN/m
-    // (1.11 Hz on a 660 kg front corner, 1.27 Hz on a 560 kg rear one) with bars of 11 and 2 kN/m give 139 kNm/rad of roll stiffness: the 5.2 degrees at
+    // (1.11 Hz on a 660 kg front corner, 1.27 Hz on a 560 kg rear one) with bars of 12 and 2 kN/m give 142 kNm/rad of roll stiffness: the 5 degrees at
     // 0.89 g that the body shows (m a (h - roll centre) over it), and 3.3 degrees of pitch at 1 g. 58 % of the roll stiffness is at the front, where the
     // car weighs more: a tall, short-tracked car shifts 7 kN across its axles at the limit, and a set-up with 54 % of it at the rear (a bar of 7 kN/m there)
     // gave a higher skidpad figure but left the lighter rear axle an inner wheel at 0.5 kN, a tail that swung in a lane change to 27 degrees of body slip
     // (a Vanta: 7) and a spin without the aids.
     // Damped at 0.33 in bump and 0.61 in rebound at the front (0.36 and 0.67 at the rear), so that a hard flick at speed unloads an inner wheel for a moment.
-    suspFront: { travel: 0.24, spring: 32000, bump: 3000, rebound: 5600, antiRoll: 11000, camber: -0.4 * DEG },
+    suspFront: { travel: 0.24, spring: 32000, bump: 3000, rebound: 5600, antiRoll: 12000, camber: -0.4 * DEG },
     suspRear: { travel: 0.26, spring: 36000, bump: 3200, rebound: 6000, antiRoll: 2000, camber: -0.2 * DEG },
   },
 };

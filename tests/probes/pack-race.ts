@@ -191,7 +191,7 @@ export function runPack(trackId: string, carSpec: string, diff: Difficulty, n: n
         if (st.lastImpact.kind === 'car') {
           c.carHits++;
           if (st.lastImpact.strength > 3) c.hardHits++;
-          if (log && st.lastImpact.strength > 3) events.push(`t=${world.time.toFixed(1)} car${c.v.id} hit car (${st.lastImpact.strength.toFixed(1)} m/s) s=${c.ai.s.toFixed(0)} d=${c.ai.d.toFixed(1)}`);
+          if (log && st.lastImpact.strength > +(process.env.HITMIN ?? 3)) events.push(`t=${world.time.toFixed(2)} car${c.v.id} ${c.v.def.id} hit car (${st.lastImpact.strength.toFixed(1)} m/s) s=${c.ai.s.toFixed(0)} d=${c.ai.d.toFixed(1)}`);
         } else {
           c.wallHits++;
           if (log) events.push(`t=${world.time.toFixed(1)} car${c.v.id} hit ${st.lastImpact.kind} (${st.lastImpact.strength.toFixed(1)} m/s) s=${c.ai.s.toFixed(0)} d=${c.ai.d.toFixed(1)}`);
