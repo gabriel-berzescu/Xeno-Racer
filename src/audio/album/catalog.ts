@@ -170,7 +170,10 @@ export const CATALOG: InstrumentDoc[] = [
       ['subWave', "'sine' (default) or 'square' (the `sub` parameter's oscillator)"],
     ],
     presets: SYNTH_PRESETS,
-    notes: ['Chords: `s.chords("Am | F")`, or notes in brackets `[A2,E3,A3]`. A slide `~` glides from the note right before it in `mode: \'mono\'` and `\'legato\'` (the lead presets); in the polyphonic default every note has its own voice and `~` does nothing.'],
+    notes: [
+      'Chords: `s.chords("Am | F")`, or notes in brackets `[A2,E3,A3]`. A slide `~` glides from the note right before it in `mode: \'mono\'` and `\'legato\'` (the lead presets); in the polyphonic default every note has its own voice and `~` does nothing.',
+      'Attack click: `click` (0..1) adds a short burst of band-passed noise at the start of every new note, the hammer of a piano or the pick of a pluck. It is added after the filter and outside the amplitude envelope, so a dark patch or a slow attack keeps it. `clickDecay` is the time constant of its exponential envelope (the default 12 ms is gone after about 60 ms), `clickTone` the centre of its band-pass for a middle-C note (2500 Hz; the band is about an octave wide) and `clickKeytrack` how much that centre follows the pitch of the note (0.5: half an octave up for an octave up). It scales with the velocity, is a different burst for every note (seeded: a song always clicks the same way) and is not made again by a tied note (`~` in a mono or legato patch). At 1 it starts about as loud as the start of a plucked note, 0.1 to 0.3 is a subtle hammer, and a pad that swells in wants less. 0, the default, is off and changes nothing.',
+    ],
   },
   {
     factory: 'sub',

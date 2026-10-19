@@ -950,7 +950,7 @@ response, stereo balance), `drum-report.ts` (numbers for every electronic drum),
 `speed.ts` (the render speed of a dense 3.5-minute track), `hash-album.ts` (the SHA-256 of the audio of every track of the album and of the Sound Check:
 run it with `--save before.json` before a change to the engine and with `--check before.json` after it; with every new feature off, no hash may move)
 `pump-lab.ts` (how close `fx.pump` is to the sidechain, where its ducks land, what it costs), `growl-dive-lab.ts` (the growl's pitch envelope against the integral of the intended
-frequency), `growl-width-lab.ts` (the decorrelators compared, and the growl's width band by band: side-to-mid, correlation, cost) and `golden-renders.ts` (plays scripted notes through
+frequency), `growl-width-lab.ts` (the decorrelators compared, and the growl's width band by band: side-to-mid, correlation, cost), `click-lab.ts` (the synth's attack click: its centre, decay, level against the body, cost) and `golden-renders.ts` (plays scripted notes through
 one instrument the way the engine does, and hashes the growl and the synth: the tests keep them bit-identical while the newer options are off).
 
 **Tests**: `npx vitest run tests/album-engine.test.ts` (about 15 s) checks determinism, block-size independence, the master of the Sound
@@ -1069,7 +1069,10 @@ needs a human ear to confirm. The numbers below come from `sandbox/album/lab/` (
   and may show as a faint inharmonic haze on a bright, loud solo lead in the top octaves with the filter wide open: keep such leads dark or put
   them through `fx.filter`. One
   supersaw note measures 59 % of its energy within +-20 cents of the pitch and a side/mid ratio of -2 dB (very wide). FM bells and
-  e-pianos are simple two-operator FM.
+  e-pianos are simple two-operator FM. The attack click (`sandbox/album/lab/click-lab.ts`) starts on the sample of its note, falls 20 dB in
+  ln(10) x `clickDecay` (28 ms for the default), is centred within 90 cents of `clickTone` (the geometric mean of its half-power points: its band-pass
+  is about an octave wide, too flat on top to give a sharper peak), starts within 4 dB of the body of a plucked note at `click` 1, adds 67 dB to the
+  rms above 2 kHz of a pluck whose filter is closed to 150 Hz, and costs 0.2 ms per second on a sixteenth-note arpeggio.
 - **Bass instruments.** Sub, darksynth bass, reese, growl and acid are built from the usual recipes (saturation at 2x oversampling, vowel
   band-passes and a wavefolder for the growl, a 24 dB ladder tapped at 18 dB for the acid). Measured: the growl's centroid swings 280 to
   720 Hz at the LFO rate (about 2.1-2.3 cycles per second for quarter notes at 140 BPM; the `screech` preset reaches 1.6 kHz; with the growl's own sub off,
@@ -1477,6 +1480,7 @@ s.synth('supersaw-pad', { reverb: 0.3 }).play(s.chords('Am | F | C | G', { octav
 ```
 
 - Chords: `s.chords("Am | F")`, or notes in brackets `[A2,E3,A3]`. A slide `~` glides from the note right before it in `mode: 'mono'` and `'legato'` (the lead presets); in the polyphonic default every note has its own voice and `~` does nothing.
+- Attack click: `click` (0..1) adds a short burst of band-passed noise at the start of every new note, the hammer of a piano or the pick of a pluck. It is added after the filter and outside the amplitude envelope, so a dark patch or a slow attack keeps it. `clickDecay` is the time constant of its exponential envelope (the default 12 ms is gone after about 60 ms), `clickTone` the centre of its band-pass for a middle-C note (2500 Hz; the band is about an octave wide) and `clickKeytrack` how much that centre follows the pitch of the note (0.5: half an octave up for an octave up). It scales with the velocity, is a different burst for every note (seeded: a song always clicks the same way) and is not made again by a tied note (`~` in a mono or legato patch). At 1 it starts about as loud as the start of a plucked note, 0.1 to 0.3 is a subtle hammer, and a pad that swells in wants less. 0, the default, is off and changes nothing.
 
 | option | meaning |
 |---|---|
@@ -1515,6 +1519,10 @@ Parameters (all automatable; also usable as options):
 | `pwmRate` | 0.5 | 0.02 .. 8 | Hz | Speed of the pulse-width modulation. |
 | `sub` | 0 | 0 .. 1 |  | Level of a sine sub oscillator one octave below the first layer. |
 | `noise` | 0 | 0 .. 1 |  | Level of white noise mixed into the oscillators. |
+| `click` | 0 | 0 .. 1 |  | Attack noise: a short burst of band-passed noise at the start of every new note (the hammer of a piano, the pick of a pluck). It is added after the filter and outside the amplitude envelope, so a dark patch or a slow attack keeps it, and it scales with the velocity of the note. 1 is a click as loud as the body of the note. 0 = off. |
+| `clickDecay` | 0.012 | 0.002 .. 0.15 | s | How fast the click dies away: the time constant of its exponential envelope (8.7 dB down after this long, 26 dB after three times, 43 dB after five). |
+| `clickTone` | 2500 | 200 .. 12000 | Hz | Centre frequency of the band-pass the click goes through, for a middle-C note (see `clickKeytrack`). |
+| `clickKeytrack` | 0.5 | 0 .. 1 |  | How much the centre of the click follows the pitch of the note: 1 = an octave up in the note is an octave up in the click, 0 = the click always sits at `clickTone`. |
 | `glide` | 0 | 0 .. 2 | s | Portamento time in mono / legato modes (a slide-flagged note always glides, at least 60 ms). |
 | `vibDepth` | 0 | 0 .. 100 | cents | Vibrato depth (fades in after vibDelay). |
 | `vibRate` | 5.5 | 0.5 .. 12 | Hz | Vibrato speed. |

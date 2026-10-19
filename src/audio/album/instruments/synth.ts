@@ -41,6 +41,10 @@ export const SYNTH_SPECS = {
   pwmRate: { default: 0.5, min: 0.02, max: 8, unit: 'Hz', curve: 'exp', doc: 'Speed of the pulse-width modulation.' },
   sub: { default: 0, min: 0, max: 1, doc: 'Level of a sine sub oscillator one octave below the first layer.' },
   noise: { default: 0, min: 0, max: 1, doc: 'Level of white noise mixed into the oscillators.' },
+  click: { default: 0, min: 0, max: 1, doc: 'Attack noise: a short burst of band-passed noise at the start of every new note (the hammer of a piano, the pick of a pluck). It is added after the filter and outside the amplitude envelope, so a dark patch or a slow attack keeps it, and it scales with the velocity of the note. 1 is a click as loud as the body of the note. 0 = off.' },
+  clickDecay: { default: 0.012, min: 0.002, max: 0.15, unit: 's', curve: 'exp', doc: 'How fast the click dies away: the time constant of its exponential envelope (8.7 dB down after this long, 26 dB after three times, 43 dB after five).' },
+  clickTone: { default: 2500, min: 200, max: 12000, unit: 'Hz', curve: 'exp', doc: 'Centre frequency of the band-pass the click goes through, for a middle-C note (see `clickKeytrack`).' },
+  clickKeytrack: { default: 0.5, min: 0, max: 1, doc: 'How much the centre of the click follows the pitch of the note: 1 = an octave up in the note is an octave up in the click, 0 = the click always sits at `clickTone`.' },
   glide: { default: 0, min: 0, max: 2, unit: 's', doc: 'Portamento time in mono / legato modes (a slide-flagged note always glides, at least 60 ms).' },
   vibDepth: { default: 0, min: 0, max: 100, unit: 'cents', doc: 'Vibrato depth (fades in after vibDelay).' },
   vibRate: { default: 5.5, min: 0.5, max: 12, unit: 'Hz', doc: 'Vibrato speed.' },
@@ -144,7 +148,25 @@ class Voice {
   subPh = 0;
   fmPh = 0;
   fmFb = 0;
+  // the attack click of this note: its envelope (0 = none, it ends below CLICK_FLOOR), the per-sample decay, the amplitude, a band-pass
+  // and a noise generator of its own (seeded per note, so the noise does not depend on how the song is cut into segments)
+  clickEnv = 0;
+  clickK = 0;
+  clickGain = 0;
+  readonly clickBp = new Svf();
+  readonly clickNoise = new Noise(1);
 }
+
+/** The click is over when its envelope is under this (-80 dB): the voice then ends with its amplitude envelope as usual. */
+const CLICK_FLOOR = 1e-4;
+/** The band-pass of the click: a Q of 1, so about an octave wide. */
+const CLICK_Q = 1;
+/**
+ * Scales the click so that click = 1 starts about as loud as the start of a plucked note (sandbox/album/lab/click-lab.ts: the rms of the
+ * click over the first 3 ms against that of the body, with a velocity of 0.8: pluck -1.8 dB, dark-pluck -1.3 dB, trance-pluck +3.8 dB,
+ * arp-bright +0.6 dB). It is relative to the level of the preset, like the body, and 1 is a lot for a pad that swells in.
+ */
+const CLICK_GAIN = 1.3;
 
 function lfoShape(shape: string, ph: number, rnd: number, rnd2: number): number {
   switch (shape) {
@@ -195,6 +217,8 @@ export class Synth extends ParamBase<typeof SYNTH_SPECS> implements Instrument {
   private readonly noise: Noise;
   private readonly held: number[] = [];
   private tick = 0;
+  private noteCount = 0; // notes started so far: the seed of the click noise of the next one
+  private readonly clickSeed: number;
   // per-segment scratch
   private readonly bl = new Float64Array(BLOCK);
   private readonly br = new Float64Array(BLOCK);
@@ -223,6 +247,7 @@ export class Synth extends ParamBase<typeof SYNTH_SPECS> implements Instrument {
     this.sr = ctx.sr;
     this.rng = new Rng(ctx.seed);
     this.noise = new Noise(ctx.seed ^ 0x5bd1e995);
+    this.clickSeed = (ctx.seed ^ 0x3c6ef372) | 0;
     const layers = (o.layers as SynthLayer[] | undefined) ?? [{ wave: 'saw' }];
     if (layers.length < 1 || layers.length > MAXL) throw new Error(`synth: 1 to ${MAXL} layers please (got ${layers.length})`);
     this.layers = layers.map((l, i) => {
@@ -321,6 +346,9 @@ export class Synth extends ParamBase<typeof SYNTH_SPECS> implements Instrument {
       v.ladR.reset();
       v.svfL.reset();
       v.svfR.reset();
+      // the attack click: every new note (not a tied one) has its own, and its own noise
+      this.noteCount++;
+      if (p.click > 0) this.startClick(v, note, vel);
     }
     const glideOn = (this.mode !== 'poly' && p.glide > 0) || (flags & FLAG.SLIDE) !== 0;
     if (!v.active || !glideOn) {
@@ -331,6 +359,45 @@ export class Synth extends ParamBase<typeof SYNTH_SPECS> implements Instrument {
       v.glideK = 1 - Math.exp(-1 / (Math.max(t, 0.002) * this.sr * 0.35));
     }
     v.active = true;
+  }
+
+  /**
+   * Starts the attack click of a note: white noise (its own generator, seeded by the number of the note: the same song always clicks the
+   * same way, however it is cut into segments) through a band-pass at `clickTone`, moved by `clickKeytrack` with the pitch, under an
+   * exponential envelope, scaled by the velocity. The settings are those of the moment the note starts.
+   */
+  private startClick(v: Voice, note: number, vel: number): void {
+    const p = this.params;
+    const fc = clamp(p.clickTone * Math.pow(2, (p.clickKeytrack * (note - 60)) / 12), 100, this.sr * 0.45);
+    v.clickBp.reset();
+    v.clickBp.set(fc, CLICK_Q, this.sr);
+    v.clickK = Math.exp(-1 / (p.clickDecay * this.sr));
+    v.clickEnv = 1;
+    // the band-passed noise grows with the square root of its centre frequency (a constant Q): scaled back, a click keeps its loudness as its tone moves
+    v.clickGain = p.click * vel * CLICK_GAIN * Math.sqrt(2500 / fc) * dbToLin(p.level - 10) * 0.5;
+    v.clickNoise.s = (Math.imul(this.noteCount, 0x9e3779b1) ^ this.clickSeed) | 0 || 0x2545f491;
+    for (let i = 0; i < 8; i++) v.clickNoise.next(); // close seeds start far apart
+  }
+
+  /** Adds the click of a voice to the output: after the filter and the amplitude envelope, so neither a dark patch nor a slow attack takes it away. */
+  private addClick(v: Voice, outL: Float64Array, outR: Float64Array, n: number, stereo: boolean): void {
+    const bp = v.clickBp;
+    const noise = v.clickNoise;
+    const k = v.clickK;
+    const g = v.clickGain;
+    let env = v.clickEnv;
+    for (let i = 0; i < n; i++) {
+      bp.step(noise.next());
+      const c = bp.k * bp.bp * env * g; // the band-pass with a peak gain of 1
+      outL[i] += c;
+      if (stereo) outR[i] += c;
+      env *= k;
+      if (env <= CLICK_FLOOR) {
+        env = 0; // over, on a sample that does not depend on where the segments end
+        break;
+      }
+    }
+    v.clickEnv = env;
   }
 
   noteOn(note: number, vel: number, _dur: number, flags: number): void {
@@ -667,7 +734,8 @@ export class Synth extends ParamBase<typeof SYNTH_SPECS> implements Instrument {
       outL[i] += bl[i] * g;
       if (stereo) outR[i] += br[i] * g;
     }
-    if (idle >= 0) v.active = false;
+    if (v.clickEnv > CLICK_FLOOR) this.addClick(v, outL, outR, n, stereo);
+    if (idle >= 0 && !(v.clickEnv > CLICK_FLOOR)) v.active = false; // a click that outlives a very short note keeps the voice alive until it is over
   }
 }
 
