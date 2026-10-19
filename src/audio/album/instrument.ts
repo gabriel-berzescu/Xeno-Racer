@@ -106,6 +106,11 @@ export interface Instrument extends ParamHost {
    * [0, 12]. The harmony check (Song.clashes) checks each of them, so a clash with a hidden octave is found too.
    */
   readonly pitches?: readonly number[];
+  /**
+   * Optional: true when the instrument sounds one note at a time (a mono or legato synth, the basses): two of its own notes that
+   * overlap for a moment (a slur written as an overlap) are one voice moving, so the harmony check never compares them.
+   */
+  readonly monophonic?: boolean;
   /** Starts a note. `note` is a MIDI number (A4 = 69; fractions allowed), `vel` 0..1, `dur` the planned length in samples. */
   noteOn(note: number, vel: number, dur: number, flags: number): void;
   noteOff(note: number): void;

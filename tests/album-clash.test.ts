@@ -38,6 +38,20 @@ describe('Song.clashes', () => {
     expect(s.clashes()).toBe('no clashes'); // written notes only: D4 F#4 A4 against C#5 is fine
   });
 
+  it("hears a one-voice slur as one voice, a chord synth's overlap as two notes", () => {
+    const slur = 'Bb5:4 A5:4 . . . . . . . .'; // written with an overlap below: Bb5 still sounds when A5 starts
+    const legato = song((s) => {
+      s.synth('supersaw-lead', { name: 'lead' }).play(s.notes(slur), 0, 1, { gate: 1.2 });
+    });
+    expect(legato.channelList[0].inst.monophonic).toBe(true);
+    expect(legato.clashes()).toBe('no clashes');
+    const poly = song((s) => {
+      s.synth('pluck', { name: 'keys' }).play(s.notes(slur), 0, 1, { gate: 1.2 });
+    });
+    expect(poly.channelList[0].inst.monophonic).toBe(false);
+    expect(poly.clashes()).toContain('keys Bb5 / keys A5, minor 2nd');
+  });
+
   it('leaves consonant harmony, drums and ghost notes alone', () => {
     const s = song((s) => {
       s.synth('warm-pad', { name: 'pad' }).play(s.chords('Am | F | C | G', { octave: 3, lead: true }), 0, 4);

@@ -20,6 +20,8 @@ abstract class BassBase<S extends ParamSpecs> extends ParamBase<S> implements In
   readonly stereo: boolean = false;
   /** A `~` note glides from the note right before it (no rest between); anywhere else the mark does nothing. */
   readonly slides = 'tie' as const;
+  /** One note at a time (last note wins). */
+  readonly monophonic = true;
   protected readonly sr: number;
   protected readonly ctx: Ctx;
   protected readonly mono: MonoTracker;

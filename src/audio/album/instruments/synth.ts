@@ -236,6 +236,11 @@ export class Synth extends ParamBase<typeof SYNTH_SPECS> implements Instrument {
   private readonly dtu = new Float64Array(MAXL * MAXU);
   private readonly mod = { cutoff: 0, res: 0, pitch: 0, amp: 0, pw: 0, fm: 0, drive: 0 };
 
+  /** One voice in 'mono' and 'legato' modes (the harmony check does not compare its notes with each other). */
+  get monophonic(): boolean {
+    return this.mode !== 'poly';
+  }
+
   /** The pitches a note sounds at, in semitones from it: the layers loud enough to hear (noise aside) and the sub oscillator. */
   get pitches(): number[] {
     const loud = Math.max(...this.layers.map((l) => l.level));

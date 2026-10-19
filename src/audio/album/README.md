@@ -849,7 +849,8 @@ How to read it:
   where two pitched notes sound together a minor second or a minor ninth apart (C5 over a B4, a Db5 over the C of a C chord: the intervals that
   sound like a mistake) and, below C3, a major second (two bass notes a tone apart are mud), grouped by bar with the channels and the notes:
   `bar 39 (beat 3): lead F5 / saws E4, minor 9th (4 sixteenths)`. It reads the score, not the audio (notes from start to end, not their release
-  tails; drums, muted channels and ghost notes are left out), so it is instant. A clash can be meant (a passing note, an appoggiatura that
+  tails; drums, muted channels and ghost notes are left out, and a one-voice instrument, a mono or legato synth or a bass, is never compared with
+  itself: its notes overlapping for a moment are a slur), so it is instant. A clash can be meant (a passing note, an appoggiatura that
   resolves on the next sixteenth); one that lasts several sixteenths on a strong beat usually is not. Run it after every change of notes or
   voicings; `song.clashes()` returns the same text in code. `no clashes` is the goal for a lead over its chords. `CLASH=2` also checks the
   synths' octave layers above the written note (`supersaw-chord` sounds every note an octave up too) against the other parts: a harmony line a

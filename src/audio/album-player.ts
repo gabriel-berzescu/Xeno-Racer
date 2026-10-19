@@ -28,6 +28,9 @@ import { SKIP_FADE_SECONDS } from './album-stream';
 import albumWorkletUrl from './album.worklet.ts?worker&url';
 
 /** Fade in when the music starts, fade out when it stops (s). */
+/** The songs of the first build with music (1.0.0 + Vol. 1's first five): its saved shuffle orders do not list the album they were made for. */
+export const FIRST_RELEASE: readonly string[] = ['redline-protocol', 'third-eye-highway', 'slipstream', 'flat-out', 'black-ice-circuit'];
+
 export const ALBUM_FADE_IN_S = 1.5;
 export const ALBUM_FADE_OUT_S = 1.5;
 /** A skip fades the old track out over this long, and the new one in over as long again (s): the streamer's own fade-in, see album-stream.ts. */
@@ -355,6 +358,7 @@ export class AlbumPlayer {
       this.tracks.map((t) => t.id),
       this.storage,
       this.rng,
+      FIRST_RELEASE, // a save from the first build with music does not list its album: it had these five songs
     );
     const first = this.bag.take();
     if (first === null) return;

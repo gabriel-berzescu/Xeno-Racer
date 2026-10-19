@@ -173,6 +173,39 @@ describe('shuffle bag, kept between sessions', () => {
     for (const id of ids(8)) expect(order, id).toContain(id);
   });
 
+  it('plays the songs an update adds at once: shuffled into the saved order, starting with a new one', () => {
+    // a save from the first build with music: five songs, no album list kept (the player passes that build's five as the legacy album)
+    const store = new MemStorage();
+    const five = loadBag(ids(5), store, rngOf(3));
+    drawMany(five, 2);
+    saveBag(five, store);
+    const old = JSON.parse(store.getItem(BAG_KEY)!) as { q: string[]; last: string; album?: string[] };
+    delete old.album;
+    store.setItem(BAG_KEY, JSON.stringify(old));
+    expect(loadBag(ids(10), store, rngOf(5)).peek(4).every((id) => Number(id.slice(1)) <= 5)).toBe(true); // without knowing its album: as saved
+    const ten = loadBag(ids(10), store, rngOf(5), ids(5)); // the player says what the first build had
+    const order = drawMany(ten, 10);
+    expect(Number(order[0].slice(1))).toBeGreaterThan(5); // a new song first
+    expect(order.slice(0, 10).filter((id) => Number(id.slice(1)) > 5).sort()).toEqual(['t10', 't6', 't7', 't8', 't9']); // all five within ten
+    for (let i = 1; i < order.length; i++) expect(order[i]).not.toBe(order[i - 1]);
+    expect(order[0]).not.toBe(old.last);
+  });
+
+  it('knows from the album it kept which songs are new (not the ones already played from the bag)', () => {
+    const store = new MemStorage();
+    const seven = loadBag(ids(7), store, rngOf(11));
+    drawMany(seven, 5); // the queue no longer holds the five just played
+    saveBag(seven, store);
+    expect((JSON.parse(store.getItem(BAG_KEY)!) as { album: string[] }).album).toEqual(ids(7));
+    const nine = loadBag(ids(9), store, rngOf(12));
+    const next = nine.peek(4);
+    expect(['t8', 't9']).toContain(next[0]); // a new song first
+    expect(next.filter((id) => id === 't8' || id === 't9').length).toBe(2); // both new ones soon
+    // none of the songs just played comes back before the rest of the old bag
+    const savedQ = (JSON.parse(store.getItem(BAG_KEY)!) as { q: string[] }).q;
+    expect(nine.peek(4).filter((id) => !['t8', 't9'].includes(id))).toEqual(savedQ.slice(0, 2));
+  });
+
   it('works without any storage: none, one that throws on read, one that throws on write', () => {
     expect(() => loadBag(ids(3), null, rngOf(1)).take()).not.toThrow();
     const reads: BagStorage = {

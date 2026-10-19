@@ -1136,6 +1136,7 @@ export class Song {
           if (a.src === b.src) continue; // one note's own layers
           if (a.layer && b.layer) continue; // two layers: colour, not a wrong note
           if (a.ch === b.ch && (a.layer || b.layer)) continue; // a chord against its own octave layers is the patch's colour
+          if (a.ch === b.ch && this.channels[a.ch].inst.monophonic) continue; // one voice: an overlap is a slur, not two notes
           const d = Math.abs(a.n - b.n);
           const lo = Math.min(a.n, b.n);
           const what = d === 1 ? 'minor 2nd' : d === 13 ? 'minor 9th' : d === 2 && lo < 48 ? 'major 2nd in the bass' : '';

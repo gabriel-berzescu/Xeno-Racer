@@ -13,10 +13,14 @@
 
 export type Rng = () => number;
 
-/** What is kept: the tracks still to come, in order, and the last one taken (what the next bag must not start with). */
+/**
+ * What is kept: the tracks still to come, in order, the last one taken (what the next bag must not start with), and the tracks the album
+ * had (so that an update that adds songs can tell which are new; saves from before it was kept do not have it).
+ */
 export interface BagState {
   q: string[];
   last: string | null;
+  album?: string[];
 }
 
 export const BAG_KEY = 'xeno-racer.album.v1';
@@ -43,8 +47,9 @@ export class ShuffleBag {
    * @param rng   a source of numbers in [0, 1) (Math.random by default; tests pass a seeded one)
    * @param saved a state from `state()`, possibly from an older build with other tracks or from a hand-edited save: whatever of it
    *              makes sense is kept, the rest is dropped
+   * @param legacyAlbum the tracks the album had when a save that does not list them was written (the builds before saves kept it)
    */
-  constructor(ids: readonly string[], private readonly rng: Rng = Math.random, saved?: unknown) {
+  constructor(ids: readonly string[], private readonly rng: Rng = Math.random, saved?: unknown, legacyAlbum?: readonly string[]) {
     this.ids = [...new Set(ids)];
     if (saved && typeof saved === 'object') {
       const s = saved as Partial<BagState>;
@@ -57,6 +62,19 @@ export class ShuffleBag {
           if (typeof id !== 'string' || !known.has(id) || (id === prev && this.ids.length > 1)) continue;
           this.queue.push(id);
           prev = id;
+        }
+        // songs an update added come at once, not after the rest of the saved order: they are shuffled in between its tracks, starting with
+        // a new one. New means not in the album the save knew (its own list, or for an older save the one the caller says it had)
+        const knew = Array.isArray(s.album) ? s.album : legacyAlbum;
+        const had = new Set(knew ?? []);
+        const fresh = knew ? shuffle(this.ids.filter((id) => !had.has(id)), rng) : [];
+        if (this.queue.length && fresh.length) {
+          const old = this.queue;
+          this.queue = [];
+          for (let i = 0; i < Math.max(old.length, fresh.length); i++) {
+            if (i < fresh.length) this.queue.push(fresh[i]);
+            if (i < old.length) this.queue.push(old[i]);
+          }
         }
       }
     }
@@ -95,7 +113,7 @@ export class ShuffleBag {
 
   /** Put the queue back as it should be saved. */
   state(): BagState {
-    return { q: [...this.queue], last: this.last };
+    return { q: [...this.queue], last: this.last, album: [...this.ids] };
   }
 
   private refill(): void {
@@ -131,7 +149,12 @@ export function defaultStorage(): BagStorage | null {
 }
 
 /** The bag of the album `ids`, carrying on from what was saved. */
-export function loadBag(ids: readonly string[], storage: BagStorage | null = defaultStorage(), rng: Rng = Math.random): ShuffleBag {
+export function loadBag(
+  ids: readonly string[],
+  storage: BagStorage | null = defaultStorage(),
+  rng: Rng = Math.random,
+  legacyAlbum?: readonly string[],
+): ShuffleBag {
   let saved: unknown;
   try {
     const raw = storage?.getItem(BAG_KEY);
@@ -139,7 +162,7 @@ export function loadBag(ids: readonly string[], storage: BagStorage | null = def
   } catch {
     /* unreadable or refused: a new shuffle */
   }
-  return new ShuffleBag(ids, rng, saved);
+  return new ShuffleBag(ids, rng, saved, legacyAlbum);
 }
 
 export function saveBag(bag: ShuffleBag, storage: BagStorage | null = defaultStorage()): void {
