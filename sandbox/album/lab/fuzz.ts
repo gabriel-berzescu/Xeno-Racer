@@ -18,9 +18,14 @@ const NOTE_PAT: Record<string, string> = {
   default: 'A2 - - . C3 - - . A2 - . . E3 - - .',
 };
 const DRUMS = new Set(['kick', 'snare', 'clap', 'hat', 'cymbal', 'perc']);
+/** Options that switch an optional feature on (a stereo growl with a dive, a synth with a click and fingered glide): every parameter is fuzzed again with them. */
+const FEATURES: Record<string, Record<string, unknown>> = {
+  growl: { width: 1, pEnv: 12 },
+  synth: { click: 0.8, glideMode: 'fingered' },
+};
 let bad = 0;
 let runs = 0;
-for (const d of CATALOG) {
+for (const d of CATALOG) for (const extra of FEATURES[d.factory] ? [undefined, FEATURES[d.factory]] : [undefined]) {
   if (!d.factory || (filter && !d.factory.includes(filter))) continue;
   if (d.factory === 'drumKit') continue;
   const specNames = Object.keys(d.specs);
@@ -44,7 +49,7 @@ for (const d of CATALOG) {
       const def = defineTrack({ id: 'fz', title: 'fz', genre: 'Test', bpm: 130, bars: 1, tail: 0.3, fadeOut: 0.01 }, (s: Song) => {
         s.key('A', 'minor');
         const f = (s as unknown as Record<string, (o?: unknown, m?: unknown) => { play(p: unknown, at: number, bars: number): unknown; inst: { setParam(n: string, v: number): void } }>)[d.factory];
-        const ch = f.call(s, presetName);
+        const ch = f.call(s, extra ? { preset: presetName, ...extra } : presetName);
         for (const [k, val] of Object.entries(v.set)) ch.inst.setParam(k, val);
         const pat = DRUMS.has(d.factory) ? s.hits('x...x.x.x...x.xx', { free: true }) : s.notes(NOTE_PAT[d.factory] ?? NOTE_PAT.default, { free: true });
         ch.play(pat, 0, 1);
@@ -72,7 +77,7 @@ for (const d of CATALOG) {
     }
     if (!ok) {
       bad++;
-      console.log(`${d.factory}:${presetName} ${v.label}: ${info}`);
+      console.log(`${d.factory}:${presetName}${extra ? ' (with ' + Object.keys(extra).join(', ') + ')' : ''} ${v.label}: ${info}`);
     }
   }
 }

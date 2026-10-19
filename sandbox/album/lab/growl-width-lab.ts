@@ -1,12 +1,13 @@
 /**
- * How to make a mono growl wide without touching its mono sum or its lows: the side signal is the growl above `widthFreq` (a
- * Linkwitz-Riley 4th-order high-pass) decorrelated from itself, L = growl + w * S and R = growl - w * S. This script builds several
+ * How to make a mono growl wide without touching its mono sum or its lows: the side signal is the growl above `widthFreq` (through a
+ * Linkwitz-Riley high-pass: the 4th order, or the 8th with the argument lr8) decorrelated from itself, L = growl + w * S and R = growl - w * S. This script builds several
  * decorrelators, runs them on real growls and measures what each does, band by band: the side-to-mid ratio, the correlation of L and R,
  * the largest cross-correlation within +-1 ms (a decorrelator that leaves a sharp peak there sounds like a delay, not like width), how
  * much each side's spectrum is coloured against the mono growl (the comb filtering that any L = M + S sum has), the cost, and the mono sum.
  *
- *   node sandbox/album/run.mjs sandbox/album/lab/growl-width-lab.ts            the candidates
- *   node sandbox/album/run.mjs sandbox/album/lab/growl-width-lab.ts final      the growl as built (width 1, 0.5 and 0)
+ *   node sandbox/album/run.mjs sandbox/album/lab/growl-width-lab.ts            the candidates (high-pass of the 4th order)
+ *   node sandbox/album/run.mjs sandbox/album/lab/growl-width-lab.ts lr8        the candidates with a high-pass of the 8th order
+ *   node sandbox/album/run.mjs sandbox/album/lab/growl-width-lab.ts final      the growl as built (width 1, 0.5 and 0), its low end and its cost
  */
 import { Biquad } from '../../../src/audio/album/dsp/filters';
 import { AllpassDelay, DelayLine } from '../../../src/audio/album/dsp/delay';
@@ -60,15 +61,7 @@ export function material(): Material[] {
 
 // ── measuring ────────────────────────────────────────────────────────────────────────────────────────────
 
-/** A 4th-order Butterworth band-pass (two 4th-order sections), for measuring only. */
-function band(x: Float64Array, lo: number, hi: number): Float64Array {
-  const y = Float64Array.from(x);
-  const q = [0.5411961, 1.306563];
-  if (lo > 0) for (const qq of q) new Biquad().highpass(lo, qq, SR).block(y, y.length);
-  if (hi < SR / 2) for (const qq of q) new Biquad().lowpass(hi, qq, SR).block(y, y.length);
-  return y;
-}
-// the Biquad objects above are one-shot, so block() on a fresh object is fine; but a section must keep its state across the whole signal:
+/** The part of a signal between lo and hi Hz (0 and sr/2 leave an edge open), for measuring only: Butterworth edges of the 8th order. */
 function bandFiltered(x: Float64Array, lo: number, hi: number): Float64Array {
   const y = Float64Array.from(x);
   const q = [0.5411961, 1.306563, 0.5411961, 1.306563]; // 8th order edges: the skirts of a gentler filter would let the neighbouring band's side into a band of the low end
@@ -78,7 +71,6 @@ function bandFiltered(x: Float64Array, lo: number, hi: number): Float64Array {
   for (const s of stages) s.block(y, y.length);
   return y;
 }
-void band;
 
 export interface BandStat {
   sideMidDb: number;
@@ -188,7 +180,7 @@ export function colouration(mono: Float64Array, l: Float64Array, r: Float64Array
  * The high-pass half of a Linkwitz-Riley crossover: 4th order is two Butterworth 2nd-order high-passes in series (-6 dB at fc, 24 dB/oct),
  * 8th order is a Butterworth 4th-order pair in series (-6 dB at fc, 48 dB/oct).
  */
-export class Lr4High {
+export class LrHigh {
   private readonly stages: Biquad[] = [];
   constructor(fc: number, sr: number, order: 4 | 8 = 4) {
     const qs = order === 4 ? [Math.SQRT1_2, Math.SQRT1_2] : [0.5411961, 1.306563, 0.5411961, 1.306563];
@@ -305,7 +297,7 @@ const BANDS: [string, number, number][] = [
 ];
 
 export function widen(x: Float64Array, make: () => Decorrelator, widthFreq: number, w: number, sideGain: number, order: 4 | 8 = 4): { l: Float64Array; r: Float64Array } {
-  const hp = new Lr4High(widthFreq, SR, order);
+  const hp = new LrHigh(widthFreq, SR, order);
   const d = make();
   const l = new Float64Array(x.length);
   const r = new Float64Array(x.length);
@@ -445,7 +437,7 @@ if (typeof process !== 'undefined' && process.argv[1] && /growl-width-lab/.test(
     for (const c of CANDIDATES) {
       let best = Infinity;
       for (let rep = 0; rep < 5; rep++) {
-        const hp = new Lr4High(200, SR, order);
+        const hp = new LrHigh(200, SR, order);
         const d = c.make();
         const l = new Float64Array(64);
         const r = new Float64Array(64);
