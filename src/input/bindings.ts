@@ -13,7 +13,7 @@ export type PadControl =
 
 export type DrivingAction =
   | 'steer' | 'throttle' | 'brake' | 'handbrake'
-  | 'shiftUp' | 'shiftDown'
+  | 'shiftUp' | 'shiftDown' | 'nitro'
   | 'camera' | 'reset' | 'pause'
   | 'look' | 'lookBack'
   | 'hud' | 'telemetry' | 'nextTrack';
@@ -35,8 +35,9 @@ export const BINDINGS: readonly Binding[] = [
   { id: 'throttle', label: 'Throttle', pad: ['rt'], keys: ['W', 'Up'], hint: 'Analog right trigger.' },
   { id: 'brake', label: 'Brake', pad: ['lt'], keys: ['S', 'Down'], hint: 'Analog left trigger.' },
   { id: 'handbrake', label: 'Handbrake', pad: ['a'], keys: ['Space'], hint: 'Locks the rear wheels while held.' },
-  { id: 'shiftUp', label: 'Shift up', pad: ['rb', 'b'], keys: ['E', 'Shift'], hint: 'Manual gearbox only.' },
+  { id: 'shiftUp', label: 'Shift up', pad: ['rb'], keys: ['Shift'], hint: 'Manual gearbox only.' },
   { id: 'shiftDown', label: 'Shift down', pad: ['lb', 'x'], keys: ['Q', 'Ctrl'], hint: 'Manual gearbox only.' },
+  { id: 'nitro', label: 'Nitro', pad: ['b'], keys: ['E'], hint: 'Four seconds of extra power. Two shots a lap.' },
   { id: 'camera', label: 'Camera', pad: ['y'], keys: ['C'], hint: 'Cycles chase, hood, cockpit, TV and more.' },
   { id: 'reset', label: 'Reset car', pad: ['back'], keys: ['R'], hint: 'Puts you back on the track.' },
   { id: 'pause', label: 'Pause', pad: ['start'], keys: ['Esc', 'P'], hint: 'Opens the pause menu.' },

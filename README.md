@@ -33,7 +33,8 @@ window (**Alt+F4** in full screen).
 | Steer | Left stick | A / D or ← / → |
 | Throttle / brake | RT / LT (analog) | W / S or ↑ / ↓ |
 | Handbrake | A | Space |
-| Shift up / down | RB or B / LB or X (manual gearbox) | E / Q |
+| Nitro (two a lap) | B | E |
+| Shift up / down | RB / LB or X (manual gearbox) | Shift / Q |
 | Camera | Y | C |
 | Look around / look back | Right stick / click right stick | I J K L / V |
 | Reset car to track | Back | R |
@@ -78,6 +79,7 @@ Two players, one screen, two controllers. Choose **Split screen** in the main me
 - **Driving line:** a Forza-style racing line on the road ahead (Settings, Assists: Off, Braking zones or Full): the AI's own line and speed profile, worked out for your car (an LMP-X brakes later than a Ronin) and the water on the road, drawn as chevrons that fade into the distance. Green means keep going, amber lift or brake soon, red brake now, measured against your speed, so it asks for earlier braking in the rain and follows a changing forecast. It shows in the chase, far chase, hood, bumper and cockpit views (not the TV, orbit or replay cameras, the photo mode or the attract race), and each split-screen view shows its own player's line. It costs no measurable GPU time (under 0.1 ms at 1080p High) and builds no shader after the lights go out.
 - **Braking assist:** (Settings, Assists; off by default, meant for a young driver.) Brakes the car, smoothly and through ABS, when it comes into a corner faster than the driving line allows, and lifts the throttle while it does. You still steer and accelerate, and your own harder brake wins. The BRK bar shows what it adds in blue, with a "brake assist" cue. With the throttle flat out and the brake never touched, a car whose steering follows the line (the AI's path follower at the wheel) laps all four circuits, dry and wet, in all four cars, without a wall hit or a reset and never more than 0.8 m past the edge of the asphalt (`tests/probes/brake-assist.test.ts`).
 - **Mirrors:** in the cockpit, a working interior mirror and door mirrors (the LMP-X has a rear-camera screen on the dash); in the hood and bumper views, a mirror strip at the top of the screen. Headlights behind you glare in them at night and rain beads on them.
+- **Nitro:** every car carries two shots of nitro a lap (B on the pad, E on the keyboard). A shot burns for four seconds: half as much torque again and a push from the bottle, both with the throttle, so lifting or braking takes it away. The tank fills again as you cross the line (a shot you did not use is not carried over, and backing over the line fills nothing). Flames with a blue glow at the tip come out of the tail pipes, the camera opens up, and the NITRO gauge above the speedometer shows the shots left and drains while one burns. The AI drivers have nitro too: they fire it on a straight, flat out, with nothing to brake for within reach and nobody ahead in their lane, and while it burns they drive to what the corners ahead and their brakes allow (`tests/probes/nitro-probe.test.ts` races the same grid with and without it on every circuit).
 - **Spotter:** the edge of the screen glows amber, then red, while a car is alongside you.
 - **Cameras:** chase, far chase, hood, bumper, cockpit, TV and orbit. The right stick looks around, and clicking it looks back.
 - **Replays:** every race can be watched again from start to finish, from any car and camera.

@@ -15,6 +15,7 @@ import { Center } from './center';
 import { DamageHud } from './damage';
 import { HudMinimap } from './minimap';
 import { NowPlayingCard } from './nowplaying';
+import { NitroHud } from './nitro';
 import { Spotter } from './spotter';
 import { Speedo } from './speedo';
 import { Telemetry } from './telemetry';
@@ -61,6 +62,7 @@ export function createHud(ctx: UiCtx): HudView {
   const tele = new Telemetry(el);
   const spotter = new Spotter(el);
   const damage = new DamageHud(el);
+  const nitro = new NitroHud(el);
   const center = new Center(el);
   const weather = new WeatherHud(el, center.el);
   const song = new NowPlayingCard(el);
@@ -102,6 +104,7 @@ export function createHud(ctx: UiCtx): HudView {
       if (standingsOn) tower.update(s);
       timing.update(s);
       speedo.update(s, now);
+      nitro.update(s);
       minimap.update(s, now);
 
       if (!split && s.showTelemetry !== teleOn) {

@@ -47,9 +47,10 @@ const CALLOUTS: Callout[] = [
   { id: 'reset', text: 'RESET CAR', side: 't', x: 345, y: 52, pts: [[349, 58], [349, 150], [362, 194]], lights: ['back'] },
   { id: 'pause', text: 'PAUSE', side: 't', x: 435, y: 52, pts: [[431, 58], [431, 150], [418, 194]], lights: ['start'] },
   { id: 'throttle', text: 'THROTTLE', side: 'r', x: 630, y: 84, pts: [[622, 84], [566, 84], [540, 106]], lights: ['rt'] },
-  { id: 'shiftUp', text: 'SHIFT UP', sub: 'RB or B', side: 'r', x: 630, y: 140, pts: [[622, 140], [576, 140], [542, 136]], lights: ['rb', 'b'] },
-  { id: 'camera', text: 'CAMERA', side: 'r', x: 630, y: 186, pts: [[622, 186], [590, 186], [546, 176]], lights: ['y'] },
-  { id: 'handbrake', text: 'HANDBRAKE', side: 'r', x: 630, y: 246, pts: [[622, 246], [584, 246], [542, 228]], lights: ['a'] },
+  { id: 'shiftUp', text: 'SHIFT UP', side: 'r', x: 630, y: 128, pts: [[622, 128], [576, 128], [542, 134]], lights: ['rb'] },
+  { id: 'camera', text: 'CAMERA', side: 'r', x: 630, y: 168, pts: [[622, 168], [540, 168]], lights: ['y'] },
+  { id: 'nitro', text: 'NITRO', sub: '2 per lap', side: 'r', x: 630, y: 206, pts: [[622, 206], [600, 206], [566, 198]], lights: ['b'] },
+  { id: 'handbrake', text: 'HANDBRAKE', side: 'r', x: 630, y: 256, pts: [[622, 256], [584, 256], [540, 228]], lights: ['a'] },
   { id: 'look', text: 'LOOK', side: 'r', x: 630, y: 296, pts: [[622, 296], [520, 296], [478, 262]], lights: ['rs'] },
   { id: 'lookBack', text: 'LOOK BACK', sub: 'press the stick', side: 'r', x: 630, y: 344, pts: [[622, 344], [500, 344], [458, 268]], lights: ['rsClick'] },
 ];
@@ -228,7 +229,7 @@ export class ControlsPane {
     this.flash('rsClick', now, pad && f.lookBack);
     this.flash('a', now, pad && f.handbrake > 0.5);
     this.flash('rb', now, f.shiftUp, 240);
-    this.flash('b', now, f.shiftUp, 240);
+    this.flash('b', now, f.nitro, 240);
     this.flash('lb', now, f.shiftDown, 240);
     this.flash('x', now, f.shiftDown, 240);
     this.flash('y', now, f.cameraNext, 240);

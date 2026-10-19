@@ -17,6 +17,7 @@
 import { Matrix4, Quaternion, Vector3 } from 'three';
 import { version } from '../../package.json';
 import { AIDriver } from '../ai';
+import { NITRO_PER_LAP, NITRO_SECONDS, NitroTank } from '../core/nitro';
 import { CARS, getCar } from '../cars';
 import { armWeather, createAudioSystem, onAlbumTrack, onLightning, primeAlbum, primeCarVoices, setDriving, setWiper, skipTrack } from '../audio';
 import { createCarVisual } from '../carvis';
@@ -88,6 +89,8 @@ interface RaceCar {
   driverId?: string;
   /** Puts the mechanical damage of the car's record on its physics and its driver (Damage: Full, see syncMechanical). */
   mech: MechLink;
+  /** The car's nitro shots (src/core/nitro.ts): refilled every lap, fired by its human or its AI driver. */
+  nitro: NitroTank;
 }
 
 /**
@@ -562,6 +565,7 @@ export class Game {
       livery,
       driverId,
       mech: new MechLink(driver ? [vehicle, driver] : [vehicle]),
+      nitro: new NitroTank(),
     };
     this.cars.push(car);
     return car;
@@ -665,7 +669,7 @@ export class Game {
     // otherwise hang frozen in the air: effects don't update while the showroom runs)
     for (const c of this.cars) c.visual.root.visible = false;
     this.effects?.clear();
-    const car: RaceCar = { entrant: { id: vehicle.id, name: '', color: livery.primary, carId, isPlayer: true, state: vehicle.state }, def, vehicle, visual, sound: null, ai: null, livery, mech: new MechLink([vehicle]) };
+    const car: RaceCar = { entrant: { id: vehicle.id, name: '', color: livery.primary, carId, isPlayer: true, state: vehicle.state }, def, vehicle, visual, sound: null, ai: null, livery, mech: new MechLink([vehicle]), nitro: new NitroTank() };
     this.preview = { world, car, carId, liveryKey: key };
     this.camera.setMode('orbit');
     this.camera.snap();
@@ -1010,6 +1014,8 @@ export class Game {
     const d = Math.max(-tp.widthRight + 1.5, Math.min(tp.widthLeft - 1.5, tp.d));
     this.placeOnTrack(c.vehicle, tp.s - 4, d, 0);
     c.ai?.onReset();
+    c.nitro.cancel();
+    c.vehicle.nitro = 0;
     const drv = this.drivers.find((x) => x.car === c);
     if (drv) {
       drv.steering.reset();
@@ -1417,6 +1423,8 @@ export class Game {
       this.setPaused(true, owner);
       this.audio.ui('select');
     }
+    // (the press that closes the pause menu, B or Esc, must not also fire a nitro shot as the race goes on in this same frame)
+    const wasPaused = this.paused;
     if (this.paused || this.resultsShown) {
       this.ui.handleInput(input);
       if (this.paused) {
@@ -1460,6 +1468,7 @@ export class Game {
       const dv = d.car.vehicle;
       const c = dv.controls;
       if (d.autopilot) {
+        d.autopilot.nitroOn = d.car.nitro.active;
         d.autopilot.update(dt, dv.state, world.states, c, session.phase === 'racing');
         if (d.autopilot.needsReset) {
           this.resetCar(d.car);
@@ -1481,6 +1490,8 @@ export class Game {
         c.brake = 0.3;
       }
       if (d.car.entrant.state.forwardSpeed < -0.5 && c.throttle > 0.1) c.handbrake = 0;
+      // nitro: E or B, while racing (a dev autopilot's driver presses it too)
+      if (f.nitro && !wasPaused && !this.resultsShown && session.phase === 'racing' && !d.finished) d.car.nitro.fire();
     }
 
     // the driving guide follows the road and the water, and the braking assist adds to the pedals the pad has just set (a dev autopilot
@@ -1492,8 +1503,20 @@ export class Game {
     const racing = session.phase === 'racing' || session.phase === 'finished';
     for (const car of this.cars) {
       if (!car.ai) continue;
+      car.ai.nitroReady = car.nitro.ready;
+      car.ai.nitroOn = car.nitro.active;
       car.ai.update(dt, car.vehicle.state, world.states, car.vehicle.controls, racing);
+      if (car.ai.wantNitro) car.nitro.fire();
       if (car.ai.needsReset) this.resetCar(car);
+    }
+
+    // nitro: each tank follows its car's laps (a new lap fills it) and burns its shot; a car that has finished has none
+    const prog = session.progress;
+    for (let i = 0; i < this.cars.length; i++) {
+      const car = this.cars[i];
+      const p = prog[i];
+      car.nitro.update(dt, p ? p.crossings : 0, racing && !(p && p.finished) && !this.resultsShown);
+      car.vehicle.nitro = car.nitro.level;
     }
 
     world.step(dt);
@@ -2015,6 +2038,7 @@ export class Game {
       weather: this.wx?.plan ? this.hudWeather(now) : null,
       damage: this.hudDamage(p, d.seat),
       brakeAssist: d.aids.added,
+      nitro: { charges: p.nitro.charges, max: NITRO_PER_LAP, burn: p.nitro.left / NITRO_SECONDS },
     };
   }
 

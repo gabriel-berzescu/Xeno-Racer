@@ -9,6 +9,7 @@ import { DEFAULT_SETTINGS } from '../../src/core/settings';
 import type { Difficulty, TrackFrame, TrackPoint } from '../../src/core/contracts';
 import { CarDamage, ImpactObserver, hullOf } from '../../src/core/damage';
 import { mechanicalWorst, type MechState } from '../../src/core/mechanical';
+import { NitroTank } from '../../src/core/nitro';
 import { MechLink } from '../../src/game/mechsync';
 import { PhysicsWorld, type Vehicle } from '../../src/physics';
 import { loadTrackRuntime } from '../../src/track';
@@ -31,6 +32,9 @@ export interface PackResult {
   worstWear?: number;
   /** the damage each car had at the end, 0..1 (the worst part) */
   wear?: number[];
+  /** Nitro (opts.nitro): shots fired, in all and by each car */
+  nitroShots?: number;
+  nitroPerCar?: number[];
 }
 
 export interface PackOptions {
@@ -47,6 +51,8 @@ export interface PackOptions {
   initial?: (i: number) => MechState | null;
   /** The drivers are not told about the damage on their cars (their physics is). */
   blind?: boolean;
+  /** Nitro, as the game does it: every car carries a NitroTank, refilled each lap, and its driver fires the shots. */
+  nitro?: boolean;
 }
 
 export function runPack(trackId: string, carSpec: string, diff: Difficulty, n: number, laps: number, log = false, opts: PackOptions = {}): PackResult {
@@ -109,6 +115,8 @@ export function runPack(trackId: string, carSpec: string, diff: Difficulty, n: n
       })
     : [];
   let mechHits = 0;
+  const tanks = opts.nitro ? cars.map(() => new NitroTank()) : null;
+  const shots = new Array<number>(n).fill(0);
   const tp: TrackPoint = { s: 0, d: 0, segment: 0, widthLeft: 0, widthRight: 0, wallLeft: 0, wallRight: 0, tx: 0, tz: 1, lx: 1, lz: 0, y: 0 };
   for (const c of cars) {
     c.hint = track.project(c.v.p.x, c.v.p.z, tp, c.hint);
@@ -132,15 +140,32 @@ export function runPack(trackId: string, carSpec: string, diff: Difficulty, n: n
         c.lapStart = world.time;
       }
     }
-    for (const c of cars) {
+    for (let i = 0; i < n; i++) {
+      const c = cars[i];
+      const tank = tanks?.[i];
+      if (tank) {
+        c.ai.nitroReady = tank.ready;
+        c.ai.nitroOn = tank.active;
+      }
       c.ai.update(DT, c.v.state, states, c.v.controls, racing);
+      if (tank && c.ai.wantNitro && tank.fire()) {
+        shots[i]++;
+        if (log) events.push(`t=${world.time.toFixed(1)} car${c.v.id} NITRO s=${c.ai.s.toFixed(0)} v=${(c.v.state.speed * 3.6).toFixed(0)}`);
+      }
       if (c.ai.needsReset) {
         if (!c.finished) c.resets++;
         track.project(c.v.p.x, c.v.p.z, tp);
         const d = Math.max(-tp.widthRight + 1.5, Math.min(tp.widthLeft - 1.5, tp.d));
         place(c.v, tp.s - 4, d, 0);
         c.ai.onReset();
+        tank?.cancel();
         if (log) events.push(`t=${world.time.toFixed(1)} reset car${c.v.id}`);
+      }
+    }
+    if (tanks) {
+      for (let i = 0; i < n; i++) {
+        tanks[i].update(DT, cars[i].crossings, racing && !cars[i].finished);
+        cars[i].v.nitro = tanks[i].level;
       }
     }
     world.step(DT);
@@ -222,10 +247,14 @@ export function runPack(trackId: string, carSpec: string, diff: Difficulty, n: n
     offTrack += c.off;
     rows.push(`  P${pos + 1} car${c.v.id} ${c.v.def.id.padEnd(10)} grid ${i + 1}  laps ${c.laps.map(fmt).join(' ')}  carHits ${c.carHits} (hard ${c.hardHits})  walls ${c.wallHits}  off ${c.off.toFixed(1)}s  resets ${c.resets}`);
   });
-  rows.push(`  TOTAL carHits ${contacts} hard ${hard} walls ${walls} off ${offTrack.toFixed(1)}s resets ${resets}`);
+  rows.push(`  TOTAL carHits ${contacts} hard ${hard} walls ${walls} off ${offTrack.toFixed(1)}s resets ${resets}${tanks ? `  nitro shots ${shots.reduce((a, b) => a + b, 0)}` : ''}`);
   if (log) rows.push(...events.slice(0, process.env.TRACE ? 400 : 80));
   const perCar = cars.map((c) => ({ model: c.v.def.id, off: c.off, walls: c.wallHits, hits: c.carHits, hard: c.hardHits, resets: c.resets }));
   const res: PackResult = { rows, contacts, hardContacts: hard, walls, resets, offTrack, overtakes, finished: finishedCount, winnerTime, perCar };
+  if (tanks) {
+    res.nitroShots = shots.reduce((a, b) => a + b, 0);
+    res.nitroPerCar = shots;
+  }
   if (opts.full || opts.initial) {
     res.mechHits = mechHits;
     res.wear = records.map((r) => mechanicalWorst(r.dmg.mech));

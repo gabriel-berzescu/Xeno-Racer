@@ -107,6 +107,8 @@ interface CarFx {
   hasPrev: boolean[];
   impactSeen: number;
   backfireSeen: number;
+  /** Nitro flames owed (a fraction carried over between frames). */
+  nitroAcc: number;
   slot: number;
   first: boolean;
 }
@@ -730,6 +732,31 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
     }
   }
 
+  /**
+   * Nitro: a steady jet out of every tail pipe while a shot burns, long, hot and blue at the tip, with a blue glow that feeds the
+   * bloom. Short-lived flames spawned at a steady rate, so the jet flickers like a real one and follows the car through a corner.
+   */
+  function nitroFlames(rec: CarFx, s: VehicleState, k: number, dt: number): void {
+    rec.nitroAcc += 34 * dt;
+    let n = Math.floor(rec.nitroAcc);
+    if (n <= 0) return;
+    rec.nitroAcc -= n;
+    if (n > 3) n = 3;
+    const v = rec.def.visual;
+    _v1.set(0, v.cgHeight, v.cgToFrontAxle - v.wheelbase / 2).applyQuaternion(s.quaternion);
+    const ox = s.position.x - _v1.x, oy = s.position.y - _v1.y, oz = s.position.z - _v1.z;
+    for (let j = 0; j < n; j++) {
+      for (let i = 0; i < rec.tips.length; i++) {
+        const t = rec.tips[i];
+        _v2.set(t.x, t.y, t.z).applyQuaternion(s.quaternion);
+        _v3.set(t.dx, t.dy, t.dz).applyQuaternion(s.quaternion);
+        const px = ox + _v2.x, py = oy + _v2.y, pz = oz + _v2.z;
+        flames.spawn(px, py, pz, _v3.x, _v3.y, _v3.z, rr(0.75, 1.25) * k, rr(0.08, 0.12), rr(0.06, 0.1), rr(4, 6), 0.35, s.velocity.x, s.velocity.y, s.velocity.z);
+        if (j === 0) glows.spawn(px, py, pz, s.velocity.x, s.velocity.y, s.velocity.z, rr(0.28, 0.38) * k, 0.07, 0.35, 0.6, 1.0, rr(3, 4.5));
+      }
+    }
+  }
+
   function backfire(rec: CarFx, s: VehicleState): void {
     const v = rec.def.visual;
     _v1.set(0, v.cgHeight, bodyCgZ(v)).applyQuaternion(s.quaternion);
@@ -986,6 +1013,9 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
       rec.backfireSeen = s.backfireCount;
       backfire(rec, s);
     }
+    const nitro = s.nitro ?? 0;
+    if (nitro > 0.05) nitroFlames(rec, s, nitro, dt);
+    else rec.nitroAcc = 0;
 
     updateBlob(rec, s);
   }
@@ -1132,6 +1162,7 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
         prev: new Float32Array(12),
         hasPrev: [false, false, false, false],
         impactSeen: 0,
+        nitroAcc: 0,
         backfireSeen: 0,
         slot: blobs.slotFor(id),
         first: true,

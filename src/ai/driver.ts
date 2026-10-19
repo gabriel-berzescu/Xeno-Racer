@@ -16,11 +16,15 @@
  * - Weather: everything that depends on the water on the road (speed profile, racing line, grip estimates, the wet
  *   racecraft) is derived from one number, set at construction and changed with setWetness(), which moves the driver to
  *   the new conditions over a couple of seconds instead of jumping.
+ * - Nitro: the game says whether a shot is ready (`nitroReady`) and burning (`nitroOn`); the driver asks for one (`wantNitro`)
+ *   on a straight with no corner within reach of the boosted car, and while it burns (and until the car is back down to the
+ *   profile) it drives to what the corners ahead and its brakes allow, not to the profile, which is capped by the car's own power.
  * - Asks for a reset when stuck or facing the wrong way.
  */
 import { Vector3 } from 'three';
 import type { CarControls, CarDefinition, Difficulty, GroundSample, SurfaceType, TrackPoint, TrackRuntime, VehicleState } from '../core/contracts';
 import { cloneEffects, isNeutral, type MechEffects } from '../core/mechanical';
+import { NITRO_SECONDS } from '../core/nitro';
 import { fitCar } from '../physics/compound';
 import { peakPower } from '../physics/engine';
 import { SURFACES, wetGripFactor, type SurfaceProps } from '../physics/surfaces';
@@ -65,6 +69,8 @@ const WINTER_AX_USE = 1.1;
 const THRUST_MAX = 1.5 * 9.81;
 /** The throttle at which an engine neither pushes nor holds the car back (its own friction against what it makes): the thrust grows from here. */
 const THR_NEUTRAL = 0.22;
+/** Nitro: a car in this car's lane within this distance ahead (m) keeps the driver from firing a shot. */
+const NITRO_CLEAR_AHEAD = 150;
 
 // ── tuning ────────────────────────────────────────────────────────────────────
 /** Water on the track at which the cautious behaviours are fully on is 1 / WET_RAMP (rain, 0.75, is past it). */
@@ -174,6 +180,20 @@ export class AIDriver {
   /** Current track position (updated every update). */
   s = 0;
   d = 0;
+  /** Set by the game before update(): a nitro shot is ready to fire, and one is burning. */
+  nitroReady = false;
+  nitroOn = false;
+  /** Set by update(): the driver wants to fire a nitro shot now. */
+  wantNitro = false;
+  /** Faster than the profile after a nitro shot: the corners ahead and the brakes set the speed until the car is back on it. */
+  private overspeed = false;
+  /** How long the conditions for a shot have held, and how long this driver waits for them (drawn for each shot). */
+  private nitroWait = 0;
+  private nitroDelay = -1;
+  /** The driver's own random stream for nitro, apart from rand() so the rest of its behaviour stays as it always was. */
+  private nitroRng: number;
+  /** No car alongside, and none ahead in this car's lane within NITRO_CLEAR_AHEAD (planTraffic): a shot would not run into anybody. */
+  private nitroClear = true;
 
   // ── weather: all derived from the wetness (see applyWetness / setWetness) ──
   /** Water on the track the driver is working with now (0..1). While setWetness is blending it is somewhere between the old and the new. */
@@ -258,6 +278,7 @@ export class AIDriver {
     this.paceJitter = 1 - 0.018 * r;
     this.wanderPhase = r * 100;
     this.rng = ((opts.seed * 2654435761) ^ 0x9e3779b9) >>> 0 || 1;
+    this.nitroRng = (this.rng ^ 0x5bd1e995) >>> 0 || 1;
     this.skill = base;
     this.halfWidth = def.visual.width / 2;
     const wet = clampWetness(opts.wetness);
@@ -666,6 +687,17 @@ export class AIDriver {
       const allowed = Math.sqrt(va * va + 2 * brakeCap * Math.max(0, ahead - v * 0.12));
       if (allowed < vT) vT = allowed;
     }
+    // nitro: the profile is capped by the car's own power, so a boosted car would lift for it. While a shot burns, and after it until
+    // the car has come back down to the profile, the speed is what the corners ahead and the brakes allow (the traffic below still
+    // has its say); after the shot the car coasts down to the profile rather than braking for it on a straight.
+    if (this.nitroOn || this.overspeed) {
+      const vC = this.cornerBrakeSpeed(s, v, brakeCap);
+      if (this.nitroOn) {
+        this.overspeed = true;
+        vT = Math.min(vC, Math.max(vT, v + 10));
+      } else if (v <= vT + 0.5) this.overspeed = false;
+      else vT = Math.min(vC, Math.max(vT, v - 0.8));
+    }
     // (the gentle following law keeps the traffic cap apart: it is a spacing target, not a speed the car must hit; only a
     // pass that is still inside the other car's lane is held to a hard gap)
     if (!this.softFollow && speedCap < vT) vT = speedCap;
@@ -753,11 +785,79 @@ export class AIDriver {
     if (tangentDot < -0.2 && v < 10) this.wrongTime += dt;
     else this.wrongTime = 0;
     if (this.stuckTime > 3 || this.wrongTime > 2.5) this.needsReset = true;
+
+    // ── nitro: fire a shot on a straight, flat out, on the road, with nothing to brake for within reach ──
+    this.wantNitro = false;
+    // (on snow the throttle is held to what the driven axle can take, never flat: there it is enough that the car is still gathering speed)
+    const nitroOk = this.nitroReady && !this.nitroOn && v > (this.winter ? 22 : 18 + 17 * this.wetF) && (c.throttle > 0.95 || (this.winter && this.targetSpeed(s + 2 * v) > v + 2)) && brk === 0 && this.brakeReq === 0 && slip < 0.08
+      && this.mistakeLeft <= 0 && myD < myWL - 0.3 && myD > -myWR + 0.3 && tangentDot > 0.97 && this.nitroClear && speedCap === Infinity
+      && this.straightAhead(s, v, brakeCap);
+    if (nitroOk) {
+      if (this.nitroDelay < 0) this.nitroDelay = this.nitroRand() * 1.5;
+      this.nitroWait += dt;
+      if (this.nitroWait >= this.nitroDelay) {
+        this.wantNitro = true;
+        this.nitroWait = 0;
+        this.nitroDelay = -1;
+      }
+    } else this.nitroWait = 0;
+  }
+
+  private nitroRand(): number {
+    let x = this.nitroRng;
+    x ^= x << 13;
+    x ^= x >>> 17;
+    x ^= x << 5;
+    this.nitroRng = x >>> 0;
+    return this.nitroRng / 4294967296;
+  }
+
+  /**
+   * The speed (m/s) a corner allows at track position s, from the line's curvature and the share of the grip this driver uses
+   * there (as the speed profile takes it). On a wet road the grip falls with speed (aquaplaning): a second pass takes the grip at
+   * the speed the first found.
+   */
+  private cornerSpeed(s: number): number {
+    const line = this.line;
+    const i = Math.floor(this.track.wrapS(s) / line.step) % line.n;
+    const k = Math.abs(line.k[i]);
+    const base = this.gripMu * this.dmgGrip * 0.95 * this.skill.gripUse * this.surfGrip(s);
+    let vc = 150;
+    for (let it = 0; it < (this.wetness > 0 ? 2 : 1); it++) {
+      const mu = base * (this.wetness > 0 ? wetGripFactor(this.wetness, this.tireWet, this.road, Math.min(vc, 150)) : 1);
+      const den = k - mu * this.cDown * this.dmgAero;
+      vc = den > 1e-6 ? Math.min(150, Math.sqrt((mu * G) / den)) : 150;
+    }
+    return vc;
+  }
+
+  /** The most a car at speed v can do at s and still slow for every corner ahead with brakes `brakeCap` (m/s^2). */
+  private cornerBrakeSpeed(s: number, v: number, brakeCap: number): number {
+    const look = (v * v) / (2 * brakeCap) + 40;
+    const step = Math.max(this.line.step, 4);
+    let best = 150;
+    for (let x = 0; x <= look; x += step) {
+      const vc = this.cornerSpeed(s + x);
+      const allowed = Math.sqrt(vc * vc + 2 * brakeCap * Math.max(0, x - v * 0.3));
+      if (allowed < best) best = allowed;
+    }
+    return best;
+  }
+
+  /** No corner the car would have to brake for within the reach of a nitro shot fired now. */
+  private straightAhead(s: number, v: number, brakeCap: number): boolean {
+    const vBoost = v + 20;
+    const reach = vBoost * NITRO_SECONDS * 0.75 + 30;
+    const step = Math.max(this.line.step, 5);
+    for (let x = 0; x <= reach; x += step) if (this.cornerSpeed(s + x) < vBoost) return false;
+    return this.cornerBrakeSpeed(s, v, brakeCap) > vBoost;
   }
 
   /** Called by the game after it resets the car to the track. */
   onReset(): void {
     this.needsReset = false;
+    this.overspeed = false;
+    this.nitroWait = 0;
     this.stuckTime = 0;
     this.wrongTime = 0;
     this.offset = 0;
@@ -883,6 +983,7 @@ export class AIDriver {
     let alongsideAheadV = Infinity;
     let alongsideLevelV = Infinity;
     let nOb = 0;
+    let clear = true;
     for (const o of others) {
       if (o.id === me.id) continue;
       let rec = this.others.get(o.id);
@@ -903,6 +1004,8 @@ export class AIDriver {
       rec.brk += (Math.max(0, -o.localAccel.z) - rec.brk) * Math.min(1, Math.max(0, tdt) * 6);
       rec.off = oOff;
       rec.t = this.time;
+      // nitro: a car alongside, or ahead in this lane within reach of a boosted car, rules a shot out
+      if (ds > -len && ds < NITRO_CLEAR_AHEAD && (ds < len + 0.6 || Math.abs(oOff - myOff) < sep * 1.4)) clear = false;
       if (ds < -(len + 12) || ds > 90) {
         rec.side = 0;
         continue;
@@ -952,6 +1055,7 @@ export class AIDriver {
       nOb++;
     }
     this.nOb = nOb;
+    this.nitroClear = clear;
 
     let cap = Infinity;
     this.brakeReq = 0;

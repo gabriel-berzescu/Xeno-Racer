@@ -160,7 +160,7 @@ class UiImpl implements XenoUI {
 
     this.fcopy = {
       device: 'keyboard', gamepadId: null, steer: 0, throttle: 0, brake: 0, handbrake: 0, clutch: 0, lookX: 0, lookY: 0, lookBack: false,
-      shiftUp: false, shiftDown: false, cameraNext: false, resetCar: false, pause: false, toggleHud: false, toggleTelemetry: false, nextTrack: false,
+      shiftUp: false, shiftDown: false, cameraNext: false, resetCar: false, pause: false, toggleHud: false, toggleTelemetry: false, nextTrack: false, nitro: false,
       nav: { up: false, down: false, left: false, right: false, confirm: false, back: false, tabLeft: false, tabRight: false },
       anyPressed: false,
     };

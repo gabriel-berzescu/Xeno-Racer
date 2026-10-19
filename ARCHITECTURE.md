@@ -187,6 +187,26 @@ computeRacingLine + ProfileJob ─► DrivingGuide (src/ai/guide.ts) ─┬─�
   and the phase (not in a replay or behind the results). The attract race behind the menus has no drivers, so no line.
 - **Records and results do not know about the aids:** a lap set with the braking assist or the line counts like any other.
 
+## Nitro
+
+Every car has two shots a lap (`src/core/nitro.ts`: `NitroTank`, pure; `NITRO_PER_LAP`, `NITRO_SECONDS`, `NITRO_POWER`, `NITRO_THRUST_G`).
+
+```
+InputFrame.nitro (E / B) ─┐                                  ┌─► Vehicle.nitro: torque x (1 + NITRO_POWER), a push along the car, both x throttle
+AIDriver.wantNitro ───────┴─► NitroTank.fire ─► .level 0..1 ─┤   (src/physics/vehicle.ts) ─► VehicleState.nitro ─► flames (effects.ts), FOV (cameraRig.ts), replay
+session crossings ─► NitroTank.update (a new lap fills it)   └─► HudState.nitro ─► the NITRO gauge (src/ui/hud/nitro.ts)
+```
+
+- **The game** (`game.ts`) keeps one tank per `RaceCar`, updates it every frame with the car's line crossings (a count above any seen before is a
+  new lap; backing over the line and across it again fills nothing) and puts its level on the physics. A reset to the track puts a burning shot out.
+  The press that closes the pause menu does not fire one.
+- **The AI** (`src/ai/driver.ts`) is told `nitroReady` / `nitroOn` and asks with `wantNitro`: flat out on the road, above a speed (higher in the wet
+  and on snow, where the extra torque spins a driven axle in the low gears), with no corner it would have to brake for within the reach of the boosted
+  car (`straightAhead`), no car alongside and none ahead in its lane within 150 m (`nitroClear`), after a short delay of its own. The speed profile is
+  capped by the car's own power, so while a shot burns, and after it until the car is back down to the profile, the driver's target speed is what the
+  corners ahead and its brakes allow (`cornerBrakeSpeed`, aquaplaning included); the traffic caps still apply. Its random draws come from a stream of
+  their own, so a driver without nitro (the tests, the guide, a dev autopilot) behaves exactly as before.
+
 ## Rules for everyone
 
 - Conventions are in the header of `src/core/contracts.ts`. **+Z forward, +X left, +Y up.**

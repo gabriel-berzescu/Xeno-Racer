@@ -107,6 +107,9 @@ export const TUNING = {
   speedFovStart: 8,
   speedFovFull: 90,
   speedFovTau: 0.35,
+  /** Nitro rush: the FOV opens by up to this much more while a shot burns (the cockpit views get half), over nitroFovTau (s). */
+  nitroFovDeg: 9,
+  nitroFovTau: 0.3,
   /** Longitudinal G: the camera pulls back under acceleration / moves in under braking (m per m/s²). */
   accelPull: 0.035,
   accelPullMax: 0.45,
@@ -512,6 +515,7 @@ class CameraRigImpl implements CameraRig {
 
   // ── shared look state (stick + rear view) ──
   private readonly fovSpd: Lag = lag();
+  private readonly fovNitro: Lag = lag();
   private readonly lkYaw: Lag = lag();
   private readonly lkPitch: Lag = lag();
   private lkPrevX = 0;
@@ -670,6 +674,9 @@ class CameraRigImpl implements CameraRig {
     const kFov = smoothstep(T.speedFovStart, T.speedFovFull, this.speed);
     if (cut) lagReset(this.fovSpd, kFov);
     else lagStep(this.fovSpd, kFov, T.speedFovTau, h);
+    const kNitro = clamp(fin(st.nitro ?? 0), 0, 1);
+    if (cut) lagReset(this.fovNitro, kNitro);
+    else lagStep(this.fovNitro, kNitro, T.nitroFovTau, h);
 
     switch (this._mode) {
       case 'chase':
@@ -1125,7 +1132,7 @@ class CameraRigImpl implements CameraRig {
     _q1.setFromEuler(_euler);
     this.outQuat.multiply(_q1);
 
-    this.outFov = this.fovBase + (far ? T.chaseFarFovDeg : 0) + T.speedFovMaxDeg * this.fovSpd.x;
+    this.outFov = this.fovBase + (far ? T.chaseFarFovDeg : 0) + T.speedFovMaxDeg * this.fovSpd.x + T.nitroFovDeg * this.fovNitro.x;
     this.outNear = T.near;
     this.outShake = T.shakeByMode[this._mode];
   }
@@ -1306,7 +1313,7 @@ class CameraRigImpl implements CameraRig {
       _v1.set(this.hdX.x - this.seatSide * T.cockpitBackShift * eb, this.hdY.x + 0.04 * eb, this.hdZ.x - 0.06 * eb).applyQuaternion(_mQuat);
       this.outPos.add(_v1);
     }
-    this.outFov = this.fovBase + T.interiorFovDeg + T.interiorSpeedFovDeg * this.fovSpd.x;
+    this.outFov = this.fovBase + T.interiorFovDeg + T.interiorSpeedFovDeg * this.fovSpd.x + 0.5 * T.nitroFovDeg * this.fovNitro.x;
     this.outNear = cockpit ? T.nearCockpit : T.near;
     this.outShake = T.shakeByMode[mode];
   }
