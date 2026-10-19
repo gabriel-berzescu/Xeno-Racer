@@ -1081,11 +1081,11 @@ needs a human ear to confirm. The numbers below come from `sandbox/album/lab/` (
   retriggered note shows a 6 dB hole; the reese's level swirls by 8 dB over a held note. The exact taste of a 303 or of a modern growl
   is approximate. The growl's stereo width (`sandbox/album/lab/growl-width-lab.ts`, five growls of five presets): at `width` 1 the side is 4.4 dB under the mid
   from 400 Hz up (4.8 dB for everything above 200 Hz, 15 dB at 120-200 Hz, 47 dB below 120 Hz), the correlation of left and right is 0.47 in the highs and
-  1.000 below 120 Hz (0.9996 at the worst, in the band of 90-120 Hz), the mono sum equals the mono growl to 1e-16, and each side is 2.1 dB higher in
+  1.000 below 120 Hz (0.9993 at the worst, in the band of 90-120 Hz), the mono sum equals the mono growl to 1e-16, and each side is 2.1 dB higher in
   peak and 0.6 dB in rms than the mono growl. Left and right are not the same tone: every harmonic of a side differs from the mono growl by 3 dB (standard
   deviation), up to 14 dB, which is the comb filtering that any sum of a signal and a decorrelated copy has, and which gives the width its character.
   Four decorrelators were compared (a slowly modulated delay of 7-10 ms, chains of second-order and of Schroeder all-passes, a sparse random FIR):
-  the stereo numbers agree to a tenth of a dB, the all-pass chain of four Schroeder sections is the cheapest and has no moving comb. The pitch dive follows its curve
+  the stereo numbers of the first three agree to a tenth of a dB (the random FIR ripples by 2-4 dB from band to band, and costs three times as much), and the chain of four Schroeder sections is the cheapest and has no moving comb. The pitch dive follows its curve
   to within 10 cents per cycle for dives of 5 ms to 1 s.
 - **Guitar.** The least certain instrument and the most worked on. Strings are waveguides (pick position, pickup comb, loop damping, palm
   mute, strum timing, double-tracking with independent timing and tuning errors); the amp is three asymmetric gain stages at 2x
