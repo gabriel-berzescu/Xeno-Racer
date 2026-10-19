@@ -11,7 +11,8 @@ import type { MechEffects } from '../core/mechanical';
 import { Vector3 } from 'three';
 import { fitCar } from '../physics/compound';
 import { peakPower } from '../physics/engine';
-import { SURFACES, wetGripFactor, type SurfaceProps } from '../physics/surfaces';
+import { SURFACES, carSurfaces, wetGripFactor, type SurfaceProps } from '../physics/surfaces';
+import { awdTractionShare } from '../physics/traction';
 
 const G = 9.81;
 const RHO = 1.225;
@@ -149,6 +150,8 @@ function curvature3(ax: number, az: number, bx: number, bz: number, cx: number, 
  * The surface under the racing line at each of its points (0 = the road's own: asphalt, or on a winter circuit packed snow and ice),
  * and what the table of surfaces says about each: the profile of a circuit whose road is not all one surface (the ice of a frozen
  * lake) works with the grip under each point. A circuit of plain asphalt costs nothing: one entry, every point on it.
+ * (It is the track's, shared by every car, and it holds the plain table's numbers: a car on all-terrain tyres reads the surface names
+ * and works its own grip out of them, `carSurfaces`; see ProfileJob and the driver.)
  */
 export interface LineSurfaces {
   /** Index into `props` per line point. */
@@ -263,7 +266,7 @@ export function gripModel(def: CarDefinition, o: ProfileOptions, road: SurfacePr
   const vTop = (def.stats.topSpeedKmh / 3.6) * 0.995;
   const a = ph.chassis.cgToFrontAxle;
   const L = ph.chassis.wheelbase;
-  const drivenFrac = ph.drivetrain.layout === 'FWD' ? (L - a) / L * 0.92 : ph.drivetrain.layout === 'RWD' ? (a / L) * 1.1 : 1;
+  const drivenFrac = ph.drivetrain.layout === 'FWD' ? (L - a) / L * 0.92 : ph.drivetrain.layout === 'RWD' ? (a / L) * 1.1 : awdTractionShare(ph);
   const latMax = (vv: number) => mu * aqua(vv) * (G + cDown * vv * vv);
   return { mu, cDown, cDrag, power, vTop, drivenFrac, mass: m, aqua, latMax };
 }
@@ -350,16 +353,20 @@ export class ProfileJob {
     const tireWet = Math.min(ph.tireFront.wetGrip ?? 0.72, ph.tireRear.wetGrip ?? 0.72);
     const wet = this.wet;
     const wetRoad = wetGripFactor(wet, tireWet, road, 0);
-    const wet0s = surf.props.map((sp) => wetGripFactor(wet, tireWet, sp, 0));
+    // (a car on all-terrain tyres meets loose ground as its tyres do, `carSurfaces`; a car on road tyres gets the track's own table, to the bit)
+    const own = carSurfaces(ph);
+    const props = own === SURFACES ? surf.props : surf.names.map((n) => own[n]);
+    const wet0s = props.map((sp) => wetGripFactor(wet, tireWet, sp, 0));
     this.surfaceFactor = new Float32Array(this.n);
     this.muAt = new Float64Array(this.n);
     for (let i = 0; i < this.n; i++) {
       // (a road of one surface is the road's own: x / x is exactly 1, so the profile of a circuit of plain asphalt is the one it always was)
       const k = surf.at[i];
-      this.surfaceFactor[i] = (wet0s[k] / wetRoad) * surf.grip[i];
-      this.muAt[i] = this.gm.mu * (wet0s[k] / wetRoad) * surf.grip[i];
+      const grip = own === SURFACES ? surf.grip[i] : props[k].grip;
+      this.surfaceFactor[i] = (wet0s[k] / wetRoad) * grip;
+      this.muAt[i] = this.gm.mu * (wet0s[k] / wetRoad) * grip;
     }
-    this.aquaAt = (i, vv) => (wet > 0 ? wetGripFactor(wet, tireWet, surf.props[surf.at[i]], vv) / wet0s[surf.at[i]] : 1);
+    this.aquaAt = (i, vv) => (wet > 0 ? wetGripFactor(wet, tireWet, props[surf.at[i]], vv) / wet0s[surf.at[i]] : 1);
   }
 
   /** The profile (finished, or as far as it has got). */
