@@ -214,7 +214,7 @@ export const CATALOG: InstrumentDoc[] = [
     factory: 'growl',
     channel: 'growl',
     plays: 'notes (mono); held notes of a beat or more',
-    example: 's.growl(\'dubstep-growl\').play(s.notes(\'A1:8 C2:8 | D2:8 A1:8\'), S.drop);',
+    example: 's.growl(\'dubstep-growl\').play(s.notes(\'A1:8 C2:8 | D2:8 A1:8\'), S.drop);\ns.growl({ preset: \'screech\', width: 0.7, pEnv: 12 }, { name: \'screecher\' }).play(s.notes(\'C3:8 E3:8 | G3:8 E3:8\'), S.drop); // wide above 200 Hz, a dive into every note',
     title: 'Growl / wobble bass',
     summary:
       'Dubstep bass: a saw pair and an FM oscillator through a wavefolder and saturation, two vowel (formant) band-pass filters and a 24 dB ladder, all moved by a tempo-synced LFO, plus a clean sub. Non-linear stages at 2x oversampling.',
@@ -229,6 +229,7 @@ export const CATALOG: InstrumentDoc[] = [
       'Automate `lfoRate` (0.5 half notes, 1 quarters, 2 eighths, 4 sixteenths) for the classic speed-ups. Changing it while a note sounds bends the wobble\'s speed; the phase does not jump (put the change on a beat if you want it to line up).',
       'A note starts with the wobble at `lfoPhase` of its cycle: with a sine at 0 the filter is half open and opening; `lfoPhase` 0.75 starts closed and opens (the classic "wub" attack), 0.25 starts open and closes.',
       'The growl has a sub of its own (`sub`, 0.5). When you play a separate `s.sub` under it, set `sub: 0` on the growl (and `hp: 60` in its strip) so the two do not add up and beat. Its sweet spot is F1 to A2 (the `screech` preset: C3 to C4).',
+      'Stereo: give the growl a `width` (0..1) in its options or preset, and it becomes a stereo source whose mono sum and low end are the growl itself: above `widthFreq` (200 Hz) it gets a decorrelated side signal, L = growl + side and R = growl - side. At width 1 the side is 4.4 dB under the mid above `widthFreq` (a supersaw chord is at about -2 dB), 0.5 is 6 dB less, and below `widthFreq` the side falls away at 48 dB per octave (the correlation below 120 Hz is 1.000). Any value counts, `width: 0` too, which is the mono growl on both sides, bit for bit. A growl built without a width stays mono, exactly as before, and automating `width` on it is an error that says so. Automate `width` from 0 to 1 over a build; a stereo growl costs about 0.6 ms per second more. The strip pans a stereo source with its balance law, so keep a wide growl at the centre.',
       'A pitch dive: `pEnv` (up to 24 semitones either way) starts every new note that far above its pitch (below it, for a negative value) and settles into it within `pEnvTime` seconds, fast at first. The offset falls exponentially in semitones, half of it is gone after a seventh of the time and it is exactly gone when the time is up (a total, like the sidechain\'s `release`, not the time constant of the synth\'s and the sub\'s `pEnvTime`). `pEnv: 12, pEnvTime: 0.08` is the classic dive from an octave up in 80 ms. The growl\'s own sub dives with the rest, so the two never beat; a tied (`~`) note is not dived again, a note after a rest or a plain next note is. 0, the default, is off and changes nothing; automate `pEnv` to open a build with dives.',
     ],
   },

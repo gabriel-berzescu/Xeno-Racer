@@ -231,6 +231,7 @@ export function readmeSnippets(p: ReadmePrelude, mark: (block: number) => void):
   mark(31); // example: s.growl
   {
     s.growl('dubstep-growl').play(s.notes('A1:8 C2:8 | D2:8 A1:8'), S.drop);
+    s.growl({ preset: 'screech', width: 0.7, pEnv: 12 }, { name: 'screecher' }).play(s.notes('C3:8 E3:8 | G3:8 E3:8'), S.drop); // wide above 200 Hz, a dive into every note
   }
 
   mark(32); // example: s.acid

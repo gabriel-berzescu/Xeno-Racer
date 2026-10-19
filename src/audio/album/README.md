@@ -949,7 +949,9 @@ Other tools in `sandbox/album/lab/`: `guitar-lab.ts` (tuning, spectrum against a
 response, stereo balance), `drum-report.ts` (numbers for every electronic drum), `evidence.ts` (the measurements quoted in section 15),
 `speed.ts` (the render speed of a dense 3.5-minute track), `hash-album.ts` (the SHA-256 of the audio of every track of the album and of the Sound Check:
 run it with `--save before.json` before a change to the engine and with `--check before.json` after it; with every new feature off, no hash may move)
-and `pump-lab.ts` (how close `fx.pump` is to the sidechain, where its ducks land, what it costs).
+`pump-lab.ts` (how close `fx.pump` is to the sidechain, where its ducks land, what it costs), `growl-dive-lab.ts` (the growl's pitch envelope against the integral of the intended
+frequency), `growl-width-lab.ts` (the decorrelators compared, and the growl's width band by band: side-to-mid, correlation, cost) and `golden-renders.ts` (plays scripted notes through
+one instrument the way the engine does, and hashes the growl and the synth: the tests keep them bit-identical while the newer options are off).
 
 **Tests**: `npx vitest run tests/album-engine.test.ts` (about 15 s) checks determinism, block-size independence, the master of the Sound
 Check (peak, loudness, DC, clean start and end), the pitch of the instruments, the kick on the beat grid, the notation, the mixer, the
@@ -982,6 +984,7 @@ second of audio.
 | electronic drum kit, busy bar | 3-4 |
 | chorus / drive insert | 1.6 / 1.5 |
 | pump insert (`curve` 1 / a bent `curve`, ducking half of the time) | 0.3 / 1.0 |
+| growl with a `width` (the stereo side, on top of the 8) | +0.6 |
 
 A mix of 12 busy channels costs 70-90 ms per second (11-14x real time); the sound check, which plays one instrument at a time, renders at
 about 33x. Idle channels cost nothing (instruments that are silent are skipped), so arrangements that bring instruments in and out are
@@ -1030,7 +1033,9 @@ closing filter on a `music` bus take the rest out of it. Sidechain strongly: `du
 `s.setSidechain({ release: 0.25, curve: 1.4 })`. Future-bass chords that pump on a rhythm of their own, not the kick's, take `fx: [fx.pump({ pattern: 'x...x...x...x...', depth: 0.8, release: 0.3, curve: 1.4 })]`
 in their strip, with a light `duck` or none: they duck on every beat (`'x.x.x.x.x.x.x.x.'` ducks on every eighth, and a bar line makes a longer pattern:
 `'x...x...x...x... | x...x...x..x..x.'`), while the sub and the growl keep their `duck` and follow the kick. Ramp `fx.pump.depth` up from 0 to open a build into
-the pump. A complete, balanced track: `sandbox/album/examples/dubstep.ts`.
+the pump. A melodic growl is wide above its lows: `s.growl({ preset: 'screech', width: 0.7 })` leaves the sub and everything under 200 Hz in the middle and
+puts a decorrelated copy of the rest to the sides (the mono sum is the same growl), and `pEnv: 12, pEnvTime: 0.08` dives into every note from an octave up.
+A complete, balanced track: `sandbox/album/examples/dubstep.ts`.
 
 **Punk (170-200 BPM).** `acousticKit('punk-kit')`. A verse beat (the skate beat): kick `x.......x.x.....`, snare on 2 and 4 `....x.......x...`, closed
 hat eighths `x.x.x.x.x.x.x.x.`; a chorus beat: kick on every beat `x...x...x...x...`, snare on the off-beat eighths `..x...x...x...x.` (or on 2
@@ -1071,7 +1076,14 @@ needs a human ear to confirm. The numbers below come from `sandbox/album/lab/` (
   as in the dubstep example, 176 to 840 Hz with a period of exactly one beat); an accented
   `acid-303` note is 3.4 dB louder and 5-6 dB brighter in the first 30 ms; a slid acid note glides 55 -> 82 Hz in about 50 ms with no gap in the level, where a
   retriggered note shows a 6 dB hole; the reese's level swirls by 8 dB over a held note. The exact taste of a 303 or of a modern growl
-  is approximate.
+  is approximate. The growl's stereo width (`sandbox/album/lab/growl-width-lab.ts`, five growls of five presets): at `width` 1 the side is 4.4 dB under the mid
+  from 400 Hz up (4.8 dB for everything above 200 Hz, 15 dB at 120-200 Hz, 47 dB below 120 Hz), the correlation of left and right is 0.47 in the highs and
+  1.000 below 120 Hz (0.9996 at the worst, in the band of 90-120 Hz), the mono sum equals the mono growl to 1e-16, and each side is 2.1 dB higher in
+  peak and 0.6 dB in rms than the mono growl. Left and right are not the same tone: every harmonic of a side differs from the mono growl by 3 dB (standard
+  deviation), up to 14 dB, which is the comb filtering that any sum of a signal and a decorrelated copy has, and which gives the width its character.
+  Four decorrelators were compared (a slowly modulated delay of 7-10 ms, chains of second-order and of Schroeder all-passes, a sparse random FIR):
+  the stereo numbers agree to a tenth of a dB, the all-pass chain of four Schroeder sections is the cheapest and has no moving comb. The pitch dive follows its curve
+  to within 10 cents per cycle for dives of 5 ms to 1 s.
 - **Guitar.** The least certain instrument and the most worked on. Strings are waveguides (pick position, pickup comb, loop damping, palm
   mute, strum timing, double-tracking with independent timing and tuning errors); the amp is three asymmetric gain stages at 2x
   oversampling with coupling filters, a tone stack, sag and a gate; the cabinet is a chain of filters. Measured: in tune to within a few
@@ -1695,12 +1707,14 @@ Example (`S.drop` is a section declared with `s.sections({ ... })`):
 
 ```ts
 s.growl('dubstep-growl').play(s.notes('A1:8 C2:8 | D2:8 A1:8'), S.drop);
+s.growl({ preset: 'screech', width: 0.7, pEnv: 12 }, { name: 'screecher' }).play(s.notes('C3:8 E3:8 | G3:8 E3:8'), S.drop); // wide above 200 Hz, a dive into every note
 ```
 
 - Play held notes of a beat or more. With `lfoSync: 'note'` (the default) every note restarts the wobble, so a note shorter than one cycle never shows it: at `lfoRate` 1 that means notes shorter than a beat. For a rhythmic line of short notes use `lfoSync: 'beat'`: the wobble then runs on the beat grid whatever the notes do, and the rests between notes cut it into pieces.
 - Automate `lfoRate` (0.5 half notes, 1 quarters, 2 eighths, 4 sixteenths) for the classic speed-ups. Changing it while a note sounds bends the wobble's speed; the phase does not jump (put the change on a beat if you want it to line up).
 - A note starts with the wobble at `lfoPhase` of its cycle: with a sine at 0 the filter is half open and opening; `lfoPhase` 0.75 starts closed and opens (the classic "wub" attack), 0.25 starts open and closes.
 - The growl has a sub of its own (`sub`, 0.5). When you play a separate `s.sub` under it, set `sub: 0` on the growl (and `hp: 60` in its strip) so the two do not add up and beat. Its sweet spot is F1 to A2 (the `screech` preset: C3 to C4).
+- Stereo: give the growl a `width` (0..1) in its options or preset, and it becomes a stereo source whose mono sum and low end are the growl itself: above `widthFreq` (200 Hz) it gets a decorrelated side signal, L = growl + side and R = growl - side. At width 1 the side is 4.4 dB under the mid above `widthFreq` (a supersaw chord is at about -2 dB), 0.5 is 6 dB less, and below `widthFreq` the side falls away at 48 dB per octave (the correlation below 120 Hz is 1.000). Any value counts, `width: 0` too, which is the mono growl on both sides, bit for bit. A growl built without a width stays mono, exactly as before, and automating `width` on it is an error that says so. Automate `width` from 0 to 1 over a build; a stereo growl costs about 0.6 ms per second more. The strip pans a stereo source with its balance law, so keep a wide growl at the centre.
 - A pitch dive: `pEnv` (up to 24 semitones either way) starts every new note that far above its pitch (below it, for a negative value) and settles into it within `pEnvTime` seconds, fast at first. The offset falls exponentially in semitones, half of it is gone after a seventh of the time and it is exactly gone when the time is up (a total, like the sidechain's `release`, not the time constant of the synth's and the sub's `pEnvTime`). `pEnv: 12, pEnvTime: 0.08` is the classic dive from an octave up in 80 ms. The growl's own sub dives with the rest, so the two never beat; a tied (`~`) note is not dived again, a note after a rest or a plain next note is. 0, the default, is off and changes nothing; automate `pEnv` to open a build with dives.
 
 | option | meaning |
@@ -1742,6 +1756,8 @@ Parameters (all automatable; also usable as options):
 | `release` | 0.08 | 0.005 .. 3 | s | Release. |
 | `tone` | 9000 | 500 .. 18000 | Hz | Low-pass at the end. |
 | `velocity` | 0.4 | 0 .. 1 |  | How much velocity changes the level. |
+| `width` | 0 | 0 .. 1 |  | Stereo width: above `widthFreq` the growl gets a decorrelated side signal, L = growl + side and R = growl - side, so the mono sum is the growl itself. 0 = both sides the same as the mono growl, 1 = the side is 4.4 dB under the mid above `widthFreq` (about as wide as a mono source gets without sounding detached). Setting `width` in the options or the preset (any value, 0 too) makes the growl a stereo source; without it the growl is mono and this parameter does nothing (automating it is an error that says so). |
+| `widthFreq` | 200 | 60 .. 1000 | Hz | Below this frequency the growl stays mono: the side signal starts here (a Linkwitz-Riley 8th-order high-pass: -6 dB at this frequency, 48 dB per octave below it). |
 
 Presets:
 

@@ -75,6 +75,11 @@ export interface ParamHost {
   readonly specs: ParamSpecs;
   readonly params: Record<string, number>;
   setParam(name: string, value: number): void;
+  /**
+   * Optional: why automating this parameter would do nothing on this instance (the growl's `width` when it was built without one, and so
+   * is mono). Automation of such a parameter is an error that says it; the parameter stays valid as an option.
+   */
+  inertParam?(name: string): string | null;
 }
 
 export interface Instrument extends ParamHost {

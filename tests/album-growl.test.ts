@@ -5,9 +5,11 @@
 import { describe, expect, it } from 'vitest';
 import { defineTrack } from '../src/audio/album/song';
 import { FLAG } from '../src/audio/album/instrument';
-import { GrowlBass } from '../src/audio/album/instruments/bass';
+import { GROWL_PRESETS, GrowlBass } from '../src/audio/album/instruments/bass';
 import { growlHashes, makeCtx, playScript } from '../sandbox/album/lab/golden-renders';
 import { SINE_GROWL, crossings, diveOffset, predictedCycles } from '../sandbox/album/lab/growl-dive-lab';
+import { bandStat } from '../sandbox/album/lab/growl-width-lab';
+import { hasNonFinite, rms } from '../src/audio/analysis';
 
 const SR = 48000;
 
@@ -193,5 +195,168 @@ describe('growl pitch envelope (pEnv, pEnvTime)', () => {
     for (let i = 1; i < 5; i++) expect(firstCycles[i], `first cycle of each bar: ${shown}`).toBeGreaterThan(firstCycles[i - 1] * 1.04);
     expect(firstCycles[0], shown).toBeLessThan(115);
     expect(firstCycles[4], shown).toBeGreaterThan(170);
+  });
+});
+
+// ── stereo width ─────────────────────────────────────────────────────────────────────────────────────────
+
+/** Half-time growl notes (F1 A1 C2 D2 F2 A1 ...) for the width measurements. */
+const LINE: Parameters<typeof playScript>[2] = [];
+{
+  let beat = 0;
+  for (const [note, beats] of [[29, 2], [33, 2], [36, 1], [38, 1], [41, 2], [33, 2], [29, 2]] as const) {
+    LINE.push({ beat, kind: 'on', note, vel: 0.9 }, { beat: beat + beats - 0.05, kind: 'off', note });
+    beat += beats;
+  }
+}
+const LINE_SECONDS = 12 * (60 / 140) + 0.3;
+
+function growlLine(opts: Record<string, unknown>): { l: Float64Array; r: Float64Array } {
+  const ctx = makeCtx(SR, 140);
+  return playScript(new GrowlBass(ctx, opts as never), ctx, LINE, LINE_SECONDS);
+}
+
+describe('growl stereo width (width, widthFreq)', () => {
+  it('is a mono source unless its options or its preset set a width (any value, 0 too)', () => {
+    const ctx = makeCtx(SR, 140);
+    expect(new GrowlBass(ctx, 'dubstep-growl').stereo).toBe(false);
+    expect(new GrowlBass(ctx, { preset: 'wub', cutoff: 300 }).stereo).toBe(false);
+    expect(new GrowlBass(ctx, { preset: 'wub', width: 0 }).stereo).toBe(true);
+    expect(new GrowlBass(ctx, { preset: 'wub', width: 0.7 }).stereo).toBe(true);
+    GROWL_PRESETS['test-wide'] = { doc: 'a preset that sets a width', opts: { width: 0.5 } };
+    try {
+      expect(new GrowlBass(ctx, 'test-wide').stereo).toBe(true);
+      expect(new GrowlBass(ctx, { preset: 'test-wide', width: 0 }).params.width).toBe(0);
+    } finally {
+      delete GROWL_PRESETS['test-wide'];
+    }
+    // ranges
+    const g = new GrowlBass(ctx, { preset: 'wub', width: 0 });
+    expect(g.specs.width).toMatchObject({ default: 0, min: 0, max: 1 });
+    expect(g.specs.widthFreq).toMatchObject({ default: 200, unit: 'Hz' });
+    expect(() => new GrowlBass(ctx, { preset: 'wub', width: 1.5 } as never)).toThrow(/parameter "width" is 1.5, outside its range 0 \.\. 1/);
+    expect(() => new GrowlBass(ctx, { preset: 'wub', width: 1, widthFreq: 5 } as never)).toThrow(/parameter "widthFreq" is 5/);
+  });
+
+  it('at width 0 is the mono growl on both sides, bit for bit, and as loud in the mix as the mono growl panned centre', () => {
+    for (const preset of ['dubstep-growl', 'neuro', 'screech']) {
+      const mono = growlLine({ preset });
+      const wide = growlLine({ preset, width: 0 });
+      expect(Buffer.compare(Buffer.from(mono.l.buffer), Buffer.from(wide.l.buffer)), `${preset}: left`).toBe(0);
+      expect(Buffer.compare(Buffer.from(mono.l.buffer), Buffer.from(wide.r.buffer)), `${preset}: right`).toBe(0);
+    }
+    // through the channel strip: a mono source is panned with the constant-power law (a gain of cos(pi/4) * sqrt(2) = 1 at the centre),
+    // a stereo one with the balance law (1 at the centre): the same level to the last bit of a double
+    const mix = (width: number | undefined): { l: Float32Array; r: Float32Array } => {
+      const def = defineTrack({ id: 't-gw', title: 'gw', genre: 'Test', bpm: 140, bars: 4, tail: 0.3, fadeOut: 0.01 }, (s) => {
+        s.growl(width === undefined ? { preset: 'dubstep-growl' } : { preset: 'dubstep-growl', width }, { gain: -4 }).play(s.notes('F1:8 . . . . . . . A1:8 . . . . . . . | C2:8 . . . . . . . D2:8 . . . . . . .', { free: true }), 0, 4);
+        s.master.raw = true;
+      });
+      const r = def.build(SR).toRenderer();
+      const [l, rr] = renderBlocks(r, r.frames, 4096);
+      return { l, r: rr };
+    };
+    const a = mix(undefined);
+    const b = mix(0);
+    expect(hasNonFinite(a.l) || hasNonFinite(b.l)).toBe(false);
+    expect(rms(a.l, 0, a.l.length)).toBeGreaterThan(0.01);
+    expect(rms(b.l, 0, b.l.length) / rms(a.l, 0, a.l.length)).toBeCloseTo(1, 9);
+    expect(rms(b.r, 0, b.r.length) / rms(a.r, 0, a.r.length)).toBeCloseTo(1, 9);
+    let worst = 0;
+    for (let i = 0; i < a.l.length; i++) worst = Math.max(worst, Math.abs(a.l[i] - b.l[i]), Math.abs(a.r[i] - b.r[i]));
+    expect(worst).toBeLessThan(1e-6);
+  });
+
+  it('keeps the mono sum and the lows: the correlation below 120 Hz is 1, the mono sum is the growl', () => {
+    for (const preset of ['dubstep-growl', 'wub', 'yoi', 'riddim']) {
+      const mono = growlLine({ preset });
+      const wide = growlLine({ preset, width: 1 });
+      let sumErr = 0;
+      for (let i = 0; i < mono.l.length; i++) sumErr = Math.max(sumErr, Math.abs((wide.l[i] + wide.r[i]) * 0.5 - mono.l[i]));
+      expect(sumErr, `${preset}: mono sum`).toBeLessThan(1e-12);
+      const low = bandStat(wide.l, wide.r, 20, 120);
+      expect(low.corr, `${preset}: correlation below 120 Hz`).toBeGreaterThan(0.999);
+      expect(low.sideMidDb, `${preset}: side/mid below 120 Hz`).toBeLessThan(-40);
+      const sub = bandStat(wide.l, wide.r, 20, 60);
+      expect(sub.corr, `${preset}: correlation below 60 Hz`).toBeGreaterThan(0.99995);
+    }
+  });
+
+  it('puts a decorrelated side above widthFreq, 4 to 5 dB under the mid at width 1 (the band edges are the Linkwitz-Riley corner)', () => {
+    const wide = growlLine({ preset: 'dubstep-growl', width: 1 });
+    for (const [lo, hi] of [[400, 800], [800, 1600], [1600, 3200], [3200, 6400]] as const) {
+      const b = bandStat(wide.l, wide.r, lo, hi);
+      expect(b.sideMidDb, `${lo}-${hi} Hz`).toBeGreaterThan(-5.5);
+      expect(b.sideMidDb, `${lo}-${hi} Hz`).toBeLessThan(-3.2);
+      expect(b.corr, `${lo}-${hi} Hz`).toBeGreaterThan(0.3);
+      expect(b.corr, `${lo}-${hi} Hz`).toBeLessThan(0.65);
+    }
+    // at the corner itself the side is 6 dB down (about -10 dB against the mid in a 200-400 Hz band that starts there), further down below it
+    const corner = bandStat(wide.l, wide.r, 200, 400);
+    expect(corner.sideMidDb).toBeGreaterThan(-8);
+    expect(corner.sideMidDb).toBeLessThan(-4);
+    expect(bandStat(wide.l, wide.r, 120, 160).sideMidDb).toBeLessThan(-15);
+    // width 0.5 is 6 dB less side
+    const half = growlLine({ preset: 'dubstep-growl', width: 0.5 });
+    expect(bandStat(half.l, half.r, 800, 1600).sideMidDb - bandStat(wide.l, wide.r, 800, 1600).sideMidDb).toBeCloseTo(-6.02, 1);
+    // widthFreq moves the corner: at 800 Hz the 200-400 Hz band is nearly mono and the highs are as wide as before
+    const high = growlLine({ preset: 'dubstep-growl', width: 1, widthFreq: 800 });
+    expect(bandStat(high.l, high.r, 200, 400).sideMidDb).toBeLessThan(-35);
+    expect(bandStat(high.l, high.r, 3200, 6400).sideMidDb).toBeGreaterThan(-5.5);
+    // the left and right levels are balanced (the side has no preferred side)
+    let el = 0;
+    let er = 0;
+    for (let i = 0; i < wide.l.length; i++) {
+      el += wide.l[i] * wide.l[i];
+      er += wide.r[i] * wide.r[i];
+    }
+    expect(Math.abs(10 * Math.log10(el / er))).toBeLessThan(0.6);
+  });
+
+  it('can be automated (the side grows with width), and says so when the growl is mono and the automation would do nothing', () => {
+    const sideBars: number[] = [];
+    const def = defineTrack({ id: 't-gw2', title: 'gw2', genre: 'Test', bpm: 140, bars: 5, tail: 0.3, fadeOut: 0.01 }, (s) => {
+      const g = s.growl({ preset: 'wub', width: 0 }, { name: 'g' });
+      g.play(s.notes('F1:16 | F1:16 | F1:16 | F1:16 | F1:16', { free: true }), 0, 5);
+      g.auto('width', [[0, 0], [4, 1]]);
+      s.master.raw = true;
+    });
+    const r = def.build(SR).toRenderer();
+    const [l, rr] = renderBlocks(r, r.frames, 4096);
+    const barFrames = Math.round(4 * (60 / 140) * SR);
+    for (let bar = 0; bar < 5; bar++) {
+      const a = Float64Array.from(l.subarray(bar * barFrames, (bar + 1) * barFrames));
+      const b = Float64Array.from(rr.subarray(bar * barFrames, (bar + 1) * barFrames));
+      sideBars.push(bandStat(a, b, 400, 6400, Math.round(0.1 * SR)).sideMidDb);
+    }
+    for (let i = 1; i < 5; i++) expect(sideBars[i], sideBars.map((v) => v.toFixed(1)).join(' ')).toBeGreaterThan(sideBars[i - 1] + 1);
+    expect(sideBars[4]).toBeGreaterThan(-5.5);
+    // a growl without a width is mono: automating the width would do nothing, so it is an error with the way out
+    defineTrack({ id: 't-gw3', title: 'gw3', genre: 'Test', bpm: 140, bars: 4 }, (s) => {
+      const mono = s.growl('wub', { name: 'mono' });
+      expect(() => mono.auto('width', [[0, 0], [2, 1]])).toThrow(/automation path "mono.width": instrument "mono": this growl is mono, so "width" does nothing: give it a width when you make it/);
+      expect(() => mono.ramp('widthFreq', 0, 2, 100, 300)).toThrow(/"widthFreq" does nothing/);
+      expect(() => s.auto('mono.width', [[0, 1]])).toThrow(/this growl is mono/);
+      expect(() => mono.auto('cutoff', [[0, 300], [2, 900]])).not.toThrow();
+      const wide = s.growl({ preset: 'wub', width: 0 }, { name: 'wide' });
+      expect(() => wide.auto('width', [[0, 0], [2, 1]])).not.toThrow();
+      expect(() => wide.auto('widthFreq', [[0, 200], [2, 500]])).not.toThrow();
+    }).build(SR);
+  });
+
+  it('stays finite and quiet at the extremes, with a dive, and ends with the note', () => {
+    for (const o of [
+      { preset: 'neuro', width: 1, widthFreq: 60, pEnv: 24, pEnvTime: 0.2 },
+      { preset: 'riddim', width: 1, widthFreq: 1000, lfoRate: 16 },
+      { preset: 'screech', width: 1, widthFreq: 120, glide: 0.1 },
+      { preset: 'dubstep-growl', width: 0.3, comb: 0.9, drive: 40, fold: 1, clip: 30 },
+    ]) {
+      const { l, r } = growlLine(o);
+      expect(hasNonFinite(l) || hasNonFinite(r), JSON.stringify(o)).toBe(false);
+      let peak = 0;
+      for (let i = 0; i < l.length; i++) peak = Math.max(peak, Math.abs(l[i]), Math.abs(r[i]));
+      expect(peak, JSON.stringify(o)).toBeLessThan(8);
+      expect(rms(l, l.length - 2000, l.length) + rms(r, r.length - 2000, r.length), `${JSON.stringify(o)}: nothing left after the last note`).toBeLessThan(1e-4);
+    }
   });
 });

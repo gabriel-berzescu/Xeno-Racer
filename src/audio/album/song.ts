@@ -730,6 +730,8 @@ export class Song {
     const pick = (host: ParamHost, name: string, where: string): { host: ParamHost; name: string; spec: ParamSpec } => {
       const spec = host.specs[name];
       if (!spec) fail(`${where} has no parameter "${name}".${suggest(name, Object.keys(host.specs))} Valid: ${Object.keys(host.specs).join(', ')}`);
+      const inert = host.inertParam?.(name);
+      if (inert) fail(`${where}: ${inert}`);
       return { host, name, spec };
     };
     const head = parts[0];

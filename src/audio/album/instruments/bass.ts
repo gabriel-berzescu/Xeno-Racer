@@ -10,6 +10,7 @@ import { Noise, Rng, TAU, clamp, dbToLin, fold, mtof, sinCyc, tanh3 } from '../d
 import { Adsr, ENV_IDLE } from '../dsp/env';
 import { Downsampler2x, Upsampler2x } from '../dsp/delay';
 import { Ladder, Svf } from '../dsp/filters';
+import { SideDecorrelator } from '../dsp/side';
 import { polyBlep } from '../dsp/osc';
 import { BLOCK, Ctx, FLAG, Instrument, LFO_SHAPES, ParamBase, ParamSpecs, PresetDef, pickWord, resolveOpts } from '../instrument';
 import { MonoTracker } from './mono';
@@ -532,7 +533,12 @@ export const GROWL_SPECS = {
   release: { default: 0.08, min: 0.005, max: 3, unit: 's', doc: 'Release.' },
   tone: { default: 9000, min: 500, max: 18000, unit: 'Hz', curve: 'exp', doc: 'Low-pass at the end.' },
   velocity: { default: 0.4, min: 0, max: 1, doc: 'How much velocity changes the level.' },
+  width: { default: 0, min: 0, max: 1, doc: 'Stereo width: above `widthFreq` the growl gets a decorrelated side signal, L = growl + side and R = growl - side, so the mono sum is the growl itself. 0 = both sides the same as the mono growl, 1 = the side is 4.4 dB under the mid above `widthFreq` (about as wide as a mono source gets without sounding detached). Setting `width` in the options or the preset (any value, 0 too) makes the growl a stereo source; without it the growl is mono and this parameter does nothing (automating it is an error that says so).' },
+  widthFreq: { default: 200, min: 60, max: 1000, unit: 'Hz', curve: 'exp', doc: 'Below this frequency the growl stays mono: the side signal starts here (a Linkwitz-Riley 8th-order high-pass: -6 dB at this frequency, 48 dB per octave below it).' },
 } satisfies ParamSpecs;
+
+/** The side signal is this much of the high band at width 1: -4.4 dB, in the middle of what a wide synth does (a supersaw chord is at about -2 dB). */
+const SIDE_GAIN = 0.6;
 
 /** The pitch dive of the growl is exp(-DIVE_K * t / pEnvTime), shifted so that it is exactly 0 at pEnvTime (DIVE_END is its value there). */
 const DIVE_K = 5;
@@ -585,11 +591,24 @@ export class GrowlBass extends BassBase<typeof GROWL_SPECS> {
   private lfoOffset = 0;
   private lfoRateUsed = 0;
   private lfoNextBeat = -1;
+  /** A growl is a stereo source only when its options or its preset set `width` (any value): the flag is fixed when it is built. */
+  readonly stereo: boolean;
+  private readonly side: SideDecorrelator | null;
+  private readonly monoOut = new Float64Array(BLOCK);
+  private readonly sideOut = new Float64Array(BLOCK);
+  private sideGain = -1; // the side level at the end of the last block (-1: none yet)
   constructor(ctx: Ctx, input?: GrowlOpts | string) {
     const o = resolveOpts('growl bass', GROWL_PRESETS, input ?? 'dubstep-growl', GROWL_SPECS, ['lfoShape', 'lfoSync']);
     super('GrowlBass', GROWL_SPECS, ctx, o);
     this.shape = pickWord('growl bass', 'lfoShape', o.lfoShape, LFO_SHAPES, 'sine');
     this.sync = pickWord('growl bass', 'lfoSync', o.lfoSync, ['note', 'beat'] as const, 'note');
+    this.stereo = o.width !== undefined;
+    this.side = this.stereo ? new SideDecorrelator(ctx.sr) : null;
+  }
+  /** Automating the width of a growl that is mono (it was built without one) would do nothing: say so. */
+  inertParam(name: string): string | null {
+    if (this.stereo || (name !== 'width' && name !== 'widthFreq')) return null;
+    return `this growl is mono, so "${name}" does nothing: give it a width when you make it (s.growl({ preset: 'dubstep-growl', width: 0 })) to make it a stereo source, then automate it`;
   }
   protected glideTime(): number {
     return this.params.glide;
@@ -630,7 +649,7 @@ export class GrowlBass extends BassBase<typeof GROWL_SPECS> {
         return sinCyc(ph);
     }
   }
-  process(l: Float64Array, _r: Float64Array, n: number): void {
+  process(l: Float64Array, r: Float64Array, n: number): void {
     this.serviceHits(n);
     if (!this.mono.active) return;
     const p = this.params;
@@ -784,6 +803,8 @@ export class GrowlBass extends BassBase<typeof GROWL_SPECS> {
     let hx = this.hpX;
     let hy = this.hpY;
     const end = idle >= 0 ? idle : n;
+    const stereo = this.stereo;
+    const mo = this.monoOut;
     for (let i = 0; i < n; i++) {
       sph += sdt;
       if (sph >= 1) sph -= 1;
@@ -793,14 +814,42 @@ export class GrowlBass extends BassBase<typeof GROWL_SPECS> {
       hx = y;
       hy = h;
       y = h;
-      if (i < end) l[i] += y * this.ae[i] * g;
+      if (stereo) mo[i] = i < end ? y * this.ae[i] * g : 0;
+      else if (i < end) l[i] += y * this.ae[i] * g;
       if (moving) sdt *= ratio;
     }
     this.lp = lp;
     this.subPh = sph;
     this.hpX = hx;
     this.hpY = hy;
-    if (idle >= 0) this.mono.active = false;
+    if (stereo) this.widen(mo, l, r, n);
+    if (idle >= 0) {
+      this.mono.active = false;
+      this.side?.clear();
+    }
+  }
+  /**
+   * The stereo stage: the growl above `widthFreq`, decorrelated, is the side. L = growl + w * side and R = growl - w * side, so the mono sum
+   * is the growl and at width 0 both sides are the growl itself, bit for bit (the strip pans a stereo source with its balance law, which at the
+   * centre is the unity gain the constant-power law gives a mono source).
+   */
+  private widen(mo: Float64Array, l: Float64Array, r: Float64Array, n: number): void {
+    const p = this.params;
+    const side = this.side as SideDecorrelator;
+    const so = this.sideOut;
+    side.setCorner(p.widthFreq);
+    side.process(mo, n, so);
+    const w1 = p.width * SIDE_GAIN;
+    let w = this.sideGain < 0 ? w1 : this.sideGain; // the level glides across the block, so that automation never steps
+    const dw = (w1 - w) / n;
+    for (let i = 0; i < n; i++) {
+      w += dw;
+      const m = mo[i];
+      const d = w * so[i];
+      l[i] += m + d;
+      r[i] += m - d;
+    }
+    this.sideGain = w1;
   }
   private lastLfo = 0;
 }
