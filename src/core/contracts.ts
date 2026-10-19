@@ -397,14 +397,22 @@ export interface EngineSoundProfile {
   /** 0..1 likelihood/intensity of overrun pops & crackles. */
   crackle: number;
   /**
-   * A gear-driven positive-displacement supercharger (absent: none): its whine is locked to the engine speed through the pulley
-   * `ratio` (rotor turns per crank turn) and the rotor `lobes`, loud under load, with the bypass valve open off throttle. No lag, no
-   * blow-off valve (that is a turbo's). `level` 0..1 scales it (default 1).
+   * A belt-driven positive-displacement supercharger (absent: none): a Roots or twin-screw blower, no lag and no blow-off valve (that
+   * is a turbo's). Its rotors turn `ratio` times for every crank turn (the pulley ratio: about 2.4 for the 2.4 L blowers of a Hellcat or
+   * a TRX) and each lobe sends one pulse of air out of the discharge, so `lobes` is the pulses per rotor turn (the male lobes of a
+   * twin-screw: 4; a Roots pair of 4-lobe rotors: 8). The whine is the tone of those pulses, rpm/60 x ratio x lobes Hz with its
+   * harmonics: it climbs with the engine (1.03 kHz at 6200 rpm for 2.5 x 4, 108 Hz at a 650 rpm idle, where it is only a whirr),
+   * is loud on the throttle and drops when the bypass valve opens off it. `level` 0..1 scales it (default 1). Keep 2 x ratio x lobes
+   * a whole number (2.5 x 4 = 20) and the tone and its sidebands stay on the engine-order grid (rpm/120) where the aliasing test
+   * looks for folded-back partials. `lobes` is rounded to a whole number. Heard in full quality only, as the turbo's whistle is.
    */
   supercharger?: { ratio: number; lobes: number; level?: number };
   /**
-   * 'dual': a true dual exhaust, each bank of a V engine in its own pipe to its own tailpipe with no crossover, so the uneven
-   * pulses of a cross-plane V8's banks are heard (the burble); absent or 'merged': the banks meet in an X-pipe.
+   * 'dual': a true dual exhaust, each bank of a V engine in its own pipe to its own tailpipe with no crossover (side exits, one per
+   * side, on the Mammoth). The two pipes differ a little, as two real ones do (a few percent in length, a muffler that damps more),
+   * and the listener is nearer one of them, so the sum of the banks is no longer the even train of pulses it would be through
+   * identical pipes at one point: a cross-plane V8's banks, which fire 90 / 180 / 270 / 180 degrees apart, come out as the burble
+   * (energy at the half orders of the crank, rpm/120). Absent or 'merged': the banks meet in an X-pipe and one pipe goes on.
    */
   exhaustSystem?: 'merged' | 'dual';
 }
