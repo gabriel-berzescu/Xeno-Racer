@@ -82,7 +82,8 @@ export function carStatBars(car: CarDefinition, units: 'kmh' | 'mph'): StatBar[]
   const top = units === 'mph' ? Math.round(s.topSpeedKmh * 0.621371) + ' mph' : Math.round(s.topSpeedKmh) + ' km/h';
   return [
     { id: 'power', label: 'Power', value: clamp01(s.powerHp / 750), text: Math.round(s.powerHp) + ' hp' },
-    { id: 'weight', label: 'Weight', value: clamp01(s.massKg / 1800), text: thousands(s.massKg) + ' kg', neutral: true },
+    // (out of 2.5 t: the Mammoth fills it, a sports car sits around the middle)
+    { id: 'weight', label: 'Weight', value: clamp01(s.massKg / 2500), text: thousands(s.massKg) + ' kg', neutral: true },
     { id: 'grip', label: 'Grip', value: gripScore(car), text: '' + Math.round(gripScore(car) * 100) },
     { id: 'top', label: 'Top speed', value: clamp01((s.topSpeedKmh - 150) / 200), text: top },
     { id: 'accel', label: 'Acceleration', value: clamp01(1 - (s.zeroTo100 - 2.4) / 5.2), text: s.zeroTo100.toFixed(1) + ' s' },
