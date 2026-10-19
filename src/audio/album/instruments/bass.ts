@@ -524,6 +524,8 @@ export const GROWL_SPECS = {
   envAmt: { default: 0, min: -4, max: 6, unit: 'octaves', doc: 'Extra filter opening at the start of each note.' },
   envDecay: { default: 0.15, min: 0.02, max: 3, unit: 's', doc: 'Decay of that opening.' },
   glide: { default: 0, min: 0, max: 1, unit: 's', doc: 'Portamento.' },
+  pEnv: { default: 0, min: -24, max: 24, unit: 'semitones', doc: 'Pitch dive: every new note starts this far above (+) or below (-) its pitch and settles into it within `pEnvTime`, fast at first (the classic dive into the note). A tied (~) note is not re-enveloped; the growl\'s own sub dives with it. 0 = off.' },
+  pEnvTime: { default: 0.08, min: 0.005, max: 1, unit: 's', doc: 'How long the dive takes: the offset falls exponentially in semitones (half of it is gone after a seventh of this time, 92 % after half of it) and is exactly gone when the time is up. A total, not a time constant like the synth\'s `pEnvTime`.' },
   attack: { default: 0.003, min: 0.0005, max: 1, unit: 's', doc: 'Attack.' },
   decay: { default: 1, min: 0.02, max: 6, unit: 's', doc: 'Decay.' },
   sustain: { default: 1, min: 0, max: 1, doc: 'Sustain.' },
@@ -531,6 +533,16 @@ export const GROWL_SPECS = {
   tone: { default: 9000, min: 500, max: 18000, unit: 'Hz', curve: 'exp', doc: 'Low-pass at the end.' },
   velocity: { default: 0.4, min: 0, max: 1, doc: 'How much velocity changes the level.' },
 } satisfies ParamSpecs;
+
+/** The pitch dive of the growl is exp(-DIVE_K * t / pEnvTime), shifted so that it is exactly 0 at pEnvTime (DIVE_END is its value there). */
+const DIVE_K = 5;
+const DIVE_END = Math.exp(-DIVE_K);
+
+/** The pitch offset in semitones `age` samples after a note started: `pEnv` at the start, exactly 0 from `span` samples on, exponential in between. */
+function pitchDive(pEnv: number, age: number, span: number): number {
+  if (age >= span) return 0;
+  return pEnv * ((Math.exp((-DIVE_K * age) / span) - DIVE_END) / (1 - DIVE_END));
+}
 
 export interface GrowlOpts {
   name?: string;
@@ -624,12 +636,24 @@ export class GrowlBass extends BassBase<typeof GROWL_SPECS> {
     const p = this.params;
     const sr = this.sr;
     const spb = (sr * 60) / this.ctx.bpm;
+    const age0 = this.mono.age; // samples since the note (re)started, at the first sample of this block
     this.mono.advance(n);
-    const f0 = mtof(this.mono.slideNote);
+    // the pitch dive: its offset in semitones at the first sample of the block, and the ratio of the frequency from one sample to the next
+    // (the oscillators and the sub glide through the block, they do not step; a tied note keeps its age, so it is not dived again)
+    let o0 = 0;
+    let ratio = 1;
+    if (p.pEnv !== 0) {
+      const span = p.pEnvTime * sr;
+      o0 = pitchDive(p.pEnv, age0, span);
+      const o1 = pitchDive(p.pEnv, age0 + n, span);
+      if (o1 !== o0) ratio = Math.pow(2, (o1 - o0) / (12 * n));
+    }
+    const moving = ratio !== 1;
+    const f0 = mtof(this.mono.slideNote + o0);
     const src = this.src;
-    const dta = (f0 * Math.pow(2, p.detune / 1200)) / sr;
-    const dtb = (f0 * Math.pow(2, -p.detune / 1200)) / sr;
-    const dtf = f0 / sr;
+    let dta = (f0 * Math.pow(2, p.detune / 1200)) / sr;
+    let dtb = (f0 * Math.pow(2, -p.detune / 1200)) / sr;
+    let dtf = f0 / sr;
     let [pa, pb, pf, pm] = this.ph;
     const beat0 = this.ctx.transport.beat;
     // the wobble's phase at the first sample of this block, in cycles (accumulated, so that a change of lfoRate never jumps the phase)
@@ -690,6 +714,11 @@ export class GrowlBass extends BassBase<typeof GROWL_SPECS> {
       x -= Math.floor(x);
       const fm = sinCyc(x);
       src[i] = ((sa + sb) * 0.5) * (1 - p.fmMix) + fm * p.fmMix;
+      if (moving) {
+        dta *= ratio;
+        dtb *= ratio;
+        dtf *= ratio;
+      }
     }
     this.ph = [pa, pb, pf, pm];
     this.fb = fb;
@@ -750,7 +779,7 @@ export class GrowlBass extends BassBase<typeof GROWL_SPECS> {
     const toneK = 1 - Math.exp((-TAU * p.tone) / sr);
     let lp = this.lp;
     let sph = this.subPh;
-    const sdt = f0 / sr;
+    let sdt = f0 / sr; // the sub dives with the saws and the FM voice: they never beat
     const hpR = 1 - (TAU * 28) / sr;
     let hx = this.hpX;
     let hy = this.hpY;
@@ -765,6 +794,7 @@ export class GrowlBass extends BassBase<typeof GROWL_SPECS> {
       hy = h;
       y = h;
       if (i < end) l[i] += y * this.ae[i] * g;
+      if (moving) sdt *= ratio;
     }
     this.lp = lp;
     this.subPh = sph;

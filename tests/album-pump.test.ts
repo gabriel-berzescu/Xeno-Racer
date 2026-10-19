@@ -1,14 +1,11 @@
 /**
- * Album engine, second round: four opt-in features, each tested against its own measurements.
- *   fx.pump        a tempo-locked duck on one channel (the shape of the sidechain, keyed by the beat grid)
- *   growl width    a stereo growl: mono below `widthFreq`, a decorrelated side above it
- *   growl pEnv     a pitch dive at the start of every growl note
- *   synth click    a short noise transient at the start of every synth note
- * Every one is off by default and then changes nothing: the "off" tests compare against the plain instrument sample for sample.
+ * fx.pump: a tempo-locked duck on one channel, with the shape of the sidechain (mixer.ts), keyed by the beat grid instead of by the kick.
+ * Tested at the level of the effect (against a Duck fed the same triggers, against the grid at two tempos, across cuts, seeks and sleeps)
+ * and in real songs (against a muted kick keying the sidechain on the same steps).
  */
 import { describe, expect, it } from 'vitest';
 import { defineTrack, fx } from '../src/audio/album/song';
-import type { ChannelHandle, Song } from '../src/audio/album/song';
+import type { Song } from '../src/audio/album/song';
 import { Ctx, Transport } from '../src/audio/album/instrument';
 import { Pump } from '../src/audio/album/fx';
 import { Duck, MixIO } from '../src/audio/album/mixer';

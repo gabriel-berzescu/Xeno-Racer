@@ -229,6 +229,7 @@ export const CATALOG: InstrumentDoc[] = [
       'Automate `lfoRate` (0.5 half notes, 1 quarters, 2 eighths, 4 sixteenths) for the classic speed-ups. Changing it while a note sounds bends the wobble\'s speed; the phase does not jump (put the change on a beat if you want it to line up).',
       'A note starts with the wobble at `lfoPhase` of its cycle: with a sine at 0 the filter is half open and opening; `lfoPhase` 0.75 starts closed and opens (the classic "wub" attack), 0.25 starts open and closes.',
       'The growl has a sub of its own (`sub`, 0.5). When you play a separate `s.sub` under it, set `sub: 0` on the growl (and `hp: 60` in its strip) so the two do not add up and beat. Its sweet spot is F1 to A2 (the `screech` preset: C3 to C4).',
+      'A pitch dive: `pEnv` (up to 24 semitones either way) starts every new note that far above its pitch (below it, for a negative value) and settles into it within `pEnvTime` seconds, fast at first. The offset falls exponentially in semitones, half of it is gone after a seventh of the time and it is exactly gone when the time is up (a total, like the sidechain\'s `release`, not the time constant of the synth\'s and the sub\'s `pEnvTime`). `pEnv: 12, pEnvTime: 0.08` is the classic dive from an octave up in 80 ms. The growl\'s own sub dives with the rest, so the two never beat; a tied (`~`) note is not dived again, a note after a rest or a plain next note is. 0, the default, is off and changes nothing; automate `pEnv` to open a build with dives.',
     ],
   },
   {
