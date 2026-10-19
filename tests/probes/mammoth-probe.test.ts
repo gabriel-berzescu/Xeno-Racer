@@ -8,7 +8,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { describe, it } from 'vitest';
 import { CARS, getCar } from '../../src/cars';
-import { brakeRun, coast, dragRun, flick, launch, skidpad } from './car-metrics';
+import { brakeRun, coast, dragRun, flick, kerbStrike, launch, setup, skidpad } from './car-metrics';
 
 const SECTIONS = (process.env.MAMMOTH ?? '').split(',').filter(Boolean);
 const on = (s: string) => SECTIONS.includes('all') || SECTIONS.includes(s);
@@ -81,6 +81,42 @@ describe.skipIf(SECTIONS.length === 0)('Mammoth probe', () => {
         const r = flick(c);
         const n = flick(c, 140);
         say(`${c.id.padEnd(10)} 110: roll ${r.maxRollDeg.toFixed(1)} deg  min load ${(r.minLoadShare * 100).toFixed(0)} %  ${r.spun ? 'SPUN' : 'ok'} | 140: roll ${n.maxRollDeg.toFixed(1)} deg  min load ${(n.minLoadShare * 100).toFixed(0)} %  ${n.spun ? 'SPUN' : 'ok'} lifted ${n.wheelsUpFrames}`);
+      }
+    }
+    if (on('kerb')) {
+      say('── the left wheels over a kerb strip (height, speed): the lowest wheel load as a share of its static load, wheels off the ground, roll ──');
+      for (const c of cars)
+        for (const h of [0.05, 0.08, 0.12])
+          say(
+            `${c.id.padEnd(10)} h=${(h * 100).toFixed(0).padStart(2)} cm: ` +
+              [80, 120, 160, 200]
+                .map((kmh) => {
+                  const r = kerbStrike(c, kmh, h);
+                  return `${kmh}: min ${(r.minLoadShare * 100).toFixed(0)}% (w${r.wheel}) up ${r.wheelsUp} roll ${r.maxRollDeg.toFixed(1)}`;
+                })
+                .join(' | '),
+          );
+    }
+    if (on('launchlog')) {
+      const surface = (process.env.SURFACE ?? 'asphalt') as 'asphalt';
+      const tcs = (process.env.TCS ?? 'low') as 'low';
+      for (const c of cars) {
+        say(`── launch log ${c.id} on ${surface}, TCS ${tcs}: per axle the tyre force (kN), the slip ratios, the loads (kN), gear, rpm ──`);
+        const { world, car } = setup(c, { surface }, 0, { abs: true, tcs, esc: false, autoShift: true, steeringAssist: 0, autoClutch: true });
+        world.simulate(0.5);
+        car.controls.throttle = 1;
+        for (let i = 0; i < 60 * 6; i++) {
+          world.step(1 / 60);
+          if (i % 6 === 0) {
+            const s = car.state;
+            const w = s.wheels;
+            say(
+              `t=${(i / 60).toFixed(2)} v=${(s.forwardSpeed * 3.6).toFixed(0).padStart(3)} g${s.gear} ${s.rpm.toFixed(0).padStart(4)}rpm thr=${s.throttle.toFixed(2)} clutch=${s.clutch.toFixed(2)} ` +
+                `Ffront=${((w[0].forceLong + w[1].forceLong) / 1000).toFixed(1).padStart(5)} Frear=${((w[2].forceLong + w[3].forceLong) / 1000).toFixed(1).padStart(5)} ` +
+                `k=${w.map((x) => x.slipRatio.toFixed(2)).join('/')} load=${w.map((x) => (x.load / 1000).toFixed(1)).join('/')} ax=${(s.localAccel.z / 9.81).toFixed(2)}g tcs=${s.tcsActive ? 1 : 0}`,
+            );
+          }
+        }
       }
     }
     mkdirSync('.cache', { recursive: true });

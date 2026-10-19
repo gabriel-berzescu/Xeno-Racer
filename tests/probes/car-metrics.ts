@@ -5,7 +5,7 @@
  * how far the body leans over, squats under power and dives under the brakes, how fast it is still going after a spell on gravel.
  */
 import { Quaternion, Vector3 } from 'three';
-import type { Assists, CarDefinition, SurfaceType } from '../../src/core/contracts';
+import type { Assists, CarDefinition, GroundSample, SurfaceType, TrackRuntime } from '../../src/core/contracts';
 import { PhysicsWorld, SteeringFilter, createFlatTrack, type Vehicle } from '../../src/physics';
 import { DEFAULT_SETTINGS } from '../../src/core/settings';
 
@@ -225,4 +225,62 @@ export function flick(def: CarDefinition, kmh = 110, assists: Assists = { ...DEF
     if (car.state.speed > 5 && Math.abs(Math.atan2(car.state.velocity.dot(l), car.state.velocity.dot(f))) > 1.2) spun = true;
   }
   return { maxRollDeg: maxRoll, minLoadShare: minShare, spun, wheelsUpFrames: wheelsUp };
+}
+
+/**
+ * A flat plane with a raised strip along +Z, like a hard kerb: `from`..`to` metres to the left of the centre line (x), `height` m tall, its two
+ * edges ramped over `ramp` m (a kerb is a ridge with a slope on each side, never a step). The strip is 'curb' to the physics.
+ */
+export function kerbTrack(from: number, to: number, height: number, ramp = 0.12): TrackRuntime {
+  const track = createFlatTrack();
+  track.groundAt = (x: number, _z: number, out: GroundSample): number => {
+    let h = 0;
+    let slope = 0;
+    if (x > from && x < to) {
+      if (x < from + ramp) {
+        h = (height * (x - from)) / ramp;
+        slope = height / ramp;
+      } else if (x > to - ramp) {
+        h = (height * (to - x)) / ramp;
+        slope = -height / ramp;
+      } else h = height;
+      out.surface = 'curb';
+    } else out.surface = 'asphalt';
+    out.height = h;
+    out.normal.set(-slope, 1, 0).normalize();
+    return 0;
+  };
+  return track;
+}
+
+/** Drive at `kmh` along +Z with the left wheels on a kerb strip; returns the lowest wheel load share (of the static load) and the wheels in the air at the worst moment. */
+export function kerbStrike(def: CarDefinition, kmh: number, height = 0.07, steerIn = 0, assists: Assists = { ...DEFAULT_SETTINGS.assists }) {
+  const half = def.physics.chassis.trackFront / 2;
+  const track = kerbTrack(half - 0.25, half + 0.6, height);
+  const world = new PhysicsWorld(track);
+  const car = world.addVehicle(def);
+  car.assists = { ...assists };
+  car.placeOnGround(new Vector3(0, 0, 0), new Quaternion(), kmh / 3.6);
+  car.setTemperatures(1);
+  car.controls.throttle = 0.3;
+  const staticLoad = [0, 1, 2, 3].map((i) => car.staticLoad(i));
+  let minShare = 1;
+  let maxUp = 0;
+  let maxRoll = 0;
+  let minLoadWheel = -1;
+  for (let i = 0; i < 3 * 60; i++) {
+    car.controls.steer = steerIn;
+    world.step(DT);
+    if (car.p.z < 8) continue;
+    for (let w = 0; w < 4; w++) {
+      const share = car.state.wheels[w].load / staticLoad[w];
+      if (share < minShare) {
+        minShare = share;
+        minLoadWheel = w;
+      }
+    }
+    maxUp = Math.max(maxUp, car.state.wheels.filter((w) => !w.contact).length);
+    maxRoll = Math.max(maxRoll, Math.abs(attitude(car).rollDeg));
+  }
+  return { minLoadShare: minShare, wheel: minLoadWheel, wheelsUp: maxUp, maxRollDeg: maxRoll, upright: attitude(car).rollDeg < 20 };
 }
