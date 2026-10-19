@@ -98,7 +98,7 @@ describe('what the profile asks for is all the shared voice does for the Mammoth
       expect(V.dual, c.id).toBe(mine);
       expect(V.lope > 0, c.id).toBe(mine);
       expect(V.burble > 0, c.id).toBe(mine);
-      expect(V.idleWobble, c.id).toBe(mine ? 0.045 : 0.03);
+      expect(V.idleWobble, c.id).toBe(mine ? 0.4 : 0.03);
     }
   });
 

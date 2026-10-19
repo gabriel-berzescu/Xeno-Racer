@@ -202,7 +202,10 @@ export interface Voicing {
   bankDrift: number;
   /** Chance per exhaust event of an engine that is being lifted off that the unburnt charge lights in the pipe. */
   burble: number;
-  /** Depth of the idle's slow hunting of the rpm (a fraction); every engine has 0.03. */
+  /**
+   * Depth of the idle's slow hunting of the rpm: the factor on the wobble state, a smoothed noise whose standard deviation is only ~0.04 (so the
+   * 0.03 every engine has makes ~0.1 % of rpm, a pitch change nobody hears); a cammed V8 hunts a good percent or two: 0.4 makes 1.5 %.
+   */
   idleWobble: number;
   // exhaust: a true dual system, each bank to its own tailpipe (full quality)
   dual: boolean;
@@ -241,7 +244,8 @@ export function deriveVoicing(p: EngineSoundProfile, layout: EngineLayout): Voic
     rc: lerp(5.2, 1.18, Math.pow(o, 0.8)),
     rq: lerp(0.45, 0.06, o),
     // (a dual exhaust is two separate pipes with the big mufflers of a truck and nothing to scatter the energy of a resonance into, as the junction
-    // of a merged system does: damped a little more, its pipes' resonances sweep through the firing harmonics by 3 dB a 66 ms, not 5)
+    // of a merged system does: damped a little more, so that the exhaust does not surge as the firing harmonics sweep a pipe resonance: 2 dB
+    // between two 66 ms windows of a rev sweep, where it was 4.7)
     Rc: dual ? 0.66 : 0.78,
     Ro: lerp(0.95, 0.88, o) * (dual ? 0.88 : 1),
     Rq: 0.85,
@@ -292,7 +296,7 @@ export function deriveVoicing(p: EngineSoundProfile, layout: EngineLayout): Voic
     misfire: cross ? 0.02 : 0,
     bankDrift: cross ? 0.16 : 0,
     burble: cross ? 1 : 0,
-    idleWobble: cross ? 0.045 : 0.03,
+    idleWobble: cross ? 0.4 : 0.03,
     dual,
     dualLen: [1, 1.004],
     dualMuff: [1, 0.97],
@@ -1036,7 +1040,7 @@ export class EngineVoice {
     if (V.lope > 0) {
       // the cross-plane's lumpiness is strongest at idle and light load and gives way to the roar as the pulses crowd together
       const lowW = smoothstep(idle * 2.8, idle * 1.0, rpm);
-      this.lopeDepth = V.lope * (1 - 0.55 * loadE) * smoothstep(5200, 1500, rpm);
+      this.lopeDepth = V.lope * (1 - 0.55 * loadE) * smoothstep(0.8, 0.23, rpmN);
       this.lumpSigma = V.lump * lowW * (1 - 0.7 * loadE);
       this.misProb = V.misfire * lowW * (1 - loadE);
       // one bank runs a little richer than the other for a second or so, then the other: the half orders at idle breathe
@@ -1071,7 +1075,7 @@ export class EngineVoice {
     // dozen to thirty a second through the middle of the rev range while the exhaust is hot, and none at idle or near the limiter
     if (V.burble > 0) {
       // (it is the driver's foot that is off: an automatic's ignition cut on a shift, with the pedal down, is not a lift-off)
-      this.burbleP = V.burble * ovr * smoothstep(0.35, 0.08, this.sPlate) * (0.25 + 0.75 * this.heat) * smoothstep(idle * 1.5, idle * 2.6, rpm) * smoothstep(5200, 3600, rpm) * 0.1;
+      this.burbleP = V.burble * ovr * smoothstep(0.35, 0.08, this.sPlate) * (0.25 + 0.75 * this.heat) * smoothstep(idle * 1.5, idle * 2.6, rpm) * smoothstep(0.8, 0.55, rpmN) * 0.1;
     }
 
     // ── turbo spool state ────────────────────────────────────────────────────
