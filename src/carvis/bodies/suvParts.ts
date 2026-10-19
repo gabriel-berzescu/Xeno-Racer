@@ -349,7 +349,11 @@ function addBumperLights(b: PartBuilder, d: SuvDims): void {
   }
 }
 
-/** The side-exit pipes: a short angled pipe through the sill, a chrome rim and a heat shield. The tip is where effects.ts blows its flames. */
+/**
+ * The side-exit pipes: a fat steel pipe angled 27 degrees back that comes out of a pocket in the sill (suv.ts cuts it) with a
+ * flared, polished rim. The tip is exactly where effects.ts blows its nitro flames (x = width/2 - 0.02, 0.6 m ahead of the rear
+ * axle, 20 cm over the road, pointing out and back), so the flame leaves the pipe it is drawn from.
+ */
 function addExhaust(b: PartBuilder, s: CarVisualSpec, d: SuvDims): void {
   const y = s.rideHeight + 0.2;
   const z = -s.wheelbase / 2 + 0.6;
@@ -359,16 +363,15 @@ function addExhaust(b: PartBuilder, s: CarVisualSpec, d: SuvDims): void {
   for (const sg of [-1, 1] as const) {
     const tip: V3 = [sg * x, y, z];
     const at = (t: number): V3 => [tip[0] - sg * dx * t, y, tip[2] - dz * t];
-    // heat shield on the sill (a slab on the door skin), then the pipe
+    // a guard plate across the back of the pocket, then the pipe itself (burnt titanium, a bell at the end), the rim and the bore
     b.setPart(PART.rugged);
-    flankSlab(b, sg, rrect(0.13, 0.062, 0.03, z, y), d.slab - 0.004, d.slab + 0.008, 0.004, 1);
+    flankSlab(b, sg, rrect(0.085, 0.062, 0.025, z - 0.01, y), d.slab - 0.052, d.slab - 0.04, 0.002, 1);
     b.setPart(PART.titanium);
-    b.tube([at(0.16), at(0.02)], 0.042, 18, false);
+    b.tube([at(0.17), at(0.05), at(0.022)], [0.044, 0.046, 0.052], 18, false);
     b.setPart(PART.chrome);
-    b.tube([at(0.02), at(0)], [0.046, 0.05], 18, false);
-    // the dark bore
+    b.tube([at(0.022), at(0.008), at(0)], [0.052, 0.058, 0.06], 18, false);
     b.setPart(PART.plastic);
-    b.tube([at(0.012), at(0.011)], 0.04, 18, true);
+    b.tube([at(0.004), at(0.0035)], 0.05, 18, true);
   }
 }
 

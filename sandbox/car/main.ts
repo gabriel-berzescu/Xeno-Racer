@@ -5,8 +5,9 @@
  *   &dmg=fl:14:wall:25,sl:5:car   crash damage, applied straight to the model: zone:closing speed (m/s):wall|car:angle (deg to the
  *        barrier). Zones: fl fr f (front corners / centre), bl br b (rear), sl sr (flanks). &rub=sl:3 adds a scrape along a flank.
  *        window.__CAR__.hit('fl:14:wall:25') does the same from a script.
- *   ?lineup=N[&row=1]  a grid of N cars (random liveries); with row=1 the roster in a single row, each in its own default livery, seen from the
- *        front quarter: a size comparison (&cars=a,b,c picks which, &night=1 lights them).
+ *   ?lineup=N[&row=1|side]  a grid of N cars (random liveries); with row=1 the roster in a single row, each in its own default livery, seen
+ *        from the front quarter; with row=side the same cars nose to tail in profile through a long lens (44 m away, the horizontal field
+ *        of view fixed to the row, so any window shape frames it): a size comparison (&cars=a,b,c picks which, &night=1 lights them).
  */
 import * as THREE from 'three';
 import { getCar } from '../../src/cars';
@@ -367,7 +368,11 @@ function render(): void {
 /** ?lineup=12 : a grid of AI cars (all four models, varied liveries) plus the player car, to test sharing, LOD and cost. */
 async function lineup(count: number): Promise<void> {
   const { CARS } = await import('../../src/cars');
-  const row = q.get('row') === '1';
+  const side = q.get('row') === 'side';
+  /** nose-to-tail spacing of the profile lineup (m), and how far the camera stands off it */
+  const SIDE_PITCH = 5.5;
+  const SIDE_DIST = 44;
+  const row = q.get('row') === '1' || side;
   const picks = q.get('cars') ? q.get('cars')!.split(',').map((id) => CARS.findIndex((c) => c.id === id)).filter((i) => i >= 0) : null;
   const patterns: Livery['pattern'][] = ['solid', 'stripes', 'split', 'arrow', 'hoops', 'shards'];
   const hues = ['#c4161c', '#1c6bd8', '#f2c200', '#18a058', '#ece8e0', '#8a2be2', '#ff7a18', '#2ad1c4', '#2b2f3a', '#ff2e63', '#6a7a8c', '#a0e020'];
@@ -382,8 +387,8 @@ async function lineup(count: number): Promise<void> {
       createCarVisual(d, lv, quality).then((visual) => {
         const st = makeState(d);
         const col = i % cols, rowIdx = Math.floor(i / cols);
-        const ox = row ? (i - (count - 1) / 2) * 3.3 : (col - (cols - 1) / 2) * 3.6;
-        const oz = row ? -i * 0.0 : -rowIdx * 6.5;
+        const ox = side ? 0 : row ? (i - (count - 1) / 2) * 3.3 : (col - (cols - 1) / 2) * 3.6;
+        const oz = side ? (i - (count - 1) / 2) * SIDE_PITCH : row ? 0 : -rowIdx * 6.5;
         st.position.x += ox;
         st.position.z += oz;
         for (const w of st.wheels) {
@@ -400,12 +405,20 @@ async function lineup(count: number): Promise<void> {
   const buildMs = performance.now() - t0;
   for (const c of cars) c.visual.update(c.state, 0, env);
   const cw = innerWidth, ch = innerHeight;
-  cam.fov = row ? 30 : 40;
   cam.aspect = cw / ch;
+  // (the row modes fix the horizontal field of view, so any window shape frames the five cars alike: 50 degrees across for the quarter
+  // view, 12 for the profile through a long lens)
+  const vfov = (hDeg: number): number => (2 * Math.atan(Math.tan((hDeg * Math.PI) / 360) / cam.aspect) * 180) / Math.PI;
+  cam.fov = side ? vfov((2 * Math.atan(((count - 1) * SIDE_PITCH + 6.5) / 2 / SIDE_DIST) * 180) / Math.PI) : row ? vfov(50) : 40;
   cam.updateProjectionMatrix();
-  if (row) {
-    cam.position.set(-9.5 * (count / 5), 2.1, 15 * (count / 5));
-    cam.lookAt(0, 0.85, 0);
+  if (side) {
+    // (the studio's fog starts 14 m out: a profile from 44 m would be lost in it)
+    scene.fog = null;
+    cam.position.set(SIDE_DIST, 1.3, 0);
+    cam.lookAt(0, 0.95, 0);
+  } else if (row) {
+    cam.position.set(-9 * (count / 5), 1.5, 16.5 * (count / 5));
+    cam.lookAt(0.3, 0.95, 0);
   } else {
     cam.position.set(9, 4.2, 12.5);
     cam.lookAt(0, 0.4, -6);

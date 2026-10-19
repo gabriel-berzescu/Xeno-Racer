@@ -129,6 +129,9 @@ export const makeSuv: BlueprintFactory = (s) => {
   const grilleY = 1.03;
   const grilleHy = 0.19;
 
+  /** where the side-exit pipes come out (effects.ts blows the nitro flames from here): just ahead of each rear wheel, 20 cm over the road */
+  const exhaustY = s.rideHeight + 0.2;
+  const exhaustZ = -s.wheelbase / 2 + 0.6 - 0.02;
   // (an eyelid of body paint cuts the top inner part of each lamp: a squint that lowers towards the grille)
   const lid = (ax: number, y: number): number => (y - (lampY + 0.058 - 0.36 * (lampX - ax))) * 0.94;
   const headLamp = (ax: number, y: number, z: number): number => Math.max(sdCircle2(ax - lampX, y - lampY, 0.112), lid(ax, y), zFas - 0.2 - z);
@@ -139,10 +142,12 @@ export const makeSuv: BlueprintFactory = (s) => {
     d = ssub(d, sdRoundBox(ax, y - grilleY, z - zFas, grilleHx, grilleHy, 0.1, 0.03), 0.02);
     // a louvred vent in each front wing, behind the flare
     d = ssub(d, sdRoundBox(ax - (slab + 0.02), y - 1.09, z - 0.77, 0.06, 0.11, 0.07, 0.02), 0.01);
+    // the side-exit pockets: a hole in the sill panel just ahead of each rear wheel, where the pipes (suvParts.ts) come out
+    d = ssub(d, sdRoundBox(ax - slab, y - exhaustY, z - exhaustZ, 0.045, 0.072, 0.1, 0.03), 0.01);
     // two air intakes in the bumper face, either side of the winch
     d = ssub(d, sdRoundBox(ax - 0.36, y - 0.5, z - zNose, 0.18, 0.04, 0.05, 0.02), 0.01);
-    // the body-side groove: one crisp horizontal line the length of the doors (it catches the light below the orange break line)
-    d = dent(d, Math.max(Math.abs(y - 0.93) - 0.014, 0.7 - ax), 0.008, 0.012);
+    // the body-side groove: one crisp horizontal line along the doors, from arch to arch (it catches the light below the orange break line)
+    d = dent(d, Math.max(Math.abs(y - 0.93) - 0.014, 0.7 - ax, Math.abs(z) - 0.93), 0.008, 0.012);
     // door handles
     d = dent(d, Math.max(sdSegment2(z, y, -0.2, 1.1, -0.04, 1.1) - 0.028, 0.7 - ax), 0.01, 0.03);
     d = dent(d, Math.max(sdSegment2(z, y, -0.8, 1.1, -0.64, 1.1) - 0.028, 0.7 - ax), 0.01, 0.03);

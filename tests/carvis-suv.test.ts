@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { PART, ZONE_STRIDE } from '../src/carvis/blueprint';
 import { BLUEPRINTS } from '../src/carvis/bodies';
+import { frontZ, rearZ, sideX } from '../src/carvis/bodies/probe';
 import { DMG_VERT_PARS } from '../src/carvis/damageShader';
 import { computeLayout, eyePoint, wheelLook } from '../src/carvis/layouts';
 import { makeInterior } from '../src/carvis/interior';
@@ -121,11 +122,26 @@ describe('Mammoth body', () => {
     const tipY = spec.rideHeight + 0.2;
     const tipZ = -spec.wheelbase / 2 + 0.6;
     const rim = byPart.get(PART.chrome) ?? [];
+    const body = BLUEPRINTS.suv(spec).body;
     for (const sg of [-1, 1]) {
       const tip: [number, number, number] = [sg * (spec.width / 2 - 0.02), tipY, tipZ];
-      const near = rim.filter((v) => Math.hypot(v[0] - tip[0], v[1] - tip[1], v[2] - tip[2]) < 0.06);
+      const near = rim.filter((v) => Math.hypot(v[0] - tip[0], v[1] - tip[1], v[2] - tip[2]) < 0.07);
       expect(near.length, `pipe rim on side ${sg}`).toBeGreaterThan(8);
+      // the pipe comes out of a pocket in the sill: the panel is cut away round it (air 3 cm inside the door skin at the tip), and the
+      // sill a hand ahead of the pocket is solid there
+      expect(body(sg * (spec.width / 2 - 0.05 - 0.03), tipY, tipZ), 'pocket').toBeGreaterThan(0);
+      expect(body(sg * (spec.width / 2 - 0.05 - 0.03), tipY, tipZ + 0.3), 'sill ahead of the pocket').toBeLessThan(0);
+      // and the tip itself is in the air, outside the door skin, where the flame starts
+      expect(body(tip[0], tip[1], tip[2])).toBeGreaterThan(0);
     }
+  });
+
+  it('keeps the body-side groove to the doors: nothing cuts across the tail lamps or the nose', () => {
+    const body = BLUEPRINTS.suv(spec).body;
+    // the groove (y = 0.93, 8 mm deep, 2.8 cm wide) is a dent in a door; the same height on the tail face and on the nose is flat
+    for (const z of [0.0, 0.5, -0.6]) expect(sideX(body, 0.99, z) - sideX(body, 0.93, z), `door at z = ${z}`).toBeGreaterThan(0.004);
+    expect(Math.abs(rearZ(body, 0.88, 0.99) - rearZ(body, 0.88, 0.93)), 'tail').toBeLessThan(0.002);
+    expect(Math.abs(frontZ(body, 0.88, 0.99) - frontZ(body, 0.88, 0.93)), 'nose').toBeLessThan(0.002);
   });
 });
 
