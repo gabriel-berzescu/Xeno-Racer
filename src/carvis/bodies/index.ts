@@ -10,4 +10,6 @@ export const BLUEPRINTS: Record<BodyStyle, BlueprintFactory> = {
   hatch: makeHatch,
   coupe: makeCoupe,
   prototype: makePrototype,
+  // (the Mammoth's own body is being sculpted: until then it borrows the hatch's)
+  suv: makeHatch,
 };

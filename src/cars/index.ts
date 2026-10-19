@@ -419,7 +419,122 @@ const lmp: CarDefinition = {
   },
 };
 
-export const CARS: CarDefinition[] = [vanta, kestrel, ronin, lmp];
+// ─────────────────────────────────────────────────────────────────────────────
+// Mammoth — supercharged cross-plane V8 4x4 on all-terrain tyres. Brutal off the line, anywhere.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** An all-terrain tyre: open blocks and a tall sidewall. Less bite on asphalt, much more of it on loose ground. */
+function allTerrainTire(widthMm: number, aspect: number, rimIn: number, mu: number, extra: Partial<TireSpec> = {}): TireSpec {
+  return roadTire(widthMm, aspect, rimIn, mu, {
+    inertia: 3.6,
+    loadSensitivity: 0.15,
+    nominalLoad: 6000,
+    peakSlipAngle: 9 * DEG,
+    peakSlipRatio: 0.13,
+    slideRatio: 0.86,
+    relaxationLength: 0.62,
+    rollingResistance: 0.015,
+    optimalTemp: 70,
+    tempWindow: 55,
+    coldGrip: 0.9,
+    wetGrip: 0.8,
+    offroad: 1,
+    ...extra,
+  });
+}
+
+const mammothVisual: CarVisualSpec = {
+  style: 'suv',
+  length: 4.9,
+  width: 2.04,
+  height: 1.9,
+  wheelbase: 2.95,
+  trackFront: 1.72,
+  trackRear: 1.72,
+  frontOverhang: 0.86,
+  wheelRadiusFront: tireRadius(315, 55, 20),
+  wheelRadiusRear: tireRadius(315, 55, 20),
+  tireWidthFront: 0.315,
+  tireWidthRear: 0.315,
+  rimRadiusFront: 0.254,
+  rimRadiusRear: 0.254,
+  rideHeight: 0.27,
+  cgHeight: 0.72,
+  cgToFrontAxle: 1.357,
+  wing: 0,
+  engine: 'front',
+  exhaust: { count: 2, side: 'side' },
+  seat: { x: 0.4, y: 0.8, z: -0.1 },
+};
+
+const mammoth: CarDefinition = {
+  id: 'mammoth',
+  name: 'Mammoth',
+  maker: 'Xeno Overland',
+  description:
+    'A 2.4-tonne 4x4 with a supercharged 6.2 L cross-plane V8 and all-terrain tyres. Launches like nothing else on any surface and shrugs at gravel — just never ask it to dance through fast bends.',
+  class: 'SUV',
+  drivetrain: 'AWD',
+  stats: { powerHp: 710, torqueNm: 880, massKg: 2450, topSpeedKmh: 260, zeroTo100: 3.9 },
+  visual: mammothVisual,
+  sound: {
+    cylinders: 8, layout: 'v', crankType: 'crossplane', displacement: 6.2, turbo: false, exhaustOpenness: 0.7, brightness: 0.42, gearWhine: 0.15, crackle: 0.5,
+    supercharger: { ratio: 2.4, lobes: 4 }, exhaustSystem: 'dual',
+  },
+  defaultLivery: { primary: '#3b4030', secondary: '#121314', accent: '#ff7a00', pattern: 'split', number: 4, driver: 'You', finish: 0, metallic: false },
+  physics: {
+    chassis: {
+      mass: 2450,
+      inertia: { x: 4600, y: 4800, z: 1200 },
+      cgHeight: 0.72,
+      wheelbase: 2.95,
+      cgToFrontAxle: 1.357,
+      trackFront: 1.72,
+      trackRear: 1.72,
+      maxSteer: 34 * DEG,
+      ackermann: 0.6,
+      ...hullFromVisual(mammothVisual, 1.357),
+    },
+    engine: {
+      idleRpm: 650,
+      redlineRpm: 6200,
+      limiterRpm: 6500,
+      // a positive-displacement blower: full boost from just off idle, no lag (no `turbo`)
+      torqueCurve: [
+        [0, 420], [1000, 580], [1500, 700], [2000, 780], [2500, 830], [3000, 855], [3500, 870], [4000, 878], [4800, 880],
+        [5200, 870], [5600, 845], [6000, 820], [6200, 805], [6500, 760], [7000, 640],
+      ],
+      engineBraking: 160,
+      inertia: 0.3,
+      turbo: null,
+    },
+    drivetrain: {
+      layout: 'AWD',
+      gears: [4.71, 3.14, 2.11, 1.67, 1.29, 1.0, 0.84, 0.67],
+      reverse: 3.3,
+      finalDrive: 3.7,
+      efficiency: 0.86,
+      shiftTime: 0.12,
+      upshiftRpm: 6300,
+      downshiftRpm: 3600,
+      // (the rear differential; the centre one splits 40:60 front:rear and locks up under power, the front one is open)
+      diff: { type: 'lsd', preload: 100, powerLock: 0.35, coastLock: 0.2 },
+      frontSplit: 0.4,
+      centerDiff: { type: 'lsd', preload: 120, powerLock: 0.35, coastLock: 0.2 },
+      frontDiff: { type: 'open', preload: 0, powerLock: 0, coastLock: 0 },
+    },
+    brakes: { frontTorque: 4600, rearTorque: 2300, handbrakeTorque: 2200, discHeatCapacity: 5200 },
+    // a brick with a light bar: no downforce, a little lift
+    aero: { dragArea: 1.62, liftAreaFront: -0.1, liftAreaRear: -0.06 },
+    tireFront: allTerrainTire(315, 55, 20, 1.0),
+    tireRear: allTerrainTire(315, 55, 20, 1.0),
+    suspFront: { travel: 0.22, spring: 40000, bump: 3000, rebound: 5600, antiRoll: 26000, camber: -0.4 * DEG },
+    suspRear: { travel: 0.24, spring: 46000, bump: 3200, rebound: 6000, antiRoll: 18000, camber: -0.2 * DEG },
+  },
+};
+
+// (the Mammoth last: tests take CARS[3] for the LMP-X)
+export const CARS: CarDefinition[] = [vanta, kestrel, ronin, lmp, mammoth];
 
 export function getCar(id: string): CarDefinition {
   const c = CARS.find((c) => c.id === id);

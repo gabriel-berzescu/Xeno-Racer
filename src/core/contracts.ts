@@ -285,7 +285,7 @@ export interface VehicleState {
 // Cars (owner: game/physics — data lives in src/cars)
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type BodyStyle = 'gt' | 'hatch' | 'coupe' | 'prototype';
+export type BodyStyle = 'gt' | 'hatch' | 'coupe' | 'prototype' | 'suv';
 
 /** Everything the car-visual builder needs. Body geometry origin: on the ground, centered
  *  between the axles and between the wheels, +z forward. The center of mass sits at
@@ -396,6 +396,17 @@ export interface EngineSoundProfile {
   gearWhine: number;
   /** 0..1 likelihood/intensity of overrun pops & crackles. */
   crackle: number;
+  /**
+   * A gear-driven positive-displacement supercharger (absent: none): its whine is locked to the engine speed through the pulley
+   * `ratio` (rotor turns per crank turn) and the rotor `lobes`, loud under load, with the bypass valve open off throttle. No lag, no
+   * blow-off valve (that is a turbo's). `level` 0..1 scales it (default 1).
+   */
+  supercharger?: { ratio: number; lobes: number; level?: number };
+  /**
+   * 'dual': a true dual exhaust, each bank of a V engine in its own pipe to its own tailpipe with no crossover, so the uneven
+   * pulses of a cross-plane V8's banks are heard (the burble); absent or 'merged': the banks meet in an X-pipe.
+   */
+  exhaustSystem?: 'merged' | 'dual';
 }
 
 export interface CarDefinition {
@@ -403,7 +414,7 @@ export interface CarDefinition {
   name: string;
   maker: string; // fictional
   description: string;
-  class: 'Road' | 'Sport' | 'GT' | 'Prototype';
+  class: 'Road' | 'Sport' | 'GT' | 'Prototype' | 'SUV';
   drivetrain: 'FWD' | 'RWD' | 'AWD';
   /** Menu stats (computed/estimated). */
   stats: { powerHp: number; torqueNm: number; massKg: number; topSpeedKmh: number; zeroTo100: number };

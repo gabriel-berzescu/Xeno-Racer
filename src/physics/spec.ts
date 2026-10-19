@@ -30,6 +30,11 @@ export interface TireSpec {
   coldGrip: number;
   /** Fraction of dry grip kept on fully wet asphalt (≈0.55 slick .. 0.8 treaded road tire). Default 0.72. */
   wetGrip?: number;
+  /**
+   * 0..1 how much of an all-terrain tyre it is (absent: 0, a road or race tyre): open blocks and deep voids that bite into grass,
+   * dirt, gravel, sand and deep snow, where a road tyre skates on the top. Paid for on paved surfaces through a lower `mu`.
+   */
+  offroad?: number;
 }
 
 export interface SuspensionSpec {
