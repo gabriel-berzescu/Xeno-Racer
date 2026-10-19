@@ -118,8 +118,8 @@ function styleFor(style: BodyStyle, spec: CarVisualSpec): Style {
       // window (the line from the eye crosses the cabin wall 5 cm inside the window's front edge, not behind the pillar) and inside
       // the cockpit view; a wide interior mirror hung from the header, a rear camera over the roof edge
       return {
-        door: { pos: [1.06, 1.45, 0.66], hw: 0.078, hh: 0.056, out: 11 },
-        housing: { depth: 0.11, carbon: false },
+        door: { pos: [1.06, 1.45, 0.66], hw: 0.092, hh: 0.064, out: 11 },
+        housing: { depth: 0.12, carbon: false },
         inside: { pos: [0.15, 1.7, 0.44], hw: 0.088, hh: 0.03 },
         screen: null,
         rear: { y: 1.97, fromTail: 0.45, pitch: 3 },

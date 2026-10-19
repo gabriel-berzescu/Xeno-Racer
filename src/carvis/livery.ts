@@ -264,7 +264,7 @@ export function paintLivery(l: Livery, lay: LiveryLayout, q: LiveryTier, tex?: L
         const r = (0.4 + 0.6 * rnd()) * rMax;
         ctx.fillStyle = dustCol((0.1 + 0.3 * rnd()) * lay.dust! * (1 - 0.55 * u));
         ctx.beginPath();
-        ctx.ellipse(x, yOf(y), r, r * (0.7 + 0.5 * rnd()), 0, 0, Math.PI * 2);
+        ctx.ellipse(x, yOf(y), r * (0.8 + 0.6 * rnd()), r * (0.55 + 0.5 * rnd()), 0, 0, Math.PI * 2);
         ctx.fill();
       }
     };
@@ -288,7 +288,8 @@ export function paintLivery(l: Livery, lay: LiveryLayout, q: LiveryTier, tex?: L
         }
         return k;
       };
-      speckle(sctx, gx0, gx1, 1.0, 5200, SH * 0.012, weight, sy);
+      speckle(sctx, gx0, gx1, 1.0, 5200, SH * 0.0075, weight, sy);
+      speckle(sctx, gx0, gx1, 0.7, 5200, SH * 0.0035, weight, sy);
     });
     // the nose and the tail get the same haze (the bumpers are the first thing the road hits)
     for (let half = 0; half < 2; half++) {

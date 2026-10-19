@@ -1,15 +1,25 @@
 /**
  * Mammoth — a 4x4 built like a bunker: a G-Wagen's ruler-straight slab sides, flat glass and square shoulders, with a Ram TRX's
- * attitude on top (a tall black grille with heavy bars, a hood that sits between raised fenders, huge squared arches under bolted
- * flares, a bumper made of steel and a light bar on the roof).
+ * attitude on top (a tall black grille with heavy bars, a hood that sits between raised fenders under a power dome, huge squared
+ * arches under bolted flares, steel bumpers and a light bar on the roof).
  *
  * Where the other bodies are lofted swoops this one is mostly boxes: every panel is a plane, and what makes it read as a truck
- * and not a crate is the radii (3-6 cm, tight enough to catch a highlight and big enough for a 2.7 cm mesh to hold), the stance
- * (a 4.9 m box on 85 cm tyres) and the parts bolted on top (see suvParts.ts: flares, steps, snorkel, rack, tow hooks, the spare).
+ * and not a crate is the radii (2-6 cm: tight enough to catch a highlight, big enough for a 3 cm mesh to hold), the stance (a 4.9 m
+ * box on 85 cm tyres, 27 cm off the road) and what is bolted on top (suvParts.ts: flares, sliders, hooks, rack, snorkel, spare, pipes).
+ *
+ * Construction, all x-symmetric:
+ *   tub    one loft: the lower body from the road to the fender tops (1.37 m), a flat top 3.5 cm round, the nose and tail planes
+ *          vertical; the doors, fenders and the lower bumper line are all this one slab (the black cladding is a zone, not a shape)
+ *   cabin  a second loft on top: the greenhouse, 2 cm inside the door skin, a flat roof, the windscreen plane raked 23 degrees off
+ *          vertical, the tail plane upright; its top edge leans in 4 cm over the glass so the pillars read as pillars
+ *   hood   cut 4.5 cm down between the fenders, then a power dome raised on it; two bumper boxes blended into the tub
+ *   arches two big rounded boxes cut through the slab (a hand taller than the tyre: the suspension travels 22 cm)
+ * The glass is cut from the front-view (|x|, y) outline for the windscreen and tailgate (they are upright: from above the outline
+ * would collapse) and from the side (z, y) outline for the doors.
  */
 import type { BlueprintFactory } from '../blueprint';
 import { curve } from '../curve';
-import { defaultLoft, sdFootprint, sdLoft } from '../loft';
+import { defaultLoft, sdLoft } from '../loft';
 import type { PartBuilder } from '../parts';
 import { dent, roundPoly, strip2 } from '../shapes';
 import { sdCircle2, sdPolygon2, sdRoundBox, sdRoundRect2, sdSegment2, smax, smin, ssub } from '../sdf';
@@ -36,7 +46,7 @@ export const makeSuv: BlueprintFactory = (s) => {
   const zTg = zTail + 0.335;
   /** the upper fascia (grille, lamps) sits behind the bumper face */
   const zFas = zNose - 0.075;
-  /** the windscreen: an almost-upright plane (28 degrees off vertical) from the cowl to the header */
+  /** the windscreen: an almost-upright plane (23 degrees off vertical) from the cowl to the header */
   const zWsBase = 0.7;
   const zWsTop = 0.5;
   const kWs = (zWsBase - zWsTop) / (yRoof - yFend);
@@ -131,7 +141,7 @@ export const makeSuv: BlueprintFactory = (s) => {
     d = ssub(d, sdRoundBox(ax - (slab + 0.02), y - 1.09, z - 0.77, 0.06, 0.11, 0.07, 0.02), 0.01);
     // two air intakes in the bumper face, either side of the winch
     d = ssub(d, sdRoundBox(ax - 0.36, y - 0.5, z - zNose, 0.18, 0.04, 0.05, 0.02), 0.01);
-    // the body-side groove: one crisp horizontal line the length of the doors
+    // the body-side groove: one crisp horizontal line the length of the doors (it catches the light below the orange break line)
     d = dent(d, Math.max(Math.abs(y - 0.93) - 0.014, 0.7 - ax), 0.008, 0.012);
     // door handles
     d = dent(d, Math.max(sdSegment2(z, y, -0.2, 1.1, -0.04, 1.1) - 0.028, 0.7 - ax), 0.01, 0.03);
@@ -201,14 +211,16 @@ export const makeSuv: BlueprintFactory = (s) => {
   const dims: SuvDims = { zF, zR, zNose, zTail, zTg, zFas, hw, slab, yRoof, yHood, yFend, rF, rR, archHz, archTop, lampX, lampY, zWsBase, zWsTop, kWs, grilleY, grilleHy, grilleHx };
   const parts = (b: PartBuilder): void => addSuvParts(b, s, dims);
 
-  void smax;
-  void rR;
   return {
     bounds: { min: [-hw - 0.15, 0.02, zTail - 0.2], max: [hw + 0.15, s.height + 0.3, zNose + 0.2] },
     body,
     zones,
     parts,
     info: { projector: [lampX, lampY, projZ - 0.03, 0.05] },
-    debug: { base: baseF, foot: (x, _y, z) => sdFootprint(Math.abs(x), z, slab, zNose, zTail, 0.14, 0.1) },
+    debug: {
+      tub: (x, y, z) => sdLoft(tub, Math.abs(x), y, z),
+      cabin: (x, y, z) => sdLoft(cabin, Math.abs(x), y, z),
+      base: baseF,
+    },
   };
 };

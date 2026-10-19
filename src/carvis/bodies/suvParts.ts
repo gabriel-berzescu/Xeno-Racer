@@ -49,6 +49,14 @@ function rrect(hx: number, hy: number, r: number, cx = 0, cy = 0, seg = 3): numb
   return roundPoly([cx - hx, cy - hy, cx + hx, cy - hy, cx + hx, cy + hy, cx - hx, cy + hy], r, seg);
 }
 
+/**
+ * A (z, y) polygon extruded into a slab on a flank between |x| = xIn and xOut. The frame's normal is -x, so the slab starts at the
+ * outer face on the left side (+x) and at the inner face on the right (-x): the depth is always positive.
+ */
+function flankSlab(b: PartBuilder, side: 1 | -1, poly: readonly number[], xIn: number, xOut: number, bevel: number, steps: number): void {
+  b.extrude(poly, { o: [side > 0 ? xOut : -xIn, 0, 0], u: [0, 0, 1], v: [0, 1, 0] }, xOut - xIn, bevel, steps);
+}
+
 /** A hexagon-headed bolt on a surface: base at `p`, standing out along unit `n`. */
 function bolt(b: PartBuilder, p: V3, n: V3, r: number, h: number): void {
   b.cylinder(p, [p[0] + n[0] * h, p[1] + n[1] * h, p[2] + n[2] * h], r, r * 0.92, 6, true);
@@ -128,15 +136,12 @@ function addFlare(b: PartBuilder, side: 1 | -1, zc: number, R: number, d: SuvDim
 /** A rock slider: a rounded black rail low under the door sill, with its end caps and three feet. */
 function addSlider(b: PartBuilder, side: 1 | -1, z0: number, z1: number): void {
   const x = 0.975;
-  // section in (z, y) pushed along x: a tube-ish bar 11 cm wide (out from the sill), 7 cm tall
+  // a rounded bar from the sill out to 1.05 m, 7 cm tall, 15 cm deep
   b.setPart(PART.rugged);
-  const poly = rrect((z1 - z0) / 2, 0.036, 0.03, (z0 + z1) / 2, 0.36);
-  b.extrude(poly, { o: [side * (x + 0.075), 0, 0], u: [0, 0, 1], v: [0, 1, 0] }, side * 0.15, 0.022, 2);
+  flankSlab(b, side, rrect((z1 - z0) / 2, 0.036, 0.03, (z0 + z1) / 2, 0.36), x - 0.075, x + 0.075, 0.022, 2);
   // orange end caps
   b.setPart(PART.signal);
-  for (const z of [z0 + 0.004, z1 - 0.004]) {
-    b.extrude(rrect(0.006, 0.03, 0.01, z, 0.36), { o: [side * (x + 0.0745), 0, 0], u: [0, 0, 1], v: [0, 1, 0] }, side * 0.145, 0.004, 1);
-  }
+  for (const z of [z0 + 0.004, z1 - 0.004]) flankSlab(b, side, rrect(0.006, 0.03, 0.01, z, 0.36), x - 0.07, x + 0.0745, 0.004, 1);
   // feet up into the sill
   b.setPart(PART.rugged);
   for (const z of [z0 + 0.18, (z0 + z1) / 2, z1 - 0.18]) b.box([side * (x - 0.01), 0.4, z], 0.03, 0.032, 0.045);
@@ -282,7 +287,7 @@ function addSpare(b: PartBuilder, d: SuvDims, R: number, W: number): void {
   for (const sgn of [-1, 1]) {
     const ang = sgn * (PI / 4);
     const ca = Math.cos(ang), sa = Math.sin(ang);
-    b.extrude(roundPoly([-0.165, -0.034, 0.165, -0.034, 0.165, 0.034, -0.165, 0.034], 0.016), { o: [0, y0, zFace - W - 0.002], u: [ca, sa, 0], v: [-sa, ca, 0] }, -0.006, 0.002, 1);
+    b.extrude(roundPoly([-0.165, -0.034, 0.165, -0.034, 0.165, 0.034, -0.165, 0.034], 0.016), { o: [0, y0, zFace - W - 0.008], u: [ca, sa, 0], v: [-sa, ca, 0] }, 0.006, 0.002, 1);
   }
   // carrier: a hinge block and an arm on the tailgate behind it
   b.setPart(PART.rugged);
@@ -310,7 +315,7 @@ function addGrilleBars(b: PartBuilder, d: SuvDims): void {
   }
 }
 
-/** Front skid plate and winch fairlead; a recovery plate under the tail. */
+/** Front skid plate and winch fairlead; a tow hitch and a recovery plate under the tail. */
 function addUnderguards(b: PartBuilder, d: SuvDims): void {
   const zN = d.zNose;
   b.setPart(PART.silver);
@@ -323,22 +328,25 @@ function addUnderguards(b: PartBuilder, d: SuvDims): void {
   b.box([0, 0.55, zN + 0.014], 0.2, 0.036, 0.012);
   b.setPart(PART.silver);
   b.cylinder([-0.12, 0.55, zN + 0.03], [0.12, 0.55, zN + 0.03], 0.018, 0.018, 12, true);
-  // LED pods in the bumper corners: a black square housing and a lens of LED pockets, lit with the headlamps (the light bar's shader)
-  for (const sg of [-1, 1]) {
-    b.setPart(PART.lightBar);
-    b.extrude(rrect(0.062, 0.062, 0.016, sg * 0.76, 0.585), { o: [0, 0, zN - 0.012], u: [1, 0, 0], v: [0, 1, 0] }, 0.03, 0.006, 2);
-    b.setPart(PART.lightBar).setZone(14, -1);
-    b.extrude(rrect(0.048, 0.048, 0.012, sg * 0.76, 0.585), { o: [0, 0, zN + 0.017], u: [1, 0, 0], v: [0, 1, 0] }, 0.006, 0.002, 1);
-    // amber side markers on the fender tops, over the lamps
-    b.setPart(PART.lampAmber);
-    b.box([sg * 0.9, d.yFend + 0.004, zN - 0.28], 0.032, 0.006, 0.014);
-  }
   // rear: a tow hitch receiver and its pin, and a recovery plate under the tail
   b.setPart(PART.rugged);
   b.box([0, 0.405, d.zTail + 0.1], 0.05, 0.05, 0.12);
   b.setPart(PART.silver);
   b.cylinder([-0.07, 0.405, d.zTail + 0.12], [0.07, 0.405, d.zTail + 0.12], 0.009, 0.009, 8, true);
   b.extrude(roundPoly([-0.5, d.zTail + 0.04, 0.5, d.zTail + 0.04, 0.5, d.zTail + 0.4, -0.5, d.zTail + 0.4], 0.04), { o: [0, 0.368, 0], u: [1, 0, 0], v: [0, 0, 1] }, 0.016, 0.004, 2);
+}
+
+/** LED pods in the bumper corners (a black square housing, a lens of LED pockets that lights with the headlamps: the light bar's shader) and amber side markers on the fender tops. */
+function addBumperLights(b: PartBuilder, d: SuvDims): void {
+  const zN = d.zNose;
+  for (const sg of [-1, 1]) {
+    b.setPart(PART.lightBar);
+    b.extrude(rrect(0.062, 0.062, 0.016, sg * 0.76, 0.585), { o: [0, 0, zN - 0.012], u: [1, 0, 0], v: [0, 1, 0] }, 0.03, 0.006, 2);
+    b.setPart(PART.lightBar).setZone(14, -1);
+    b.extrude(rrect(0.048, 0.048, 0.012, sg * 0.76, 0.585), { o: [0, 0, zN + 0.017], u: [1, 0, 0], v: [0, 1, 0] }, 0.006, 0.002, 1);
+    b.setPart(PART.lampAmber);
+    b.box([sg * 0.9, d.yFend + 0.004, zN - 0.28], 0.032, 0.006, 0.014);
+  }
 }
 
 /** The side-exit pipes: a short angled pipe through the sill, a chrome rim and a heat shield. The tip is where effects.ts blows its flames. */
@@ -348,12 +356,12 @@ function addExhaust(b: PartBuilder, s: CarVisualSpec, d: SuvDims): void {
   const x = s.width / 2 - 0.02;
   const l = Math.hypot(0.9, 0.45);
   const dx = 0.9 / l, dz = -0.45 / l;
-  for (const sg of [-1, 1]) {
+  for (const sg of [-1, 1] as const) {
     const tip: V3 = [sg * x, y, z];
     const at = (t: number): V3 => [tip[0] - sg * dx * t, y, tip[2] - dz * t];
     // heat shield on the sill (a slab on the door skin), then the pipe
     b.setPart(PART.rugged);
-    b.extrude(rrect(0.13, 0.062, 0.03, z, y), { o: [sg * (d.slab + 0.008), 0, 0], u: [0, 0, 1], v: [0, 1, 0] }, sg * 0.012, 0.004, 1);
+    flankSlab(b, sg, rrect(0.13, 0.062, 0.03, z, y), d.slab - 0.004, d.slab + 0.008, 0.004, 1);
     b.setPart(PART.titanium);
     b.tube([at(0.16), at(0.02)], 0.042, 18, false);
     b.setPart(PART.chrome);
@@ -393,7 +401,7 @@ function addRoofLip(b: PartBuilder, d: SuvDims): void {
   b.extrude(roundPoly([-0.82, d.zTg + 0.012, 0.82, d.zTg + 0.012, 0.82, d.zTg - 0.075, 0.74, d.zTg - 0.09, -0.74, d.zTg - 0.09, -0.82, d.zTg - 0.075], 0.02), { o: [0, y + 0.012, 0], u: [1, 0, 0], v: [0, 0, 1] }, 0.012, 0.004, 1);
 }
 
-/** Hood pins at the four corners of the dome's flat (the rally touch), and mud flaps behind the rear wheels. */
+/** Hood pins at the four corners of the dome's flat (the rally touch). */
 function addHoodPins(b: PartBuilder, d: SuvDims): void {
   b.setPart(PART.silver);
   for (const sg of [-1, 1]) {
@@ -405,10 +413,11 @@ function addHoodPins(b: PartBuilder, d: SuvDims): void {
   }
 }
 
+/** Mud flaps hung from the rear edge of each rear arch, behind the tyre. */
 function addMudFlaps(b: PartBuilder, s: CarVisualSpec, d: SuvDims): void {
   b.setPart(PART.rubber);
   for (const sg of [-1, 1]) {
-    // hung from the rear edge of the arch, behind the tyre: a thin black plate with a heavier lower lip
+    // a thin black plate with a heavier lower lip
     const x = sg * (s.trackRear / 2);
     const z = d.zR - d.archHz(d.rR) + 0.014;
     b.box([x, 0.56, z], 0.15, 0.24, 0.006);
@@ -446,6 +455,7 @@ export function addSuvParts(b: PartBuilder, s: CarVisualSpec, d: SuvDims): void 
 
   addGrilleBars(b, d);
   addUnderguards(b, d);
+  addBumperLights(b, d);
   addLightBar(b, d);
   addRack(b, d);
   addRackGear(b, d);

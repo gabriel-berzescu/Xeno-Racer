@@ -56,7 +56,9 @@ describe('Mammoth body', () => {
 
   it('carries the LED light bar across the front of the roof, its lens flagged for the shader', () => {
     const { byPart, flagged } = partsOf();
-    const bar = byPart.get(PART.lightBar) ?? [];
+    // (the bumper's two LED pods are the same part: the bar is what stands over the roof)
+    const lit = byPart.get(PART.lightBar) ?? [];
+    const bar = lit.filter((v) => v[1] > 1.5);
     expect(bar.length).toBeGreaterThan(100);
     const xs = bar.map((v) => v[0]);
     expect(Math.min(...xs)).toBeLessThan(-0.6);
@@ -69,9 +71,15 @@ describe('Mammoth body', () => {
       expect(Math.abs(v[0])).toBeLessThan(spec.width / 2);
     }
     // the lens is the flagged part of it, and faces forward
-    expect(flagged.length).toBeGreaterThan(8);
-    for (const v of flagged) expect(bar.some((b) => b === v)).toBe(true);
-    expect(Math.max(...flagged.map((v) => v[2]))).toBeGreaterThanOrEqual(Math.max(...bar.map((v) => v[2])) - 0.015);
+    const lens = flagged.filter((v) => v[1] > 1.5);
+    expect(lens.length).toBeGreaterThan(8);
+    expect(Math.max(...lens.map((v) => v[2]))).toBeGreaterThanOrEqual(Math.max(...bar.map((v) => v[2])) - 0.015);
+    // and a pod in each corner of the front bumper lights with it
+    for (const sg of [-1, 1]) {
+      const pod = lit.filter((v) => v[1] < 1 && v[0] * sg > 0.6 && v[2] > zNose - 0.05);
+      expect(pod.length, 'LED pod on side ' + sg).toBeGreaterThan(8);
+      expect(flagged.some((v) => v[1] < 1 && v[0] * sg > 0.6)).toBe(true);
+    }
   });
 
   it('lights the bar with the headlamps in the shader, and keeps its new parts out of the paint', () => {

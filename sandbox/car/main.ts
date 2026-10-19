@@ -1,5 +1,5 @@
 /**
- * Car showroom. Query: ?car=vanta-gt|kestrel-r|ronin-86|lmp-x &view=front34|side|rear34|top|front|rear|chase|cockpit|low|sheet
+ * Car showroom. Query: ?car=vanta-gt|kestrel-r|ronin-86|lmp-x|mammoth &view=front34|side|rear34|top|front|rear|chase|cockpit|low|lowrear|wheelF|wheelR|sheet
  *   &anim=0|1 &night=0|1 &q=low|medium|high &primary=%23hex &pattern=… &number=7 &metallic=0|1 &finish=0..1 &player=0|1
  *   &wet=0..1 (wet paint, beading, glass drops: env.wetness)  &rain=0..1 (env.rain; > 0 also marks the weather as rain)
  *   &dmg=fl:14:wall:25,sl:5:car   crash damage, applied straight to the model: zone:closing speed (m/s):wall|car:angle (deg to the
