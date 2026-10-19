@@ -28,6 +28,8 @@ export interface LiveryLayout {
   patternZ?: number;
   /** The z the hood arrow hangs from (its tail 0.3 behind, its tip 0.8 ahead); absent: the hood number's z. */
   hoodArrow?: number;
+  /** Road dust on the lower panels, 0..1 (a tan haze of speckle from the sill up to a metre, heavier behind the wheels); absent: a clean car. */
+  dust?: number;
 }
 
 export interface LiveryTextures {
@@ -247,6 +249,56 @@ export function paintLivery(l: Livery, lay: LiveryLayout, q: LiveryTier, tex?: L
     }
     default:
       break;
+  }
+
+  // road dust: speckle thrown up from the road, thick at the sill and thinning out up the doors (an overlander wears its trips)
+  if (lay.dust) {
+    const rnd = mulberry(4401);
+    const dustCol = (a: number): string => `rgba(184,158,118,${a.toFixed(3)})`;
+    const speckle = (ctx: Ctx, x0: number, x1: number, yTop: number, n: number, rMax: number, w: (u: number) => number, yOf: (y: number) => number): void => {
+      for (let i = 0; i < n; i++) {
+        const u = rnd();
+        const x = x0 + (x1 - x0) * rnd();
+        const y = yTop * u * u * u;
+        if (rnd() > w(x)) continue;
+        const r = (0.4 + 0.6 * rnd()) * rMax;
+        ctx.fillStyle = dustCol((0.1 + 0.3 * rnd()) * lay.dust! * (1 - 0.55 * u));
+        ctx.beginPath();
+        ctx.ellipse(x, yOf(y), r, r * (0.7 + 0.5 * rnd()), 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    };
+    both((h) => {
+      // a haze up to 55 cm, and the speckle on top of it
+      const yTopPx = sy(0.55), yBotPx = sy(0);
+      const gx0 = Math.min(sx(h, lay.zNose), sx(h, lay.zTail)), gx1 = Math.max(sx(h, lay.zNose), sx(h, lay.zTail));
+      const g = sctx.createLinearGradient(0, yBotPx, 0, yTopPx);
+      g.addColorStop(0, dustCol(0.5 * lay.dust!));
+      g.addColorStop(1, dustCol(0));
+      sctx.fillStyle = g;
+      sctx.fillRect(gx0, yTopPx, gx1 - gx0, yBotPx - yTopPx);
+      // heavier behind each wheel (the rooster tail), lighter ahead of it
+      const wheelZ = [lay.zNose - 1.2, lay.zTail + 1.2];
+      const weight = (x: number): number => {
+        let k = 0.55;
+        for (const wz of wheelZ) {
+          const px = sx(h, wz);
+          const behind = h === 0 ? x - px : px - x; // the nose is on the left in half 0, on the right in half 1
+          if (behind > -SW * 0.0005 && behind < SW * 0.06) k = 1;
+        }
+        return k;
+      };
+      speckle(sctx, gx0, gx1, 1.0, 5200, SH * 0.012, weight, sy);
+    });
+    // the nose and the tail get the same haze (the bumpers are the first thing the road hits)
+    for (let half = 0; half < 2; half++) {
+      const x0 = half === 0 ? 0 : EW / 2;
+      const g = ectx.createLinearGradient(0, ey(0), 0, ey(0.55));
+      g.addColorStop(0, dustCol(0.42 * lay.dust));
+      g.addColorStop(1, dustCol(0));
+      ectx.fillStyle = g;
+      ectx.fillRect(x0, ey(0.55), EW / 2, ey(0) - ey(0.55));
+    }
   }
 
   // race numbers: plate colour from the body luminance

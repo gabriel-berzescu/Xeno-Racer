@@ -323,12 +323,12 @@ function addUnderguards(b: PartBuilder, d: SuvDims): void {
   b.box([0, 0.55, zN + 0.014], 0.2, 0.036, 0.012);
   b.setPart(PART.silver);
   b.cylinder([-0.12, 0.55, zN + 0.03], [0.12, 0.55, zN + 0.03], 0.018, 0.018, 12, true);
-  // fog lamps in the bumper corners: a chrome bezel round a clear lens (not lit: the bumper is not a headlamp)
+  // LED pods in the bumper corners: a black square housing and a lens of LED pockets, lit with the headlamps (the light bar's shader)
   for (const sg of [-1, 1]) {
-    b.setPart(PART.chrome);
-    b.cylinder([sg * 0.76, 0.585, zN - 0.004], [sg * 0.76, 0.585, zN + 0.009], 0.06, 0.058, 22, true);
-    b.setPart(PART.lampWhite);
-    b.cylinder([sg * 0.76, 0.585, zN + 0.004], [sg * 0.76, 0.585, zN + 0.0105], 0.046, 0.046, 22, true);
+    b.setPart(PART.lightBar);
+    b.extrude(rrect(0.062, 0.062, 0.016, sg * 0.76, 0.585), { o: [0, 0, zN - 0.012], u: [1, 0, 0], v: [0, 1, 0] }, 0.03, 0.006, 2);
+    b.setPart(PART.lightBar).setZone(14, -1);
+    b.extrude(rrect(0.048, 0.048, 0.012, sg * 0.76, 0.585), { o: [0, 0, zN + 0.017], u: [1, 0, 0], v: [0, 1, 0] }, 0.006, 0.002, 1);
     // amber side markers on the fender tops, over the lamps
     b.setPart(PART.lampAmber);
     b.box([sg * 0.9, d.yFend + 0.004, zN - 0.28], 0.032, 0.006, 0.014);

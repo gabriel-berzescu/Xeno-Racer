@@ -66,6 +66,7 @@ export function computeLayout(s: CarVisualSpec): CarLayout {
     lay.patternZ = (zF + zR) * 0.5 - 0.1;
     // (the arrow's tip stops at the grille, not over the nose: the number plate sits on the dome ahead of the hood camera)
     lay.hoodArrow = zNose - 0.92;
+    lay.dust = 1;
   }
   return {
     zNose,
