@@ -289,7 +289,7 @@ export function deriveVoicing(p: EngineSoundProfile, layout: EngineLayout): Voic
     lope: cross ? 0.28 : 0,
     lopeTau: 0.018,
     lump: cross ? 0.3 : 0,
-    misfire: cross ? 0.04 : 0,
+    misfire: cross ? 0.02 : 0,
     bankDrift: cross ? 0.16 : 0,
     burble: cross ? 1 : 0,
     idleWobble: cross ? 0.045 : 0.03,
@@ -887,6 +887,7 @@ export class EngineVoice {
     I.load = sane(I.load, 0, 1, 0);
     I.boost = sane(I.boost, 0, 1.5, 0);
     I.clutch = sane(I.clutch, 0, 1, 0);
+    I.pedal = sane(I.pedal, -1, 1, -1);
     I.interior = sane(I.interior, 0, 1, 0);
     I.gain = sane(I.gain, 0, 4, 1);
     I.driveOmega = sane(I.driveOmega, -4000, 4000, 0);

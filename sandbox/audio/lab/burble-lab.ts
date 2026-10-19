@@ -5,7 +5,11 @@
  * train, has next to nothing there.
  *
  *   node sandbox/audio/lab/run.mjs burble-lab.ts lines  [--car mammoth] [--rpms 650,900,1500,3000,6000] [--tap exhaust|mix] [--lite 1]
- *   node sandbox/audio/lab/run.mjs burble-lab.ts env    [--car mammoth] [--rpm 900]       the 720 degree envelope, pulse by pulse
+ *   node sandbox/audio/lab/run.mjs burble-lab.ts env    [--car mammoth] [--rpms 880,1500]  the 720 degree envelope of the cycle, harmonic by harmonic
+ *   node sandbox/audio/lab/run.mjs burble-lab.ts spread [--interior 1] [--lite 1]    how unevenly the firing pulses of every car (and variant) sound
+ *                                                                                    at idle and at 2500 rpm wide open: level spread, dB std
+ *   node sandbox/audio/lab/run.mjs burble-lab.ts mod    [--interior 1]               the loudness fluctuation of every car's idle: modulation of
+ *                                                                                    the envelope of 60..800 Hz at the crank's order rates, %
  *
  * The variants compared are the car's own profile, the same with a flat-plane crank, the same with the banks merged, and the two together
  * (what a flat-plane, X-piped V8 does): the cross-plane's own lope is the difference between the first and the last.
@@ -13,7 +17,7 @@
 import { CARS } from '../../../src/cars';
 import type { CarDefinition, EngineSoundProfile } from '../../../src/core/contracts';
 import { EngineVoice, createEngineDebug } from '../../../src/audio/dsp/engine-voice';
-import { orderFamilies, welch } from '../../../src/audio/analysis';
+import { fft, orderFamilies, welch } from '../../../src/audio/analysis';
 import { Biquad } from '../../../src/audio/dsp/filters';
 
 const SR = 48000;
@@ -166,5 +170,97 @@ if (cmd === 'lines') {
           `   ${(100 * rmsOf([ms[0], ms[2], ms[4], ms[6]])).toFixed(1).padStart(8)} ${(100 * rmsOf([ms[1], ms[3], ms[5]])).toFixed(1).padStart(8)}  ${std.toFixed(2).padStart(6)}`,
       );
     }
+  }
+}
+
+/** The cars and variants compared by `spread` and `mod`: every car of the roster, and the Mammoth's engine without what makes it a cross-plane in a dual exhaust. */
+function allConfigs(): { name: string; car: CarDefinition; patch: Partial<EngineSoundProfile> }[] {
+  const mam = CARS.find((c) => c.id === 'mammoth')!;
+  return [
+    ...CARS.map((c) => ({ name: c.id, car: c, patch: {} as Partial<EngineSoundProfile> })),
+    { name: 'mammoth merged', car: mam, patch: { exhaustSystem: 'merged' } },
+    { name: 'mammoth flat+merged', car: mam, patch: { exhaustSystem: 'merged', crankType: 'flat' } },
+  ];
+}
+
+if (cmd === 'spread') {
+  // the level of successive firing intervals in 40..500 Hz (a window one firing interval long on the crank clock, so the rpm must be steady and
+  // the idle hunting off): the standard deviation of those levels in dB. Even pulses give a small number; a lumpy idle a large one.
+  const interior = +opt('interior', '0');
+  console.log(`${interior ? 'cockpit' : 'exterior'}, ${quality === 2 ? 'full' : 'lite'}: firing-pulse level spread, dB std (5-95 % range) in 40..500 Hz`);
+  for (const c of allConfigs()) {
+    const e = c.car.physics.engine;
+    const cells: string[] = [];
+    for (const [rpm, thr, load] of [[e.idleRpm, 0, 0.06], [2500, 1, 1]] as number[][]) {
+      const v = new EngineVoice(SR, { ...c.car.sound, ...c.patch }, 5);
+      v.V.idleWobble = 0;
+      Object.assign(v.inp, { rpm, throttle: thr, load, pedal: thr, idleRpm: e.idleRpm, limiterRpm: e.limiterRpm, redlineRpm: e.redlineRpm, interior, quality, boost: c.car.sound.turbo ? 0.9 * thr : 0 });
+      const n = 10 * SR;
+      const sig = new Float32Array(n);
+      v.process(sig, n);
+      const hp = new Biquad();
+      hp.setHighpass(40, 0.707, SR);
+      const lp = new Biquad();
+      lp.setLowpass(500, 0.707, SR);
+      const y = Float32Array.from(sig, (x) => lp.step(hp.step(x)));
+      const win = (120 / rpm / c.car.sound.cylinders) * SR;
+      const db: number[] = [];
+      for (let s0 = 1.5 * SR; s0 + win < y.length; s0 += win) {
+        let a = 0;
+        const i0 = Math.floor(s0);
+        const i1 = Math.floor(s0 + win);
+        for (let i = i0; i < i1; i++) a += y[i] * y[i];
+        db.push(10 * Math.log10(a / (i1 - i0) + 1e-20));
+      }
+      const m = db.reduce((a, b) => a + b, 0) / db.length;
+      const sd = Math.sqrt(db.reduce((a, b) => a + (b - m) ** 2, 0) / db.length);
+      const sorted = [...db].sort((a, b) => a - b);
+      const range = sorted[Math.floor(0.95 * (sorted.length - 1))] - sorted[Math.floor(0.05 * (sorted.length - 1))];
+      cells.push(`${Math.round(rpm)} rpm: ${sd.toFixed(2)} (${range.toFixed(1)})`.padEnd(24));
+    }
+    console.log(`${c.name.padEnd(21)} ${cells.join('')}`);
+  }
+} else if (cmd === 'mod') {
+  // the loudness fluctuation of the idle: the envelope of 60..800 Hz (rectified, smoothed 5 ms) and its spectrum, as the depth of the modulation
+  // (rms, % of the mean envelope) in bands: all of 1..30 Hz, round the half order rate rpm/120, the crank rate 2 x that, 3 x that, and the slow hunting
+  const interior = +opt('interior', '0');
+  console.log(`${interior ? 'cockpit' : 'exterior'}, idle (load 0.06): depth of the loudness modulation, %`);
+  for (const c of allConfigs()) {
+    const e = c.car.physics.engine;
+    const rpm = e.idleRpm;
+    const v = new EngineVoice(SR, { ...c.car.sound, ...c.patch }, 5);
+    v.V.idleWobble = 0;
+    Object.assign(v.inp, { rpm, throttle: 0, load: 0.06, pedal: 0, idleRpm: e.idleRpm, limiterRpm: e.limiterRpm, redlineRpm: e.redlineRpm, interior, quality });
+    const n = 20 * SR;
+    const sig = new Float32Array(n);
+    v.process(sig, n);
+    const hp = new Biquad();
+    hp.setHighpass(60, 0.707, SR);
+    const lp = new Biquad();
+    lp.setLowpass(800, 0.707, SR);
+    const k = 1 - Math.exp(-1 / (0.005 * SR));
+    const dec = 96;
+    let env = 0;
+    const ev: number[] = [];
+    for (let i = 0; i < n; i++) {
+      env += k * (Math.abs(lp.step(hp.step(sig[i]))) - env);
+      if (i > 2 * SR && i % dec === 0) ev.push(env);
+    }
+    const N = 8192;
+    const re = new Float64Array(N);
+    const im = new Float64Array(N);
+    const mean = ev.reduce((a, b) => a + b, 0) / ev.length;
+    for (let i = 0; i < N; i++) re[i] = (ev[i] / mean - 1) * (0.5 - 0.5 * Math.cos((2 * Math.PI * i) / N));
+    fft(re, im);
+    const df = SR / dec / N;
+    const f0 = rpm / 120;
+    const band = (lo: number, hi: number): string => {
+      let acc = 0;
+      for (let i = Math.ceil(lo / df); i <= Math.floor(hi / df); i++) acc += re[i] ** 2 + im[i] ** 2;
+      return (100 * Math.sqrt(acc / ((0.375 * N * N) / 2))).toFixed(1).padStart(5);
+    };
+    console.log(
+      `${c.name.padEnd(21)} idle ${String(Math.round(rpm)).padStart(4)} rpm: 1-30 Hz ${band(1, 30)} | half-order rate ${f0.toFixed(1)} Hz ${band(f0 * 0.8, f0 * 1.2)} | crank rate ${(2 * f0).toFixed(1)} Hz ${band(1.6 * f0, 2.4 * f0)} | 3x ${band(2.4 * f0, 3.6 * f0)} | hunting 0.5-4 Hz ${band(0.5, 4)}`,
+    );
   }
 }

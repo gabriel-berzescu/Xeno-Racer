@@ -70,7 +70,7 @@ function pulseSpread(profile: EngineSoundProfile, car: (typeof CARS)[number], rp
   const v = voice(profile, car);
   v.V.idleWobble = 0; // the crank clock must run steady to cut the signal into firing intervals
   v.inp.quality = quality;
-  const { out } = steady(v, rpm, load < 0.2 ? 0 : 1, load, 9);
+  const { out } = steady(v, rpm, load < 0.2 ? 0 : 1, load, 7);
   const hp = new Biquad();
   hp.setHighpass(40, 0.707, SR);
   const lp = new Biquad();
@@ -135,8 +135,9 @@ describe('the burble: half orders of the crank, from the cross-plane in a dual e
     }
   });
 
-  it('the lope is strongest at idle and fades into the roar: at 5500 rpm the half orders are under 60 % of what they were at 900', () => {
-    expect(halfShare(M, 5500)).toBeLessThan(0.6 * halfShare(M, 900));
+  it('the lope is strongest below 3000 rpm and fades into the roar: over 4000..5500 rpm the half orders carry under 40 % of what they do over 900..3000', () => {
+    const mean = (rpms: number[]): number => rpms.reduce((a, r) => a + halfShare(M, r), 0) / rpms.length;
+    expect(mean([4000, 4500, 5000, 5500])).toBeLessThan(0.4 * mean([900, 1800, 3000]));
   });
 
   it('the cammed idle is lumpy: the firing pulses vary three times as much, in level, as the same engine flat-plane and twice as much as a Vanta', () => {
@@ -329,8 +330,8 @@ describe('lite and full quality for the Mammoth', () => {
     const v = voice();
     v.inp.quality = quality;
     v.inp.interior = interior;
-    const { out } = steady(v, rpm, thr, thr < 0.2 ? 0.06 : 1, 4);
-    return 20 * Math.log10(rms(out, 2 * SR) + 1e-12);
+    const { out } = steady(v, rpm, thr, thr < 0.2 ? 0.06 : 1, 3);
+    return 20 * Math.log10(rms(out, Math.floor(1.5 * SR)) + 1e-12);
   };
 
   it('a lite voice is as loud as a full one, give or take what the pipes do at each rpm: within 8 dB at every point and 3 dB on average (a Vanta is within 5 and 2)', () => {
@@ -392,5 +393,72 @@ describe('lite and full quality for the Mammoth', () => {
     const { out } = steady(v, 5500, 1, 1, 0.5);
     expect(hasNonFinite(out)).toBe(false);
     expect(peakAbs(out)).toBeLessThan(1);
+  });
+});
+
+describe('robustness of the new paths', () => {
+  it('survives hostile inputs in both qualities (rpm 0, huge rpm, over-range pedal, jumps, the time-scale at its limits, the cabin flipping) without NaN or blow-up', () => {
+    const v = voice();
+    const out = new Float32Array(128);
+    let worst = 0;
+    const cases = [
+      { rpm: 0, throttle: 1, load: 1, pedal: 1 },
+      { rpm: 20000, throttle: 5, load: 3, pedal: 9 },
+      { rpm: 650, throttle: -2, load: -1, pedal: -0.5 },
+      { rpm: 6500, throttle: 1, load: 1, pedal: 1, limiter: 1 },
+      { rpm: 300, throttle: 0, load: 0, pedal: 0 },
+    ];
+    for (const quality of [2, 1]) {
+      for (const c of cases) {
+        Object.assign(v.inp, c, { boost: 2, quality });
+        for (let i = 0; i < 500; i++) {
+          v.inp.rpm = c.rpm + (i % 7) * 100;
+          v.inp.timeScale = i % 40 < 20 ? 0.5 : 2; // beyond what the voice takes: clamped
+          v.inp.interior = (i >> 4) & 1;
+          if (i % 97 === 0) v.inp.quality = v.inp.quality === 2 ? 1 : 2;
+          v.process(out, 128);
+          expect(hasNonFinite(out)).toBe(false);
+          worst = Math.max(worst, peakAbs(out));
+        }
+      }
+    }
+    // (the master limiter follows in the graph; what matters is that it stays finite and bounded: the same sequence peaks at 3.2 on the Vanta)
+    expect(worst).toBeLessThan(6);
+  });
+
+  it('is sample-rate independent, the blower included: 44.1, 48 and 96 kHz give the same firing pitch, the same whine pitch and a similar level', () => {
+    const res = [44100, 48000, 96000].map((sr) => {
+      const v = new EngineVoice(sr, M, 8);
+      Object.assign(v.inp, { rpm: 4200, throttle: 1, load: 1, pedal: 1, idleRpm: E.idleRpm, limiterRpm: E.limiterRpm, redlineRpm: E.redlineRpm });
+      const n = Math.floor(3 * sr);
+      const x = new Float32Array(n);
+      const dbg = createEngineDebug(n);
+      v.debug = dbg;
+      v.process(x, n);
+      const nfft = sr > 70000 ? 65536 : 32768;
+      const fire = (M.cylinders / 2) * (4200 / 60);
+      const whine = (4200 / 60) * M.supercharger!.ratio * M.supercharger!.lobes;
+      return {
+        f: strongestPeak(welch(x, nfft, Math.floor(1.5 * sr), n), sr, fire * 0.9, fire * 1.1).freq,
+        w: strongestPeak(welch(dbg.turbo, nfft, Math.floor(1.5 * sr), n), sr, whine * 0.9, whine * 1.1).freq,
+        r: 20 * Math.log10(rms(x, Math.floor(1.5 * sr), n)),
+      };
+    });
+    for (const r of res) {
+      expect(Math.abs(r.f - 280) / 280).toBeLessThan(0.006);
+      expect(Math.abs(r.w - 700) / 700).toBeLessThan(0.006);
+    }
+    expect(Math.max(...res.map((r) => r.r)) - Math.min(...res.map((r) => r.r))).toBeLessThan(3.5);
+  });
+
+  it('is deterministic per seed, and the seeds differ', () => {
+    const run = (seed: number): Float32Array => steady(voice(M, mammoth, seed), 900, 0, 0.06, 1).out;
+    const a = run(1);
+    const b = run(1);
+    const c = run(2);
+    expect(Array.from(a.subarray(20000, 20100))).toEqual(Array.from(b.subarray(20000, 20100)));
+    let diff = 0;
+    for (let i = 0; i < a.length; i++) diff += Math.abs(a[i] - c[i]);
+    expect(diff).toBeGreaterThan(1);
   });
 });

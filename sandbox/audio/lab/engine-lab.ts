@@ -3,6 +3,7 @@
  *
  *   node sandbox/audio/lab/run.mjs engine-lab.ts steady [--car lmp-x] [--rpm 3000] [--load 1]
  *   node sandbox/audio/lab/run.mjs engine-lab.ts run3   [--car all] [--secs 8] [--interior 1]   (WAV + spectrogram in .cache/audio-lab, the cabin mix with --interior 1)
+ *   node sandbox/audio/lab/run.mjs engine-lab.ts lite   [--car all]   (lite against full: level and peak at wide-open rpm points; what a promoted opponent is)
  *   node sandbox/audio/lab/run.mjs engine-lab.ts cpu    [--car mammoth] [--quality 1]   (one car per process: the JIT of the others skews the numbers)
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -227,6 +228,35 @@ if (cmd === 'steady') {
       console.log(`${car.id.padEnd(9)} ${name.padEnd(9)} rpm${String(Math.round(rpm)).padStart(5)} total ${(20 * Math.log10(tot / ref)).toFixed(1).padStart(6)}dB (abs ${(20 * Math.log10(tot)).toFixed(1)}) | ${lay}`);
     }
     console.log('');
+  }
+} else if (cmd === 'lite') {
+  // a lite voice (opponents 80..150 m away, or beyond the four nearest) against the full one: level (dB RMS, lite minus full) and the peak of each
+  for (const car of cars) {
+    const e = car.physics.engine;
+    const pts: number[][] = [[e.idleRpm, 0, 0.06], [1500, 1, 1], [2000, 1, 1], [2500, 1, 1], [3000, 1, 1], [3500, 1, 1], [4000, 1, 1], [4500, 1, 1], [5000, 1, 1], [5500, 1, 1], [6000, 1, 1], [3500, 0, 0]];
+    const diffs: number[] = [];
+    const rows: string[] = [];
+    for (const [rpm, thr, load] of pts) {
+      const r: { rms: number; pk: number }[] = [];
+      for (const q of [1, 2]) {
+        const v = new EngineVoice(SR, car.sound, 7);
+        Object.assign(v.inp, { rpm, throttle: thr, load, pedal: thr, idleRpm: e.idleRpm, limiterRpm: e.limiterRpm, redlineRpm: e.redlineRpm, quality: q, boost: car.sound.turbo ? 0.9 * thr : 0 });
+        const n = 4 * SR;
+        const sig = new Float32Array(n);
+        v.process(sig, n);
+        let s2 = 0;
+        let p = 0;
+        for (let i = 2 * SR; i < n; i++) {
+          s2 += sig[i] ** 2;
+          p = Math.max(p, Math.abs(sig[i]));
+        }
+        r.push({ rms: 10 * Math.log10(s2 / (n - 2 * SR)), pk: 20 * Math.log10(p) });
+      }
+      diffs.push(r[0].rms - r[1].rms);
+      rows.push(`${String(Math.round(rpm)).padStart(5)} rpm ${thr ? 'wide open' : 'off pedal'}: lite - full ${(r[0].rms - r[1].rms).toFixed(1).padStart(5)} dB   peaks ${r[0].pk.toFixed(1).padStart(6)} / ${r[1].pk.toFixed(1).padStart(6)} dBFS`);
+    }
+    console.log(`${car.id}: mean lite - full ${(diffs.reduce((a, b) => a + b, 0) / diffs.length).toFixed(2)} dB, range ${Math.min(...diffs).toFixed(1)}..${Math.max(...diffs).toFixed(1)}`);
+    console.log(`  ${rows.join('\n  ')}`);
   }
 } else if (cmd === 'cpu') {
   const quality = +opt('quality', '2');
