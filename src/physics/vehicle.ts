@@ -24,7 +24,7 @@ import { cloneEffects, isNeutral, type MechEffects } from '../core/mechanical';
 import { NITRO_POWER, NITRO_THRUST_G } from '../core/nitro';
 import { RADS_TO_RPM, RPM_TO_RADS, peakTorque, torqueAt } from './engine';
 import type { DifferentialSpec, SuspensionSpec, TireSpec, VehicleSpec } from './spec';
-import { SURFACES, wetGripFactor } from './surfaces';
+import { tireSurfaces, wetGripFactor, type SurfaceProps } from './surfaces';
 import { loadFactor, makeShape, shapeRatio, tempFactor, type TireShape } from './tire';
 
 const GRAVITY = 9.81;
@@ -108,6 +108,8 @@ class WheelSim {
   readonly lat = new Vector3(1, 0, 0);
   readonly shape: TireShape;
   readonly tanPeakAlpha: number;
+  /** The ground as this tyre meets it (src/physics/surfaces.ts: SURFACES itself for a road tyre, softened loose ground for an all-terrain one). */
+  readonly surfaces: Record<SurfaceType, SurfaceProps>;
   /** Spring pre-compression at full extension (m); may be negative (slack droop). */
   readonly springPre: number;
   driveWeight = 0;
@@ -165,6 +167,7 @@ class WheelSim {
   ) {
     this.shape = makeShape(tire.slideRatio);
     this.tanPeakAlpha = Math.tan(tire.peakSlipAngle);
+    this.surfaces = tireSurfaces(tire);
     this.springPre = staticLoad / susp.spring - STATIC_SAG * susp.travel;
     this.tempC = tire.optimalTemp - 0.35 * tire.tempWindow;
     this.brakeTempC = ambient + 60;
@@ -238,6 +241,13 @@ export class Vehicle {
   private launching = false;
   /** Wheel torque (Nm) the driven tires can take at launch; launch clutch capacity = this / |G|. */
   private readonly launchCapacity: number;
+  /**
+   * AWD: the ratios that bring the two output shafts of the centre differential to the same speed when the car rolls, whatever the size
+   * of the tyres of each axle (the shaft turns this many times as fast as the axle's wheels; mean tyre radius = 1). Both exactly 1 when
+   * the tyres are the same size, and then the centre differential compares the wheel speeds as they are.
+   */
+  private readonly centerRatioF: number;
+  private readonly centerRatioR: number;
   private lastClutchTorque = 0;
   private appliedThrottle = 0;
   private appliedBrake = 0;
@@ -310,6 +320,13 @@ export class Vehicle {
       const drivenLoad = dt.layout === 'FWD' ? front * 0.92 : dt.layout === 'RWD' ? rear * 1.12 : (front + rear) * 0.98;
       const tire = dt.layout === 'FWD' ? s.tireFront : s.tireRear;
       this.launchCapacity = (tire.mu * 1.15 * drivenLoad * tire.radius) / dt.efficiency;
+    }
+    {
+      const rf = s.tireFront.radius;
+      const rr = s.tireRear.radius;
+      const rm = (rf + rr) / 2;
+      this.centerRatioF = rf / rm;
+      this.centerRatioR = rr / rm;
     }
     this.omegaE = s.engine.idleRpm * RPM_TO_RADS;
 
@@ -757,7 +774,7 @@ export class Vehicle {
       const vLat = vc.dot(l);
       wh.vLong = vLong;
       wh.vLat = vLat;
-      const surf = SURFACES[wh.surface];
+      const surf = wh.surfaces[wh.surface];
       const wet = this.wetness > 0 ? wetGripFactor(this.wetness, tire.wetGrip ?? 0.72, surf, Math.abs(vLong)) : 1;
       // (wet-weather rubber works ~30 °C cooler than its dry window; on a winter circuit the "water" is snow and the tyre has no such window)
       const water = this.winter ? 0 : this.wetness;
@@ -840,7 +857,7 @@ export class Vehicle {
       let loadSum = 0;
       for (const wh of wheels) {
         if (!wh.contact) continue;
-        const sf = SURFACES[wh.surface];
+        const sf = wh.surfaces[wh.surface];
         gripSum += wh.load * sf.grip * (sf.fresh !== undefined ? 1 + (sf.fresh - 1) * this.wetness : 1);
         loadSum += wh.load;
       }
@@ -896,7 +913,7 @@ export class Vehicle {
       F.add(_f);
       T.add(_t.crossVectors(_r, _f));
       // ploughing through gravel / sand
-      const plough = SURFACES[wh.surface].plough;
+      const plough = wh.surfaces[wh.surface].plough;
       if (plough > 0) {
         _r.subVectors(wh.contactPt, p);
         _v2.crossVectors(w, _r).add(v);
@@ -1093,7 +1110,9 @@ export class Vehicle {
     const inRear = Math.abs(this.lastClutchTorque * G) * (rl.driveWeight * 2);
     const capFront = this.diffCap(d.layout === 'AWD' ? (d.frontDiff ?? { type: 'open', preload: 0, powerLock: 0, coastLock: 0 }) : d.diff, inFront, this.lastClutchTorque) * dt;
     const capRear = this.diffCap(d.diff, inRear, this.lastClutchTorque) * dt;
-    const capCenter = d.layout === 'AWD' ? this.diffCap(d.centerDiff ?? { type: 'lsd', preload: 50, powerLock: 0.3, coastLock: 0.3 }, Math.abs(this.lastClutchTorque * G), this.lastClutchTorque) * dt : 0;
+    // (the handbrake lets the centre go: it acts on the rear wheels only, and a centre that held the front axle to the locked rear one would
+    // brake all four, so a handbrake turn needs it open; at half the lever it is)
+    const capCenter = d.layout === 'AWD' ? this.diffCap(d.centerDiff ?? { type: 'lsd', preload: 50, powerLock: 0.3, coastLock: 0.3 }, Math.abs(this.lastClutchTorque * G), this.lastClutchTorque) * dt * (1 - clamp01(2 * handbrake)) : 0;
     let ldF = 0;
     let ldR = 0;
     let ldC = 0;
@@ -1144,16 +1163,20 @@ export class Vehicle {
         rr.omega += dl / I3;
       }
       if (capCenter > 0) {
-        const delta = (fl.omega + fr.omega) / 2 - (rl.omega + rr.omega) / 2;
-        const kInv = 0.25 * (1 / I0 + 1 / I1 + 1 / I2 + 1 / I3);
+        // the speeds of the two output shafts (each axle's mean wheel speed times its ratio): a car on tyres of different sizes at the front
+        // and the rear rolls with different wheel speeds, which a centre that compared the wheels themselves would fight for good
+        const iF = this.centerRatioF;
+        const iR = this.centerRatioR;
+        const delta = (iF * (fl.omega + fr.omega)) / 2 - (iR * (rl.omega + rr.omega)) / 2;
+        const kInv = 0.25 * (iF * iF * (1 / I0 + 1 / I1) + iR * iR * (1 / I2 + 1 / I3));
         let nl = ldC + delta / kInv;
         nl = nl < -capCenter ? -capCenter : nl > capCenter ? capCenter : nl;
         const dl = nl - ldC;
         ldC = nl;
-        fl.omega -= (0.5 * dl) / I0;
-        fr.omega -= (0.5 * dl) / I1;
-        rl.omega += (0.5 * dl) / I2;
-        rr.omega += (0.5 * dl) / I3;
+        fl.omega -= (0.5 * iF * dl) / I0;
+        fr.omega -= (0.5 * iF * dl) / I1;
+        rl.omega += (0.5 * iR * dl) / I2;
+        rr.omega += (0.5 * iR * dl) / I3;
       }
       // brakes + rolling resistance: friction toward zero wheel speed
       for (let i = 0; i < 4; i++) {
