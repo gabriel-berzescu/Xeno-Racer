@@ -157,6 +157,27 @@ purpose. Nothing else changes for the other four circuits: a road circuit gets t
   `brakeGripAt`), so the colours go amber and red where a car on snow or ice has to brake, not where one on asphalt would. The ribbon itself is more opaque on a
   winter circuit (`LINE.alphaWinter`, 0.9 against 0.66): snow in the headlights is far brighter than asphalt, and a thinner ribbon came out a pale ghost of its colour.
 
+## The Mammoth: all-wheel drive and the all-terrain tyre
+
+`CARS[4]`, class `SUV`: 2.45 t, 710 hp, 8 speeds, 4x4 on 315/55R20 all-terrain tyres. It is the one car with all-wheel drive and with an all-terrain tyre, and the numbers
+it is held to are in `tests/mammoth.test.ts` (the table in `tests/probes/mammoth-probe.test.ts`). The other four cars are bit for bit what they were: `tests/probes/four-cars.test.ts`
+(`FOURCARS=record|compare`) drives them through open-loop drives on every surface, AI laps and packs and writes the whole state, and the two files must be equal.
+
+- **Drivetrain** (`Vehicle.solveDrivetrain`): the gearbox output is divided `frontSplit : 1 - frontSplit` between the axles (a planetary centre) and the centre differential (open, a
+  clutch pack with preload and power/coast lock, or locked) moves torque between the axles until their *output shafts* turn alike. The shafts are the axles' mean wheel speeds times a
+  ratio that makes them equal when the car rolls (`centerRatioF/R`: the tyre radii; both exactly 1 for equal tyres), so unequal tyres do not wind a locked centre up. The handbrake lets the centre go
+  (it acts on the rear wheels only). The front axle has its own differential (`frontDiff`, open) and the rear one `diff`. Traction control watches every driven wheel.
+- **The all-terrain tyre** (`TireSpec.offroad`, `src/physics/surfaces.ts`): each wheel holds the table of surfaces its tyre meets (`tireSurfaces`): `SURFACES` itself, the same object, for a road
+  or race tyre, and for an all-terrain one a table in which grass, dirt, gravel, sand and deep snow give back a share of the grip a road tyre loses (`grip + (1 - grip) K`, `OFFROAD_GAIN`), grass
+  and dirt are less treacherous wet, and gravel, sand and deep snow cost a third less rolling and ploughing drag (it floats). Asphalt, kerb, concrete, packed snow and ice are the same for every tyre,
+  so its price on the road is its lower `mu`. On a winter circuit the studded tyre keeps the trait (`compound.ts`): it acts on the deep snow beside the road and nowhere else.
+- **Heat** (`TireSpec.heatScale`): the tread warms by the work of the tyre divided by its thermal size; the Mammoth's tyres, twice the rubber under twice the force, run at 70 C like a sports car's.
+- **The AI** (`src/ai`): the throttle governor watches every driven wheel (`frontDriven`/`rearDriven`); the share of its weight an AWD car can put to work is `awdTractionShare`
+  (`src/physics/traction.ts`: the front split, the weight distribution, the height of the centre of gravity and how far the centre differential can move the drive; 1 for the Mammoth's clutch pack);
+  the speed profile and the driver read the grip of the ground from the car's own table (`carSurfaces`, `carLineGrip`), the per-track caches (`lineSurfaces`, the edge hazards) staying the track's.
+- **Rolling over**: a wall, a snowbank and loose ground do not tip it in this model (the tyres hold 1.05 g, a rollover takes 1.2; `tests/probes/rollover-probe.test.ts`), and a hard flick lifts an inner wheel
+  for a moment (the suspension leans 5 degrees at the limit). No automatic reset is needed.
+
 ## Driving aids: the driving line and the braking assist
 
 Two aids live above the physics, per human (Settings: `assists` for player 1 and `assists2` for player 2, both `PlayerAssists`: the car's six aids that the

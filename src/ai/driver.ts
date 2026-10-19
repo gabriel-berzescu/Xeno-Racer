@@ -28,7 +28,8 @@ import { NITRO_SECONDS } from '../core/nitro';
 import { fitCar } from '../physics/compound';
 import { peakPower } from '../physics/engine';
 import { SURFACES, wetGripFactor, type SurfaceProps } from '../physics/surfaces';
-import { computeRacingLine, computeSpeedProfile, damageFactors, lineSurfaces, type LineSurfaces, type RacingLine, type SpeedProfile } from './racing-line';
+import { awdTractionShare } from '../physics/traction';
+import { carLineGrip, computeRacingLine, computeSpeedProfile, damageFactors, lineSurfaces, type LineSurfaces, type RacingLine, type SpeedProfile } from './racing-line';
 
 export interface Skill {
   gripUse: number;
@@ -213,7 +214,9 @@ export class AIDriver {
   private readonly brakeGain: number;
   private readonly alphaPkF: number;
   private readonly alphaPkR: number;
+  /** Which axles take the drive: the rear (rear- and all-wheel drive) and the front (front- and all-wheel drive). */
   private readonly rearDriven: boolean;
+  private readonly frontDriven: boolean;
   /** Slippery ground beyond the asphalt edge along the line (bit 0 left, bit 1 right); all clear on a dry road. */
   private hazard!: Uint8Array;
   private hazardMask: Uint8Array | null = null;
@@ -254,6 +257,8 @@ export class AIDriver {
   readonly def: CarDefinition;
   /** The surface the road is made of at each point of the line (the grip under the car: ice on a frozen lake is not packed snow). */
   private readonly surfaces: LineSurfaces;
+  /** The grip of that surface for this car's tyres, relative to asphalt: the track's own numbers (the same array) for a car on road tyres. */
+  private readonly surfGripAt: Float32Array;
   /** The road's own surface: asphalt, or packed snow on a winter circuit: what the water (fresh snow) acts on. */
   private readonly road: SurfaceProps;
   /** A winter circuit: the road is slippery all the time (the cautious racecraft of a wet road is on whatever the snow), the line keeps off the edge. */
@@ -285,6 +290,9 @@ export class AIDriver {
     this.tireWet = Math.min(def.physics.tireFront.wetGrip ?? 0.72, def.physics.tireRear.wetGrip ?? 0.72);
     this.lineCur = this.racingLine(wet > 0);
     this.surfaces = lineSurfaces(track, this.lineCur);
+    // (a car on all-terrain tyres has more grip than the track's table says on loose ground; the line seldom crosses any, but a grass
+    // or gravel verge it may touch is not the same verge to a Mammoth as to a Vanta)
+    this.surfGripAt = carLineGrip(this.surfaces, def.physics);
     this.lineLam = this.lineLamTo = wet > 0 ? 1 : 0;
     this.profCur = this.profileFor(this.lineCur, wet);
     this.wetFrom = this.wetTo = wet;
@@ -297,10 +305,11 @@ export class AIDriver {
     this.alphaPkF = ph.tireFront.peakSlipAngle;
     this.alphaPkR = ph.tireRear.peakSlipAngle;
     this.rearDriven = ph.drivetrain.layout !== 'FWD';
+    this.frontDriven = ph.drivetrain.layout !== 'RWD';
     this.powerPerKg = (peakPower(ph.engine).watts * ph.drivetrain.efficiency * 0.92) / ph.chassis.mass;
     const wb = ph.chassis.wheelbase;
     const cgA = ph.chassis.cgToFrontAxle;
-    this.drivenShare = ph.drivetrain.layout === 'FWD' ? ((wb - cgA) / wb) * 0.92 : ph.drivetrain.layout === 'RWD' ? Math.min(1, (cgA / wb) * 1.1) : 1;
+    this.drivenShare = ph.drivetrain.layout === 'FWD' ? ((wb - cgA) / wb) * 0.92 : ph.drivetrain.layout === 'RWD' ? Math.min(1, (cgA / wb) * 1.1) : awdTractionShare(ph);
     this.cDrag = (0.5 * RHO * ph.aero.dragArea) / ph.chassis.mass;
   }
 
@@ -477,7 +486,7 @@ export class AIDriver {
 
   /** The grip of the surface under the racing line at track position s, relative to asphalt (1 on a road of asphalt). */
   private surfGrip(s: number): number {
-    const g = this.surfaces.grip;
+    const g = this.surfGripAt;
     return g[Math.floor(this.track.wrapS(s) / this.line.step + 0.5) % g.length];
   }
 
@@ -752,11 +761,13 @@ export class AIDriver {
       const uR = Math.max(Math.abs(wh[2].slipAngle), Math.abs(wh[3].slipAngle)) / this.alphaPkR;
       let gNow = fade(uF, GOV_FRONT);
       if (this.rearDriven) gNow = Math.min(gNow, fade(uR, GOV_REAR));
-      const dT = this.rearDriven ? def.physics.tireRear : def.physics.tireFront;
-      const tk = Math.tan(dT.peakSlipAngle);
       let rho = 0;
-      for (let i = this.rearDriven ? 2 : 0; i < (this.rearDriven ? 4 : 2); i++) {
+      // (every driven wheel: an all-wheel-drive car can spin its front axle as well as its rear one, and it is the front that goes first on a
+      // snowy corner exit, with the centre differential sending the drive where there is no grip)
+      for (let i = this.frontDriven ? 0 : 2; i < (this.rearDriven ? 4 : 2); i++) {
         const w = wh[i];
+        const dT = i < 2 ? def.physics.tireFront : def.physics.tireRear;
+        const tk = Math.tan(dT.peakSlipAngle);
         const lam = Math.abs(Math.tan(w.slipAngle)) / tk;
         // (wheelspin on its own, in a launch or on a straight, is for the traction control on a dry road; on a wet road
         // the car does not lean on it and the whole slip counts)

@@ -150,11 +150,13 @@ describe('vehicle physics', () => {
         expect(drag.t100!).toBeGreaterThan(def.stats.zeroTo100 * 0.6);
         expect(drag.vmax).toBeGreaterThan(def.stats.topSpeedKmh * 0.85);
         expect(drag.vmax).toBeLessThan(def.stats.topSpeedKmh * 1.15);
-        expect(brakeAbs.distance).toBeGreaterThan(def.class === 'Prototype' ? 17 : 26);
+        // (a 2.45 t 4x4 on all-terrain tyres stops in the length of a good road car, not a sports car's, and must not corner like one: below a g on the
+        // skidpad, where a sports car is at 1.0 and over; tests/mammoth.test.ts holds the rest of its numbers)
+        expect(brakeAbs.distance).toBeGreaterThan(def.class === 'Prototype' ? 17 : def.class === 'SUV' ? 34 : 26);
         expect(brakeAbs.distance).toBeLessThan(45);
         expect(brakeLock.distance).toBeGreaterThan(brakeAbs.distance * 0.98);
         expect(pad.latG).toBeGreaterThan(0.85);
-        expect(pad.latG).toBeLessThan(def.class === 'Prototype' ? 2.4 : 1.4);
+        expect(pad.latG).toBeLessThan(def.class === 'Prototype' ? 2.4 : def.class === 'SUV' ? 1.0 : 1.4);
       });
     }
     mkdirSync('.cache', { recursive: true });

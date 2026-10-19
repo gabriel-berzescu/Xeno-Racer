@@ -16,6 +16,10 @@
  * The peak friction itself is the tyre's, the same for every car (about 1.1 on dry asphalt, a winter tyre is no sticky summer tyre),
  * a few per cent better for a narrow tyre than for a wide one (more pressure per area, a deeper bite). The surface then takes it
  * to 0.5 on packed snow and 0.4 on ice (src/physics/surfaces.ts).
+ * What the studded tyre keeps of the tyre it replaces, because it is the same size of tyre: the radius, the width and the rolling mass, the
+ * thermal size (`heatScale`) and the all-terrain trait (`offroad`). The last one is deliberate: a big block tyre with studs still floats on
+ * deep snow, so the Mammoth keeps its edge on the powder beside the road; on packed snow and ice (the road, the lake) the trait does nothing
+ * and every car is on the same footing.
  */
 import type { CarDefinition, TrackRuntime } from '../core/contracts';
 import type { TireSpec } from './spec';

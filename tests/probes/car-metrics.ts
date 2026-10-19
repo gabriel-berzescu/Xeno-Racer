@@ -1,0 +1,363 @@
+/**
+ * Measurements of one car on a flat plane, shared by the Mammoth probe and the tests that hold it to numbers: the standing start,
+ * the stop from 100 km/h, the skidpad (with the body's roll and pitch), the same on any surface, and a launch on snow.
+ * They are the drives of tests/physics.test.ts and tests/winter-handling.test.ts with the extra readings a heavy 4x4 needs:
+ * how far the body leans over, squats under power and dives under the brakes, how fast it is still going after a spell on gravel.
+ */
+import { Quaternion, Vector3 } from 'three';
+import { AIDriver } from '../../src/ai';
+import type { Assists, CarDefinition, Difficulty, GroundSample, SurfaceType, TrackPoint, TrackRuntime } from '../../src/core/contracts';
+import { DEFAULT_SETTINGS } from '../../src/core/settings';
+import { PhysicsWorld, SteeringFilter, createFlatTrack, type Vehicle } from '../../src/physics';
+import { loadTrackRuntime } from '../../src/track';
+
+export const G = 9.81;
+export const DT = 1 / 60;
+const WINTER_SURFACES: SurfaceType[] = ['snow', 'ice', 'deepsnow'];
+export const NO_AIDS: Assists = { abs: false, tcs: 'off', esc: false, autoShift: true, steeringAssist: 0, autoClutch: true };
+
+export interface Ground {
+  surface?: SurfaceType;
+  /** Studded winter tyres and cold air; defaults to true on snow, ice and deep snow. */
+  winter?: boolean;
+  wetness?: number;
+}
+
+export function setup(def: CarDefinition, ground: Ground = {}, speed = 0, assists: Assists = { ...NO_AIDS }) {
+  const surface = ground.surface ?? 'asphalt';
+  const track = createFlatTrack({ surface, winter: ground.winter ?? WINTER_SURFACES.includes(surface) });
+  const world = new PhysicsWorld(track);
+  world.wetness = ground.wetness ?? 0;
+  const car = world.addVehicle(def);
+  car.assists = { ...assists };
+  car.placeOnGround(new Vector3(0, 0, 0), new Quaternion(), speed);
+  car.setTemperatures(1);
+  return { world, car };
+}
+
+export function finite(car: Vehicle): boolean {
+  const s = car.state;
+  return [s.position.x, s.position.y, s.position.z, s.velocity.x, s.velocity.y, s.velocity.z, s.rpm].every(Number.isFinite);
+}
+
+const _ax = new Vector3();
+const _az = new Vector3();
+/** Body roll (deg, + = the left side up) and pitch (deg, + = nose up) of the car relative to a level plane. */
+export function attitude(car: Vehicle): { rollDeg: number; pitchDeg: number } {
+  _ax.set(1, 0, 0).applyQuaternion(car.state.quaternion);
+  _az.set(0, 0, 1).applyQuaternion(car.state.quaternion);
+  return { rollDeg: (Math.asin(Math.max(-1, Math.min(1, _ax.y))) * 180) / Math.PI, pitchDeg: (Math.asin(Math.max(-1, Math.min(1, _az.y))) * 180) / Math.PI };
+}
+
+export interface DragResult {
+  t60: number | null;
+  t100: number | null;
+  t200: number | null;
+  quarter: number | null;
+  vmax: number;
+  /** Largest nose-up pitch (deg) in the first three seconds of the start: the squat. */
+  squatDeg: number;
+  /** Highest slip ratio of any wheel in the first three seconds. */
+  maxSlip: number;
+}
+
+/** Full-throttle standing start, as tests/physics.test.ts has it (traction control low unless told). */
+export function dragRun(def: CarDefinition, seconds = 70, ground: Ground = {}, tcs: Assists['tcs'] = 'low'): DragResult {
+  const { world, car } = setup(def, ground);
+  car.assists.tcs = tcs;
+  world.simulate(1);
+  const t0 = world.time;
+  const z0 = car.p.z;
+  const r: DragResult = { t60: null, t100: null, t200: null, quarter: null, vmax: 0, squatDeg: 0, maxSlip: 0 };
+  car.controls.throttle = 1;
+  while (world.time - t0 < seconds) {
+    world.step(DT);
+    const kmh = car.state.forwardSpeed * 3.6;
+    r.vmax = Math.max(r.vmax, kmh);
+    if (r.t60 === null && kmh >= 96.56) r.t60 = world.time - t0;
+    if (r.t100 === null && kmh >= 100) r.t100 = world.time - t0;
+    if (r.t200 === null && kmh >= 200) r.t200 = world.time - t0;
+    if (r.quarter === null && car.p.z - z0 >= 402.3) r.quarter = world.time - t0;
+    if (world.time - t0 < 3) {
+      r.squatDeg = Math.max(r.squatDeg, attitude(car).pitchDeg);
+      for (const w of car.state.wheels) r.maxSlip = Math.max(r.maxSlip, w.slipRatio);
+    }
+    if (!finite(car)) throw new Error('NaN during drag run');
+  }
+  return r;
+}
+
+export interface BrakeResult {
+  distance: number;
+  time: number;
+  /** Largest nose-down pitch (deg): the dive. */
+  diveDeg: number;
+}
+
+/** Full pedal from `kmh` to rest. */
+export function brakeRun(def: CarDefinition, abs = true, ground: Ground = {}, kmh = 100): BrakeResult {
+  const v0 = kmh / 3.6;
+  const { world, car } = setup(def, ground, v0);
+  car.assists.abs = abs;
+  world.simulate(0.3);
+  car.placeOnGround(new Vector3(0, 0, car.p.z), new Quaternion(), v0);
+  car.setTemperatures(1);
+  const z0 = car.p.z;
+  car.controls.brake = 1;
+  let t = 0;
+  let dive = 0;
+  while (car.state.forwardSpeed > 0.3 && t < 30) {
+    world.step(DT);
+    t += DT;
+    dive = Math.max(dive, -attitude(car).pitchDeg);
+  }
+  return { distance: car.p.z - z0, time: t, diveDeg: dive };
+}
+
+export interface PadResult {
+  latG: number;
+  speedKmh: number;
+  /** Body roll (deg, absolute) at the moment of the best lateral g. */
+  rollDeg: number;
+  /** Largest absolute roll over the whole run. */
+  maxRollDeg: number;
+  /** Front minus rear mean slip angle (deg) over the last stretch before the limit: > 0 pushes (understeer), < 0 comes round. */
+  balanceDeg: number;
+  /** Lowest wheel load (N) over the run, as a share of its static load: 0 means a wheel left the ground. */
+  minLoadShare: number;
+}
+
+/** Skidpad: a circle of radius R left with the target speed creeping up; the best sustained lateral acceleration is the grip. */
+export function skidpad(def: CarDefinition, R = 60, ground: Ground = {}, tcs: Assists['tcs'] = 'high'): PadResult {
+  const { world, car } = setup(def, ground);
+  car.assists.tcs = tcs;
+  const center = new Vector3(R, 0, 0);
+  const wb = def.physics.chassis.wheelbase;
+  const winter = (ground.winter ?? WINTER_SURFACES.includes(ground.surface ?? 'asphalt')) === true;
+  let vTarget = winter ? 4 : 8;
+  const creep = winter ? 0.04 : 0.06;
+  const r: PadResult = { latG: 0, speedKmh: 0, rollDeg: 0, maxRollDeg: 0, balanceDeg: 0, minLoadShare: 1 };
+  const fwd = new Vector3();
+  const left = new Vector3();
+  const rel = new Vector3();
+  const target = new Vector3();
+  const staticLoad = [0, 1, 2, 3].map((i) => car.staticLoad(i));
+  let bal = 0;
+  let balN = 0;
+  for (let i = 0; i < 60 * (winter ? 120 : 90); i++) {
+    const s = car.state;
+    fwd.set(0, 0, 1).applyQuaternion(s.quaternion);
+    left.set(1, 0, 0).applyQuaternion(s.quaternion);
+    rel.subVectors(s.position, center);
+    rel.y = 0;
+    const dist = rel.length();
+    const ang = Math.atan2(rel.z, rel.x);
+    target.set(center.x + Math.cos(ang - 9 / R) * R, 0, center.z + Math.sin(ang - 9 / R) * R);
+    const to = target.sub(s.position);
+    to.y = 0;
+    const alpha = Math.atan2(to.dot(left), to.dot(fwd));
+    const delta = Math.atan((2 * wb * Math.sin(alpha)) / to.length());
+    car.controls.steer = Math.max(-1, Math.min(1, -delta / def.physics.chassis.maxSteer));
+    const err = vTarget - s.forwardSpeed;
+    car.controls.throttle = Math.max(0, Math.min(1, err * 0.25 + 0.15));
+    car.controls.brake = err < -1.5 ? 0.3 : 0;
+    world.step(DT);
+    vTarget += creep * DT * 10;
+    const lat = Math.abs(s.localAccel.x) / G;
+    const onLine = Math.abs(dist - R) < 3;
+    const roll = Math.abs(attitude(car).rollDeg);
+    if (onLine && i > 120) {
+      r.maxRollDeg = Math.max(r.maxRollDeg, roll);
+      for (let w = 0; w < 4; w++) r.minLoadShare = Math.min(r.minLoadShare, s.wheels[w].load / staticLoad[w]);
+      if (lat > r.latG) {
+        r.latG = lat;
+        r.speedKmh = s.forwardSpeed * 3.6;
+        r.rollDeg = roll;
+      }
+      const w = s.wheels;
+      if (lat > 0.8 * r.latG) {
+        bal += (Math.abs(w[0].slipAngle) + Math.abs(w[1].slipAngle)) / 2 - (Math.abs(w[2].slipAngle) + Math.abs(w[3].slipAngle)) / 2;
+        balN++;
+      }
+    }
+    if (dist - R > 12) break;
+    if (!finite(car)) throw new Error('NaN during skidpad');
+  }
+  r.balanceDeg = balN > 0 ? ((bal / balN) * 180) / Math.PI : 0;
+  return r;
+}
+
+/** Speed (km/h) after coasting for `seconds` from `kmh` with no pedal on `ground`: drag, rolling resistance and ploughing. */
+export function coast(def: CarDefinition, ground: Ground, kmh = 100, seconds = 4): number {
+  const { world, car } = setup(def, ground, kmh / 3.6, { ...DEFAULT_SETTINGS.assists });
+  world.simulate(seconds);
+  return car.state.forwardSpeed * 3.6;
+}
+
+/** Time (s) from a standstill to `kmh` (null: not reached in `limit` s) with the default aids' traction control, on `ground`. */
+export function launch(def: CarDefinition, ground: Ground, kmh = 100, tcs: Assists['tcs'] = 'low', limit = 40): number | null {
+  const { world, car } = setup(def, ground, 0, { ...DEFAULT_SETTINGS.assists, tcs });
+  world.simulate(0.5);
+  const t0 = world.time;
+  car.controls.throttle = 1;
+  while (car.state.forwardSpeed < kmh / 3.6 && world.time - t0 < limit) world.step(DT);
+  return car.state.forwardSpeed >= kmh / 3.6 ? world.time - t0 : null;
+}
+
+/** A hard flick through the steering filter: the rawest thumb a pad has. Returns the largest roll (deg), the lowest wheel load share and whether it spun. */
+export function flick(def: CarDefinition, kmh = 110, assists: Assists = { ...DEFAULT_SETTINGS.assists }, ground: Ground = {}) {
+  const { world, car } = setup(def, ground, kmh / 3.6, assists);
+  const filter = new SteeringFilter();
+  const staticLoad = [0, 1, 2, 3].map((i) => car.staticLoad(i));
+  let maxRoll = 0;
+  let minShare = 1;
+  let spun = false;
+  let wheelsUp = 0;
+  for (let i = 0; i < 5 * 60; i++) {
+    const t = i * DT;
+    const raw = t < 0.6 ? -1 : t < 1.4 ? 1 : 0;
+    car.controls.steer = filter.update(raw, DT, car.state, car.def, DEFAULT_SETTINGS.controls);
+    car.controls.throttle = t < 1.4 ? 0 : 1;
+    world.step(DT);
+    maxRoll = Math.max(maxRoll, Math.abs(attitude(car).rollDeg));
+    for (let w = 0; w < 4; w++) minShare = Math.min(minShare, car.state.wheels[w].load / staticLoad[w]);
+    if (car.state.wheels.some((w) => !w.contact)) wheelsUp++;
+    const f = new Vector3(0, 0, 1).applyQuaternion(car.state.quaternion);
+    const l = new Vector3(1, 0, 0).applyQuaternion(car.state.quaternion);
+    if (car.state.speed > 5 && Math.abs(Math.atan2(car.state.velocity.dot(l), car.state.velocity.dot(f))) > 1.2) spun = true;
+  }
+  return { maxRollDeg: maxRoll, minLoadShare: minShare, spun, wheelsUpFrames: wheelsUp };
+}
+
+/**
+ * A flat plane with a raised strip along +Z, like a hard kerb: `from`..`to` metres to the left of the centre line (x), `height` m tall, its two
+ * edges ramped over `ramp` m (a kerb is a ridge with a slope on each side, never a step). The strip is 'curb' to the physics.
+ */
+export function kerbTrack(from: number, to: number, height: number, ramp = 0.12): TrackRuntime {
+  const track = createFlatTrack();
+  track.groundAt = (x: number, _z: number, out: GroundSample): number => {
+    let h = 0;
+    let slope = 0;
+    if (x > from && x < to) {
+      if (x < from + ramp) {
+        h = (height * (x - from)) / ramp;
+        slope = height / ramp;
+      } else if (x > to - ramp) {
+        h = (height * (to - x)) / ramp;
+        slope = -height / ramp;
+      } else h = height;
+      out.surface = 'curb';
+    } else out.surface = 'asphalt';
+    out.height = h;
+    out.normal.set(-slope, 1, 0).normalize();
+    return 0;
+  };
+  return track;
+}
+
+/** Drive at `kmh` along +Z with the left wheels on a kerb strip; returns the lowest wheel load share (of the static load) and the wheels in the air at the worst moment. */
+export function kerbStrike(def: CarDefinition, kmh: number, height = 0.07, steerIn = 0, assists: Assists = { ...DEFAULT_SETTINGS.assists }) {
+  const half = def.physics.chassis.trackFront / 2;
+  const track = kerbTrack(half - 0.25, half + 0.6, height);
+  const world = new PhysicsWorld(track);
+  const car = world.addVehicle(def);
+  car.assists = { ...assists };
+  car.placeOnGround(new Vector3(0, 0, 0), new Quaternion(), kmh / 3.6);
+  car.setTemperatures(1);
+  car.controls.throttle = 0.3;
+  const staticLoad = [0, 1, 2, 3].map((i) => car.staticLoad(i));
+  let minShare = 1;
+  let maxUp = 0;
+  let maxRoll = 0;
+  let minLoadWheel = -1;
+  for (let i = 0; i < 3 * 60; i++) {
+    car.controls.steer = steerIn;
+    world.step(DT);
+    if (car.p.z < 8) continue;
+    for (let w = 0; w < 4; w++) {
+      const share = car.state.wheels[w].load / staticLoad[w];
+      if (share < minShare) {
+        minShare = share;
+        minLoadWheel = w;
+      }
+    }
+    maxUp = Math.max(maxUp, car.state.wheels.filter((w) => !w.contact).length);
+    maxRoll = Math.max(maxRoll, Math.abs(attitude(car).rollDeg));
+  }
+  return { minLoadShare: minShare, wheel: minLoadWheel, wheelsUp: maxUp, maxRollDeg: maxRoll, upright: attitude(car).rollDeg < 20 };
+}
+
+/**
+ * The time (s) of the second lap of an AI driver alone on a circuit, as tests/ai.test.ts takes it (a standing start, a lap to warm up,
+ * the aids of the AI drivers), and what it hit on the way.
+ */
+export function aiLap(trackId: string, def: CarDefinition, wetness = 0, difficulty: Difficulty = 'alien') {
+  const track = loadTrackRuntime(trackId);
+  const world = new PhysicsWorld(track);
+  world.wetness = wetness;
+  const car = world.addVehicle(def);
+  car.assists = { abs: true, tcs: 'low', esc: false, autoShift: true, steeringAssist: 0, autoClutch: true };
+  const slot = track.grid[0];
+  car.placeOnGround(slot.position, slot.quaternion, 0);
+  car.setTemperatures(1);
+  const ai = new AIDriver(track, def, { difficulty, seed: 1, wetness });
+  const tp: TrackPoint = { s: 0, d: 0, segment: 0, widthLeft: 0, widthRight: 0, wallLeft: 0, wallRight: 0, tx: 0, tz: 1, lx: 1, lz: 0, y: 0 };
+  let hint = track.project(car.p.x, car.p.z, tp, -1);
+  let prev = tp.s;
+  let crossings = 0;
+  let lapStart = 0;
+  let lap = Number.NaN;
+  let resets = 0;
+  while (world.time < 900 && crossings < 3) {
+    ai.update(DT, car.state, world.states, car.controls, true);
+    if (ai.needsReset) {
+      resets++;
+      ai.onReset();
+    }
+    world.step(DT);
+    hint = track.project(car.p.x, car.p.z, tp, hint);
+    if (tp.s - prev < -track.length / 2) {
+      crossings++;
+      if (crossings === 2) lap = world.time - lapStart;
+      lapStart = world.time;
+    }
+    prev = tp.s;
+  }
+  return { lap, resets, impacts: car.state.impactCount };
+}
+
+/**
+ * A lane change with a pad's thumb: `stick` left for 0.7 s, then right for 1.4 s, then left for 0.7 s, through the steering filter, at
+ * `throttle`, with the aids given. The largest body slip (deg) and yaw rate, the lightest wheel, how long the stability control worked
+ * (share of the run) and the speed the car ends at: how it behaves when a driver asks too much of it at speed.
+ */
+export function laneChange(def: CarDefinition, kmh: number, stick: number, throttle: number, assists: Assists = { ...DEFAULT_SETTINGS.assists }) {
+  const world = new PhysicsWorld(createFlatTrack());
+  const car = world.addVehicle(def);
+  car.assists = { ...assists };
+  car.placeOnGround(new Vector3(), new Quaternion(), kmh / 3.6);
+  car.setTemperatures(1);
+  const filter = new SteeringFilter();
+  const staticLoad = [0, 1, 2, 3].map((i) => car.staticLoad(i));
+  const f = new Vector3();
+  const l = new Vector3();
+  let maxBeta = 0;
+  let maxYaw = 0;
+  let minShare = 1;
+  let esc = 0;
+  const frames = 6 * 60;
+  for (let i = 0; i < frames; i++) {
+    const t = i / 60;
+    const raw = t < 0.5 ? 0 : t < 1.2 ? stick : t < 2.6 ? -stick : t < 3.3 ? stick : 0;
+    car.controls.steer = filter.update(raw, DT, car.state, def, DEFAULT_SETTINGS.controls);
+    car.controls.throttle = throttle;
+    world.step(DT);
+    maxYaw = Math.max(maxYaw, Math.abs(car.state.angularVelocity.y));
+    if (car.state.escActive) esc++;
+    f.set(0, 0, 1).applyQuaternion(car.state.quaternion);
+    l.set(1, 0, 0).applyQuaternion(car.state.quaternion);
+    maxBeta = Math.max(maxBeta, (Math.abs(Math.atan2(car.state.velocity.dot(l), car.state.velocity.dot(f))) * 180) / Math.PI);
+    for (let w = 0; w < 4; w++) minShare = Math.min(minShare, car.state.wheels[w].load / staticLoad[w]);
+  }
+  return { slipDeg: maxBeta, yaw: maxYaw, minLoadShare: minShare, escShare: esc / frames, endKmh: car.state.speed * 3.6 };
+}
