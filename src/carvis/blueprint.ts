@@ -29,6 +29,10 @@ export const PART = {
   paintDark: 10,
   silver: 11,
   lampAmber: 12,
+  /** LED light bar: a dark housing with a lens that lights with the headlamps (the Mammoth's roof bar). */
+  lightBar: 13,
+  /** textured black plastic (bolted flares, rock sliders, bumper steps): a moulded grain on the matte black. */
+  rugged: 14,
   // wheel parts (wheel shader)
   tire: 20,
   rimFace: 22,
