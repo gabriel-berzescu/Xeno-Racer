@@ -5,6 +5,9 @@
  * One merged mesh (tire, rim barrel, spokes, hub, brake disc, blur disc) is drawn with the wheel
  * shader, which switches on the `part` id in zone channel z3.y. The caliper + dust shield are a
  * separate non-spinning mesh.
+ *
+ * The 'beadlock' style (the 4x4's) has an all-terrain tyre built differently: instead of one radius per ring (a smooth tread the shader
+ * grooves) its carcass is smooth and the tread blocks are real geometry swept on it (part 21), so the silhouette is cut like a saw.
  */
 import type { QualityLevel } from '../core/contracts';
 import { PART } from './blueprint';
