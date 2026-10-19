@@ -321,9 +321,12 @@ export class Vehicle {
       const front = (c.mass * GRAVITY * b) / c.wheelbase;
       const rear = (c.mass * GRAVITY * a) / c.wheelbase;
       const drivenLoad = dt.layout === 'FWD' ? front * 0.92 : dt.layout === 'RWD' ? rear * 1.12 : (front + rear) * 0.98;
-      // (all-wheel drive: the tyre with less grip, which is the rear one when the two are alike, as before)
-      const tire = dt.layout === 'FWD' ? s.tireFront : dt.layout === 'AWD' && s.tireFront.mu < s.tireRear.mu ? s.tireFront : s.tireRear;
-      this.launchCapacity = (tire.mu * 1.15 * drivenLoad * tire.radius) / dt.efficiency;
+      const tire = dt.layout === 'FWD' ? s.tireFront : s.tireRear;
+      // (all-wheel drive: the grip of each axle on its own load, the front tyre's friction on the front axle and the rear's on the rear)
+      this.launchCapacity =
+        dt.layout === 'AWD'
+          ? ((s.tireFront.mu * front + s.tireRear.mu * rear) * 0.98 * 1.15 * tire.radius) / dt.efficiency
+          : (tire.mu * 1.15 * drivenLoad * tire.radius) / dt.efficiency;
     }
     {
       const rf = s.tireFront.radius;
