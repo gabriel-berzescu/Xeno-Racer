@@ -12,6 +12,7 @@ import { Vector3 } from 'three';
 import { fitCar } from '../physics/compound';
 import { peakPower } from '../physics/engine';
 import { SURFACES, carSurfaces, wetGripFactor, type SurfaceProps } from '../physics/surfaces';
+import type { VehicleSpec } from '../physics/spec';
 import { awdTractionShare } from '../physics/traction';
 
 const G = 9.81;
@@ -188,6 +189,17 @@ export function lineSurfaces(track: TrackRuntime, line: RacingLine): LineSurface
   hit = { at, names, props: names.map((n) => SURFACES[n]), grip };
   surfCache.set(key, hit);
   return hit;
+}
+
+/**
+ * The grip of the surface under each point of the line for one car's tyres, relative to asphalt (`LineSurfaces.grip` is the track's, for
+ * a road tyre): that very array for a car on road or race tyres, a table of its own for a car on all-terrain tyres, which keep more of
+ * their grip on loose ground (src/physics/surfaces.ts, `carSurfaces`). The line stays on the road, so the two differ only where a circuit
+ * puts gravel or grass under it.
+ */
+export function carLineGrip(surf: LineSurfaces, ph: Pick<VehicleSpec, 'tireFront' | 'tireRear'>): Float32Array {
+  const own = carSurfaces(ph);
+  return own === SURFACES ? surf.grip : Float32Array.from(surf.at, (k) => own[surf.names[k]].grip);
 }
 
 /** The surface a road is made of, for the water on it: asphalt, or packed snow on a winter circuit (what fresh snow lies on). */

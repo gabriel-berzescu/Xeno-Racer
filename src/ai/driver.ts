@@ -27,9 +27,9 @@ import { cloneEffects, isNeutral, type MechEffects } from '../core/mechanical';
 import { NITRO_SECONDS } from '../core/nitro';
 import { fitCar } from '../physics/compound';
 import { peakPower } from '../physics/engine';
-import { SURFACES, carSurfaces, wetGripFactor, type SurfaceProps } from '../physics/surfaces';
+import { SURFACES, wetGripFactor, type SurfaceProps } from '../physics/surfaces';
 import { awdTractionShare } from '../physics/traction';
-import { computeRacingLine, computeSpeedProfile, damageFactors, lineSurfaces, type LineSurfaces, type RacingLine, type SpeedProfile } from './racing-line';
+import { carLineGrip, computeRacingLine, computeSpeedProfile, damageFactors, lineSurfaces, type LineSurfaces, type RacingLine, type SpeedProfile } from './racing-line';
 
 export interface Skill {
   gripUse: number;
@@ -290,13 +290,9 @@ export class AIDriver {
     this.tireWet = Math.min(def.physics.tireFront.wetGrip ?? 0.72, def.physics.tireRear.wetGrip ?? 0.72);
     this.lineCur = this.racingLine(wet > 0);
     this.surfaces = lineSurfaces(track, this.lineCur);
-    {
-      // (a car on all-terrain tyres has more grip than the track's table says on loose ground; the line seldom crosses any, but a grass
-      // or gravel verge it may touch is not the same verge to a Mammoth as to a Vanta)
-      const own = carSurfaces(def.physics);
-      const names = this.surfaces.names;
-      this.surfGripAt = own === SURFACES ? this.surfaces.grip : Float32Array.from(this.surfaces.at, (k) => own[names[k]].grip);
-    }
+    // (a car on all-terrain tyres has more grip than the track's table says on loose ground; the line seldom crosses any, but a grass
+    // or gravel verge it may touch is not the same verge to a Mammoth as to a Vanta)
+    this.surfGripAt = carLineGrip(this.surfaces, def.physics);
     this.lineLam = this.lineLamTo = wet > 0 ? 1 : 0;
     this.profCur = this.profileFor(this.lineCur, wet);
     this.wetFrom = this.wetTo = wet;
