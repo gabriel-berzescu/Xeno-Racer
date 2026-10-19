@@ -518,9 +518,15 @@ function foliageMaterial(tex: THREE.Texture, fade: [number, number, number, numb
 
 // ── scatter ──────────────────────────────────────────────────────────────────────
 
-function scatter(ctx: Ctx, veg: VegetationDef): Record<SpeciesId, Inst[]> {
+const noTrees = (): Record<SpeciesId, Inst[]> => ({ oak: [], poplar: [], pine: [], birch: [], palm: [], spruce: [], snowbirch: [] });
+
+/** The far forest's density, as a share of the scattered forest's: at its inner edge, and from a few hundred metres further out. */
+const FAR_DENSITY_IN = 0.9;
+const FAR_DENSITY_OUT = 0.35;
+
+function scatter(ctx: Ctx, veg: VegetationDef, far = 0): { near: Record<SpeciesId, Inst[]>; far: Record<SpeciesId, Inst[]> } {
   const rt = ctx.rt;
-  const out: Record<SpeciesId, Inst[]> = { oak: [], poplar: [], pine: [], birch: [], palm: [], spruce: [], snowbirch: [] };
+  const out = noTrees();
   const rnd = mulberry32(rt.def.seed ^ 0x7f4a7c15);
   const noise = new Noise2(rt.def.seed + 5);
   const noise2 = new Noise2(rt.def.seed + 17);
@@ -591,6 +597,91 @@ function scatter(ctx: Ctx, veg: VegetationDef): Record<SpeciesId, Inst[]> {
       out[sp].push({ x: px, y: y - 0.12, z: pz, yaw: rnd() * Math.PI * 2, s: h, tint, hue, w: 0.85 + rnd() * 0.35 });
     }
   }
+  return { near: out, far: far > veg.reach ? scatterFar(ctx, veg, far, pick) : noTrees() };
+}
+
+/**
+ * The far forest: the same forest patches (the same noise) carried on from the reach of the scattered trees to `far` metres from the
+ * road, as billboards only (they always stand further from the camera than the near trees' range), thinner with the distance and
+ * thinning out to nothing over the last quarter, where the terrain's far-hill canopy colour takes over. No lone trees out here: at a few
+ * hundred metres only the patches read.
+ */
+function scatterFar(ctx: Ctx, veg: VegetationDef, far: number, pick: () => SpeciesId): Record<SpeciesId, Inst[]> {
+  const rt = ctx.rt;
+  const out = noTrees();
+  const rnd = mulberry32(rt.def.seed ^ 0x2c1b3c6d);
+  const noise = new Noise2(rt.def.seed + 5);
+  const noise2 = new Noise2(rt.def.seed + 17);
+  const b = rt.bounds;
+  const g = 9;
+  const lakeLevel = rt.terrain.lakeLevel;
+  const accept0 = (veg.density / 100) * g * g * ctx.q.trees;
+  const e = 4;
+  // the distance to the road, coarse but global (every 6th centreline sample, on a 24 m grid): the exact margin is only asked near the reach
+  const pts: number[] = [];
+  for (let i = 0; i < rt.count; i += 6) pts.push(rt.X[i], rt.Z[i]);
+  const C = 24;
+  const x0 = b.minX - far - C;
+  const z0 = b.minZ - far - C;
+  const nx = Math.ceil((b.maxX - b.minX + 2 * far + 2 * C) / C) + 1;
+  const nz = Math.ceil((b.maxZ - b.minZ + 2 * far + 2 * C) / C) + 1;
+  const coarse = new Float32Array(nx * nz);
+  for (let j = 0; j < nz; j++) {
+    for (let i = 0; i < nx; i++) {
+      const x = x0 + i * C;
+      const z = z0 + j * C;
+      let best = Infinity;
+      for (let k = 0; k < pts.length; k += 2) {
+        const dx = pts[k] - x;
+        const dz = pts[k + 1] - z;
+        const dd = dx * dx + dz * dz;
+        if (dd < best) best = dd;
+      }
+      coarse[j * nx + i] = Math.sqrt(best);
+    }
+  }
+  const coarseAt = (x: number, z: number): number => {
+    const i = Math.min(nx - 1, Math.max(0, Math.round((x - x0) / C)));
+    const j = Math.min(nz - 1, Math.max(0, Math.round((z - z0) / C)));
+    return coarse[j * nx + i];
+  };
+  // (the centreline is not the edge of the strip: the barriers and the run-off stand up to this far off it)
+  const side = rt.maxWall + 30;
+  for (let z = b.minZ - far; z <= b.maxZ + far; z += g) {
+    for (let x = b.minX - far; x <= b.maxX + far; x += g) {
+      const px = x + (rnd() - 0.5) * g;
+      const pz = z + (rnd() - 0.5) * g;
+      const sp0 = rnd();
+      const c = coarseAt(px, pz);
+      if (c > far + side || c < veg.reach) continue;
+      const m = c < veg.reach + side + 2 * C ? rt.stripMargin(px, pz) : c - side;
+      if (m <= veg.reach || m > far) continue;
+      const f = noise.fbm(px / veg.forestScale, pz / veg.forestScale, 3) * 0.7 + noise2.noise(px / (veg.forestScale * 0.31), pz / (veg.forestScale * 0.31)) * 0.3;
+      const forest = smoothstep(veg.forestThreshold, veg.forestThreshold + 0.28, f);
+      if (forest <= 0) continue;
+      const thin = FAR_DENSITY_IN + (FAR_DENSITY_OUT - FAR_DENSITY_IN) * smoothstep(veg.reach, veg.reach + 400, m);
+      if (sp0 > accept0 * forest * thin * (1 - smoothstep(far * 0.75, far, m))) continue;
+      const y = rt.fieldHeight(px, pz);
+      if (lakeLevel !== null && y < lakeLevel + 0.9) continue;
+      if (rt.iceLake && rt.terrain.iceMask(px, pz) > 0.04) continue;
+      const hx = (rt.fieldHeight(px + e, pz) - rt.fieldHeight(px - e, pz)) / (2 * e);
+      const hz = (rt.fieldHeight(px, pz + e) - rt.fieldHeight(px, pz - e)) / (2 * e);
+      if (Math.hypot(hx, hz) > veg.slopeMax) continue;
+      if (ctx.reserved.some((r) => r(px, pz, 5)) || ctx.viewReserved.some((r) => r(px, pz, 4.5))) continue;
+      let sp = pick();
+      let tint = 0.88 + rnd() * 0.24;
+      let hue = (rnd() - 0.5) * 0.2;
+      let hmul = sp === 'poplar' ? 1.5 : sp === 'pine' ? 1.15 : sp === 'spruce' ? 1.25 : sp === 'snowbirch' ? 0.9 : 1;
+      if (sp === 'birch') {
+        sp = 'oak';
+        tint = 1.1 + rnd() * 0.2;
+        hue = 0.15 + rnd() * 0.15;
+        hmul = 0.85;
+      }
+      // (sunk a little: the coarse terrain tiles out here are not exactly the height field, and a tree that floats shows its foot)
+      out[sp].push({ x: px, y: y - 0.6, z: pz, yaw: rnd() * Math.PI * 2, s: veg.scale * (0.72 + rnd() * 0.5) * hmul, tint, hue, w: 0.85 + rnd() * 0.35 });
+    }
+  }
   return out;
 }
 
@@ -604,16 +695,19 @@ export interface TreeSystem {
   disposables: Array<{ dispose(): void }>;
 }
 
-/** Near-LOD range (m) and card-count factor per quality tier (0 low .. 3 ultra). */
-export function treeRanges(tier: number): { r0: number; detail: number } {
-  return { r0: [60, 90, 125, 170][tier], detail: [0.5, 0.7, 0.9, 1.1][tier] };
+/**
+ * Near-LOD range (m) and card-count factor per quality tier (0 low .. 3 ultra), and how far from the road the far forest goes (m; 0 =
+ * none): past the reach of the scattered trees, billboards carry the forest patches on toward the horizon.
+ */
+export function treeRanges(tier: number): { r0: number; detail: number; far: number } {
+  return { r0: [60, 90, 125, 170][tier], detail: [0.5, 0.7, 0.9, 1.1][tier], far: [0, 700, 1100, 1500][tier] };
 }
 
 const FADE_BAND = 10;
 const CLOSE_BAND = 8;
 
 /** Build instanced meshes for hand- or noise-placed trees. */
-export function instantiateTrees(inst: Record<SpeciesId, Inst[]>, tier: number, aniso: number, seed = 100): TreeSystem {
+export function instantiateTrees(inst: Record<SpeciesId, Inst[]>, tier: number, aniso: number, seed = 100, farInst?: Record<SpeciesId, Inst[]>): TreeSystem {
   const group = new THREE.Group();
   group.name = 'trees';
   const disposables: Array<{ dispose(): void }> = [];
@@ -800,6 +894,8 @@ export function instantiateTrees(inst: Record<SpeciesId, Inst[]>, tier: number, 
   // far LOD: one instanced mesh per cell for all species
   const allTrees: { x: number; z: number; t: Inst; sp: number }[] = [];
   kinds.forEach((k, ki) => inst[k].forEach((t) => allTrees.push({ x: t.x, z: t.z, t, sp: ki })));
+  // (the far forest has only this LOD: it stands further from the road than the near trees are ever drawn)
+  if (farInst) kinds.forEach((k, ki) => farInst[k].forEach((t) => allTrees.push({ x: t.x, z: t.z, t, sp: ki })));
   for (const [key, arr] of cellsOf(allTrees, cellB)) {
     const g = geoB.clone();
     const rect = new Float32Array(arr.length * 4);
@@ -869,7 +965,8 @@ export async function buildTrees(ctx: Ctx): Promise<THREE.Group | null> {
   const veg = ctx.rt.def.scenery?.vegetation;
   const extra = ctx.extraTrees;
   if ((!veg || ctx.q.trees < 0.05) && !extra) return null;
-  const inst: Record<SpeciesId, Inst[]> = veg && ctx.q.trees >= 0.05 ? scatter(ctx, veg) : { oak: [], poplar: [], pine: [], birch: [], palm: [], spruce: [], snowbirch: [] };
+  const scattered = veg && ctx.q.trees >= 0.05 ? scatter(ctx, veg, treeRanges(ctx.q.tier).far) : { near: noTrees(), far: noTrees() };
+  const inst = scattered.near;
   // hand-placed trees (palms along the streets) join the scattered ones; fewer of them on the lower tiers, like the forest
   for (const sp of Object.keys(extra ?? {}) as SpeciesId[]) {
     const list = extra![sp] ?? [];
@@ -879,7 +976,7 @@ export async function buildTrees(ctx: Ctx): Promise<THREE.Group | null> {
   }
   ctx.progress(0.7, 'trees');
   await yieldFrame();
-  const sys = instantiateTrees(inst, ctx.q.tier, ctx.q.aniso, 100);
+  const sys = instantiateTrees(inst, ctx.q.tier, ctx.q.aniso, 100, scattered.far);
   ctx.disposables.push(...sys.disposables);
   ctx.updaters.push((_dt, camera, time) => sys.update(camera, time));
   ctx.envListeners.push((env) => sys.setSun(env.sunDirection, env.sunIntensity));
