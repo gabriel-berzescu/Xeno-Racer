@@ -214,6 +214,8 @@ float zFlake = 0.0;
 float zAO = vZ3.x;
 float zIsPaint = 1.0;
 float zCarbon = 0.0;
+// moulded grain of the textured black plastic (1 on part 14): the bump is added in BODY_FRAG_NORMAL
+float zGrain = 0.0;
 // object-space metres per pixel (taken here, in uniform control flow, for the pattern anti-aliasing)
 float zPx = length(fwidth(vObjPos));
 
@@ -307,8 +309,36 @@ float zPx = length(fwidth(vObjPos));
       zRough = 0.1;
       zCC = 1.0;
       zFlake = 0.0;
+    } else if (zPart == 13) {    // LED light bar: a matte black housing and a lens of LED pockets that lights with the headlamps
+      float lens = step(vZ3.z, 0.0);
+      // two rows of pockets along the bar: they fade to their mean before the pitch drops under a pixel
+      vec2 lq = vec2(fract(vObjPos.x * 19.0), fract(vObjPos.y * 40.0 + 0.5)) - 0.5;
+      float pocket = 1.0 - smoothstep(0.3, 0.46, length(lq * vec2(1.0, 0.9)));
+      pocket = mix(pocket, 0.5, smoothstep(0.14, 0.45, zPx * 40.0));
+      zCol = mix(vec3(0.012), mix(vec3(0.018, 0.02, 0.024), vec3(0.16, 0.17, 0.18), pocket), lens);
+      zRough = mix(0.55, 0.12, lens);
+      zMetal = 0.0;
+      zCC = lens;
+      zFlake = 0.0;
+      // lit with the headlamps (uHead), dimly with the daytime running lights, dark when both headlamps are broken
+      float barOut = max(uLampOut.x, uLampOut.y);
+      zEmis = vec3(1.0, 0.96, 0.88) * lens * (0.3 + 0.7 * pocket) * (uHead * 8.0 + uDrl * 0.12) * barOut;
+    } else if (zPart == 14) {    // textured black plastic: bolted flares, sliders, bumper steps
+      float g = hash13(floor(vObjPos * 380.0));
+      zCol = vec3(0.013 + 0.012 * g);
+      zRough = 0.8 - 0.2 * g;
+      zMetal = 0.0;
+      zCC = 0.0;
+      zFlake = 0.0;
+      zGrain = 1.0 - smoothstep(0.0015, 0.004, zPx);
+    } else if (zPart == 15) {    // signal-coloured hardware: powder-coated in the accent colour, rigid in a crash
+      zCol = uAccent;
+      zRough = 0.46;
+      zMetal = 0.0;
+      zCC = 0.0;
+      zFlake = 0.0;
     }
-    if (zPart == 1 || zPart == 2 || zPart == 3 || zPart == 4 || zPart == 6 || zPart == 7 || zPart == 8 || zPart == 9 || zPart == 11 || zPart == 12) zIsPaint = 0.0;
+    if (zPart == 1 || zPart == 2 || zPart == 3 || zPart == 4 || zPart == 6 || zPart == 7 || zPart == 8 || zPart == 9 || zPart == 11 || zPart == 12 || zPart == 13 || zPart == 14 || zPart == 15) zIsPaint = 0.0;
   } else {
     // ---------- sculpted-body zones ----------
     float mTrim = zmask(vZ0.y);
@@ -523,7 +553,7 @@ export const BODY_FRAG_NORMAL = /* glsl */ `
 #ifndef GLASS_PASS
 {
   // (the crumple relief is finer than the mesh, so it fades out before it can only alias)
-  float hgt = -0.00022 * zLine + dmgRelief * (1.0 - smoothstep(0.004, 0.012, zPx));
+  float hgt = -0.00022 * zLine + dmgRelief * (1.0 - smoothstep(0.004, 0.012, zPx)) + 0.0005 * zGrain * (hash13(floor(vObjPos * 380.0)) - 0.5);
   vec2 dH = vec2(dFdx(hgt), dFdy(hgt));
   vec3 nl = perturbNormalH(-vViewPosition, normal, dH, faceDirection);
   float px = length(fwidth(vObjPos));

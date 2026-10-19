@@ -135,7 +135,7 @@ function patchBody(mat: MeshPhysicalMaterial, uniforms: BodyUniforms, glass: boo
     if (glass) f = f.replace('#include <opaque_fragment>', GLASS_OPAQUE);
     shader.fragmentShader = f;
   };
-  mat.customProgramCacheKey = () => (glass ? 'xr-carbody-glass-v3' : 'xr-carbody-paint-v3');
+  mat.customProgramCacheKey = () => (glass ? 'xr-carbody-glass-v4' : 'xr-carbody-paint-v4');
 }
 
 export interface BodyMaterials {

@@ -60,18 +60,99 @@ interface IStyle {
   cowlZ: number;
   cowlY: number;
   floorY: number;
+  /** where the steering wheel stands relative to the seat reference (up, forward), and how far it is tipped back from vertical */
+  wheelUp: number;
+  wheelFwd: number;
+  wheelTilt: number;
+  /** the cluster binnacle's height over the wheel centre */
+  binUp: number;
+  /** the cabin mesh's box: half width and the height of its top (the headrests and roof lining stop here) */
+  halfW: number;
+  top: number;
+  /** half widths of the floor, the dash pad and the rear bench; the dash pad's half thickness; where the round air vents sit across */
+  floorHalfW: number;
+  dashHalfW: number;
+  dashHy: number;
+  benchHalfW: number;
+  ventX: number;
+  /** door cards: x of the card, centre height, half height, centre behind the cowl, half length, and the |x| beyond which a vertex is a card */
+  doorX: number;
+  doorY: number;
+  doorHy: number;
+  doorZ: number;
+  doorHz: number;
+  doorCut: number;
+  /** how far behind the cowl the door cards run (m), and whether there is a second card for a rear door */
+  doorBack: number;
+  rearDoor: boolean;
 }
+
+/** What the older (low, narrow) cabins use for everything the 4x4 raises. */
+const LOW_CABIN = {
+  wheelUp: 0.3,
+  wheelFwd: 0.56,
+  wheelTilt: 0.4,
+  binUp: 0.2,
+  halfW: 0.85,
+  top: 1.05,
+  floorHalfW: 0.74,
+  dashHalfW: 0.74,
+  dashHy: 0.12,
+  benchHalfW: 0.62,
+  ventX: 0.62,
+  doorX: 0.735,
+  doorY: 0.62,
+  doorHy: 0.26,
+  doorZ: 0.62,
+  doorHz: 0.62,
+  doorCut: 0.7,
+  doorBack: 1.3,
+  rearDoor: false,
+};
 
 function styleFor(style: BodyStyle): IStyle {
   switch (style) {
     case 'gt':
-      return { twoSeats: true, rearBench: false, cage: false, doorCards: true, bucket: false, seatTilt: 0.3, cowlZ: 0.45, cowlY: 0.88, floorY: 0.27 };
+      return { twoSeats: true, rearBench: false, cage: false, doorCards: true, bucket: false, seatTilt: 0.3, cowlZ: 0.45, cowlY: 0.88, floorY: 0.27, ...LOW_CABIN };
     case 'hatch':
-      return { twoSeats: true, rearBench: true, cage: true, doorCards: true, bucket: true, seatTilt: 0.26, cowlZ: 0.55, cowlY: 0.95, floorY: 0.27 };
+      return { twoSeats: true, rearBench: true, cage: true, doorCards: true, bucket: true, seatTilt: 0.26, cowlZ: 0.55, cowlY: 0.95, floorY: 0.27, ...LOW_CABIN };
     case 'coupe':
-      return { twoSeats: true, rearBench: true, cage: false, doorCards: true, bucket: true, seatTilt: 0.3, cowlZ: 0.5, cowlY: 0.9, floorY: 0.27 };
+      return { twoSeats: true, rearBench: true, cage: false, doorCards: true, bucket: true, seatTilt: 0.3, cowlZ: 0.5, cowlY: 0.9, floorY: 0.27, ...LOW_CABIN };
+    case 'suv':
+      // a bench-high cabin: the floor is half a metre off the road, the dash is a wide upright pad under a flat windscreen,
+      // the seats are plain (no bolsters) and tilted back only a little, and the door cards run from the sill to the window ledge
+      return {
+        twoSeats: true,
+        rearBench: true,
+        cage: false,
+        doorCards: true,
+        bucket: false,
+        seatTilt: 0.3,
+        cowlZ: 0.7,
+        cowlY: 1.3,
+        floorY: 0.5,
+        wheelUp: 0.36,
+        wheelFwd: 0.5,
+        wheelTilt: 0.52,
+        binUp: 0.22,
+        halfW: 0.9,
+        top: 1.62,
+        floorHalfW: 0.88,
+        dashHalfW: 0.9,
+        dashHy: 0.22,
+        benchHalfW: 0.82,
+        ventX: 0.76,
+        doorX: 0.89,
+        doorY: 0.93,
+        doorHy: 0.4,
+        doorZ: 0.535,
+        doorHz: 0.47,
+        doorCut: 0.86,
+        doorBack: 1.95,
+        rearDoor: true,
+      };
     default:
-      return { twoSeats: false, rearBench: false, cage: true, doorCards: false, bucket: true, seatTilt: 0.62, cowlZ: 0.9, cowlY: 0.64, floorY: 0.14 };
+      return { twoSeats: false, rearBench: false, cage: true, doorCards: false, bucket: true, seatTilt: 0.62, cowlZ: 0.9, cowlY: 0.64, floorY: 0.14, ...LOW_CABIN, wheelUp: 0.34, wheelFwd: 0.6, wheelTilt: 0.9 };
   }
 }
 
@@ -84,11 +165,11 @@ export function makeInterior(spec: CarVisualSpec, quality: QualityLevel): Interi
   const floorY = st.floorY;
 
   const eye = eyePoint(spec);
-  const wheelPos: V3 = [sx, sy + (proto ? 0.34 : 0.3), sz + (proto ? 0.6 : 0.56)];
-  const wheelTilt = proto ? 0.9 : 0.4;
+  const wheelPos: V3 = [sx, sy + st.wheelUp, sz + st.wheelFwd];
+  const wheelTilt = st.wheelTilt;
   const wheelNormal: V3 = [0, Math.sin(wheelTilt), -Math.cos(wheelTilt)];
   // instrument cluster: a hooded binnacle above the wheel rim (road cars) / a dash display (prototype)
-  const binY = proto ? wheelPos[1] + 0.14 : wheelPos[1] + 0.2;
+  const binY = proto ? wheelPos[1] + 0.14 : wheelPos[1] + st.binUp;
   const binZ = wheelPos[2] + (proto ? 0.3 : 0.17);
   const screenC: V3 = [sx, binY, binZ - 0.085];
   // the helmet sits a little behind/below the eye point
@@ -134,23 +215,24 @@ export function makeInterior(spec: CarVisualSpec, quality: QualityLevel): Interi
   const cabin: FieldFn = (x, y, z) => {
     const ax = x < 0 ? -x : x;
     // floor tub
-    let d = sdRoundBox(ax, y - floorY, z - (sz - 0.1 + st.cowlZ * 0.5), proto ? 0.4 : 0.74, 0.025, (st.cowlZ - sz + 1.2) * 0.5 + 0.2, 0.015);
+    let d = sdRoundBox(ax, y - floorY, z - (sz - 0.1 + st.cowlZ * 0.5), proto ? 0.4 : st.floorHalfW, 0.025, (st.cowlZ - sz + 1.2) * 0.5 + 0.2, 0.015);
     d = Math.min(d, smin(seat(x, y, z, sx), headrest(ax, y, z, sx), 0.05));
     if (st.twoSeats) d = Math.min(d, smin(seat(x, y, z, -sx), headrest(ax, y, z, -sx), 0.05));
     if (st.rearBench) {
-      d = Math.min(d, sdRoundBox(ax, y - (sy - 0.1), z - (sz - 0.82), 0.62, 0.07, 0.2, 0.04));
-      d = Math.min(d, sdRoundBox(ax, y - (sy + 0.18), z - (sz - 1.02), 0.62, 0.26, 0.06, 0.05));
+      d = Math.min(d, sdRoundBox(ax, y - (sy - 0.1), z - (sz - 0.82), st.benchHalfW, 0.07, 0.2, 0.04));
+      d = Math.min(d, sdRoundBox(ax, y - (sy + 0.18), z - (sz - 1.02), st.benchHalfW, 0.26, 0.06, 0.05));
     }
     if (!proto) {
       // dash pad: a shallow sloping wedge from the windscreen base back to just ahead of the wheel
       const yy = y - dashSlope * (z - dc);
-      let dash = sdRoundBox(ax, yy - (dashCenterTop - 0.12), z - dc, 0.74, 0.12, dh, 0.05);
+      let dash = sdRoundBox(ax, yy - (dashCenterTop - st.dashHy), z - dc, st.dashHalfW, st.dashHy, dh, 0.05);
       // instrument binnacle over the wheel
       dash = smin(dash, sdRoundBox(x - sx, y - binY, z - binZ, 0.2, 0.06, 0.085, 0.03), 0.04);
       d = Math.min(d, dash);
       // centre console
       d = Math.min(d, sdRoundBox(ax, y - (floorY + 0.19), z - (sz + 0.45), 0.1, 0.13, 0.62, 0.05));
-      if (st.doorCards) d = Math.min(d, sdRoundBox(ax - 0.735, y - 0.62, z - (st.cowlZ - 0.62), 0.02, 0.26, 0.62, 0.015));
+      if (st.doorCards) d = Math.min(d, sdRoundBox(ax - st.doorX, y - st.doorY, z - (st.cowlZ - st.doorZ), 0.02, st.doorHy, st.doorHz, 0.015));
+      if (st.rearDoor) d = Math.min(d, sdRoundBox(ax - st.doorX, y - st.doorY, z - (st.cowlZ - 1.45), 0.02, st.doorHy, 0.46, 0.015));
     } else {
       // monocoque: nose bulkhead ahead of the pedals, tunnel, a small dash display pod
       d = Math.min(d, sdRoundBox(ax, y - (floorY + 0.2), z - (st.cowlZ + 0.1), 0.34, 0.22, 0.1, 0.06));
@@ -209,7 +291,7 @@ export function makeInterior(spec: CarVisualSpec, quality: QualityLevel): Interi
   const cabinKind = (x: number, y: number, z: number, _nx: number, _ny: number, nz: number): number => {
     const ax = Math.abs(x);
     if (y < floorY + 0.045 && !(Math.abs(x - sx) < 0.25 && z > sz - 0.35 && z < sz + 0.4)) return IPART.floor;
-    if (st.doorCards && !proto && ax > 0.7 && z > st.cowlZ - 1.3) return IPART.doorCard;
+    if (st.doorCards && !proto && ax > st.doorCut && z > st.cowlZ - st.doorBack) return IPART.doorCard;
     if (!proto && z > wheelPos[2] - 0.05 && y > floorY + 0.2 && ax > 0.15) return IPART.dash;
     if (!proto && z > wheelPos[2] - 0.05 && y > floorY + 0.35) return IPART.dash;
     if (!proto && ax < 0.14 && z > sz + 0.1) return IPART.console;
@@ -231,7 +313,7 @@ export function makeInterior(spec: CarVisualSpec, quality: QualityLevel): Interi
       out[2] = Math.max(Math.abs(x) - 0.12, Math.abs(z - (dashMid + 0.01)) - 0.055, up);
       // round air vents at the outer ends and one each side of the screen
       const vz = dashMid - 0.01;
-      const v1 = Math.hypot(ax - 0.62, z - vz) - 0.034;
+      const v1 = Math.hypot(ax - st.ventX, z - vz) - 0.034;
       const v2 = Math.hypot(ax - 0.21, z - (vz + 0.02)) - 0.03;
       out[3] = Math.max(Math.min(v1, v2), up);
     } else {
@@ -239,7 +321,7 @@ export function makeInterior(spec: CarVisualSpec, quality: QualityLevel): Interi
       out[3] = 1;
     }
   };
-  const cabinMesh = meshField(cabin, [-0.85, floorY - 0.05, sz - 1.25], [0.85, 1.05, st.cowlZ + 0.3], cell, cabinKind, cabinZones);
+  const cabinMesh = meshField(cabin, [-st.halfW, floorY - 0.05, sz - 1.25], [st.halfW, st.top, st.cowlZ + 0.3], cell, cabinKind, cabinZones);
   const dMin: [number, number, number] = [sx - 0.5, floorY, sz - 0.3];
   const dMax: [number, number, number] = [sx + 0.5, head[1] + 0.25, sz + 1.05];
   const dk = (x: number, y: number, z: number, _nx: number, _ny: number, nz: number): number => driverKind(x, y, z, nz);
@@ -321,14 +403,16 @@ function buildSteeringWheel(pb: PartBuilder, style: BodyStyle): void {
     for (const sg of [-1, 1]) pb.ellipsoid([sg * 0.2, 0.0, -0.01], 0.05, 0.065, 0.045, 14, 9);
     return;
   }
-  const R = style === 'hatch' ? 0.18 : 0.175;
-  const tube = style === 'coupe' ? 0.0145 : 0.018;
+  // (the 4x4's wheel is a big round chunky one: 41 cm across, a 4.7 cm rim, no flat bottom)
+  const suv = style === 'suv';
+  const R = suv ? 0.205 : style === 'hatch' ? 0.18 : 0.175;
+  const tube = suv ? 0.0235 : style === 'coupe' ? 0.0145 : 0.018;
   const N = 40;
   const rings: V3[][] = [];
   for (let i = 0; i <= N; i++) {
     const t = (i / N) * Math.PI * 2;
     let r = R;
-    if (style !== 'hatch') {
+    if (style !== 'hatch' && !suv) {
       const cy = Math.sin(t);
       if (cy < -0.78) r = R * (0.78 / -cy);
     }
@@ -346,9 +430,9 @@ function buildSteeringWheel(pb: PartBuilder, style: BodyStyle): void {
   pb.setPart(IPART.wheelRim);
   pb.loft(rings);
   pb.setPart(IPART.wheelSpoke);
-  pb.cylinder([0, 0, -0.012], [0, 0, 0.028], 0.05, 0.045, 24, true);
-  pb.box([0, 0, 0.0], R * 0.95, 0.017, 0.007);
-  pb.box([0, -0.07, 0.0], 0.017, 0.07, 0.007);
+  pb.cylinder([0, 0, -0.012], [0, 0, 0.028], suv ? 0.062 : 0.05, suv ? 0.056 : 0.045, 24, true);
+  pb.box([0, 0, 0.0], R * 0.95, suv ? 0.026 : 0.017, 0.007);
+  pb.box([0, suv ? -0.1 : -0.07, 0.0], suv ? 0.026 : 0.017, suv ? 0.1 : 0.07, 0.007);
   pb.setPart(IPART.seatAccent);
   pb.box([0, R, 0.0], 0.007, 0.012, tube * 1.15);
   pb.setPart(IPART.glove);

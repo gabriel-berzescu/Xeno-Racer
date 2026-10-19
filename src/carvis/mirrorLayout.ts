@@ -33,8 +33,8 @@ export interface MirrorLayout {
   /** Door mirrors: glass poses by side (the left one is on the driver's side, +X). */
   left: MirrorPose;
   right: MirrorPose;
-  /** Door-mirror housing: how far it reaches forward of the glass (m) and which part it is made of. */
-  housing: { depth: number; carbon: boolean };
+  /** Door-mirror housing: how far it reaches forward of the glass (m) and which part it is made of (carbon, textured black plastic, or the body's paint). */
+  housing: { depth: number; carbon: boolean; black?: boolean };
   /** The rear-view mirror in the cabin; null for the prototype, which has a screen instead. */
   interior: MirrorPose | null;
   /** The prototype's dash display for the rear camera; null for road cars. */
@@ -77,7 +77,7 @@ export function setMirror(pos: V3, eye: V3, look: V3, halfW: number, halfH: numb
 interface Style {
   /** Left door mirror glass centre and half sizes. */
   door: { pos: V3; hw: number; hh: number; out: number };
-  housing: { depth: number; carbon: boolean };
+  housing: { depth: number; carbon: boolean; black?: boolean };
   /** Rear-view mirror centre and half sizes (null: none). */
   inside: { pos: V3; hw: number; hh: number } | null;
   /** Dash display centre and half sizes (null: none). */
@@ -112,6 +112,17 @@ function styleFor(style: BodyStyle, spec: CarVisualSpec): Style {
         inside: { pos: [0.19, 1.13, 0.12], hw: 0.072, hh: 0.028 },
         screen: null,
         rear: { y: 1.02, fromTail: 0.12, pitch: 1.5 },
+      };
+    case 'suv':
+      // big truck mirrors on arms at the foot of the A-pillars: far enough back that the driver sees the left one through the door
+      // window (the line from the eye crosses the cabin wall 5 cm inside the window's front edge, not behind the pillar) and inside
+      // the cockpit view; a wide interior mirror hung from the header, a rear camera over the roof edge
+      return {
+        door: { pos: [1.06, 1.45, 0.66], hw: 0.092, hh: 0.064, out: 11 },
+        housing: { depth: 0.12, carbon: false, black: true },
+        inside: { pos: [0.15, 1.7, 0.44], hw: 0.088, hh: 0.03 },
+        screen: null,
+        rear: { y: 1.97, fromTail: 0.45, pitch: 3 },
       };
     default:
       return {

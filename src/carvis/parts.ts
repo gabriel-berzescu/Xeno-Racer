@@ -361,6 +361,36 @@ export class PartBuilder {
     this.loft([this.ring(prof, fr, ra, ra), this.ring(prof, fb, rb, rb)], { capStart: caps, capEnd: caps });
   }
 
+  /**
+   * A tube of circular section swept along a polyline: smooth normals, and a section carried along by parallel transport so a
+   * bend never twists it. `radius` is one number or one per path point (a flared or tapered tube); the caps are flat discs.
+   * (Tow hooks, the snorkel, roof-rack rails, pipes: anything that is a bent rod.)
+   */
+  tube(path: readonly V3[], radius: number | readonly number[], segs = 12, caps = true): void {
+    const n = path.length;
+    if (n < 2) return;
+    const T: V3[] = [];
+    for (let i = 0; i < n; i++) T.push(norm3(sub3(path[Math.min(i + 1, n - 1)], path[Math.max(i - 1, 0)])));
+    let N: V3 = frameFromAxis(path[0], T[0]).u;
+    const rings: V3[][] = [];
+    for (let i = 0; i < n; i++) {
+      if (i > 0) {
+        const d = dot3(N, T[i]);
+        N = norm3([N[0] - T[i][0] * d, N[1] - T[i][1] * d, N[2] - T[i][2] * d]);
+      }
+      const B = cross(T[i], N);
+      const r = typeof radius === 'number' ? radius : radius[i];
+      const ring: V3[] = [];
+      for (let k = 0; k < segs; k++) {
+        const a = (k / segs) * Math.PI * 2;
+        const ca = Math.cos(a) * r, sa = Math.sin(a) * r;
+        ring.push([path[i][0] + N[0] * ca + B[0] * sa, path[i][1] + N[1] * ca + B[1] * sa, path[i][2] + N[2] * ca + B[2] * sa]);
+      }
+      rings.push(ring);
+    }
+    this.loft(rings, { capStart: caps, capEnd: caps });
+  }
+
   /** Surface of revolution about the axis through `o` with direction `axis`; profile = [r, t, r, t...] (t along axis). */
   lathe(o: V3, axis: V3, profile: readonly number[], segs = 32, capEnds = false): void {
     const w = norm3(axis);

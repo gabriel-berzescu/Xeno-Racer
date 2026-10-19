@@ -30,7 +30,8 @@ export interface CarLayout {
 /** Driver's eye point (body frame). Shared by the cockpit anchor and the interior builder. */
 export function eyePoint(s: CarVisualSpec): V3 {
   const proto = s.style === 'prototype';
-  const eyeRise = proto ? 0.56 : s.style === 'hatch' ? 0.66 : 0.62;
+  // (a 4x4 sits its driver bolt upright and high: the eye is 68 cm above the seat reference)
+  const eyeRise = proto ? 0.56 : s.style === 'hatch' ? 0.66 : s.style === 'suv' ? 0.68 : 0.62;
   return [s.seat.x, s.seat.y + eyeRise, s.seat.z + (proto ? 0.05 : 0.1)];
 }
 
@@ -44,25 +45,39 @@ export function computeLayout(s: CarVisualSpec): CarLayout {
   const eye = eyePoint(s);
   const roofY = s.height;
   const style = s.style;
-  const hoodY = style === 'prototype' ? 0.62 : style === 'gt' ? 0.9 : style === 'coupe' ? 0.88 : 0.97;
+  const suv = style === 'suv';
+  // (the 4x4's hood is 1.32 m up and its power dome 1.37: the hood camera rides 8 cm over this, and the headlamp spots sit at the lamps' 1.12 m)
+  const hoodY = style === 'prototype' ? 0.62 : style === 'gt' ? 0.9 : style === 'coupe' ? 0.88 : suv ? 1.4 : 0.97;
   const lay: LiveryLayout = {
     zNose: zNose + 0.06,
     zTail: zTail - 0.06,
     yMax: Math.max(1.5, s.height + 0.15),
     halfW: hw + 0.06,
-    door: { z: style === 'prototype' ? 0.2 : (zF + zR) * 0.5 - 0.1, y: style === 'prototype' ? 0.5 : 0.6, r: style === 'prototype' ? 0.17 : 0.2 },
-    hood: { z: style === 'coupe' ? zNose - 1.25 : zNose - 0.9, r: 0.2 },
-    belt: style === 'hatch' ? 0.98 : 0.93,
+    // (the roundel rides the front door of the 4x4: its panel is a metre taller than a coupe's)
+    door: suv ? { z: 0.16, y: 1.0, r: 0.2 } : { z: style === 'prototype' ? 0.2 : (zF + zR) * 0.5 - 0.1, y: style === 'prototype' ? 0.5 : 0.6, r: style === 'prototype' ? 0.17 : 0.2 },
+    // (the 4x4's hood number rides the front of the power dome, clear of the hood camera that sits 1.2 m behind the nose)
+    hood: { z: style === 'coupe' ? zNose - 1.25 : suv ? zNose - 0.385 : zNose - 0.9, r: suv ? 0.17 : 0.2 },
+    belt: style === 'hatch' ? 0.98 : suv ? 1.22 : 0.93,
   };
+  // the livery patterns are drawn for a car 1.3 m tall: a 4x4's flank is lifted onto its own body panels (see livery.ts)
+  // (and the chevrons and hoops hang from the middle of the wheelbase as on the other cars, not from the roundel on the front door)
+  if (suv) {
+    lay.rise = { scale: 1.12, shift: 0.2 };
+    lay.patternZ = (zF + zR) * 0.5 - 0.1;
+    // (the arrow's tip stops at the grille, not over the nose: the number plate sits on the dome ahead of the hood camera)
+    lay.hoodArrow = zNose - 0.92;
+    lay.dust = { amount: 1, wheelZ: [zF, zR] };
+    lay.trueRound = true;
+  }
   return {
     zNose,
     zTail,
     eye,
-    hood: [0, hoodY + 0.08, zNose - 1.0],
-    bumper: [0, 0.38, zNose + 0.02],
+    hood: [0, hoodY + 0.08, zNose - (suv ? 1.2 : 1.0)],
+    bumper: [0, suv ? 0.62 : 0.38, zNose + 0.02],
     chase: [0, roofY, (zF + zR) * 0.5 - 0.2],
     headlight: [hw - 0.28, hoodY - 0.28, zNose - 0.28],
-    taillight: [0, 0.8, zTail + 0.05],
+    taillight: [0, suv ? 1.1 : 0.8, zTail + 0.05],
     wheels: [
       [s.trackFront / 2, s.wheelRadiusFront, zF],
       [-s.trackFront / 2, s.wheelRadiusFront, zF],
@@ -95,6 +110,9 @@ export function wheelLook(style: CarVisualSpec['style']): WheelLook {
       return { rimColor: [0.012, 0.012, 0.014], rimMetal: 0.6, rimRough: 0.3, rimCC: 0.9, nutColor: [0.7, 0.7, 0.72], caliper: [0.62, 0.015, 0.02], slick: 0, tread: 1 };
     case 'coupe':
       return { rimColor: [0.62, 0.36, 0.12], rimMetal: 1, rimRough: 0.26, rimCC: 0.3, nutColor: [0.8, 0.8, 0.82], caliper: [0.6, 0.02, 0.02], slick: 0, tread: 1 };
+    case 'suv':
+      // satin-black beadlock wheels with raw steel bolts, orange calipers behind them, a treaded all-terrain tyre
+      return { rimColor: [0.016, 0.016, 0.018], rimMetal: 0.85, rimRough: 0.36, rimCC: 0.15, nutColor: [0.62, 0.63, 0.66], caliper: [0.95, 0.2, 0.0], slick: 0, tread: 1 };
     default:
       return { rimColor: [0.018, 0.018, 0.02], rimMetal: 0.85, rimRough: 0.42, rimCC: 0, nutColor: [0.05, 0.6, 0.5], caliper: [0.05, 0.05, 0.05], slick: 1, tread: 0 };
   }

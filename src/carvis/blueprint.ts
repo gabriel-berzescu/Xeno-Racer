@@ -29,6 +29,12 @@ export const PART = {
   paintDark: 10,
   silver: 11,
   lampAmber: 12,
+  /** LED light bar: a dark housing, and a lens (the vertices flagged with zone channel 14 < 0) that lights with the headlamps: the Mammoth's roof bar and bumper pods. */
+  lightBar: 13,
+  /** textured black plastic (bolted flares, rock sliders, bumper steps): a moulded grain on the matte black. */
+  rugged: 14,
+  /** the livery's accent colour on hardware that must not crumple in a crash (tow hooks, the spare's ring, the badge's X): satin, not clearcoat */
+  signal: 15,
   // wheel parts (wheel shader)
   tire: 20,
   rimFace: 22,

@@ -19,6 +19,26 @@ export interface LiveryLayout {
   roof?: { z: number; r: number };
   /** beltline height used by split patterns */
   belt: number;
+  /**
+   * The patterns below are drawn for a car about 1.3 m tall (a stripe at 29 cm, a split at 50 cm, a chevron band centred at 52 cm).
+   * A taller body lifts them: a height `y` is drawn at `y * scale + shift`, an extent `h` at `h * scale`. Absent: drawn as they are.
+   */
+  rise?: { scale: number; shift: number };
+  /** The z the door-relative patterns (the hoops, the chevrons) hang from; absent: the door roundel's z. */
+  patternZ?: number;
+  /** The z the hood arrow hangs from (its tail 0.3 behind, its tip 0.8 ahead); absent: the hood number's z. */
+  hoodArrow?: number;
+  /**
+   * Road dust on the lower panels: `amount` 0..1 (a tan haze up to 55 cm and speckle up to a metre, thinning out upwards) and the z of
+   * the wheels, behind which it is heavier (the rooster tail). Absent: a clean car.
+   */
+  dust?: { amount: number; wheelZ: readonly number[] };
+  /**
+   * Draw the door roundel (and the dust) round on the panel. The side atlas has more pixels per metre along the car than up it, so a circle
+   * drawn in pixels is a tall oval on the door (1.4 times on a coupe, 1.6 on a 4x4 whose atlas spans 2 m of height); the other cars keep their
+   * slightly tall roundels as they were, a car with this flag stretches the drawing across by the ratio.
+   */
+  trueRound?: boolean;
 }
 
 export interface LiveryTextures {
@@ -114,6 +134,14 @@ export function paintLivery(l: Livery, lay: LiveryLayout, q: LiveryTier, tex?: L
   const ex = (half: number, x: number): number => (half === 0 ? (0.5 + x / (2 * lay.halfW)) * (EW / 2) : EW / 2 + (0.5 - x / (2 * lay.halfW)) * (EW / 2));
   const ey = (y: number): number => (1 - y / lay.yMax) * EH;
 
+  // pattern heights as drawn for a 1.3 m car, lifted onto this car's panels (the identity for every car without a `rise`)
+  const rs = lay.rise;
+  const hy = (y: number): number => (rs ? y * rs.scale + rs.shift : y);
+  const hs = (h: number): number => (rs ? h * rs.scale : h);
+
+  // pixels per metre along the car over pixels per metre up it (the roundel's stretch across, when it is to be round on the panel)
+  const across = lay.trueRound ? (hw / Lz) / (SH / lay.yMax) : 1;
+
   const P = l.primary, S = l.secondary, A = l.accent;
   for (const c of [sctx, tctx, ectx]) {
     c.fillStyle = P;
@@ -151,40 +179,40 @@ export function paintLivery(l: Livery, lay: LiveryLayout, q: LiveryTier, tex?: L
       both((h) => {
         sctx.fillStyle = A;
         const x0 = sx(h, lay.zNose), x1 = sx(h, lay.zTail);
-        sctx.fillRect(Math.min(x0, x1), sy(0.3), Math.abs(x1 - x0), sy(0.288) - sy(0.3));
+        sctx.fillRect(Math.min(x0, x1), sy(hy(0.3)), Math.abs(x1 - x0), sy(hy(0.288)) - sy(hy(0.3)));
       });
       break;
     }
     case 'split': {
       // lower body in the secondary colour, rising rearwards, accent line on the break
       both((h) => {
-        const yA = 0.5, yB = lay.belt + 0.02;
+        const yA = hy(0.5), yB = lay.belt + 0.02;
         poly(sctx, [[sx(h, lay.zNose), sy(0)], [sx(h, lay.zNose), sy(yA)], [sx(h, lay.zTail), sy(yB)], [sx(h, lay.zTail), sy(0)]], S);
-        const yA2 = yA + 0.014, yB2 = yB + 0.014;
+        const yA2 = yA + hs(0.014), yB2 = yB + hs(0.014);
         poly(sctx, [[sx(h, lay.zNose), sy(yA)], [sx(h, lay.zNose), sy(yA2)], [sx(h, lay.zTail), sy(yB2)], [sx(h, lay.zTail), sy(yB)]], A);
       });
       for (let half = 0; half < 2; half++) {
         ectx.fillStyle = S;
         const x0 = half === 0 ? 0 : EW / 2;
-        ectx.fillRect(x0, ey(0.5), EW / 2, EH - ey(0.5));
+        ectx.fillRect(x0, ey(hy(0.5)), EW / 2, EH - ey(hy(0.5)));
         ectx.fillStyle = A;
-        ectx.fillRect(x0, ey(0.514), EW / 2, ey(0.5) - ey(0.514));
+        ectx.fillRect(x0, ey(hy(0.5) + hs(0.014)), EW / 2, ey(hy(0.5)) - ey(hy(0.5) + hs(0.014)));
       }
       break;
     }
     case 'arrow': {
       // three forward-pointing chevron bands along each flank, a bold arrow on the hood
       const chev = (h: number, zt: number, w: number, c: string): void => {
-        const ym = 0.52, hh = 0.36, a = 0.5;
+        const ym = hy(0.52), hh = hs(0.36), a = 0.5;
         poly(sctx, [[sx(h, zt), sy(ym)], [sx(h, zt - a), sy(ym + hh)], [sx(h, zt - a - w), sy(ym + hh)], [sx(h, zt - w), sy(ym)], [sx(h, zt - a - w), sy(ym - hh)], [sx(h, zt - a), sy(ym - hh)]], c);
       };
       both((h) => {
-        const z0 = lay.door.z + 1.18;
+        const z0 = (lay.patternZ ?? lay.door.z) + 1.18;
         chev(h, z0, 0.13, S);
         chev(h, z0 - 0.3, 0.07, A);
         chev(h, z0 - 0.56, 0.13, S);
       });
-      const hz = lay.hood.z;
+      const hz = lay.hoodArrow ?? lay.hood.z;
       poly(tctx, [[tx(0), ty(hz + 0.8)], [tx(0.44), ty(hz - 0.3)], [tx(0.22), ty(hz - 0.3)], [tx(0), ty(hz + 0.22)], [tx(-0.22), ty(hz - 0.3)], [tx(-0.44), ty(hz - 0.3)]], S);
       poly(tctx, [[tx(0), ty(hz + 0.56)], [tx(0.24), ty(hz - 0.1)], [tx(0.14), ty(hz - 0.1)], [tx(0), ty(hz + 0.24)], [tx(-0.14), ty(hz - 0.1)], [tx(-0.24), ty(hz - 0.1)]], A);
       // roof + deck centre stripe
@@ -196,7 +224,8 @@ export function paintLivery(l: Livery, lay: LiveryLayout, q: LiveryTier, tex?: L
     }
     case 'hoops': {
       // bold transverse hoops: vertical bars on the flanks, bands across the roof/hood/deck
-      const zs = [lay.door.z + 0.95, lay.door.z - 0.05, lay.door.z - 1.05];
+      const pz = lay.patternZ ?? lay.door.z;
+      const zs = [pz + 0.95, pz - 0.05, pz - 1.05];
       zs.forEach((z, i) => {
         const w = 0.16;
         const c = i === 1 ? A : S;
@@ -216,10 +245,10 @@ export function paintLivery(l: Livery, lay: LiveryLayout, q: LiveryTier, tex?: L
         for (let i = 0; i < 9; i++) {
           const z0 = lay.zTail + 0.1 + i * 0.48;
           const L = 1.0 + 0.25 * (i % 3);
-          const y0 = 0.14 + 0.07 * (i % 3);
-          const H = 0.38 + 0.12 * ((i + 1) % 3);
+          const y0 = hy(0.14 + 0.07 * (i % 3));
+          const H = hs(0.38 + 0.12 * ((i + 1) % 3));
           const c = i % 3 === 1 ? A : S;
-          poly(sctx, [[sx(h, z0), sy(y0)], [sx(h, z0 + L), sy(y0 + 0.1)], [sx(h, z0 + L - 0.32), sy(y0 + H)], [sx(h, z0 - 0.32), sy(y0 + H - 0.1)]], c);
+          poly(sctx, [[sx(h, z0), sy(y0)], [sx(h, z0 + L), sy(y0 + hs(0.1))], [sx(h, z0 + L - 0.32), sy(y0 + H)], [sx(h, z0 - 0.32), sy(y0 + H - hs(0.1))]], c);
         }
       });
       for (let i = 0; i < 7; i++) {
@@ -234,6 +263,57 @@ export function paintLivery(l: Livery, lay: LiveryLayout, q: LiveryTier, tex?: L
       break;
   }
 
+  // road dust: speckle thrown up from the road, thick at the sill and thinning out up the doors (an overlander wears its trips)
+  if (lay.dust) {
+    const { amount, wheelZ } = lay.dust;
+    const rnd = mulberry(4401);
+    const dustCol = (a: number): string => `rgba(184,158,118,${a.toFixed(3)})`;
+    // (the counts are for a 4096 x 512 atlas: a smaller one gets proportionally fewer specks, so the density is the same)
+    const speckN = Math.round((5200 * SW * SH) / (4096 * 512));
+    const speckle = (x0: number, x1: number, yTop: number, rMax: number, keep: (x: number) => number): void => {
+      for (let i = 0; i < speckN; i++) {
+        const u = rnd();
+        const x = x0 + (x1 - x0) * rnd();
+        const y = yTop * u * u * u;
+        if (rnd() > keep(x)) continue;
+        const r = (0.4 + 0.6 * rnd()) * rMax;
+        sctx.fillStyle = dustCol((0.1 + 0.3 * rnd()) * amount * (1 - 0.55 * u));
+        sctx.beginPath();
+        sctx.ellipse(x, sy(y), r * across * (0.8 + 0.6 * rnd()), r * (0.55 + 0.5 * rnd()), 0, 0, Math.PI * 2);
+        sctx.fill();
+      }
+    };
+    both((h) => {
+      // a haze up to 55 cm, and the speckle on top of it
+      const yTopPx = sy(0.55), yBotPx = sy(0);
+      const gx0 = Math.min(sx(h, lay.zNose), sx(h, lay.zTail)), gx1 = Math.max(sx(h, lay.zNose), sx(h, lay.zTail));
+      const g = sctx.createLinearGradient(0, yBotPx, 0, yTopPx);
+      g.addColorStop(0, dustCol(0.5 * amount));
+      g.addColorStop(1, dustCol(0));
+      sctx.fillStyle = g;
+      sctx.fillRect(gx0, yTopPx, gx1 - gx0, yBotPx - yTopPx);
+      // heavier in the 60 cm behind each wheel (the rooster tail), lighter elsewhere
+      const keep = (x: number): number => {
+        for (const wz of wheelZ) {
+          const behind = h === 0 ? x - sx(h, wz) : sx(h, wz) - x; // the nose is on the left in half 0, on the right in half 1
+          if (behind > 0 && behind < (0.6 / Lz) * hw) return 1;
+        }
+        return 0.55;
+      };
+      speckle(gx0, gx1, 1.0, SH * 0.0075, keep);
+      speckle(gx0, gx1, 0.7, SH * 0.0035, keep);
+    });
+    // the nose and the tail get the same haze (the bumpers are the first thing the road hits)
+    for (let half = 0; half < 2; half++) {
+      const x0 = half === 0 ? 0 : EW / 2;
+      const g = ectx.createLinearGradient(0, ey(0), 0, ey(0.55));
+      g.addColorStop(0, dustCol(0.42 * amount));
+      g.addColorStop(1, dustCol(0));
+      ectx.fillStyle = g;
+      ectx.fillRect(x0, ey(0.55), EW / 2, ey(0) - ey(0.55));
+    }
+  }
+
   // race numbers: plate colour from the body luminance
   const dark = lum(P) < 0.45;
   const plate = dark ? '#f4f5f7' : '#14151a';
@@ -242,7 +322,13 @@ export function paintLivery(l: Livery, lay: LiveryLayout, q: LiveryTier, tex?: L
     const cx = sx(h, lay.door.z);
     const cy = sy(lay.door.y);
     const r = (lay.door.r / lay.yMax) * SH;
-    roundel(sctx, cx, cy, r, plate, ink, l.number, A);
+    if (across !== 1) {
+      sctx.save();
+      sctx.translate(cx, cy);
+      sctx.scale(across, 1);
+      roundel(sctx, 0, 0, r, plate, ink, l.number, A);
+      sctx.restore();
+    } else roundel(sctx, cx, cy, r, plate, ink, l.number, A);
   });
   {
     const cx = tx(0), cy = ty(lay.hood.z);

@@ -136,6 +136,8 @@ if (wPart == 20) {
     g = max(g, 1.0 - smoothstep(0.010, 0.026, abs(abs(lat) - 0.31)));
     float sipe = (1.0 - smoothstep(0.03, 0.09, abs(fract(u * 70.0 + lat * 3.0) - 0.5))) * smoothstep(0.17, 0.2, abs(lat));
     float tread = max(g, sipe * 0.8);
+    // (an all-terrain carcass has real lugs on it: its zone channel 14 is -1, and it paints no grooves of its own)
+    tread *= step(0.0, vZ3.z);
     wHeight = -0.0016 * tread * fade * uTread;
     wCol *= 1.0 - 0.5 * tread * fade * uTread;
     wRough = mix(wRough, 0.95, tread * uTread * 0.5);
@@ -154,6 +156,13 @@ if (wPart == 20) {
     wCol = mix(wCol, mix(vec3(0.5), uAccent, uSlick), mk * 0.8);
     wRough = mix(wRough, 0.6, mk);
   }
+} else if (wPart == 21) {
+  // all-terrain lug blocks: black rubber, dusted on the tops the road has worn, darker down in the grooves (vZ0.y: 0 base .. 1 top)
+  float tp = clamp(vZ0.y, 0.0, 1.0);
+  float wear = smoothstep(0.75, 1.0, tp);
+  wCol = vec3(0.017) + vec3(0.022, 0.021, 0.019) * wear * (0.55 + 0.45 * vZ0.x);
+  wRough = 0.9 - 0.16 * wear;
+  wHeight = 0.0004 * (hash12(floor(vObjPos.yz * 420.0)) - 0.5) * wear;
 } else if (wPart == 22) {
   // rim spokes / lip
   if (wBlur > wDith) discard;
@@ -272,7 +281,7 @@ export function createWheelMaterial(uniforms: WheelUniforms = createWheelUniform
     );
     shader.fragmentShader = f;
   };
-  mat.customProgramCacheKey = () => 'xr-wheel-v2';
+  mat.customProgramCacheKey = () => 'xr-wheel-v3';
   return { material: mat, uniforms };
 }
 

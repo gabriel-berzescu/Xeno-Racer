@@ -1,10 +1,13 @@
 /**
- * Car showroom. Query: ?car=vanta-gt|kestrel-r|ronin-86|lmp-x &view=front34|side|rear34|top|front|rear|chase|cockpit|low|sheet
+ * Car showroom. Query: ?car=vanta-gt|kestrel-r|ronin-86|lmp-x|mammoth &view=front34|side|rear34|top|front|rear|chase|cockpit|low|lowrear|wheelF|wheelR|sheet
  *   &anim=0|1 &night=0|1 &q=low|medium|high &primary=%23hex &pattern=… &number=7 &metallic=0|1 &finish=0..1 &player=0|1
  *   &wet=0..1 (wet paint, beading, glass drops: env.wetness)  &rain=0..1 (env.rain; > 0 also marks the weather as rain)
  *   &dmg=fl:14:wall:25,sl:5:car   crash damage, applied straight to the model: zone:closing speed (m/s):wall|car:angle (deg to the
  *        barrier). Zones: fl fr f (front corners / centre), bl br b (rear), sl sr (flanks). &rub=sl:3 adds a scrape along a flank.
  *        window.__CAR__.hit('fl:14:wall:25') does the same from a script.
+ *   ?lineup=N[&row=1|side]  a grid of N cars (random liveries); with row=1 the roster in a single row, each in its own default livery, seen
+ *        from the front quarter; with row=side the same cars nose to tail in profile through a long lens (44 m away, the horizontal field
+ *        of view fixed to the row, so any window shape frames it): a size comparison (&cars=a,b,c picks which, &night=1 lights them).
  */
 import * as THREE from 'three';
 import { getCar } from '../../src/cars';
@@ -232,16 +235,18 @@ function viewFor(name: string, d: CarDefinition): ViewDef {
     return { pos: [c[0], c[1], c[2]], look: [l[0], l[1], l[2]], fov: parseFloat(q.get('fov') ?? '30') };
   }
   const L = v.length;
-  const s = (L / 4.6) * (v.style === 'prototype' ? 1.22 : 1);
+  // a tall body (the 4x4, 1.84 m) is framed higher and from a little further back, so its roof and the light bar stay in the picture
+  const ky = v.height > 1.5 ? v.height / 1.3 : 1;
+  const s = (L / 4.6) * (v.style === 'prototype' ? 1.22 : 1) * (ky > 1 ? 1.12 : 1);
   const table: Record<string, ViewDef> = {
-    front34: { pos: [3.7 * s, 1.25, 5.1 * s], look: [0, 0.52, 0.15], fov: 26 },
-    rear34: { pos: [-3.7 * s, 1.35, -5.1 * s], look: [0, 0.55, -0.15], fov: 26 },
-    side: { pos: [8.6 * s, 0.68, 0], look: [0, 0.58, 0], fov: 21 },
+    front34: { pos: [3.7 * s, 1.25 * ky, 5.1 * s], look: [0, 0.52 * ky, 0.15], fov: 26 },
+    rear34: { pos: [-3.7 * s, 1.35 * ky, -5.1 * s], look: [0, 0.55 * ky, -0.15], fov: 26 },
+    side: { pos: [8.6 * s, 0.68 * ky, 0], look: [0, 0.58 * ky, 0], fov: 21 },
     top: { pos: [0, 9.5, 0.01], look: [0, 0, 0], fov: 22, up: [-1, 0, 0] },
-    front: { pos: [0, 0.75, 8.5 * s], look: [0, 0.58, 0], fov: 21 },
-    rear: { pos: [0, 0.95, -8.5 * s], look: [0, 0.6, 0], fov: 21 },
-    low: { pos: [2.6 * s, 0.42, 3.4 * s], look: [0, 0.45, 0.2], fov: 32 },
-    lowrear: { pos: [-2.6 * s, 0.5, -3.6 * s], look: [0, 0.5, -0.2], fov: 32 },
+    front: { pos: [0, 0.75 * ky, 8.5 * s], look: [0, 0.58 * ky, 0], fov: 21 },
+    rear: { pos: [0, 0.95 * ky, -8.5 * s], look: [0, 0.6 * ky, 0], fov: 21 },
+    low: { pos: [2.6 * s, 0.42, 3.4 * s], look: [0, 0.45 * ky, 0.2], fov: 32 },
+    lowrear: { pos: [-2.6 * s, 0.5, -3.6 * s], look: [0, 0.5 * ky, -0.2], fov: 32 },
     chase: { pos: [0, 1.8, -6.0], look: [0, v.height, -0.2], fov: 62, carRelative: true },
     cockpit: { pos: [0, 0, 0], look: [0, 0, 0], fov: 75, carRelative: true },
     wheelF: { pos: [3.0, 0.45, 1.4 + (v.wheelbase / 2 - 1.35)], look: [v.trackFront / 2, 0.36, v.wheelbase / 2], fov: 28 },
@@ -363,6 +368,12 @@ function render(): void {
 /** ?lineup=12 : a grid of AI cars (all four models, varied liveries) plus the player car, to test sharing, LOD and cost. */
 async function lineup(count: number): Promise<void> {
   const { CARS } = await import('../../src/cars');
+  const side = q.get('row') === 'side';
+  /** nose-to-tail spacing of the profile lineup (m), and how far the camera stands off it */
+  const SIDE_PITCH = 5.5;
+  const SIDE_DIST = 44;
+  const row = q.get('row') === '1' || side;
+  const picks = q.get('cars') ? q.get('cars')!.split(',').map((id) => CARS.findIndex((c) => c.id === id)).filter((i) => i >= 0) : null;
   const patterns: Livery['pattern'][] = ['solid', 'stripes', 'split', 'arrow', 'hoops', 'shards'];
   const hues = ['#c4161c', '#1c6bd8', '#f2c200', '#18a058', '#ece8e0', '#8a2be2', '#ff7a18', '#2ad1c4', '#2b2f3a', '#ff2e63', '#6a7a8c', '#a0e020'];
   const t0 = performance.now();
@@ -370,20 +381,21 @@ async function lineup(count: number): Promise<void> {
   const cols = 4;
   const jobs: Promise<void>[] = [];
   for (let i = 0; i < count; i++) {
-    const d = CARS[i % CARS.length];
-    const lv: Livery = { ...d.defaultLivery, primary: hues[i % hues.length], secondary: hues[(i + 5) % hues.length], accent: hues[(i + 3) % hues.length], pattern: patterns[i % patterns.length], number: 3 + i * 7, metallic: i % 2 === 0 };
+    const d = row && picks ? CARS[picks[i % picks.length]] : CARS[i % CARS.length];
+    const lv: Livery = row ? { ...d.defaultLivery } : { ...d.defaultLivery, primary: hues[i % hues.length], secondary: hues[(i + 5) % hues.length], accent: hues[(i + 3) % hues.length], pattern: patterns[i % patterns.length], number: 3 + i * 7, metallic: i % 2 === 0 };
     jobs.push(
       createCarVisual(d, lv, quality).then((visual) => {
         const st = makeState(d);
-        const col = i % cols, row = Math.floor(i / cols);
-        const ox = (col - (cols - 1) / 2) * 3.6, oz = -row * 6.5;
+        const col = i % cols, rowIdx = Math.floor(i / cols);
+        const ox = side ? 0 : row ? (i - (count - 1) / 2) * 3.3 : (col - (cols - 1) / 2) * 3.6;
+        const oz = side ? (i - (count - 1) / 2) * SIDE_PITCH : row ? 0 : -rowIdx * 6.5;
         st.position.x += ox;
         st.position.z += oz;
         for (const w of st.wheels) {
           w.hub.x += ox;
           w.hub.z += oz;
         }
-        visual.setPlayer(i === 0);
+        visual.setPlayer(row ? true : i === 0);
         scene.add(visual.root);
         cars.push({ visual, state: st, def: d });
       }),
@@ -393,11 +405,24 @@ async function lineup(count: number): Promise<void> {
   const buildMs = performance.now() - t0;
   for (const c of cars) c.visual.update(c.state, 0, env);
   const cw = innerWidth, ch = innerHeight;
-  cam.fov = 40;
   cam.aspect = cw / ch;
+  // (the row modes fix the horizontal field of view, so any window shape frames the five cars alike: 50 degrees across for the quarter
+  // view, 12 for the profile through a long lens)
+  const vfov = (hDeg: number): number => (2 * Math.atan(Math.tan((hDeg * Math.PI) / 360) / cam.aspect) * 180) / Math.PI;
+  cam.fov = side ? vfov((2 * Math.atan(((count - 1) * SIDE_PITCH + 6.5) / 2 / SIDE_DIST) * 180) / Math.PI) : row ? vfov(50) : 40;
   cam.updateProjectionMatrix();
-  cam.position.set(9, 4.2, 12.5);
-  cam.lookAt(0, 0.4, -6);
+  if (side) {
+    // (the studio's fog starts 14 m out: a profile from 44 m would be lost in it)
+    scene.fog = null;
+    cam.position.set(SIDE_DIST, 1.3, 0);
+    cam.lookAt(0, 0.95, 0);
+  } else if (row) {
+    cam.position.set(-9 * (count / 5), 1.5, 16.5 * (count / 5));
+    cam.lookAt(0.3, 0.95, 0);
+  } else {
+    cam.position.set(9, 4.2, 12.5);
+    cam.lookAt(0, 0.4, -6);
+  }
   renderer.render(scene, cam);
   const info = renderer.info;
   (window as unknown as Record<string, unknown>).__STATS__ = { triangles: info.render.triangles, drawCalls: info.render.calls, buildMs: Math.round(buildMs), cars: count };

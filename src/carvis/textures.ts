@@ -46,7 +46,26 @@ export function createTireTextTexture(spec: CarVisualSpec, slick: boolean, accen
     g.fillStyle = fill;
     g.fillText(txt, x, H * (1 - yFrac));
   };
-  if (slick) {
+  if (spec.style === 'suv') {
+    // all-terrain: the brand big and heavy, the size, the mountain-and-snowflake mark (the lugs take the shoulder, so the lettering sits low)
+    const ink = '#ffffff';
+    for (const x0 of [16, 1040]) {
+      drawText('XENO', x0, 0.4, 50, '900', ink);
+      drawText('TERRAIN A/T', x0 + 185, 0.4, 44, '800', ink);
+      drawText(size, x0 + 505, 0.4, 26, '700', ink);
+      drawText('ALL TERRAIN  •  M+S', x0 + 690, 0.4, 22, '600', ink);
+      // a mountain with a snowflake over it
+      g.fillStyle = ink;
+      g.beginPath();
+      g.moveTo(x0 + 950, H * 0.64);
+      g.lineTo(x0 + 974, H * 0.3);
+      g.lineTo(x0 + 986, H * 0.44);
+      g.lineTo(x0 + 998, H * 0.35);
+      g.lineTo(x0 + 1022, H * 0.64);
+      g.closePath();
+      g.fill();
+    }
+  } else if (slick) {
     // racing slick: big brand + a coloured ring
     g.fillStyle = accent;
     g.fillRect(0, H * (1 - 0.34), W, 5);
