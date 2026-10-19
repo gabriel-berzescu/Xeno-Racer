@@ -7,7 +7,8 @@
  *
  * Three play modes: 'poly' (chords), 'mono' (a lead: last note priority, glide) and 'legato' (envelopes only retrigger when
  * no key is held). In 'mono' and 'legato' a note with the slide flag (~) glides from the previous one without retriggering (it must follow
- * it directly); in 'poly' every note has its own voice and a slide mark does nothing.
+ * it directly); in 'poly' every note has its own voice and a slide mark does nothing. `glide` (portamento) glides into every note whose voice is
+ * still sounding, or with `glideMode: 'fingered'` only into a note that starts while the last one is held, touches it, or is slid.
  *
  * Build a new patch by passing options (`s.synth({ layers: [...], cutoff: 900, attack: 0.4 })`) or start from a preset
  * (`s.synth({ preset: 'supersaw-pad', cutoff: 1500 })`). Parameters are listed in SYNTH_SPECS, presets in SYNTH_PRESETS.
@@ -45,7 +46,7 @@ export const SYNTH_SPECS = {
   clickDecay: { default: 0.012, min: 0.002, max: 0.15, unit: 's', curve: 'exp', doc: 'How fast the click dies away: the time constant of its exponential envelope (8.7 dB down after this long, 26 dB after three times, 43 dB after five).' },
   clickTone: { default: 2500, min: 200, max: 12000, unit: 'Hz', curve: 'exp', doc: 'Centre frequency of the band-pass the click goes through, for a middle-C note (see `clickKeytrack`).' },
   clickKeytrack: { default: 0.5, min: 0, max: 1, doc: 'How much the centre of the click follows the pitch of the note: 1 = an octave up in the note is an octave up in the click, 0 = the click always sits at `clickTone`.' },
-  glide: { default: 0, min: 0, max: 2, unit: 's', doc: 'Portamento time in mono / legato modes (a slide-flagged note always glides, at least 60 ms).' },
+  glide: { default: 0, min: 0, max: 2, unit: 's', doc: 'Portamento time in mono / legato modes (a slide-flagged note always glides, at least 60 ms). It glides into every note whose voice is still sounding, also one that starts in the release of the note before a rest; with the option `glideMode` set to fingered it glides only into a note that starts while the last one is held or touches it.' },
   vibDepth: { default: 0, min: 0, max: 100, unit: 'cents', doc: 'Vibrato depth (fades in after vibDelay).' },
   vibRate: { default: 5.5, min: 0.5, max: 12, unit: 'Hz', doc: 'Vibrato speed.' },
   vibDelay: { default: 0.25, min: 0, max: 3, unit: 's', doc: 'Time before the vibrato starts.' },
@@ -112,11 +113,13 @@ export interface SynthOpts {
   lfo2Shape?: 'sine' | 'tri' | 'saw' | 'ramp' | 'square' | 'smooth' | 'sh';
   /** Sub oscillator wave: 'sine' (default) or 'square'. */
   subWave?: 'sine' | 'square';
+  /** Which notes a `glide` above 0 glides into (mono and legato modes): 'always' (default) or 'fingered' (only into a note that starts while the last one is held). */
+  glideMode?: 'always' | 'fingered';
   name?: string;
   [param: string]: unknown;
 }
 
-const STRUCT = ['layers', 'mode', 'voices', 'filter', 'mono', 'mods', 'lfo1Shape', 'lfo2Shape', 'subWave'] as const;
+const STRUCT = ['layers', 'mode', 'voices', 'filter', 'mono', 'mods', 'lfo1Shape', 'lfo2Shape', 'subWave', 'glideMode'] as const;
 
 const SYNTH_WAVES = ['saw', 'square', 'pulse', 'tri', 'sine', 'noise', 'fm'] as const;
 const LAYER_KEYS = ['wave', 'octave', 'semi', 'fine', 'level', 'unison', 'detune', 'phase'];
@@ -213,6 +216,8 @@ export class Synth extends ParamBase<typeof SYNTH_SPECS> implements Instrument {
   private readonly lfo1Shape: string;
   private readonly lfo2Shape: string;
   private readonly subWave: 'sine' | 'square';
+  private readonly glideMode: 'always' | 'fingered';
+  private offTick = -1; // the tick at which the last key was let go (mono and legato modes): a note that starts on the same tick touches it
   private readonly rng: Rng;
   private readonly noise: Noise;
   private readonly held: number[] = [];
@@ -276,6 +281,7 @@ export class Synth extends ParamBase<typeof SYNTH_SPECS> implements Instrument {
     this.lfo1Shape = pickWord('synth', 'lfo1Shape', o.lfo1Shape, LFO_SHAPES, 'sine');
     this.lfo2Shape = pickWord('synth', 'lfo2Shape', o.lfo2Shape, LFO_SHAPES, 'sine');
     this.subWave = pickWord('synth', 'subWave', o.subWave, ['sine', 'square'] as const, 'sine');
+    this.glideMode = pickWord('synth', 'glideMode', o.glideMode, ['always', 'fingered'] as const, 'always');
     const anyUni = this.layers.some((l) => l.unison > 1);
     this.stereo = o.mono === true ? false : o.mono === false ? true : anyUni;
     const nv = this.mode === 'poly' ? Math.round((o.voices as number) ?? 8) : 1;
@@ -315,6 +321,7 @@ export class Synth extends ParamBase<typeof SYNTH_SPECS> implements Instrument {
 
   private startVoice(v: Voice, note: number, vel: number, retrigger: boolean, flags: number): void {
     const p = this.params;
+    const wasHeld = v.gate; // a key of this voice was down when the new note came
     v.note = note;
     v.vel = vel;
     v.gate = true;
@@ -350,7 +357,10 @@ export class Synth extends ParamBase<typeof SYNTH_SPECS> implements Instrument {
       this.noteCount++;
       if (p.click > 0) this.startClick(v, note, vel);
     }
-    const glideOn = (this.mode !== 'poly' && p.glide > 0) || (flags & FLAG.SLIDE) !== 0;
+    // glideMode 'always' glides into every note whose voice is still sounding (also one that starts in the release of the note before a rest);
+    // 'fingered' only into a note that starts while the last key is held or touches it (released on the very same tick: notes made with .legato())
+    const connected = this.glideMode === 'always' || wasHeld || this.tick === this.offTick;
+    const glideOn = (this.mode !== 'poly' && p.glide > 0 && connected) || (flags & FLAG.SLIDE) !== 0;
     if (!v.active || !glideOn) {
       v.slideNote = note;
       v.glideK = 1;
@@ -456,6 +466,7 @@ export class Synth extends ParamBase<typeof SYNTH_SPECS> implements Instrument {
         v.gate = false;
         v.aenv.gateOff();
         v.fenv.gateOff();
+        this.offTick = this.tick;
       }
     }
   }

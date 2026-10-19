@@ -163,7 +163,7 @@ Code blocks marked `ts run` in this guide are executed by the test-suite, so the
 | `[A2,E3,A3]` | a chord (simultaneous notes, no spaces needed inside the brackets). Every modifier below goes after the note or the closing bracket |
 | `!` after a note or a chord | accent: velocity 1 and the accent flag (louder; a bigger filter sweep on the acid bass) |
 | `?` after a note or a chord | ghost note: quiet; on a guitar a muted scratch (`[E2,B2,E3]?`) |
-| `~` | slide **into** this note from the previous one (a legato glide without retrigger). Put it on the note you arrive at, and that note must follow another note **directly**: `A1 C2~` glides from A1 up to C2, but `A1 . C2~` has nothing to glide from and the mark does nothing (the probe's listing counts it as `slide(not tied)` and warns). On a guitar and a bass guitar it is a quick scoop up into the note (from 2 / 1 semitones below, in about 60 / 50 ms) and needs no previous note |
+| `~` | slide **into** this note from the previous one (a legato glide without retrigger). Put it on the note you arrive at, and that note must follow another note **directly**: `A1 C2~` glides from A1 up to C2, but `A1 . C2~` has nothing to glide from and the mark does nothing (the probe's listing counts it as `slide(not tied)` and warns). On a guitar and a bass guitar it is a quick scoop up into the note (from 2 / 1 semitones below, in about 60 / 50 ms) and needs no previous note. A mono or legato synth with a plain `glide` above 0 glides into every note whose voice still sounds, slid or not, also after a rest; `glideMode: 'fingered'` keeps that for notes played legato (see the synth reference) |
 | `'` | staccato (40 % of the step) |
 | `:N` | length in steps: `A2:4` is the same as `A2 - - -` (the note occupies N steps; `A2:0.5` is half a step) |
 | `@N` | velocity: `@80` is MIDI velocity 80 of 127; values up to 1 are fractions (`@0.6`) |
@@ -1480,6 +1480,7 @@ s.synth('supersaw-pad', { reverb: 0.3 }).play(s.chords('Am | F | C | G', { octav
 ```
 
 - Chords: `s.chords("Am | F")`, or notes in brackets `[A2,E3,A3]`. A slide `~` glides from the note right before it in `mode: 'mono'` and `'legato'` (the lead presets); in the polyphonic default every note has its own voice and `~` does nothing.
+- Glide and slides: in `mode: 'mono'` and `'legato'`, `glide` (seconds) is a portamento into every note whose voice is still sounding, so a lead with a little glide also scoops into a note that starts in the release of the note before a rest. `glideMode: 'fingered'` keeps the glide for notes played legato (a note that starts while the one before is still held, overlapping it or touching it, as in a pattern made with `.legato()`) and for slid notes (`~`, which glide for at least 60 ms), and starts every note after a rest on its own pitch. In `mode: 'legato'` notes that overlap are connected even with `glide: 0`: the envelopes are not retriggered and the pitch jumps, a legato without portamento (there is no `{leg}` articulation: overlap the notes with `.legato(-0.1)`, each note then lasts 0.1 beat into the next, or with `{ gate: 1.2 }` in `play`). Notes that merely touch (`.legato()` with no argument) retrigger the envelopes in `'legato'` mode, because the note before has just been released; `'mono'` mode retriggers them whatever the notes do (a slid note excepted).
 - Attack click: `click` (0..1) adds a short burst of band-passed noise at the start of every new note, the hammer of a piano or the pick of a pluck. It is added after the filter and outside the amplitude envelope, so a dark patch or a slow attack keeps it. `clickDecay` is the time constant of its exponential envelope (the default 12 ms is gone after about 60 ms), `clickTone` the centre of its band-pass for a middle-C note (2500 Hz; the band is about an octave wide) and `clickKeytrack` how much that centre follows the pitch of the note (0.5: half an octave up for an octave up). It scales with the velocity, is a different burst for every note (seeded: a song always clicks the same way) and is not made again by a tied note (`~` in a mono or legato patch). At 1 it starts about as loud as the start of a plucked note, 0.1 to 0.3 is a subtle hammer, and a pad that swells in wants less. 0, the default, is off and changes nothing.
 
 | option | meaning |
@@ -1492,6 +1493,7 @@ s.synth('supersaw-pad', { reverb: 0.3 }).play(s.chords('Am | F | C | G', { octav
 | `mods` | array of `{ src: lfo1 / lfo2 / env / vel / key / rand, dst: cutoff / res / pitch / amp / pw / fm / drive, amount }` (cutoff in octaves, pitch in semitones) |
 | `lfo1Shape / lfo2Shape` | sine tri saw ramp square smooth sh |
 | `subWave` | 'sine' (default) or 'square' (the `sub` parameter's oscillator) |
+| `glideMode` | 'always' (default) or 'fingered', for a `glide` above 0 in mono and legato modes: 'always' glides into every note whose voice is still sounding, also one that starts in the release of the note before a rest; 'fingered' (the classic mono-synth legato glide) glides only into a note that starts while the note before is still held or touches it (overlapping notes, or a pattern made with `.legato()`), or that is slid with ~, and starts a note after a rest on its own pitch |
 
 Parameters (all automatable; also usable as options):
 
@@ -1523,7 +1525,7 @@ Parameters (all automatable; also usable as options):
 | `clickDecay` | 0.012 | 0.002 .. 0.15 | s | How fast the click dies away: the time constant of its exponential envelope (8.7 dB down after this long, 26 dB after three times, 43 dB after five). |
 | `clickTone` | 2500 | 200 .. 12000 | Hz | Centre frequency of the band-pass the click goes through, for a middle-C note (see `clickKeytrack`). |
 | `clickKeytrack` | 0.5 | 0 .. 1 |  | How much the centre of the click follows the pitch of the note: 1 = an octave up in the note is an octave up in the click, 0 = the click always sits at `clickTone`. |
-| `glide` | 0 | 0 .. 2 | s | Portamento time in mono / legato modes (a slide-flagged note always glides, at least 60 ms). |
+| `glide` | 0 | 0 .. 2 | s | Portamento time in mono / legato modes (a slide-flagged note always glides, at least 60 ms). It glides into every note whose voice is still sounding, also one that starts in the release of the note before a rest; with the option `glideMode` set to fingered it glides only into a note that starts while the last one is held or touches it. |
 | `vibDepth` | 0 | 0 .. 100 | cents | Vibrato depth (fades in after vibDelay). |
 | `vibRate` | 5.5 | 0.5 .. 12 | Hz | Vibrato speed. |
 | `vibDelay` | 0.25 | 0 .. 3 | s | Time before the vibrato starts. |
