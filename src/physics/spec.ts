@@ -35,6 +35,13 @@ export interface TireSpec {
    * dirt, gravel, sand and deep snow, where a road tyre skates on the top. Paid for on paved surfaces through a lower `mu`.
    */
   offroad?: number;
+  /**
+   * How many times the thermal size of a standard road tyre this one is (absent: 1). The tread's temperature is fed by the work of the
+   * tyre, per newton and per metre of slide, and the rubber and the surface it has to carry that heat are what a tyre of the common
+   * 235-305 mm width has. A tall 315 mm tyre under a 2.4 t car works with more than twice the force and has about twice the rubber and
+   * the surface: the same work warms it correspondingly less, and it settles in the same working window instead of far above it.
+   */
+  heatScale?: number;
 }
 
 export interface SuspensionSpec {

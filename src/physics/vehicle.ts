@@ -110,6 +110,8 @@ class WheelSim {
   readonly tanPeakAlpha: number;
   /** The ground as this tyre meets it (src/physics/surfaces.ts: SURFACES itself for a road tyre, softened loose ground for an all-terrain one). */
   readonly surfaces: Record<SurfaceType, SurfaceProps>;
+  /** The thermal size of the tyre (TireSpec.heatScale): the tread warms by the work of the tyre divided by it. */
+  readonly heatScale: number;
   /** Spring pre-compression at full extension (m); may be negative (slack droop). */
   readonly springPre: number;
   driveWeight = 0;
@@ -168,6 +170,7 @@ class WheelSim {
     this.shape = makeShape(tire.slideRatio);
     this.tanPeakAlpha = Math.tan(tire.peakSlipAngle);
     this.surfaces = tireSurfaces(tire);
+    this.heatScale = tire.heatScale ?? 1;
     this.springPre = staticLoad / susp.spring - STATIC_SAG * susp.travel;
     this.tempC = tire.optimalTemp - 0.35 * tire.tempWindow;
     this.brakeTempC = ambient + 60;
@@ -808,7 +811,7 @@ export class Vehicle {
       wh.skid = smoothstep(0.85, 2.2, rho) * smoothstep(0.6, 3.5, vSlip);
       // tread temperature: sliding power + carcass flex − convection
       const pSlip = Math.abs(wh.fx * (wh.omega * wh.radius - vLong)) + Math.abs(wh.fy * vLat);
-      const heat = 0.18 * pSlip + 0.006 * wh.load * aLong;
+      const heat = (0.18 * pSlip + 0.006 * wh.load * aLong) / wh.heatScale;
       // (a water film cools the tread hard — slicks struggle to stay warm in the rain)
       const cool = (6 + 0.55 * aLong) * (1 + 1.1 * water) * (wh.tempC - this.ambient);
       wh.tempC += ((heat - cool) / 2600) * dt;
