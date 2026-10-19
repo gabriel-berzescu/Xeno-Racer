@@ -409,10 +409,12 @@ export interface EngineSoundProfile {
   supercharger?: { ratio: number; lobes: number; level?: number };
   /**
    * 'dual': a true dual exhaust, each bank of a V engine in its own pipe to its own tailpipe with no crossover (side exits, one per
-   * side, on the Mammoth). The two pipes differ a little, as two real ones do (a few percent in length, a muffler that damps more),
-   * and the listener is nearer one of them, so the sum of the banks is no longer the even train of pulses it would be through
-   * identical pipes at one point: a cross-plane V8's banks, which fire 90 / 180 / 270 / 180 degrees apart, come out as the burble
-   * (energy at the half orders of the crank, rpm/120). Absent or 'merged': the banks meet in an X-pipe and one pipe goes on.
+   * side, on the Mammoth). The listener is nearer one tailpipe than the other and the two pipes are never quite twins (a muffler that damps
+   * a little more, a pipe a hair longer), so the sum of the banks is no longer the even train of pulses it would be through identical pipes
+   * heard from one point: a cross-plane V8's banks, which fire 90 / 180 / 270 / 180 degrees apart, come out as the burble (energy at the half
+   * orders of the crank, rpm/120), strongest below 3000 rpm and fading as the pulses crowd into the roar. Absent or 'merged': the banks meet
+   * in an X-pipe and one pipe goes on, which throws that difference away, so the same engine is smoother. The pipes are run in full quality;
+   * a lite voice has the same lope as per-pulse strengths.
    */
   exhaustSystem?: 'merged' | 'dual';
 }
