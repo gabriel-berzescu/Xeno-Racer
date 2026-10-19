@@ -41,6 +41,7 @@ import { StandingsScreen } from './screens/standings';
 import { TitleScreen } from './screens/title';
 import type { SetupMode, SetupOpts } from './model';
 import { h } from './dom';
+import { iconSoundOff } from './icons';
 import { ReplayOverlay } from './replay';
 
 export type { Settings } from '../core/contracts';
@@ -58,6 +59,10 @@ const DESIGN_H = 1080;
 const MIN_LOGICAL_W = 1500;
 /** Below this logical width (about 16:10 and narrower) the dense layouts switch to their compact form. */
 const NARROW_W = 1720;
+/** The screens that show the sound hint (not the loading screen, not a race). */
+const SOUND_HINT_SCREENS: ReadonlySet<ScreenId> = new Set(['title', 'main', 'setup', 'settings', 'pause', 'results', 'credits', 'standings', 'champion']);
+/** How long the sound has to stay held back before the hint shows (where the browser lets it start by itself it is running long before). */
+const SOUND_HINT_DELAY_MS = 1200;
 const WARN_TEXT = 'Switch the Logitech F310 to X mode (slide the switch on the back to X, then reconnect it).';
 
 function inferPadWarning(id: string | null): string | null {
@@ -99,6 +104,9 @@ class UiImpl implements XenoUI {
   private disposed = false;
   private lastErrorAt = 0;
   private readonly notice = h('div', 'xr-notice');
+  private readonly soundHint = h('div', 'xr-soundhint', iconSoundOff(), h('span', null, 'Click or press any key for sound'));
+  private soundLockedAt = 0;
+  private soundHintShown = false;
   private readonly replay: ReplayOverlay;
   private noticeTimer = 0;
 
@@ -146,7 +154,7 @@ class UiImpl implements XenoUI {
     this.huds[0] = createHud(this.ctx);
     this.panes[0] = h('div', 'xr-pane', this.huds[0].el);
     this.replay = new ReplayOverlay(this.ctx);
-    this.stage.append(this.panes[0], this.divider, this.replay.el, this.screensEl, this.notice);
+    this.stage.append(this.panes[0], this.divider, this.replay.el, this.screensEl, this.notice, this.soundHint);
     this.root.appendChild(this.stage);
     container.appendChild(this.root);
 
@@ -384,6 +392,16 @@ class UiImpl implements XenoUI {
     this.ctx.nowPlaying = np;
     this.huds[0].nowPlaying(np);
     this.screens.get('pause')?.refresh();
+  }
+
+  setSoundLocked(locked: boolean): void {
+    const now = performance.now();
+    if (!locked) this.soundLockedAt = 0;
+    else if (!this.soundLockedAt) this.soundLockedAt = now;
+    const show = locked && now - this.soundLockedAt >= SOUND_HINT_DELAY_MS && SOUND_HINT_SCREENS.has(this.cur);
+    if (show === this.soundHintShown) return;
+    this.soundHintShown = show;
+    this.soundHint.classList.toggle('show', show);
   }
 
   handleInput(f: InputFrame): boolean {

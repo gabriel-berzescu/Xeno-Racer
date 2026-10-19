@@ -292,6 +292,11 @@ export interface UISystem {
    * any more.
    */
   setNowPlaying(np: NowPlaying | null): void;
+  /**
+   * The browser is holding the sound back: a page gets sound only after a click or a key press (a gamepad button does not count),
+   * unless the browser was started to allow it (play.bat). Said every frame; the menus show how to turn the sound on.
+   */
+  setSoundLocked(locked: boolean): void;
   dispose(): void;
 }
 /** export function createUI(container: HTMLElement, deps: UIDeps): UISystem */

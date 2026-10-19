@@ -1297,6 +1297,7 @@ export class Game {
     const cpu0 = performance.now();
     const input = this.input.poll(dt);
     if (input.anyPressed) void this.audio.unlock();
+    this.ui.setSoundLocked(!this.audio.unlocked);
     if (this.pollJoin()) input.nav.confirm = false;
     this.ui.setDevice(input.device === 'gamepad' ? input.gamepadId : null);
 

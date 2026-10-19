@@ -10,6 +10,12 @@ synthesized engine sound, and a TV director that films the race.
 
 ## Play
 
+**In the browser:** play at **https://gabriel-berzescu.github.io/Xeno-Racer/** in Chrome or Edge, with nothing to install.
+It is the same game `play.bat` builds, published again on every push to main. A browser lets a page make sound only after a
+click or a key press (a gamepad button does not count), so click once or press a key when the game opens; until then the
+menus say so. **F11** plays full screen. Settings, best laps, ghosts and the championship are saved in the browser, a save of
+their own for each browser (and apart from the save of `play.bat`).
+
 **Windows:** double-click **`play.bat`**. It needs [Node.js](https://nodejs.org) 20+ and Google Chrome.
 On the first run it installs dependencies and builds the game, which takes about a minute. It then
 opens Xeno-Racer full-screen in its own Chrome window, on the dedicated GPU. To quit, close the

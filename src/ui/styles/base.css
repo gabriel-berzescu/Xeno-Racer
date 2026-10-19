@@ -464,6 +464,11 @@
 .xr-notice.show { opacity: 1; transform: translateX(-50%); }
 .xr-notice.warn { color: #1b1203; background: var(--warn); box-shadow: none; }
 
+/* the browser holds the sound back until a click or a key (a gamepad button does not count): how to turn it on */
+.xr-soundhint { position: absolute; left: 50%; top: 0; transform: translateX(-50%) translateY(-100%); display: flex; align-items: center; gap: 12px; padding: 10px 40px 13px; font: 600 20px / 1 var(--f-display); letter-spacing: 0.14em; text-transform: uppercase; color: #fff; background: rgba(4, 5, 8, 0.85); box-shadow: inset 0 -3px 0 var(--teal); clip-path: polygon(0 0, 100% 0, calc(100% - 16px) 100%, 16px 100%); opacity: 0; pointer-events: none; transition: opacity 0.3s var(--ease), transform 0.45s var(--ease); z-index: 49; }
+.xr-soundhint.show { opacity: 1; transform: translateX(-50%); }
+.xr-soundhint svg { width: 26px; height: 26px; color: var(--teal); }
+
 /* ── device indicator ──────────────────────────────────────────────────────── */
 
 .device { display: inline-flex; align-items: center; gap: 12px; font: 600 22px/1 var(--f-display); letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
