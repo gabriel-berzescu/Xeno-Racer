@@ -47,6 +47,17 @@ describe('saved settings', () => {
     expect(old.split).toEqual({ layout: 'rows' });
   });
 
+  it('has nitro on by default, for a save from before the switch too, and keeps it off once turned off', () => {
+    expect(DEFAULT_SETTINGS.nitro).toBe(true);
+    store[KEY] = JSON.stringify({ units: 'mph', damage: 'full' });
+    expect(loadSettings().nitro).toBe(true);
+    store[KEY] = JSON.stringify({ nitro: false });
+    expect(loadSettings().nitro).toBe(false);
+    // (not a yes or a no: the default)
+    store[KEY] = JSON.stringify({ nitro: 'sometimes' });
+    expect(loadSettings().nitro).toBe(true);
+  });
+
   it('keeps a saved name for player 2 and the side-by-side layout', () => {
     store[KEY] = JSON.stringify({ player2Name: 'Silviu', split: { layout: 'columns' } });
     const s = loadSettings();

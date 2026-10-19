@@ -22,6 +22,8 @@ const VB_H = 430;
 const CURVE_W = 780;
 const CURVE_H = 168;
 
+const NITRO_SUB = '2 per lap';
+
 /** Leader lines + labels, hand-routed so nothing crosses a control. */
 interface Callout {
   id: string;
@@ -49,7 +51,7 @@ const CALLOUTS: Callout[] = [
   { id: 'throttle', text: 'THROTTLE', side: 'r', x: 630, y: 84, pts: [[622, 84], [566, 84], [540, 106]], lights: ['rt'] },
   { id: 'shiftUp', text: 'SHIFT UP', side: 'r', x: 630, y: 128, pts: [[622, 128], [576, 128], [542, 134]], lights: ['rb'] },
   { id: 'camera', text: 'CAMERA', side: 'r', x: 630, y: 168, pts: [[622, 168], [540, 168]], lights: ['y'] },
-  { id: 'nitro', text: 'NITRO', sub: '2 per lap', side: 'r', x: 630, y: 206, pts: [[622, 206], [600, 206], [566, 198]], lights: ['b'] },
+  { id: 'nitro', text: 'NITRO', sub: NITRO_SUB, side: 'r', x: 630, y: 206, pts: [[622, 206], [600, 206], [566, 198]], lights: ['b'] },
   { id: 'handbrake', text: 'HANDBRAKE', side: 'r', x: 630, y: 256, pts: [[622, 256], [584, 256], [540, 228]], lights: ['a'] },
   { id: 'look', text: 'LOOK', side: 'r', x: 630, y: 296, pts: [[622, 296], [520, 296], [478, 262]], lights: ['rs'] },
   { id: 'lookBack', text: 'LOOK BACK', sub: 'press the stick', side: 'r', x: 630, y: 344, pts: [[622, 344], [500, 344], [458, 268]], lights: ['rsClick'] },
@@ -67,6 +69,8 @@ export class ControlsPane {
   private rtFill!: SvgEl;
   private dotValue = -2;
   private lastSig = '';
+  /** The NITRO callout's second line: the shots a lap, or that nitro is off in the settings. */
+  private nitroSub: SvgEl | null = null;
 
   constructor(private readonly ctx: UiCtx) {
     this.diagram = this.buildDiagram();
@@ -193,7 +197,11 @@ export class ControlsPane {
       const anchor = c.side === 'l' ? 'end' : c.side === 'r' ? 'start' : c.id === 'reset' ? 'end' : 'start';
       const text = svg('text', { x: c.x, y: c.y + 7, class: 'lead-text', 'text-anchor': anchor }, c.text);
       g.append(line, dot, text);
-      if (c.sub) g.appendChild(svg('text', { x: c.x, y: c.y + 26, class: 'lead-sub', 'text-anchor': anchor }, c.sub));
+      if (c.sub) {
+        const sub = svg('text', { x: c.x, y: c.y + 26, class: 'lead-sub', 'text-anchor': anchor }, c.sub);
+        g.appendChild(sub);
+        if (c.id === 'nitro') this.nitroSub = sub;
+      }
       s.appendChild(g);
       // the callout lights with its controls
       const entry = this.lit.get(c.lights[0]);
@@ -257,6 +265,7 @@ export class ControlsPane {
 
   refresh(): void {
     this.drawCurve();
+    if (this.nitroSub) this.nitroSub.textContent = this.ctx.settings.nitro ? NITRO_SUB : 'turned off';
   }
 
   // ── response curve ─────────────────────────────────────────────────────────

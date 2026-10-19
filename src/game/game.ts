@@ -249,6 +249,9 @@ export class Game {
     // development: ?damage=off|visual|full
     const dm = this.params.get('damage');
     if (dm === 'off' || dm === 'visual' || dm === 'full') this.settings.damage = dm;
+    // development: ?nitro=off|on
+    const nt = this.params.get('nitro');
+    if (nt === 'off' || nt === 'on') this.settings.nitro = nt === 'on';
     // development: ?assists=pro|standard|beginner, ?line=off|braking|full and ?brakeassist=1 set player 1's aids (player 2's: assists2, line2, brakeassist2)
     for (const seat of [0, 1] as const) {
       const sfx = seat === 1 ? '2' : '';
@@ -1510,12 +1513,14 @@ export class Game {
       if (car.ai.needsReset) this.resetCar(car);
     }
 
-    // nitro: each tank follows its car's laps (a new lap fills it) and burns its shot; a car that has finished has none
+    // nitro: each tank follows its car's laps (a new lap fills it) and burns its shot; a car that has finished has none, and with nitro
+    // off in the settings no car has any (a tank that is not running is never ready: a press, or an AI driver, fires nothing)
     const prog = session.progress;
+    const nitroOn = this.settings.nitro;
     for (let i = 0; i < this.cars.length; i++) {
       const car = this.cars[i];
       const p = prog[i];
-      car.nitro.update(dt, p ? p.crossings : 0, racing && !(p && p.finished) && !this.resultsShown);
+      car.nitro.update(dt, p ? p.crossings : 0, nitroOn && racing && !(p && p.finished) && !this.resultsShown);
       car.vehicle.nitro = car.nitro.level;
     }
 
@@ -2038,7 +2043,7 @@ export class Game {
       weather: this.wx?.plan ? this.hudWeather(now) : null,
       damage: this.hudDamage(p, d.seat),
       brakeAssist: d.aids.added,
-      nitro: { charges: p.nitro.charges, max: NITRO_PER_LAP, burn: p.nitro.left / NITRO_SECONDS },
+      nitro: this.settings.nitro ? { charges: p.nitro.charges, max: NITRO_PER_LAP, burn: p.nitro.left / NITRO_SECONDS } : null,
     };
   }
 

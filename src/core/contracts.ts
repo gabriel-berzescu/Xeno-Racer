@@ -600,6 +600,8 @@ export interface Settings {
   hud: { minimap: boolean; telemetry: boolean; ghost: boolean; standings: boolean; mirror: MirrorMode; spotter: boolean };
   camera: { fov: number; defaultMode: CameraMode; shake: number };
   damage: DamageMode;
+  /** Nitro (src/core/nitro.ts) for every car on track, humans and AI. Off: no car has any, the gauge is hidden, E and B do nothing. */
+  nitro: boolean;
   playerName: string;
   /** Split screen (src/core/split.ts): the second driver's name, and how the screen divides. */
   player2Name: string;

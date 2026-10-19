@@ -376,7 +376,7 @@ describe('settings schema', () => {
     expect(rowIds('assists').sort()).toEqual(['preset', ...Object.keys(s.assists)].sort());
     expect(rowIds('assists2').sort()).toEqual(['preset', ...Object.keys(s.assists2)].sort());
     // (the split-screen settings: the second driver's name and how the screen divides)
-    expect(rowIds('gameplay').sort()).toEqual(['units', ...Object.keys(s.hud), 'fov', 'shake', 'defaultMode', 'damage', 'playerName', 'player2Name', 'splitLayout'].sort());
+    expect(rowIds('gameplay').sort()).toEqual(['units', ...Object.keys(s.hud), 'fov', 'shake', 'defaultMode', 'damage', 'nitro', 'playerName', 'player2Name', 'splitLayout'].sort());
   });
 
   it('shows the damage indicator for five seconds after what is drawn changes, and never on a sound car', () => {

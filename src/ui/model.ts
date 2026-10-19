@@ -613,7 +613,7 @@ function assistRows(seat: Seat): RowDef[] {
       get: (s) => A(s).tcs, set: (s, v) => { A(s).tcs = v as PlayerAssists['tcs']; },
     },
     { kind: 'toggle', id: 'esc', label: 'Stability control', desc: 'Brakes individual wheels to stop a spin before it starts.', get: (s) => A(s).esc, set: (s, v) => { A(s).esc = v; } },
-    { kind: 'toggle', id: 'autoShift', label: 'Automatic gearbox', desc: 'Shifts for you. Turn it off to use RB / LB (or B / X) as paddles.', get: (s) => A(s).autoShift, set: (s, v) => { A(s).autoShift = v; } },
+    { kind: 'toggle', id: 'autoShift', label: 'Automatic gearbox', desc: 'Shifts for you. Turn it off to use RB / LB as paddles (X shifts down too).', get: (s) => A(s).autoShift, set: (s, v) => { A(s).autoShift = v; } },
     {
       kind: 'slider', id: 'steeringAssist', label: 'Steering assist', min: 0, max: 1, step: 0.05,
       desc: 'Catches slides with automatic counter-steer and limits lock to what the tires can use.',
@@ -771,6 +771,7 @@ export const SETTINGS_TABS: TabDef[] = [
       s.hud = structuredClone(DEFAULT_SETTINGS.hud);
       s.camera = structuredClone(DEFAULT_SETTINGS.camera);
       s.damage = DEFAULT_SETTINGS.damage;
+      s.nitro = DEFAULT_SETTINGS.nitro;
       s.playerName = DEFAULT_SETTINGS.playerName;
       s.player2Name = DEFAULT_SETTINGS.player2Name;
       s.split = structuredClone(DEFAULT_SETTINGS.split);
@@ -798,6 +799,11 @@ export const SETTINGS_TABS: TabDef[] = [
         kind: 'select', id: 'damage', label: 'Damage', desc: 'What crashes do to the cars. Off keeps every car pristine. Visual crumples panels, scrapes paint and breaks lamps on every car on track, and does not change how a car drives. Full: hard hits also hurt how the car drives: bent suspension, lost downforce, a tired engine. Taps and light scrapes never do.',
         options: opts([['off', 'Off'], ['visual', 'Visual'], ['full', 'Full']]),
         get: (s) => s.damage, set: (s, v) => { s.damage = v as Settings['damage']; },
+      },
+      {
+        kind: 'toggle', id: 'nitro', label: 'Nitro',
+        desc: 'Two shots of nitro a lap for every car on track, the AI drivers too: B or E fires one, for four seconds of extra power. Off: no car has nitro, and B and E do nothing.',
+        get: (s) => s.nitro, set: (s, v) => { s.nitro = v; },
       },
       {
         kind: 'slider', id: 'fov', label: 'Field of view', min: 45, max: 100, step: 1,

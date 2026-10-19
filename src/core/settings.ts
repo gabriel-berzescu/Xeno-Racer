@@ -22,6 +22,7 @@ export const DEFAULT_SETTINGS: Settings = {
   hud: { minimap: true, telemetry: false, ghost: true, standings: true, mirror: 'auto', spotter: true },
   camera: { fov: 62, defaultMode: 'chase', shake: 0.6 },
   damage: 'visual',
+  nitro: true,
   playerName: 'Gabriel',
   player2Name: 'Player 2',
   split: { layout: 'rows' },

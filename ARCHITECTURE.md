@@ -199,7 +199,8 @@ session crossings ─► NitroTank.update (a new lap fills it)   └─► HudSt
 
 - **The game** (`game.ts`) keeps one tank per `RaceCar`, updates it every frame with the car's line crossings (a count above any seen before is a
   new lap; backing over the line and across it again fills nothing) and puts its level on the physics. A reset to the track puts a burning shot out.
-  The press that closes the pause menu does not fire one.
+  The press that closes the pause menu does not fire one. With `Settings.nitro` off (Settings, Gameplay) every tank is updated as not running, so
+  none is ever ready (a press and the AI fire nothing, a burning shot goes out), and the HUD gets no gauge; B and E stay unbound.
 - **The AI** (`src/ai/driver.ts`) is told `nitroReady` / `nitroOn` and asks with `wantNitro`: flat out on the road, above a speed (higher in the wet
   and on snow, where the extra torque spins a driven axle in the low gears), with no corner it would have to brake for within the reach of the boosted
   car (`straightAhead`), no car alongside and none ahead in its lane within 150 m (`nitroClear`), after a short delay of its own. The speed profile is
