@@ -743,13 +743,7 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
       flames.spawn(px, py, pz, _v3.x, _v3.y, _v3.z, rr(0.45, 0.9), rr(0.07, 0.11), rr(0.09, 0.16), rr(3.5, 6), 1, s.velocity.x, s.velocity.y, s.velocity.z);
       // a short round flash at the tip (reads from any angle, feeds bloom)
       glows.spawn(px, py, pz, s.velocity.x, s.velocity.y, s.velocity.z, rr(0.2, 0.3), 0.08, 1.0, 0.62, 0.26, rr(3, 5));
-      for (let k = 0; k < 4; k++) {
-        sparks.spawn(
-          px, py, pz,
-          s.velocity.x + _v3.x * rr(4, 10) + rg() * 3, s.velocity.y + _v3.y * 6 + rr(0.5, 2.5), s.velocity.z + _v3.z * rr(4, 10) + rg() * 3,
-          rr(0.2, 0.5), rr(0.01, 0.016), rr(5, 10), s.position.y - 0.4,
-        );
-      }
+      // (no sparks: a backfire throws a flame, and sparks flying from the tailpipe read as the car grinding on something)
       const sp = _spec;
       sp.x = px; sp.y = py; sp.z = pz;
       sp.vx = s.velocity.x * 0.2 + _v3.x * 2; sp.vy = 0.6; sp.vz = s.velocity.z * 0.2 + _v3.z * 2;

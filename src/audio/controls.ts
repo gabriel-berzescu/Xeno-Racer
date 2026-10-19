@@ -54,6 +54,8 @@ export const CTL = {
   // winter circuits: the share of the wheels on snow (packed or deep) and on studded ice -> 61, 62
   SURF_SNOW: 61,
   SURF_ICE: 62,
+  /** The driver's throttle pedal (the throttle body follows it; -1 = not known). */
+  PEDAL: 63,
 } as const;
 
 export const CTL_LEN = 64;
@@ -71,6 +73,7 @@ export function makeControlVector(): Float32Array {
   v[CTL.CH_GAIN] = 1;
   v[CTL.CH_QUALITY] = 2;
   v[CTL.GEAR] = 1;
+  v[CTL.PEDAL] = -1;
   return v;
 }
 
@@ -82,6 +85,7 @@ function fin(x: number, fallback: number): number {
 export function writeEngineControls(v: Float32Array, st: VehicleState): void {
   v[CTL.RPM] = fin(st.rpm, v[CTL.RPM]);
   v[CTL.THROTTLE] = fin(st.throttle, 0);
+  v[CTL.PEDAL] = fin(st.throttlePedal, -1);
   // engineLoad is a fraction of PEAK torque (so WOT near redline reads ~0.6-0.9); blend with the pedal
   // so the sound stays aggressive at full throttle and still follows torque nuances
   v[CTL.LOAD] = Math.min(1, 0.5 * Math.max(0, fin(st.engineLoad, 0)) + 0.5 * Math.min(1, Math.max(0, fin(st.throttle, 0))));
@@ -120,4 +124,6 @@ export function readEngineInputs(v: Float32Array, o: EngineInputs): void {
   o.driveOmega = fin(v[CTL.DRIVE_OMEGA], 0);
   o.speed = fin(v[CTL.SPEED], 0);
   o.gear = fin(v[CTL.GEAR], 1);
+  const pedal = fin(v[CTL.PEDAL], -1);
+  o.pedal = pedal < 0 ? -1 : Math.min(pedal, 1);
 }

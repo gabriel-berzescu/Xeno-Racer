@@ -369,6 +369,7 @@ export class Vehicle {
       localAccel: new Vector3(),
       steer: 0,
       throttle: 0,
+      throttlePedal: 0,
       brake: 0,
       handbrake: 0,
       clutch: 0,
@@ -499,8 +500,9 @@ export class Vehicle {
     this.shiftTarget = target;
     const intoReverse = target === -1 || this.gear === -1 || target === 0 || this.gear === 0;
     this.shiftDuration = intoReverse ? 0.25 : this.spec.drivetrain.shiftTime;
-    // ignition-cut upshift at high rpm → a pop for crackly exhausts
-    if (target > this.gear && this.gear >= 1 && this.rpm() > 0.7 * this.spec.engine.redlineRpm && this.rand() < this.def.sound.crackle * 0.8) {
+    // ignition-cut upshift at high rpm → now and then a pop for crackly exhausts (the lift-off is where they bang; at 0.8 x crackle
+    // every other upshift of a hard run through the gears popped)
+    if (target > this.gear && this.gear >= 1 && this.rpm() > 0.7 * this.spec.engine.redlineRpm && this.rand() < this.def.sound.crackle * 0.35) {
       this.state.backfireCount++;
     }
   }
@@ -557,6 +559,7 @@ export class Vehicle {
     const rpm = this.rpm();
     const red = this.spec.engine.redlineRpm;
     const thrIn = this.gear === -1 && this.assists.autoShift ? c.brake : c.throttle;
+    this.state.throttlePedal = thrIn;
     if (this.prevThrottleIn > 0.6 && thrIn < 0.08 && rpm > 0.55 * red && crackle > 0.05) {
       this.popBudget = Math.floor(crackle * (2 + this.rand() * 5));
       this.popTimer = 0.04 + this.rand() * 0.12;

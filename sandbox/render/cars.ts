@@ -172,6 +172,7 @@ export function makeState(id: number): VehicleState {
     localAccel: new Vector3(),
     steer: 0,
     throttle: 0,
+    throttlePedal: 0,
     brake: 0,
     handbrake: 0,
     clutch: 0,

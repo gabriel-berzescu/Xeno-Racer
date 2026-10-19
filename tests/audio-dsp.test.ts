@@ -317,6 +317,38 @@ describe('engine voice: dynamics and events', () => {
     expect(rise(profileOf('ronin-86'))).toBeLessThan(8); // NA engine: boost input changes nothing audible
   });
 
+  it("the blow-off valve vents when the driver lifts, not on a flat upshift's ignition cut (the throttle body stays open)", () => {
+    // the blow-off has no debug tap of its own: it is what is left of the output once the layers are taken away
+    const blowOff = (pedal: number): number => {
+      const v = new EngineVoice(SR, profileOf('kestrel-r'), 17);
+      setSteady(v, 6000, 1, 1, 7000);
+      v.inp.boost = 1;
+      v.inp.pedal = 1;
+      render(v, 1.0);
+      // the torque goes: the applied throttle and the load drop to nothing, and the pedal either follows (a lift) or stays down (a shift)
+      v.inp.throttle = 0;
+      v.inp.load = 0;
+      v.inp.pedal = pedal;
+      const n = Math.floor(0.3 * SR);
+      const dbg = createEngineDebug(n);
+      v.debug = dbg;
+      const x = new Float32Array(n);
+      v.process(x, n);
+      let e = 0;
+      for (let i = 0; i < n; i++) {
+        const r = x[i] - (dbg.exhaust[i] + dbg.intake[i] + dbg.mech[i] + dbg.block[i] + dbg.turbo[i] + dbg.whine[i] + dbg.events[i]);
+        e += r * r;
+      }
+      return e / n;
+    };
+    const lift = blowOff(0);
+    const shift = blowOff(1);
+    expect(lift).toBeGreaterThan(shift * 20);
+    // and a voice that is not told the pedal (-1) takes the applied throttle for it, as before
+    const v = new EngineVoice(SR, profileOf('kestrel-r'), 17);
+    expect(v.inp.pedal).toBe(-1);
+  });
+
   it('interior mix is darker than the exterior mix', () => {
     const cent = (interior: number): number => {
       const v = new EngineVoice(SR, car.sound, 15);

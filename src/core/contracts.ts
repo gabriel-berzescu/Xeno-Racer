@@ -242,6 +242,11 @@ export interface VehicleState {
   localAccel: Vector3;
   steer: number; // applied steering input -1..1 (after assists)
   throttle: number; // applied 0..1 (after TCS / limiter)
+  /**
+   * The driver's throttle pedal 0..1 (or the AI's). The throttle body follows it: the ignition cut of a flat upshift and the traction
+   * control cut `throttle`, not this, so they do not blow a turbo's blow-off valve.
+   */
+  throttlePedal: number;
   brake: number; // applied 0..1 (after ABS)
   handbrake: number;
   clutch: number; // 0 engaged .. 1 open
