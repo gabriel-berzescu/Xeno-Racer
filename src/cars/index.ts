@@ -425,14 +425,14 @@ const lmp: CarDefinition = {
 // What it does on a flat plane (tests/probes/mammoth-probe.test.ts holds the table, tests/mammoth.test.ts the bounds): 0-100 km/h in 3.8 s with the
 // traction control on (all four tyres pull: 1.06 g in first gear, 60 mph in 3.6 s), 200 in 14.2 s, the quarter mile in 12.0 s, and 260 km/h flat out
 // in sixth (the drag of a brick, CdA 1.8, has used up the 710 hp long before the revs have; seventh and eighth are for cruising). It stops from
-// 100 in 37.5 m with ABS (1.05 g) and holds 0.92 g on the skidpad, leaning 5 degrees at the limit where a sports car leans one; it squats 3 degrees
-// under power and dives 3 under the brakes (a sports car: 0.6 and 1.2). On grass, gravel, dirt, sand and deep snow it keeps 80-90 % of its grip where
-// a road tyre keeps 60-70 and loses less speed to the ploughing; on a kerb of 12 cm at 200 km/h its long-travel suspension keeps half the load on the
-// wheel a sports car is thrown into the air by. Thrown into a flick at 110 km/h it lifts an inner wheel; it cannot be tipped by a wall, a bank
-// or loose ground in this model (its tyres give 1.05 g, a rollover takes 1.2). On packed snow, studded like every car there, it gets to 100 in 5.6 s
-// against ten for the rear- and front-drive cars. It corners worse than they do on snow (0.47 g against 0.50-0.56: heavy, tall and wide), and in
-// the dry it is between the Kestrel and the Ronin on a lap; in the rain and the snow it is quicker than all but the LMP-X.
-
+// 100 in 37.1 m with ABS (1.06 g) and holds 0.89 g on the skidpad, leaning 5 degrees at the limit where a sports car leans one; it squats 3.3 degrees
+// under power and dives 3.3 under the brakes (a sports car: 0.6 and 1.2). On grass, gravel, dirt and sand it keeps 78-90 % of its asphalt grip where a
+// road tyre keeps 50-70, and on deep snow 90 % of its packed-snow grip against 65, and it loses less speed to the ploughing; on a kerb of 12 cm at
+// 200 km/h its long-travel suspension keeps two fifths of the load on the wheel a sports car is thrown into the air by. Thrown into a flick at 110 km/h,
+// or over the apex kerb of a corner at the limit, it lifts an inner wheel; it cannot be tipped by a wall, a bank or loose ground in this model (its
+// tyres hold 1.05 g, a rollover takes 1.2). On packed snow, studded like every car there, it gets to 100 in 5.6 s against 10 for the rear- and
+// front-drive cars, and corners worse than they do (0.46 g against 0.50-0.56: heavy, tall and wide). On a lap it is level with the Kestrel in the dry
+// (5-13 % behind the Vanta), second to the LMP-X in the rain on four circuits of five, and the quickest road car at Isvik, dry and in the snow.
 
 /**
  * An all-terrain tyre: open blocks and a tall sidewall. Less bite on asphalt (a lower `mu` than a road tyre of the size, and a longer
@@ -548,15 +548,17 @@ const mammoth: CarDefinition = {
     // a brick with a light bar: 3.3 m^2 of frontal area at a Cd of 0.55, no downforce, a little lift (0.5 kN at the top speed: 2 % of the weight)
     aero: { dragArea: 1.8, liftAreaFront: -0.1, liftAreaRear: -0.06 },
     // (1.03 on asphalt, where a road tyre of the size has 1.1-1.15; the studded tyre of a winter circuit has its own friction, src/physics/compound.ts)
-    tireFront: allTerrainTire(315, 55, 20, 1.03),
-    tireRear: allTerrainTire(315, 55, 20, 1.03),
-    // Long travel and soft: 24 and 26 cm, so that a 12 cm kerb or the foot of a snowbank is a bump and not a launch ramp. Wheel rates of 34 and 38 kN/m
-    // (1.14 Hz on a 660 kg front corner, 1.31 Hz on a 560 kg rear one) with bars of 5 and 7 kN/m give 142 kNm/rad of roll stiffness: the 5.3 degrees at
-    // 0.92 g that the body shows (m a (h - roll centre) over it), and 3 degrees of pitch at 1 g. 46 % of the roll stiffness is at the front: a front-engined
-    // four-wheel drive pushes, and what is taken from the front bar is given to the tail. Damped at 0.32 in bump and 0.59 in rebound at the front (0.35 and
-    // 0.65 at the rear), so that a hard flick at speed unloads an inner wheel for a moment without the body ringing.
-    suspFront: { travel: 0.24, spring: 34000, bump: 3000, rebound: 5600, antiRoll: 5000, camber: -0.4 * DEG },
-    suspRear: { travel: 0.26, spring: 38000, bump: 3200, rebound: 6000, antiRoll: 7000, camber: -0.2 * DEG },
+    tireFront: allTerrainTire(315, 55, 20, 1.045),
+    tireRear: allTerrainTire(315, 55, 20, 1.045),
+    // Long travel and soft: 24 and 26 cm, so that a 12 cm kerb or the foot of a snowbank is a bump and not a launch ramp. Wheel rates of 32 and 36 kN/m
+    // (1.11 Hz on a 660 kg front corner, 1.27 Hz on a 560 kg rear one) with bars of 11 and 2 kN/m give 139 kNm/rad of roll stiffness: the 5.2 degrees at
+    // 0.89 g that the body shows (m a (h - roll centre) over it), and 3.3 degrees of pitch at 1 g. 58 % of the roll stiffness is at the front, where the
+    // car weighs more: a tall, short-tracked car shifts 7 kN across its axles at the limit, and a set-up with 54 % of it at the rear (a bar of 7 kN/m there)
+    // gave a higher skidpad figure but left the lighter rear axle an inner wheel at 0.5 kN, a tail that swung in a lane change to 27 degrees of body slip
+    // (a Vanta: 7) and a spin without the aids.
+    // Damped at 0.33 in bump and 0.61 in rebound at the front (0.36 and 0.67 at the rear), so that a hard flick at speed unloads an inner wheel for a moment.
+    suspFront: { travel: 0.24, spring: 32000, bump: 3000, rebound: 5600, antiRoll: 11000, camber: -0.4 * DEG },
+    suspRear: { travel: 0.26, spring: 36000, bump: 3200, rebound: 6000, antiRoll: 2000, camber: -0.2 * DEG },
   },
 };
 

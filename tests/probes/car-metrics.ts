@@ -325,3 +325,39 @@ export function aiLap(trackId: string, def: CarDefinition, wetness = 0, difficul
   }
   return { lap, resets, impacts: car.state.impactCount };
 }
+
+/**
+ * A lane change with a pad's thumb: `stick` left for 0.7 s, then right for 1.4 s, then left for 0.7 s, through the steering filter, at
+ * `throttle`, with the aids given. The largest body slip (deg) and yaw rate, the lightest wheel, how long the stability control worked
+ * (share of the run) and the speed the car ends at: how it behaves when a driver asks too much of it at speed.
+ */
+export function laneChange(def: CarDefinition, kmh: number, stick: number, throttle: number, assists: Assists = { ...DEFAULT_SETTINGS.assists }) {
+  const world = new PhysicsWorld(createFlatTrack());
+  const car = world.addVehicle(def);
+  car.assists = { ...assists };
+  car.placeOnGround(new Vector3(), new Quaternion(), kmh / 3.6);
+  car.setTemperatures(1);
+  const filter = new SteeringFilter();
+  const staticLoad = [0, 1, 2, 3].map((i) => car.staticLoad(i));
+  const f = new Vector3();
+  const l = new Vector3();
+  let maxBeta = 0;
+  let maxYaw = 0;
+  let minShare = 1;
+  let esc = 0;
+  const frames = 6 * 60;
+  for (let i = 0; i < frames; i++) {
+    const t = i / 60;
+    const raw = t < 0.5 ? 0 : t < 1.2 ? stick : t < 2.6 ? -stick : t < 3.3 ? stick : 0;
+    car.controls.steer = filter.update(raw, DT, car.state, def, DEFAULT_SETTINGS.controls);
+    car.controls.throttle = throttle;
+    world.step(DT);
+    maxYaw = Math.max(maxYaw, Math.abs(car.state.angularVelocity.y));
+    if (car.state.escActive) esc++;
+    f.set(0, 0, 1).applyQuaternion(car.state.quaternion);
+    l.set(1, 0, 0).applyQuaternion(car.state.quaternion);
+    maxBeta = Math.max(maxBeta, (Math.abs(Math.atan2(car.state.velocity.dot(l), car.state.velocity.dot(f))) * 180) / Math.PI);
+    for (let w = 0; w < 4; w++) minShare = Math.min(minShare, car.state.wheels[w].load / staticLoad[w]);
+  }
+  return { slipDeg: maxBeta, yaw: maxYaw, minLoadShare: minShare, escShare: esc / frames, endKmh: car.state.speed * 3.6 };
+}
