@@ -52,6 +52,12 @@ function tune(v: EngineVoice): void {
   if (m) v.V.dualMuff = m;
   const d = opt('delay', '');
   if (d) v.V.dualDelay = +d / 1000;
+  const fl = opt('floor', '');
+  if (fl) v.V.dualFloor = +fl;
+  const ro = opt('ro', '');
+  if (ro) v.V.Ro = +ro;
+  const rcv = opt('rc', '');
+  if (rcv) v.V.Rc = +rcv;
   if (args.includes('--nowobble')) v.V.idleWobble = 0; // phase-locked measurements at idle: the crank clock must run steady
 }
 
@@ -69,17 +75,19 @@ function render(profile: EngineSoundProfile, rpm: number, thr: number, load: num
   return { sig: tap === 'mix' ? sig : dbg.exhaust, ph0 };
 }
 
-/** Power at the three families of lines (firing, half-order, whole-order), in a band, from a long Welch PSD. */
-function lineFamilies(x: Float32Array, rpm: number, fLo: number, fHi: number): { fire: number; half: number; whole: number; between: number } {
+/**
+ * Mean power per line of the three families of lines (firing, half-order, whole-order), in a band, from a long Welch PSD: the band holds
+ * more half-order lines than firing lines, so the families are compared line for line, not summed.
+ */
+function lineFamilies(x: Float32Array, rpm: number, fLo: number, fHi: number): { fire: number; half: number; whole: number; between: number; share: number } {
   const f0 = rpm / 120;
   let nfft = 1 << 15;
   while (SR / nfft > f0 / 9 && nfft < 1 << 18) nfft <<= 1;
   const a = Math.floor(1.5 * SR);
   const psd = welch(x, nfft, a, x.length);
   const df = SR / nfft;
-  let fire = 0;
-  let half = 0;
-  let whole = 0;
+  const sum = { fire: 0, half: 0, whole: 0 };
+  const lines = { fire: new Set<number>(), half: new Set<number>(), whole: new Set<number>() };
   let between = 0;
   const tol = 0.13 * f0;
   for (let i = Math.floor(fLo / df); i <= Math.min(psd.length - 1, Math.ceil(fHi / df)); i++) {
@@ -91,11 +99,18 @@ function lineFamilies(x: Float32Array, rpm: number, fLo: number, fHi: number): {
       between += psd[i];
       continue;
     }
-    if (m % 8 === 0) fire += psd[i];
-    else if (m % 2 === 1) half += psd[i];
-    else whole += psd[i];
+    const fam = m % 8 === 0 ? 'fire' : m % 2 === 1 ? 'half' : 'whole';
+    sum[fam] += psd[i];
+    lines[fam].add(m);
   }
-  return { fire, half, whole, between };
+  return {
+    fire: sum.fire / Math.max(lines.fire.size, 1),
+    half: sum.half / Math.max(lines.half.size, 1),
+    whole: sum.whole / Math.max(lines.whole.size, 1),
+    between,
+    // the share of all the power in the band that sits in the half-order lines (the lines themselves, not what lies between them)
+    share: sum.half / Math.max(sum.fire + sum.half + sum.whole + between, 1e-30),
+  };
 }
 
 const db = (x: number): number => 10 * Math.log10(Math.max(x, 1e-30));
@@ -106,14 +121,14 @@ if (cmd === 'lines') {
   const thr = load < 0.2 ? 0 : 1;
   const fHi = +opt('fhi', '700');
   const fLo = +opt('flo', '25');
-  console.log(`${car.id}, ${tap} tap, ${quality === 2 ? 'full' : 'lite'}, load ${load}, band ${fLo}..${fHi} Hz.  half = odd multiples of rpm/120, whole = other even multiples, fire = multiples of 8; dB re the firing lines`);
-  console.log('variant        ' + rpms.map((r) => `${r}rpm`.padStart(24)).join(''));
+  console.log(`${car.id}, ${tap} tap, ${quality === 2 ? 'full' : 'lite'}, load ${load}, band ${fLo}..${fHi} Hz.  per line: half = odd multiples of rpm/120, whole = other even multiples, fire = multiples of 8; dB re the firing lines`);
+  console.log('variant        ' + rpms.map((r) => `${r}rpm`.padStart(30)).join(''));
   for (const v of variants) {
     const profile = { ...car.sound, ...v.patch };
     const cells = rpms.map((rpm) => {
       const { sig } = render(profile, rpm, thr, load, 6);
       const L = lineFamilies(sig, rpm, fLo, fHi);
-      return `half ${db(L.half / L.fire).toFixed(1).padStart(6)} whole ${db(L.whole / L.fire).toFixed(1).padStart(6)} `.padStart(24);
+      return `half ${db(L.half / L.fire).toFixed(1).padStart(6)} whole ${db(L.whole / L.fire).toFixed(1).padStart(6)} ${(100 * L.share).toFixed(1).padStart(4)}%`.padStart(30);
     });
     console.log(v.name.padEnd(15) + cells.join(''));
   }

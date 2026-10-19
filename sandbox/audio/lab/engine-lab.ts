@@ -188,7 +188,7 @@ if (cmd === 'steady') {
   const keys = ['exhaust', 'block', 'intake', 'mech', 'turbo', 'whine'] as const;
   for (const interior of [0, 1]) {
     console.log(interior ? '--- INTERIOR ---' : '--- EXTERIOR ---');
-    if (!interior) for (const car of cars) { const v = new EngineVoice(SR, car.sound, 1); const g = v.V.exGain; const rc = measureExhaustSweepRms(car.sound, SR, 0, true); const rp = measureExhaustSweepRms(car.sound, SR, g, false); console.log(`    crack-only ${(20 * Math.log10(rc)).toFixed(1)} dBFS, pulses-only ${(20 * Math.log10(rp)).toFixed(1)} dBFS`); console.log(`  ${car.id.padEnd(9)} exGain ${g.toFixed(2)} sweep-mean exhaust ${(20 * Math.log10(measureExhaustSweepRms(car.sound, SR, g))).toFixed(2)} dBFS (target ${exhaustTargetDb(car.sound.exhaustOpenness).toFixed(2)})`); }
+    if (!interior) for (const car of cars) { const v = new EngineVoice(SR, car.sound, 1); const g = v.V.exGain; const rc = measureExhaustSweepRms(car.sound, SR, 0, true); const rp = measureExhaustSweepRms(car.sound, SR, g, false); console.log(`    crack-only ${(20 * Math.log10(rc)).toFixed(1)} dBFS, pulses-only ${(20 * Math.log10(rp)).toFixed(1)} dBFS`); console.log(`  ${car.id.padEnd(9)} exGain ${g.toFixed(2)} sweep-mean exhaust ${(20 * Math.log10(measureExhaustSweepRms(car.sound, SR, g))).toFixed(2)} dBFS (target ${exhaustTargetDb(car.sound.exhaustOpenness, car.sound.displacement).toFixed(2)})`); }
     for (const car of cars) {
       const rpm = Math.round(car.physics.engine.limiterRpm * 0.7);
       const { sig, dbg } = steady(car, rpm, 1, 1, interior, 2.6);
