@@ -422,8 +422,26 @@ const lmp: CarDefinition = {
 // ─────────────────────────────────────────────────────────────────────────────
 // Mammoth — supercharged cross-plane V8 4x4 on all-terrain tyres. Brutal off the line, anywhere.
 // ─────────────────────────────────────────────────────────────────────────────
+// What it does on a flat plane (tests/probes/mammoth-probe.test.ts holds the table, tests/mammoth.test.ts the bounds): 0-100 km/h in 3.8 s with the
+// traction control on (all four tyres pull: 1.06 g in first gear, 60 mph in 3.6 s), 200 in 14.2 s, the quarter mile in 12.0 s, and 260 km/h flat out
+// in sixth (the drag of a brick, CdA 1.8, has used up the 710 hp long before the revs have; seventh and eighth are for cruising). It stops from
+// 100 in 37.5 m with ABS (1.05 g) and holds 0.92 g on the skidpad, leaning 5 degrees at the limit where a sports car leans one; it squats 3 degrees
+// under power and dives 3 under the brakes (a sports car: 0.6 and 1.2). On grass, gravel, dirt, sand and deep snow it keeps 80-90 % of its grip where
+// a road tyre keeps 60-70 and loses less speed to the ploughing; on a kerb of 12 cm at 200 km/h its long-travel suspension keeps half the load on the
+// wheel a sports car is thrown into the air by. Thrown into a flick at 110 km/h it lifts an inner wheel; it cannot be tipped by a wall, a bank
+// or loose ground in this model (its tyres give 1.05 g, a rollover takes 1.2). On packed snow, studded like every car there, it gets to 100 in 5.6 s
+// against ten for the rear- and front-drive cars. It corners worse than they do on snow (0.47 g against 0.50-0.56: heavy, tall and wide), and in
+// the dry it is between the Kestrel and the Ronin on a lap; in the rain and the snow it is quicker than all but the LMP-X.
 
-/** An all-terrain tyre: open blocks and a tall sidewall. Less bite on asphalt, much more of it on loose ground. */
+
+/**
+ * An all-terrain tyre: open blocks and a tall sidewall. Less bite on asphalt (a lower `mu` than a road tyre of the size, and a longer
+ * answer: a taller, softer carcass peaks at a larger slip angle and takes a longer run to build its force), much more of it on loose
+ * ground (`offroad`, src/physics/surfaces.ts), and good in the wet (the voids clear the water). It is a big tyre: 3.6 kg m^2 of wheel,
+ * and twice the rubber and the surface of a low-profile road tyre, so the work of cornering under 2.4 t warms it no more than a sports
+ * car warms its own (`heatScale`: lap after lap on Aurelia it runs 67-76 C, its working temperature, where without it it cooked at 130 C and lost a
+ * tenth of its grip).
+ */
 function allTerrainTire(widthMm: number, aspect: number, rimIn: number, mu: number, extra: Partial<TireSpec> = {}): TireSpec {
   return roadTire(widthMm, aspect, rimIn, mu, {
     inertia: 3.6,
@@ -439,6 +457,7 @@ function allTerrainTire(widthMm: number, aspect: number, rimIn: number, mu: numb
     coldGrip: 0.9,
     wetGrip: 0.8,
     offroad: 1,
+    heatScale: 1.9,
     ...extra,
   });
 }
@@ -475,7 +494,8 @@ const mammoth: CarDefinition = {
     'A 2.4-tonne 4x4 with a supercharged 6.2 L cross-plane V8 and all-terrain tyres. Launches like nothing else on any surface and shrugs at gravel — just never ask it to dance through fast bends.',
   class: 'SUV',
   drivetrain: 'AWD',
-  stats: { powerHp: 710, torqueNm: 880, massKg: 2450, topSpeedKmh: 260, zeroTo100: 3.9 },
+  // (measured: 0-100 in 3.83 s with the traction control on, 260.6 km/h after 150 s flat out; the curve gives 709.6 hp at 6200 rpm and 880 Nm at 4800)
+  stats: { powerHp: 710, torqueNm: 880, massKg: 2450, topSpeedKmh: 260, zeroTo100: 3.8 },
   visual: mammothVisual,
   sound: {
     cylinders: 8, layout: 'v', crankType: 'crossplane', displacement: 6.2, turbo: false, exhaustOpenness: 0.7, brightness: 0.42, gearWhine: 0.15, crackle: 0.5,
@@ -502,7 +522,7 @@ const mammoth: CarDefinition = {
       // a positive-displacement blower: full boost from just off idle, no lag (no `turbo`)
       torqueCurve: [
         [0, 420], [1000, 580], [1500, 700], [2000, 780], [2500, 830], [3000, 855], [3500, 870], [4000, 878], [4800, 880],
-        [5200, 870], [5600, 845], [6000, 820], [6200, 805], [6500, 760], [7000, 640],
+        [5200, 872], [5600, 852], [6000, 830], [6200, 815], [6500, 775], [7000, 640],
       ],
       engineBraking: 160,
       inertia: 0.3,
@@ -523,13 +543,20 @@ const mammoth: CarDefinition = {
       centerDiff: { type: 'lsd', preload: 120, powerLock: 0.35, coastLock: 0.2 },
       frontDiff: { type: 'open', preload: 0, powerLock: 0, coastLock: 0 },
     },
+    // (sized for the weight: a full pedal asks for 1.34 g, more than the tyres give, so ABS has the last word on dry asphalt as on a sports car)
     brakes: { frontTorque: 4600, rearTorque: 2300, handbrakeTorque: 2200, discHeatCapacity: 5200 },
-    // a brick with a light bar: no downforce, a little lift
-    aero: { dragArea: 1.62, liftAreaFront: -0.1, liftAreaRear: -0.06 },
-    tireFront: allTerrainTire(315, 55, 20, 1.0),
-    tireRear: allTerrainTire(315, 55, 20, 1.0),
-    suspFront: { travel: 0.22, spring: 40000, bump: 3000, rebound: 5600, antiRoll: 26000, camber: -0.4 * DEG },
-    suspRear: { travel: 0.24, spring: 46000, bump: 3200, rebound: 6000, antiRoll: 18000, camber: -0.2 * DEG },
+    // a brick with a light bar: 3.3 m^2 of frontal area at a Cd of 0.55, no downforce, a little lift (0.5 kN at the top speed: 2 % of the weight)
+    aero: { dragArea: 1.8, liftAreaFront: -0.1, liftAreaRear: -0.06 },
+    // (1.03 on asphalt, where a road tyre of the size has 1.1-1.15; the studded tyre of a winter circuit has its own friction, src/physics/compound.ts)
+    tireFront: allTerrainTire(315, 55, 20, 1.03),
+    tireRear: allTerrainTire(315, 55, 20, 1.03),
+    // Long travel and soft: 24 and 26 cm, so that a 12 cm kerb or the foot of a snowbank is a bump and not a launch ramp. Wheel rates of 34 and 38 kN/m
+    // (1.14 Hz on a 660 kg front corner, 1.31 Hz on a 560 kg rear one) with bars of 5 and 7 kN/m give 142 kNm/rad of roll stiffness: the 5.3 degrees at
+    // 0.92 g that the body shows (m a (h - roll centre) over it), and 3 degrees of pitch at 1 g. 46 % of the roll stiffness is at the front: a front-engined
+    // four-wheel drive pushes, and what is taken from the front bar is given to the tail. Damped at 0.32 in bump and 0.59 in rebound at the front (0.35 and
+    // 0.65 at the rear), so that a hard flick at speed unloads an inner wheel for a moment without the body ringing.
+    suspFront: { travel: 0.24, spring: 34000, bump: 3000, rebound: 5600, antiRoll: 5000, camber: -0.4 * DEG },
+    suspRear: { travel: 0.26, spring: 38000, bump: 3200, rebound: 6000, antiRoll: 7000, camber: -0.2 * DEG },
   },
 };
 

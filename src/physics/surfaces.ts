@@ -63,9 +63,9 @@ interface OffroadGain {
 
 const OFFROAD_GAIN: Partial<Record<SurfaceType, OffroadGain>> = {
   grass: { grip: 0.55, wet: 0.5, rolling: 0.1, plough: 0.1 },
-  dirt: { grip: 0.6, wet: 0.5, rolling: 0.1, plough: 0.1 },
-  gravel: { grip: 0.55, rolling: 0.35, plough: 0.35 },
-  sand: { grip: 0.45, rolling: 0.4, plough: 0.4 },
+  dirt: { grip: 0.7, wet: 0.5, rolling: 0.1, plough: 0.1 },
+  gravel: { grip: 0.65, rolling: 0.35, plough: 0.35 },
+  sand: { grip: 0.5, rolling: 0.4, plough: 0.4 },
   deepsnow: { grip: 0.2, rolling: 0.35, plough: 0.35 },
 };
 
