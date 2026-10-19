@@ -9,7 +9,7 @@ import { MenuMusic, UiSynth, buildMasterGraph } from '../../src/audio';
 import { encodeWav16 } from '../../src/audio/wav';
 import type { UiSound } from '../../src/core/contracts';
 import { DEFAULT_VOLUMES, SR, renderScene, type SceneResult } from './harness';
-import { followListener, impactCar, passByCar, run3Car, steppedCar, tireCar } from './scenarios';
+import { followListener, impactCar, passByCar, run3Car, steppedCar, tireCar, type Segment } from './scenarios';
 import { db, peakAbs, rms, toBase64 } from './report-util';
 import { simulateWiper } from './wiper-sim';
 
@@ -72,11 +72,15 @@ async function renderMusicPreview(seconds: number, startBar: number): Promise<Sc
   return { left: buf.getChannelData(0).slice(), right: buf.getChannelData(1).slice(), sr: SR, renderMs: performance.now() - t0, quanta: 0 };
 }
 
-/** `only` = 'wiper' renders just the cockpit-wiper previews (the others take minutes). */
+/** `only` = 'wiper' renders just the cockpit-wiper previews, 'mammoth' just the Mammoth's engine scenes (the others take minutes). */
 export async function renderPreviews(log: (m: string) => void, only?: string): Promise<Record<string, PreviewWav>> {
   const out: Record<string, PreviewWav> = {};
   if (only === 'wiper') {
     await renderWiperPreviews(out, log);
+    return out;
+  }
+  if (only === 'mammoth') {
+    await renderMammothPreviews(out, log);
     return out;
   }
 
@@ -209,6 +213,81 @@ export async function renderPreviews(log: (m: string) => void, only?: string): P
   // 9) the cockpit wiper: motor, rubber swish, the thunks at both ends of the sweep, a squeak now and then
   await renderWiperPreviews(out, log);
   return out;
+}
+
+/**
+ * The Mammoth's engine through the real stack (worklet voice, panner, buses, master compressor and limiter): a run through the gears from outside
+ * and from the cabin with the Vanta's for comparison, a cold idle with three blips, a lift-off from 5000 rpm (the burble) and the same pull with
+ * the banks merged and in a true dual exhaust.
+ */
+async function renderMammothPreviews(out: Record<string, PreviewWav>, log: (m: string) => void): Promise<void> {
+  const car = getCar('mammoth');
+  const vanta = getCar('vanta-gt');
+  const e = car.physics.engine;
+  /** A script of (rpm, throttle, load) sampled every 40 ms into the piecewise-constant segments the stepped car takes. */
+  const segments = (secs: number, f: (t: number) => { rpm: number; throttle: number; load?: number }): Segment[] => {
+    const s: Segment[] = [];
+    for (let t = 0; t < secs; t += 0.04) s.push({ t, ...f(t) });
+    return s;
+  };
+  const idleBlips = (t: number): { rpm: number; throttle: number; load: number } => {
+    const idle = e.idleRpm * (1 + 0.75 * Math.exp(-t / 2.6));
+    let rpm = idle;
+    let thr = 0;
+    for (const [t0, size] of [[6.2, 0.3], [8.6, 0.55], [11.0, 0.8]]) {
+      const u = t - t0;
+      if (u >= 0 && u < 0.3 + 0.25 * size) {
+        thr = size;
+        rpm = idle + 6200 * size * (1 - Math.exp(-u / 0.1));
+      } else if (u >= 0.3 + 0.25 * size && u < 2) {
+        const top = idle + 6200 * size * (1 - Math.exp(-(0.3 + 0.25 * size) / 0.1));
+        rpm = idle + (top - idle) * Math.exp(-(u - 0.3 - 0.25 * size) / 0.32);
+      }
+    }
+    return { rpm, throttle: thr, load: 0.28 * thr + 0.05 };
+  };
+  const lift = (t: number): { rpm: number; throttle: number; load: number } =>
+    t < 1.6 ? { rpm: 3000 + 2000 * (t / 1.6), throttle: 1, load: 1 } : { rpm: Math.max(e.idleRpm * 1.6, 5000 - ((t - 1.6) / 5.2) * 3900), throttle: 0, load: 0 };
+  const abScene = (t: number): { rpm: number; throttle: number; load: number } => {
+    if (t < 2.4) return { rpm: e.idleRpm * 1.06, throttle: 0, load: 0.06 };
+    if (t < 5.2) {
+      const u = (t - 2.4) / 2.8;
+      return { rpm: e.idleRpm * 1.06 + (2200 - e.idleRpm * 1.06) * u * u, throttle: 0.22, load: 0.2 };
+    }
+    return { rpm: 2200 + 2400 * Math.min(1, (t - 5.2) / 3), throttle: 1, load: 1 };
+  };
+
+  for (const [name, car2, interior, back, height, note] of [
+    ['mammoth-run3-chase', car, 0, 5, 1.6, 'Mammoth: WOT through 3 gears, lift, overrun (chase camera)'],
+    ['mammoth-run3-cockpit', car, 1, 0, 1.0, 'Mammoth from the cockpit: the blower louder, the exhaust muffled by the cabin'],
+    ['vanta-run3-chase', vanta, 0, 5, 1.6, 'Vanta GT for comparison: WOT through 3 gears, lift, overrun (chase camera)'],
+  ] as const) {
+    log(name);
+    const c = run3Car(car2);
+    const r = await renderScene({ seconds: 10, cars: [{ ...c, interior }], listener: followListener(c, back, height), volumes: DEFAULT_VOLUMES });
+    out[name] = pack(r, 1, note);
+  }
+  for (const [name, interior, back, height, note] of [
+    ['mammoth-idle-blips', 0, 5, 1.6, 'Mammoth: cold idle settling, three blips of the throttle (chase camera)'],
+    ['mammoth-idle-blips-cockpit', 1, 0, 1.0, 'Mammoth: cold idle settling, three blips of the throttle (cockpit)'],
+  ] as const) {
+    log(name);
+    const c = steppedCar(car, segments(15, idleBlips));
+    const r = await renderScene({ seconds: 15, cars: [{ ...c, interior }], listener: followListener(c, back, height), volumes: DEFAULT_VOLUMES });
+    out[name] = pack(r, 1, note);
+  }
+  {
+    log('mammoth-lift-off');
+    const c = steppedCar(car, segments(8, lift));
+    const r = await renderScene({ seconds: 8, cars: [{ ...c, interior: 0 }], listener: followListener(c, 5, 1.6), volumes: DEFAULT_VOLUMES });
+    out['mammoth-lift-off'] = pack(r, 1, 'Mammoth: full throttle 3000..5000 rpm, the pedal comes off at 1.6 s: the burble and the pops (chase camera)');
+  }
+  for (const system of ['merged', 'dual'] as const) {
+    log(`mammoth-ab-${system}`);
+    const c = steppedCar(car, segments(8.4, abScene));
+    const r = await renderScene({ seconds: 8.4, cars: [{ ...c, profile: { ...car.sound, exhaustSystem: system }, interior: 0 }], listener: followListener(c, 5, 1.6), volumes: DEFAULT_VOLUMES });
+    out[`mammoth-ab-${system}`] = pack(r, 1, `Mammoth's V8 with its banks ${system === 'merged' ? 'merged in an X-pipe' : 'in a true dual exhaust'}: warm idle, a roll up through 2200 rpm on a light pedal, a full-throttle pull to 4600`);
+  }
 }
 
 async function renderWiperPreviews(out: Record<string, PreviewWav>, log: (m: string) => void): Promise<void> {

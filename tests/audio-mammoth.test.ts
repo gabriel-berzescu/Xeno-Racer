@@ -115,8 +115,8 @@ describe('what the profile asks for is all the shared voice does for the Mammoth
   it('a big engine is louder at the same openness; every engine of 4.5 L and under is exactly where it was', () => {
     expect(exhaustTargetDb(0.6, 4.0)).toBe(exhaustTargetDb(0.6));
     expect(exhaustTargetDb(0.6, 4.5)).toBe(exhaustTargetDb(0.6));
-    expect(exhaustTargetDb(0.7, 6.2)).toBeGreaterThan(exhaustTargetDb(0.7, 4.5) + 1.5);
-    expect(exhaustTargetDb(0.7, 6.2)).toBeLessThan(exhaustTargetDb(0.7, 4.5) + 3);
+    expect(exhaustTargetDb(0.7, 6.2)).toBeGreaterThan(exhaustTargetDb(0.7, 4.5) + 2);
+    expect(exhaustTargetDb(0.7, 6.2)).toBeLessThan(exhaustTargetDb(0.7, 4.5) + 4);
   });
 });
 

@@ -240,8 +240,10 @@ export function deriveVoicing(p: EngineSoundProfile, layout: EngineLayout): Voic
     gM: layout.banks === 2 ? 1.5 : 1.0,
     rc: lerp(5.2, 1.18, Math.pow(o, 0.8)),
     rq: lerp(0.45, 0.06, o),
-    Rc: 0.78,
-    Ro: lerp(0.95, 0.88, o),
+    // (a dual exhaust is two separate pipes with the big mufflers of a truck and nothing to scatter the energy of a resonance into, as the junction
+    // of a merged system does: damped a little more, its pipes' resonances sweep through the firing harmonics by 3 dB a 66 ms, not 5)
+    Rc: dual ? 0.66 : 0.78,
+    Ro: lerp(0.95, 0.88, o) * (dual ? 0.88 : 1),
     Rq: 0.85,
     fcP: 5200 + 3500 * b,
     fcS: 6000 + 3000 * b,
@@ -294,7 +296,7 @@ export function deriveVoicing(p: EngineSoundProfile, layout: EngineLayout): Voic
     dual,
     dualLen: [1, 1.004],
     dualMuff: [1, 0.97],
-    dualGain: [1.15, 0.88],
+    dualGain: [1.28, 0.78],
     dualDelay: 0.0005,
     dualFloor: 0.12,
   };
@@ -543,6 +545,8 @@ export class EngineVoice {
   // supercharger: rotor phase (turns), smoothed strength, the hiss of the air
   private scPh = 0;
   private scA = 0;
+  /** The slow unevenness of the whine (a few percent, a few times a second): the air is never quite steady. */
+  private scDr = 0;
   private svfSc = new SVF();
 
   // the cross-plane V8's lumpiness (pulseFactor): what each bank's pipe still holds of the last pulses, when the bank last fired (in samples)
@@ -1096,7 +1100,7 @@ export class EngineVoice {
     const tBlk = lerp(0.5, 0.85, sI) * (0.15 + 0.85 * loadE) * (0.35 + 0.65 * rpmN) * (1 + 1.2 * smoothstep(idle * 2.2, idle * 1.0, rpm));
     const tInt = lerp(0.42, 1.05, sI) * V.intakeGain * intakeAmt;
     const tMech = lerp(0.145, 0.36, sI) * (0.25 + 0.75 * Math.pow(rpmN, 1.6)) * (0.45 + 0.55 * loadE);
-    const tTur = V.turbo ? lerp(0.165, 0.46, sI) : V.blower ? lerp(0.55, 1.15, sI) : 0;
+    const tTur = V.turbo ? lerp(0.165, 0.46, sI) : V.blower ? lerp(1.15, 2.1, sI) : 0;
     const tWh = lerp(0.14, 0.9, sI) * V.whine;
     const tEv = lerp(0.7, 1.0, sI);
     if (firstBlock) {
@@ -1200,6 +1204,7 @@ export class EngineVoice {
     const blowLobes = V.blowerLobes;
     const blowKa = 1 - Math.exp(-invSr / 0.05);
     const blowKr = 1 - Math.exp(-invSr / 0.03);
+    const blowKdr = 1 - Math.exp((-TAU * 4) / sr);
     if (blowOn) this.svfSc.set(clamp(blowInc1 * sr * 3.3, 900, sr * 0.4), 2.5, sr);
     const svfSc = this.svfSc;
 
@@ -1315,6 +1320,7 @@ export class EngineVoice {
     let whA3 = this.whA3;
     let scPh = this.scPh;
     let scA = blowOn ? this.scA : 0; // a blower that was not rendered (lite) fades in again, it does not come back at its old level
+    let scDr = this.scDr;
     let bovEnv = this.bovEnv;
     let flutPh = this.flutPh;
     let popEnv = this.popEnv;
@@ -1391,7 +1397,7 @@ export class EngineVoice {
           accSn[g] += aS * (1 - frac);
           if (!cutActive) {
             // (the rasp of a weak pulse is weak, and the rasp of the tailpipe the listener is nearer to is the stronger)
-            const ca = (crackAmp + burb * V.crackAbs * 0.3) * cs.gain * (0.6 + 0.8 * rng.u()) * pf * (dualOn ? tails[cs.bank].gain : 1);
+            const ca = (crackAmp + burb * V.crackAbs * 0.12) * cs.gain * (0.6 + 0.8 * rng.u()) * pf * (dualOn ? tails[cs.bank].gain : 1);
             crackIn += ca * frac;
             crackInN += ca * (1 - frac);
           }
@@ -1692,9 +1698,11 @@ export class EngineVoice {
         }
 
         // supercharger: the lobe-pass whine and its harmonics (the rotor's own turn beneath them) and the hiss of the air. The belt
-        // drive's speed fluctuates a little at the firing frequency, so every line has sidebands one firing frequency either side.
+        // drive's speed fluctuates a little at the firing frequency, and the intake's pressure pulses at it modulate the air the blower
+        // pushes: every line has sidebands one firing frequency either side. A slow unevenness of a few percent keeps the tone from being a sine.
         if (blowOn) {
           scA += (blowTarget > scA ? blowKa : blowKr) * (blowTarget - scA);
+          scDr += blowKdr * (nz - scDr);
           if (scA > 1e-4) {
             const bInc = blowInc0 + (blowInc1 - blowInc0) * fr;
             scPh += (bInc / blowLobes) * (1 + 0.03 * sinCyc(wrap1(nN * cyc)));
@@ -1703,7 +1711,7 @@ export class EngineVoice {
             const tone =
               sinCyc(bl) + 0.12 * sinCyc(scPh) + blowW2 * sinCyc(wrap1(bl * 2)) + blowW3 * sinCyc(wrap1(bl * 3)) + blowW4 * sinCyc(wrap1(bl * 4));
             svfSc.step(nz2);
-            turbo += (tone + 0.5 * svfSc.bpn) * scA * 0.05;
+            turbo += (tone + 0.5 * svfSc.bpn) * scA * 0.05 * (1 + 0.1 * sinCyc(wrap1(nN * cyc + 0.3)) + 6.5 * scDr);
           }
         }
       } else {
@@ -1780,6 +1788,7 @@ export class EngineVoice {
     this.whA3 = whA3;
     this.scPh = scPh;
     this.scA = scA;
+    this.scDr = scDr;
     this.clock += len;
     this.bovEnv = bovEnv;
     this.flutPh = flutPh;
@@ -1871,11 +1880,12 @@ const calCache = new Map<string, number>();
 
 /**
  * Target exhaust RMS (dBFS), power-averaged over a WOT sweep: open exhausts are a little louder, and so is a big engine, which moves
- * more air through the same pipes (4.5 dB for every doubling of the displacement above 4.5 L: a 6.2 L V8 is 2 dB louder than the 4.5 L
- * V10 of the roster at the same openness; every engine of 4.5 L and under is exactly where it was).
+ * more air through the same pipes (6.5 dB for every doubling of the displacement above 4.5 L: a 6.2 L V8 is 3 dB louder than the 4.5 L
+ * V10 of the roster at the same openness, which puts a big truck of a V8 level with the sports car in the loudness lab; every engine of
+ * 4.5 L and under is exactly where it was).
  */
 export function exhaustTargetDb(openness: number, displacement = 0): number {
-  return -20.5 + 4.5 * openness + 4.5 * Math.log2(Math.max(displacement, 4.5) / 4.5);
+  return -20.5 + 4.5 * openness + 6.5 * Math.log2(Math.max(displacement, 4.5) / 4.5);
 }
 
 /**
