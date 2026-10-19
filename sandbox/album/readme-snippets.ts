@@ -111,14 +111,20 @@ export function readmeSnippets(p: ReadmePrelude, mark: (block: number) => void):
   s.setSidechain({ release: 0.2, curve: 1.4, attack: 0.004, hold: 0.02, depth: 1 }); // curve above 1 pumps: slow start, quick finish
 
   mark(13);
-  s.setMaster({ trim: 2.5, glue: 1, sat: 0.3 });
+  // chords that pump on every beat on their own, while the kick and the sub keep the global sidechain
+  const pumped = s.synth('supersaw-chord', { name: 'pumped', gain: -9, fx: [fx.pump({ pattern: 'x...x...x...x...', depth: 0.8, release: 0.3, curve: 1.4 })] });
+  pumped.play(s.chords('Am | F', { octave: 3 }), S.drop);
+  pumped.ramp('fx.pump.depth', S.drop.bar, S.drop.bar + 4, 0, 0.8); // the pump grows in over the first four bars
 
   mark(14);
+  s.setMaster({ trim: 2.5, glue: 1, sat: 0.3 });
+
+  mark(15);
   const music = s.bus('music', { hp: 30, comp: { threshold: -16, ratio: 2 } });
   s.synth('string-pad', { name: 'strings', bus: 'music', gain: -10 }).play(s.chords('F', { octave: 3 }), S.outro);
   music.auto('mix.lp', [[40, 20000], [47, 600, 'exp']]); // closes the music bus over the last bars before bar 47
 
-  mark(15);
+  mark(16);
   // 1. a snare roll over the last two bars before the drop: eighths, then sixteenths with rising velocity
   kit.play(s.drums({ snare: '1.2.3.4.5.6.7.8. | 1234567899999999' }), S.drop.bar - 2);
   // 2. a riser under it (the hit length is the sweep length) and a reverse crash that ends exactly on the drop
@@ -145,7 +151,7 @@ export function readmeSnippets(p: ReadmePrelude, mark: (block: number) => void):
   pad.play(s.chords('Am', { octave: 3 }), S.outro.end - 0.5, 0.5);
   s.impact('impact', { name: 'boom3', gain: -6, reverb: 0.3 }).hit(S.outro.end - 0.5, '', 0.8);
 
-  mark(16);
+  mark(17);
   const myPad: SynthOpts = {
     layers: [{ wave: 'saw', unison: 5, detune: 1 }, { wave: 'tri', octave: -1, level: 0.5 }],
     filter: 'lp', cutoff: 900, res: 0.2, envAmt: 1.5, fAttack: 0.6, fDecay: 1.5, fSustain: 0.4,
@@ -156,158 +162,163 @@ export function readmeSnippets(p: ReadmePrelude, mark: (block: number) => void):
   s.synth({ ...myPad, cutoff: 500 }, { name: 'dark-pad' }); // a variation
   s.synth({ preset: 'supersaw-pad', cutoff: 1200 }, { name: 'pad-1200' }); // start from a preset, change what you like
 
-  mark(17); // example: s.kick
+  mark(18); // example: s.kick
   {
     s.kick('psy-kick', { gain: -3 }).play(s.hits('X...x...X...x...'), S.drop);
   }
 
-  mark(18); // example: s.snare
+  mark(19); // example: s.snare
   {
     s.snare('darksynth-snare', { reverb: 0.15 }).play(s.hits('....X.......X..g'), S.drop);
   }
 
-  mark(19); // example: s.clap
+  mark(20); // example: s.clap
   {
     s.clap('big-clap').play(s.hits('....x.......x...'), S.drop);
   }
 
-  mark(20); // example: s.hat
+  mark(21); // example: s.hat
   {
     s.hat('closed-hat', { pan: 0.2, gain: -6 }).play(s.hits('x.x.x.x.x.x.x.xo'), S.drop); // o = open hat
   }
 
-  mark(21); // example: s.tom
+  mark(22); // example: s.tom
   {
     s.tom('tom-low').play(s.notes('A2 . . . D3 . F3 . A3 . . . . . . .'), S.drop); // the note is the pitch
   }
 
-  mark(22); // example: s.cymbal
+  mark(23); // example: s.cymbal
   {
     s.cymbal('crash').hit(S.drop.bar, '', 1);
     s.cymbal('reverse-crash', { name: 'swell' }).note(S.drop.bar - 1, 'A3', 4, 1); // ends exactly where its note ends
   }
 
-  mark(23); // example: s.perc
+  mark(24); // example: s.perc
   {
     s.perc('shaker', { gain: -4 }).play(s.hits('x.xxx.xxx.xxx.xx'), S.drop);
   }
 
-  mark(24); // example: s.drumKit
+  mark(25); // example: s.drumKit
   {
     s.drumKit({ kick: 'psy-kick', snare: 'tight-snare', hat: { preset: 'closed-hat', pan: 0.2 } }).play(s.drums({ kick: 'x...x...', snare: '....x...', hat: 'x.x.x.xo' }), S.drop);
   }
 
-  mark(25); // example: s.acousticKit
+  mark(26); // example: s.acousticKit
   {
     s.acousticKit('punk-kit').play(s.drums({ kick: 'x...x.x.x...x.x.', snare: '....x.......x...', hat: 'x.x.x.x.x.x.x.xo', crash: 'X...............' }), S.drop);
   }
 
-  mark(26); // example: s.synth
+  mark(27); // example: s.synth
   {
     s.synth('supersaw-pad', { reverb: 0.3 }).play(s.chords('Am | F | C | G', { octave: 3, lead: true }), S.drop);
   }
 
-  mark(27); // example: s.sub
+  mark(28); // example: s.sub
   {
     s.sub('sub-sine', { duck: 0.8 }).play(s.chords('Am | F | C | G').roots({ low: 28 }), S.drop);
   }
 
-  mark(28); // example: s.darkBass
+  mark(29); // example: s.darkBass
   {
     s.darkBass('darksynth-bass', { duck: 0.8 }).play(s.notes('A1 A1 A1 A1 A1 A1 A1 A1 C2 C2 C2 C2 D2 D2 E2! E2'), S.drop);
   }
 
-  mark(29); // example: s.reese
+  mark(30); // example: s.reese
   {
     s.reese('reese').play(s.notes('A1 - - - - - - - E1 - - - - - - -'), S.drop);
   }
 
-  mark(30); // example: s.growl
+  mark(31); // example: s.growl
   {
     s.growl('dubstep-growl').play(s.notes('A1:8 C2:8 | D2:8 A1:8'), S.drop);
   }
 
-  mark(31); // example: s.acid
+  mark(32); // example: s.acid
   {
     s.acid('acid-303').play(s.notes('A1 . A1 A2! . A1 . A1 C2~ . A1 A1 E2! . G1 A1~'), S.drop); // ~ glides INTO C2 from the A1 right before it, and into the last A1 from G1
   }
 
-  mark(32); // example: s.riser
+  mark(33); // example: s.riser
   {
     s.riser('riser').hit(S.drop.bar - 4, '', 1, 0, 16); // 16 beats: four bars of sweep
   }
 
-  mark(33); // example: s.impact
+  mark(34); // example: s.impact
   {
     s.impact('impact-deep').hit(S.drop.bar, '', 1);
   }
 
-  mark(34); // example: s.zap
+  mark(35); // example: s.zap
   {
     s.zap('zap-fm').hit(S.drop.bar - 0.25, '', 1);
   }
 
-  mark(35); // example: s.guitar
+  mark(36); // example: s.guitar
   {
     s.guitar('punk-guitar').play(s.notes('[A2,E3,A3]{pm}:2 [A2,E3,A3]{pm}:2 [C3,G3,C4]!:4 [A2,E3,A3]:8'), S.drop);
   }
 
-  mark(36); // example: s.bassGuitar
+  mark(37); // example: s.bassGuitar
   {
     s.bassGuitar('punk-bass').play(s.notes('A1 A1 A1 A1 A1 A1 A1 A1 C2 C2 D2 D2 E2 E2 E2 E2'), S.drop);
   }
 
-  mark(37); // example: fx.drive
+  mark(38); // example: fx.drive
   {
     s.darkBass('darksynth-bass', { fx: [fx.drive({ mode: 'tube', drive: 14 })] }).play(s.notes('A1:8 C2:8'), S.drop);
   }
 
-  mark(38); // example: fx.chorus
+  mark(39); // example: fx.chorus
   {
     s.synth('supersaw-pad', { fx: [fx.chorus({ rate: 0.4, depth: 5 })] }).play(s.chords('Am', { octave: 3 }), S.drop);
   }
 
-  mark(39); // example: fx.phaser
+  mark(40); // example: fx.phaser
   {
     s.synth('warm-pad', { fx: [fx.phaser({ stages: 6, rate: 0.2 })] }).play(s.chords('Am', { octave: 3 }), S.drop);
   }
 
-  mark(40); // example: fx.crusher
+  mark(41); // example: fx.crusher
   {
     s.synth('square-lead', { fx: [fx.crusher({ bits: 8, rate: 4 })] }).play(s.notes('A4:8 E5:8'), S.drop);
   }
 
-  mark(41); // example: fx.widener
+  mark(42); // example: fx.widener
   {
     s.synth('supersaw-pad', { fx: [fx.widener({ width: 1.5 })] }).play(s.chords('Am', { octave: 3 }), S.drop);
   }
 
-  mark(42); // example: fx.gate
+  mark(43); // example: fx.gate
   {
     s.synth('supersaw-pad', { fx: [fx.gate({ pattern: 'x.xx.x.x', res: 4 })] }).play(s.chords('Am', { octave: 3 }), S.drop);
   }
 
-  mark(43); // example: fx.filter
+  mark(44); // example: fx.pump
+  {
+    s.synth('supersaw-chord', { fx: [fx.pump({ pattern: 'x...x...x...x...', depth: 0.8, release: 0.3 })] }).play(s.chords('Am | F', { octave: 3 }), S.drop);
+  }
+
+  mark(45); // example: fx.filter
   {
     s.synth('saw-lead', { fx: [fx.filter({ mode: 'lp', cutoff: 800, lfoRate: 0.5, lfoDepth: 2 })] }).play(s.notes('A3:8 E3:8'), S.drop);
   }
 
-  mark(44); // example: fx.delay
+  mark(46); // example: fx.delay
   {
     s.synth('pluck', { fx: [fx.delay({ time: '1/8.', feedback: 0.4 })] }).play(s.notes('A4 . . . . . . . E5 . . . . . . .'), S.drop);
   }
 
-  mark(45); // example: fx.reverb
+  mark(47); // example: fx.reverb
   {
     s.snare('darksynth-snare', { fx: [fx.reverb({ gated: true })] }).play(s.hits('....X.......X...'), S.drop);
   }
 
-  mark(46); // example: fx.amp
+  mark(48); // example: fx.amp
   {
     s.synth('saw-lead', { fx: [fx.amp({ gain: 0.8, cab: '4x12' })] }).play(s.notes('A3:8 E3:8'), S.drop);
   }
 
 }
 
-export const SNIPPET_BLOCKS = 16;
-export const EXAMPLE_BLOCKS = 30;
+export const SNIPPET_BLOCKS = 17;
+export const EXAMPLE_BLOCKS = 31;

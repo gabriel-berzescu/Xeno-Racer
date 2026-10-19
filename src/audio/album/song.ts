@@ -12,7 +12,7 @@ import { Rng, divisionToBeats, hashString } from './dsp/core';
 import { Ctx, Effect, FLAG, FxSpec, Instrument, LFO_SHAPES, ParamHost, ParamSpec, Transport, checkKeys, pickWord, rangeError, suggest } from './instrument';
 import { Bus, Channel, DUCK_SPECS, DelayReturn, Duck, MASTER_SPECS, MasterBus, MixOpts, REVERB_RETURN_SPECS, ReverbReturn, STRIP_SPECS, Strip } from './mixer';
 import type { DelayOpts, FxKind } from './fx';
-import { AMP_SPECS, CHORUS_SPECS, CRUSH_SPECS, DELAY_SPECS, DRIVE_SPECS, FILTER_SPECS, FX_KINDS, GATE_SPECS, PHASER_SPECS, REVERB_FX_SPECS, WIDEN_SPECS } from './fx';
+import { AMP_SPECS, CHORUS_SPECS, CRUSH_SPECS, DELAY_SPECS, DRIVE_SPECS, FILTER_SPECS, FX_KINDS, GATE_SPECS, PHASER_SPECS, PUMP_SPECS, REVERB_FX_SPECS, WIDEN_SPECS } from './fx';
 import {
   ARP_KEYS,
   ArpOpts,
@@ -142,6 +142,7 @@ const FX_KEYS: Record<FxKind, string[]> = {
   crusher: [...Object.keys(CRUSH_SPECS), 'name'],
   widener: [...Object.keys(WIDEN_SPECS), 'name'],
   gate: [...Object.keys(GATE_SPECS), 'pattern', 'res', 'name'],
+  pump: [...Object.keys(PUMP_SPECS), 'pattern', 'res', 'name'],
   filter: [...Object.keys(FILTER_SPECS), 'mode', 'shape', 'name'],
   delay: [...Object.keys(DELAY_SPECS), 'name'],
   reverb: [...Object.keys(REVERB_FX_SPECS), 'gated', 'name'],
@@ -236,6 +237,8 @@ export const fx = {
   widener: (o?: import('./fx').WidenerOpts) => fxSpec('widener', o),
   /** Rhythmic gate: `fx.gate({ pattern: 'x.xx.x.x' })`. */
   gate: (o: import('./fx').GateOpts) => fxSpec('gate', o),
+  /** A tempo-locked duck on this channel, the shape of the sidechain: `fx.pump({ pattern: 'x...x...x...x...', depth: 0.8 })`. */
+  pump: (o?: import('./fx').PumpOpts) => fxSpec('pump', o),
   filter: (o?: import('./fx').FilterFxOpts) => fxSpec('filter', o),
   delay: (o?: DelayOpts) => fxSpec('delay', o),
   reverb: (o?: import('./fx').ReverbFxOpts) => fxSpec('reverb', o),

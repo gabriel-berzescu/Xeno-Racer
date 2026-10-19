@@ -10,7 +10,7 @@ import { AKIT_PARTS, AKIT_PRESETS, AKIT_SPECS } from './instruments/acoustic-kit
 import { BASSG_PRESETS, BASSG_SPECS, GUITAR_PRESETS, GUITAR_SPECS } from './instruments/guitar';
 import { IMPACT_PRESETS, IMPACT_SPECS, RISER_PRESETS, RISER_SPECS, ZAP_PRESETS, ZAP_SPECS } from './instruments/sfx';
 import { SYNTH_PRESETS, SYNTH_SPECS } from './instruments/synth';
-import { AMP_SPECS, CHORUS_SPECS, CRUSH_SPECS, DELAY_SPECS, DRIVE_SPECS, FILTER_SPECS, GATE_SPECS, PHASER_SPECS, REVERB_FX_SPECS, WIDEN_SPECS } from './fx';
+import { AMP_SPECS, CHORUS_SPECS, CRUSH_SPECS, DELAY_SPECS, DRIVE_SPECS, FILTER_SPECS, GATE_SPECS, PHASER_SPECS, PUMP_SPECS, REVERB_FX_SPECS, WIDEN_SPECS } from './fx';
 import { DELAY_RETURN_SPECS, DUCK_SPECS, MASTER_SPECS, REVERB_RETURN_SPECS, STRIP_SPECS } from './mixer';
 
 export interface InstrumentDoc {
@@ -370,6 +370,20 @@ export const FX_CATALOG: FxDoc[] = [
     specs: GATE_SPECS,
     options: [
       ['pattern', "required: one character per step: 'x' open, '.' (or '-' or '0') closed, digits 1-9 partial (9 almost open); spaces and | are ignored. The pattern repeats on its own length, counted from the start of the song, so 16 steps at the default resolution is one bar and 8 steps is two beats"],
+      ['res', 'steps per beat (4 = sixteenths, the default)'],
+    ],
+  },
+  {
+    name: 'pump',
+    example: 's.synth(\'supersaw-chord\', { fx: [fx.pump({ pattern: \'x...x...x...x...\', depth: 0.8, release: 0.3 })] }).play(s.chords(\'Am | F\', { octave: 3 }), S.drop);',
+    summary:
+      'A tempo-locked pump on one channel: a duck with the shape of the sidechain (attack, hold, release, curve) that starts on the steps of a pattern instead of on the kick, so chords can pump on their own rhythm while the sub follows the kick. `fx.pump({ pattern: "x...x...x...x...", depth: 0.8 })`.',
+    specs: PUMP_SPECS,
+    options: [
+      [
+        'pattern',
+        "one character per step: 'x' (or 'X') a full duck, '.' (or '-' or '0') none, digits 1-9 a duck of that part of the depth (9 = full); spaces and bar lines are ignored. The default is a duck on every beat of a 4/4 bar, 'x...x...x...x...'. Like the gate it repeats on its own length, counted from the start of the song, so 16 steps at the default resolution is one bar, and a pattern written as two bars is 32 steps",
+      ],
       ['res', 'steps per beat (4 = sixteenths, the default)'],
     ],
   },

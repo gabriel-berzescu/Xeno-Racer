@@ -577,6 +577,22 @@ Automation path: `duck.<param>`.
 | `curve` | 1 | 0.3 .. 4 |  | 1 = exponential recovery; above 1 the recovery starts slower and finishes quicker (pumping), below 1 the opposite. |
 <!-- /gen -->
 
+**Pump or duck?** The sidechain is one envelope for the whole song, started by the kick: every channel with `duck` dips together, on the kick's
+hits. `fx.pump` (section 9, Reference B) is the same envelope started by a pattern of its own and applied to one channel. Use `duck` for the parts
+that follow the kick (the sub, the bass, the growl); use `pump` for a part that should breathe on a rhythm that is not the kick's, such as future-bass
+chords pumping on every beat while the kick plays the downbeat and its syncopations. `pump` takes the sidechain's `attack`, `hold`, `release` and
+`curve` with the same meanings (a setting that works in `s.setSidechain({ ... })` works in `fx.pump({ ... })`: the gain follows the same curve to
+within 1e-12), and its `depth` plays the part of the strip's `duck` (0 is off, an exact pass-through, and a change acts at once, also in the middle of
+a duck). A channel can have both, and the two ducks multiply. The pump is locked to the song's beat grid: it does not drift, does not care how the song
+is cut into segments and lands on the same frame as a kick written on the same step.
+
+```ts run
+// chords that pump on every beat on their own, while the kick and the sub keep the global sidechain
+const pumped = s.synth('supersaw-chord', { name: 'pumped', gain: -9, fx: [fx.pump({ pattern: 'x...x...x...x...', depth: 0.8, release: 0.3, curve: 1.4 })] });
+pumped.play(s.chords('Am | F', { octave: 3 }), S.drop);
+pumped.ramp('fx.pump.depth', S.drop.bar, S.drop.bar + 4, 0, 0.8); // the pump grows in over the first four bars
+```
+
 **Master.** Trim, a tone shelf pair, a glue compressor, soft saturation, mono-bass and a look-ahead true-peak limiter (ceiling -1.4 dB,
 inter-sample peaks detected on a 4x oversampled signal). **The trim is how you set the loudness of the whole track**: render, read the
 probe's integrated LUFS and change the trim until it says about -14 (within 0.5 LU), with the true peak at or below -1 dBTP. Do it last,
@@ -621,7 +637,7 @@ Insert effects are recipes created with `fx.<name>(options)` and listed in a str
 and EQ. Their parameters are automatable as `<channel>.fx.<name>.<param>`; a second effect of the same kind is called `drive2` (or
 pass `name`).
 
-The parameter tables of every effect are in **Reference B** at the end of this guide. In short: `fx.drive` (saturation: soft, tube, hard clip or wavefolder), `fx.chorus` (chorus / flanger), `fx.phaser`, `fx.crusher` (bit and sample-rate reduction), `fx.widener` (stereo width with the lows kept centred), `fx.gate` (a rhythmic trance gate locked to the song), `fx.filter` (low-pass, high-pass, band-pass or notch with a tempo-locked LFO), `fx.delay` (ping-pong delay as an insert), `fx.reverb` (also the 80s gated reverb) and `fx.amp` (the guitar amp and cabinet on any channel).
+The parameter tables of every effect are in **Reference B** at the end of this guide. In short: `fx.drive` (saturation: soft, tube, hard clip or wavefolder), `fx.chorus` (chorus / flanger), `fx.phaser`, `fx.crusher` (bit and sample-rate reduction), `fx.widener` (stereo width with the lows kept centred), `fx.gate` (a rhythmic trance gate locked to the song), `fx.pump` (a tempo-locked duck on one channel, with the shape of the sidechain: section 8), `fx.filter` (low-pass, high-pass, band-pass or notch with a tempo-locked LFO), `fx.delay` (ping-pong delay as an insert), `fx.reverb` (also the 80s gated reverb) and `fx.amp` (the guitar amp and cabinet on any channel).
 
 ## 10. Transitions and fills
 
@@ -931,7 +947,9 @@ Other tools in `sandbox/album/lab/`: `guitar-lab.ts` (tuning, spectrum against a
 `fuzz.ts` and `fuzz-mix.ts` (every parameter of every instrument, effect and mixer section at its extremes: nothing may blow up),
 `fuzz-pattern.ts` (random notation and transforms: nothing may hang), `qa.ts` (every preset: clicks at note ends, silent tails, DC, velocity
 response, stereo balance), `drum-report.ts` (numbers for every electronic drum), `evidence.ts` (the measurements quoted in section 15),
-`speed.ts` (the render speed of a dense 3.5-minute track).
+`speed.ts` (the render speed of a dense 3.5-minute track), `hash-album.ts` (the SHA-256 of the audio of every track of the album and of the Sound Check:
+run it with `--save before.json` before a change to the engine and with `--check before.json` after it; with every new feature off, no hash may move)
+and `pump-lab.ts` (how close `fx.pump` is to the sidechain, where its ducks land, what it costs).
 
 **Tests**: `npx vitest run tests/album-engine.test.ts` (about 15 s) checks determinism, block-size independence, the master of the Sound
 Check (peak, loudness, DC, clean start and end), the pitch of the instruments, the kick on the beat grid, the notation, the mixer, the
@@ -963,6 +981,7 @@ second of audio.
 | acoustic kit, busy punk bar (the room alone is 5.5) | 13 |
 | electronic drum kit, busy bar | 3-4 |
 | chorus / drive insert | 1.6 / 1.5 |
+| pump insert (`curve` 1 / a bent `curve`, ducking half of the time) | 0.3 / 1.0 |
 
 A mix of 12 busy channels costs 70-90 ms per second (11-14x real time); the sound check, which plays one instrument at a time, renders at
 about 33x. Idle channels cost nothing (instruments that are silent are skipped), so arrangements that bring instruments in and out are
@@ -1008,7 +1027,10 @@ melodies (-6). Transitions: `s.riser('riser')` under the whole build (-14), `s.r
 the same factory, a snare roll with rising velocity (at 0.7 of full), `s.impact('impact')` on the first beat of the drop. The loudness of a build
 comes from exactly these, so set them first (a riser at -6 made a build louder than its own drop) and let `chords.auto('mix.hp', ...)` and a
 closing filter on a `music` bus take the rest out of it. Sidechain strongly: `duck` 0.8-1 on chords, 0.7 on the growl, 0.9 on the sub,
-`s.setSidechain({ release: 0.25, curve: 1.4 })`. A complete, balanced track: `sandbox/album/examples/dubstep.ts`.
+`s.setSidechain({ release: 0.25, curve: 1.4 })`. Future-bass chords that pump on a rhythm of their own, not the kick's, take `fx: [fx.pump({ pattern: 'x...x...x...x...', depth: 0.8, release: 0.3, curve: 1.4 })]`
+in their strip, with a light `duck` or none: they duck on every beat (`'x.x.x.x.x.x.x.x.'` ducks on every eighth, and a bar line makes a longer pattern:
+`'x...x...x...x... | x...x...x..x..x.'`), while the sub and the growl keep their `duck` and follow the kick. Ramp `fx.pump.depth` up from 0 to open a build into
+the pump. A complete, balanced track: `sandbox/album/examples/dubstep.ts`.
 
 **Punk (170-200 BPM).** `acousticKit('punk-kit')`. A verse beat (the skate beat): kick `x.......x.x.....`, snare on 2 and 4 `....x.......x...`, closed
 hat eighths `x.x.x.x.x.x.x.x.`; a chorus beat: kick on every beat `x...x...x...x...`, snare on the off-beat eighths `..x...x...x...x.` (or on 2
@@ -2142,6 +2164,31 @@ s.synth('supersaw-pad', { fx: [fx.gate({ pattern: 'x.xx.x.x', res: 4 })] }).play
 | `depth` | 1 | 0 .. 1 |  | How far the gate closes (1 = silent between hits). |
 | `attack` | 2 | 0.2 .. 50 | ms | Opening time. |
 | `release` | 25 | 0.5 .. 400 | ms | Closing time. |
+<!-- /gen -->
+
+### pump
+
+<!-- gen:fx:pump -->
+A tempo-locked pump on one channel: a duck with the shape of the sidechain (attack, hold, release, curve) that starts on the steps of a pattern instead of on the kick, so chords can pump on their own rhythm while the sub follows the kick. `fx.pump({ pattern: "x...x...x...x...", depth: 0.8 })`.
+
+Example:
+
+```ts
+s.synth('supersaw-chord', { fx: [fx.pump({ pattern: 'x...x...x...x...', depth: 0.8, release: 0.3 })] }).play(s.chords('Am | F', { octave: 3 }), S.drop);
+```
+
+| option | meaning |
+|---|---|
+| `pattern` | one character per step: 'x' (or 'X') a full duck, '.' (or '-' or '0') none, digits 1-9 a duck of that part of the depth (9 = full); spaces and bar lines are ignored. The default is a duck on every beat of a 4/4 bar, 'x...x...x...x...'. Like the gate it repeats on its own length, counted from the start of the song, so 16 steps at the default resolution is one bar, and a pattern written as two bars is 32 steps |
+| `res` | steps per beat (4 = sixteenths, the default) |
+
+| parameter | default | range | unit | what it does |
+|---|---|---|---|---|
+| `depth` | 0.8 | 0 .. 1 |  | How far the channel ducks at each step of the pattern: 1 = silent at the bottom of the duck, 0 = off (an exact pass-through). It acts at once, also in the middle of a duck, like the strip's `duck`. |
+| `attack` | 0.004 | 0.0005 .. 0.05 | s | How fast the channel drops at each step of the pattern (the sidechain's `attack`). |
+| `hold` | 0.02 | 0 .. 0.3 | s | Time the duck is held at full depth. |
+| `release` | 0.2 | 0.02 .. 1.5 | s | Recovery time: this long after the hold the channel is back at full level exactly (a total, not a time constant). With the default curve and full depth it is back to -3 dB after a fifth of it, to about -1 dB after a third. |
+| `curve` | 1 | 0.3 .. 4 |  | 1 = exponential recovery; above 1 the recovery starts slower and finishes quicker (pumping), below 1 the opposite. |
 <!-- /gen -->
 
 ### filter

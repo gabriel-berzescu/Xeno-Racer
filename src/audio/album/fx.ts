@@ -1,6 +1,6 @@
 /**
- * Insert effects for channel strips (and buses): drive, chorus, phaser, bit crusher, stereo widener, trance gate,
- * tempo-synced filter, ping-pong delay and a (gated) reverb. All parameters are automatable (`ch.auto('fx.<name>.<param>', ...)`).
+ * Insert effects for channel strips (and buses): drive, chorus, phaser, bit crusher, stereo widener, trance gate, pump (a
+ * tempo-locked duck), tempo-synced filter, ping-pong delay and a (gated) reverb. All parameters are automatable (`ch.auto('fx.<name>.<param>', ...)`).
  *
  * Create them through the Song helpers (`fx.drive({...})`, `fx.chorus({...})` ...) or directly with `new Drive(ctx, opts)`.
  */
@@ -464,6 +464,244 @@ export class TranceGate extends ParamBase<typeof GATE_SPECS> implements Effect {
   }
 }
 
+// ── Pump (a tempo-locked duck on one channel) ────────────────────────────────
+
+export const PUMP_SPECS = {
+  depth: { default: 0.8, min: 0, max: 1, doc: 'How far the channel ducks at each step of the pattern: 1 = silent at the bottom of the duck, 0 = off (an exact pass-through). It acts at once, also in the middle of a duck, like the strip\'s `duck`.' },
+  attack: { default: 0.004, min: 0.0005, max: 0.05, unit: 's', doc: 'How fast the channel drops at each step of the pattern (the sidechain\'s `attack`).' },
+  hold: { default: 0.02, min: 0, max: 0.3, unit: 's', doc: 'Time the duck is held at full depth.' },
+  release: { default: 0.2, min: 0.02, max: 1.5, unit: 's', doc: 'Recovery time: this long after the hold the channel is back at full level exactly (a total, not a time constant). With the default curve and full depth it is back to -3 dB after a fifth of it, to about -1 dB after a third.' },
+  curve: { default: 1, min: 0.3, max: 4, doc: '1 = exponential recovery; above 1 the recovery starts slower and finishes quicker (pumping), below 1 the opposite.' },
+} satisfies ParamSpecs;
+
+export interface PumpOpts extends FxBase {
+  /**
+   * One character per step: 'x' a full duck, '.' (or '-' or '0') none, digits 1-9 a duck of that fraction of the depth (9 = full).
+   * Whitespace and | are ignored, so a pattern can be several bars long. Default: a duck on every beat of a 4/4 bar.
+   */
+  pattern?: string;
+  /** Steps per beat (4 = 16ths, the default). */
+  res?: number;
+  depth?: number;
+  attack?: number;
+  hold?: number;
+  release?: number;
+  curve?: number;
+}
+
+const PUMP_IDLE = 0;
+const PUMP_ATTACK = 1;
+const PUMP_HOLD = 2;
+const PUMP_RELEASE = 3;
+
+/**
+ * A duck that starts on the steps of a pattern, locked to the song: the shape of the global sidechain (the `Duck` of the mixer: a fast
+ * one-pole attack to the floor, a hold, then a recovery that is back at full level exactly `release` seconds later, bent by `curve`), but
+ * keyed by the beat grid instead of by the kick, and on one channel only.
+ *
+ * The envelope runs sample by sample from the song position, so it never drifts and does not care how the song is cut into segments. A
+ * channel the engine skipped while it was idle, a renderer that starts in the middle of the song (`startFrame`) and a depth of 0 (the
+ * effect then does nothing at all) all leave the state behind the transport: the next block replays the last second or so of the pattern
+ * from the song position (`resync`), which gives the state a continuous run would have had.
+ *
+ * The envelope is kept in `u` terms (0 open, 1 a full duck, the gain is `1 - depth * u`): `depth` then acts at once, and the same gain
+ * multiplies both sides, so the stereo path equals the mono one.
+ */
+export class Pump extends ParamBase<typeof PUMP_SPECS> implements Effect {
+  readonly mono = true;
+  private readonly ctx: Ctx;
+  private readonly sr: number;
+  private readonly fpb: number;
+  private readonly spStep: number;
+  private readonly vel: Float64Array;
+  private readonly len: number;
+  private readonly gain = new Float64Array(BLOCK);
+  // the next step that starts a duck: its number (counted from the start of the song) and its frame
+  private nextK = -1;
+  private nextT = Infinity;
+  // the envelope
+  private phase = PUMP_IDLE;
+  private u = 0;
+  private target = 0;
+  private from = 0;
+  private holdLeft = 0;
+  private rel = 0;
+  private e = 1; // exp(-5 * rel) while a release with curve 1 runs (a running product instead of an exp per sample)
+  private eValid = false;
+  // the frame the state is at, and the frame the last call started at
+  private pos = 0;
+  private lastStart = -1;
+  constructor(ctx: Ctx, opts: PumpOpts = {}) {
+    super('Pump', PUMP_SPECS, opts);
+    this.ctx = ctx;
+    this.sr = ctx.sr;
+    const res = opts.res ?? 4;
+    if (!(res > 0) || !Number.isFinite(res)) throw new Error(`Pump: "res" (steps per beat) must be a positive number, got ${res}`);
+    this.fpb = (ctx.sr * 60) / ctx.bpm;
+    this.spStep = this.fpb / res;
+    const chars = [...(opts.pattern ?? 'x...x...x...x...').replace(/[\s|]/g, '')];
+    if (!chars.length) throw new Error('Pump: empty pattern');
+    this.len = chars.length;
+    this.vel = new Float64Array(chars.length);
+    chars.forEach((c, i) => {
+      if (c === 'x' || c === 'X') this.vel[i] = 1;
+      else if (c >= '1' && c <= '9') this.vel[i] = (c.charCodeAt(0) - 48) / 9;
+      else if (c === '.' || c === '-' || c === '0') this.vel[i] = 0;
+      else throw new Error(`Pump: bad pattern character "${c}" (use x . - 0-9)`);
+    });
+    this.locate(0);
+  }
+  /** Points `nextK` / `nextT` at the first step with a duck from step `k` on. */
+  private seek(k: number): void {
+    const vel = this.vel;
+    const len = this.len;
+    for (let g = 0; g < len && vel[k % len] === 0; g++) k++;
+    if (vel[k % len] === 0) {
+      this.nextK = -1; // a pattern without a single duck
+      this.nextT = Infinity;
+      return;
+    }
+    this.nextK = k;
+    this.nextT = Math.round(k * this.spStep); // the same rounding as the score's events: a duck and a kick on one step share a sample
+  }
+  /** The first duck at or after frame F. */
+  private locate(F: number): void {
+    const sp = this.spStep;
+    let k = Math.max(0, Math.ceil((F - 0.5) / sp));
+    while (k > 0 && Math.round((k - 1) * sp) >= F) k--;
+    while (Math.round(k * sp) < F) k++;
+    this.seek(k);
+  }
+  /**
+   * Runs the envelope for n frames from frame F0 (writing the gain into `out` when it is given). All the state is plain numbers, so a
+   * replay (out = null) and a real run are the same code.
+   */
+  private advance(F0: number, n: number, out: Float64Array | null, depth: number): void {
+    const p = this.params;
+    const sr = this.sr;
+    const aK = 1 - Math.exp(-1 / (p.attack * sr * 0.35));
+    const rStep = 1 / Math.max(p.release * sr, 1);
+    const curve = p.curve;
+    const lin = curve === 1;
+    const k5 = Math.exp(-5 * rStep);
+    const eps = 0.002 / Math.max(depth, 0.002); // the attack ends when the gain is within 0.002 of the floor (the sidechain's rule)
+    const holdSamples = p.hold * sr;
+    const vel = this.vel;
+    const len = this.len;
+    let { phase, u, target, from, holdLeft, rel, e, nextK, nextT } = this;
+    if (phase === PUMP_RELEASE && lin && !this.eValid) e = Math.exp(-5 * rel);
+    for (let i = 0; i < n; i++) {
+      if (F0 + i === nextT) {
+        // a step with a duck: a new duck dives from wherever the last one is, never up (the sidechain's rule)
+        const v = vel[nextK % len];
+        target = phase === PUMP_IDLE ? v : Math.max(u, v);
+        phase = PUMP_ATTACK;
+        holdLeft = holdSamples;
+        let k = nextK + 1;
+        while (vel[k % len] === 0) k++;
+        nextK = k;
+        nextT = Math.round(k * this.spStep);
+      }
+      if (phase === PUMP_ATTACK) {
+        u += (target - u) * aK;
+        if (u >= target - eps) {
+          u = target;
+          phase = PUMP_HOLD;
+        }
+      } else if (phase === PUMP_HOLD) {
+        if (--holdLeft <= 0) {
+          phase = PUMP_RELEASE;
+          rel = 0;
+          from = u;
+          e = 1;
+        }
+      } else if (phase === PUMP_RELEASE) {
+        rel += rStep;
+        if (rel >= 1) {
+          u = 0;
+          phase = PUMP_IDLE;
+        } else if (lin) {
+          e *= k5;
+          u = from * e * (1 - rel);
+        } else {
+          const x = Math.pow(rel, curve);
+          u = from * Math.exp(-5 * x) * (1 - x);
+        }
+      }
+      if (out) out[i] = 1 - depth * u;
+    }
+    this.phase = phase;
+    this.u = u;
+    this.target = target;
+    this.from = from;
+    this.holdLeft = holdLeft;
+    this.rel = rel;
+    this.e = e;
+    this.eValid = phase === PUMP_RELEASE && lin;
+    this.nextK = nextK;
+    this.nextT = nextT;
+  }
+  /** Brings the state to frame F by replaying the pattern before it: long enough for any earlier duck to have run its course. */
+  private resync(F: number, depth: number): void {
+    const p = this.params;
+    const sr = this.sr;
+    // a duck is over (A + H + R) after its step; one that started before the replay does not matter after that plus another (A + H) for
+    // the first replayed duck's attack, which dives from the level a missing predecessor would have left
+    const w = 2 * (Math.ceil(2.2 * p.attack * sr) + Math.ceil(p.hold * sr) + 4) + Math.ceil(p.release * sr) + 64;
+    const start = Math.max(0, F - w);
+    this.phase = PUMP_IDLE;
+    this.u = 0;
+    this.target = 0;
+    this.from = 0;
+    this.holdLeft = 0;
+    this.rel = 0;
+    this.eValid = false;
+    this.locate(start);
+    this.advance(start, F - start, null, depth);
+  }
+  /** The gain for frames [F, F+m) goes into this.gain; false when the depth is 0 and the effect leaves the signal alone. */
+  private fill(F: number, m: number, depth: number): boolean {
+    if (depth === 0) return false; // the state stays where it is: the next call with a depth replays what it missed
+    if (F !== this.pos) {
+      // not where the last call stopped: a seek, a channel that was asleep, or a depth that was 0. (A transport that never moves, as in a
+      // bare test harness, has no position to be locked to: go on with our own clock instead of replaying forever.)
+      if (F === this.lastStart) F = this.pos;
+      else this.resync(F, depth);
+    }
+    this.advance(F, m, this.gain, depth);
+    this.pos = F + m;
+    return true;
+  }
+  processMono(x: Float64Array, n: number): void {
+    const F0 = Math.round(this.ctx.transport.beat * this.fpb);
+    const depth = this.params.depth;
+    const g = this.gain;
+    for (let o = 0; o < n; o += BLOCK) {
+      const m = Math.min(BLOCK, n - o);
+      if (!this.fill(F0 + o, m, depth)) break;
+      for (let i = 0; i < m; i++) x[o + i] *= g[i];
+    }
+    this.lastStart = F0;
+  }
+  process(l: Float64Array, r: Float64Array, n: number): void {
+    const F0 = Math.round(this.ctx.transport.beat * this.fpb);
+    const depth = this.params.depth;
+    const g = this.gain;
+    for (let o = 0; o < n; o += BLOCK) {
+      const m = Math.min(BLOCK, n - o);
+      if (!this.fill(F0 + o, m, depth)) break;
+      for (let i = 0; i < m; i++) {
+        l[o + i] *= g[i];
+        r[o + i] *= g[i];
+      }
+    }
+    this.lastStart = F0;
+  }
+  active(): boolean {
+    return false;
+  }
+}
+
 // ── Filter (with a tempo-locked LFO) ─────────────────────────────────────────
 
 export const FILTER_SPECS = {
@@ -750,6 +988,7 @@ export const FX_KINDS = {
   crusher: (c: Ctx, o: CrusherOpts) => new Crusher(c, o),
   widener: (c: Ctx, o: WidenerOpts) => new Widener(c, o),
   gate: (c: Ctx, o: GateOpts) => new TranceGate(c, o),
+  pump: (c: Ctx, o: PumpOpts) => new Pump(c, o),
   filter: (c: Ctx, o: FilterFxOpts) => new FilterFx(c, o),
   delay: (c: Ctx, o: DelayOpts) => new DelayFx(c, o),
   reverb: (c: Ctx, o: ReverbFxOpts) => new ReverbFx(c, o),
