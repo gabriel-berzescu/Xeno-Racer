@@ -73,7 +73,7 @@ export interface XenoInputSystem extends InputSystem {
   readonly split: boolean;
   /**
    * The two drivers' own frames, filled by every `poll()` while `split` (reused objects, neutral otherwise). Seat s reads ONLY its
-   * device: a pad never reads the keyboard, the keyboard seat never reads a pad. Analog driving values, one-shot edges (shiftUp,
+   * device: a pad never reads the keyboard, the keyboard seat never reads a pad. Analog driving values, one-shot edges (shiftUp, nitro,
    * shiftDown, cameraNext, resetCar, pause, toggleHud, toggleTelemetry), lookX / lookY / lookBack, `nav` and `anyPressed` of that
    * device; `gamepadId` is the seat's pad id (null for the keyboard seat, or for a pad that is gone), `device` is 'gamepad' or
    * 'keyboard' by the kind of the source.
@@ -144,7 +144,7 @@ const WARN_GENERIC = 'This controller is not using the standard layout. Some but
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface Pending {
-  shiftUp: boolean; shiftDown: boolean; camera: boolean; reset: boolean; pause: boolean; hud: boolean; telemetry: boolean;
+  shiftUp: boolean; shiftDown: boolean; camera: boolean; reset: boolean; pause: boolean; hud: boolean; telemetry: boolean; nitro: boolean;
   confirm: boolean; back: boolean; tabLeft: boolean; tabRight: boolean;
   /** Arrow-key presses latched until the next poll, so a tap shorter than one frame still navigates. */
   navUp: boolean; navDown: boolean; navLeft: boolean; navRight: boolean;
@@ -205,7 +205,7 @@ function makeFrame(): InputFrame {
     gamepadId: null,
     steer: 0, throttle: 0, brake: 0, handbrake: 0, clutch: 0,
     lookX: 0, lookY: 0, lookBack: false,
-    shiftUp: false, shiftDown: false, cameraNext: false, resetCar: false, pause: false, toggleHud: false, toggleTelemetry: false,
+    shiftUp: false, shiftDown: false, cameraNext: false, resetCar: false, pause: false, toggleHud: false, toggleTelemetry: false, nitro: false,
     nav: makeNav(),
     anyPressed: false,
   };
@@ -228,7 +228,7 @@ function neutralFrame(f: InputFrame, device: 'gamepad' | 'keyboard'): void {
   f.steer = f.throttle = f.brake = f.handbrake = f.clutch = 0;
   f.lookX = f.lookY = 0;
   f.lookBack = false;
-  f.shiftUp = f.shiftDown = f.cameraNext = f.resetCar = f.pause = f.toggleHud = f.toggleTelemetry = false;
+  f.shiftUp = f.shiftDown = f.cameraNext = f.resetCar = f.pause = f.toggleHud = f.toggleTelemetry = f.nitro = false;
   const n = f.nav;
   n.up = n.down = n.left = n.right = n.confirm = n.back = n.tabLeft = n.tabRight = false;
   f.anyPressed = false;
@@ -395,7 +395,7 @@ class InputImpl implements XenoInputSystem {
 
   // ── keyboard ──
   private readonly keys = new Set<string>();
-  private readonly pend: Pending = { shiftUp: false, shiftDown: false, camera: false, reset: false, pause: false, hud: false, telemetry: false, confirm: false, back: false, tabLeft: false, tabRight: false, navUp: false, navDown: false, navLeft: false, navRight: false };
+  private readonly pend: Pending = { shiftUp: false, shiftDown: false, camera: false, reset: false, pause: false, hud: false, telemetry: false, nitro: false, confirm: false, back: false, tabLeft: false, tabRight: false, navUp: false, navDown: false, navLeft: false, navRight: false };
   private keyActivity = false;
   private kSteer = 0;
   private kThrottle = 0;
@@ -642,7 +642,7 @@ class InputImpl implements XenoInputSystem {
     this.keyActivity = true;
     const p = this.pend;
     switch (code) {
-      case 'KeyE': p.shiftUp = true; p.tabRight = true; break;
+      case 'KeyE': p.nitro = true; p.tabRight = true; break;
       case 'ShiftLeft':
       case 'ShiftRight': p.shiftUp = true; break;
       case 'KeyQ': p.shiftDown = true; p.tabLeft = true; break;
@@ -675,7 +675,7 @@ class InputImpl implements XenoInputSystem {
   private releaseAll(): void {
     this.keys.clear();
     const p = this.pend;
-    p.shiftUp = p.shiftDown = p.camera = p.reset = p.pause = p.hud = p.telemetry = p.confirm = p.back = p.tabLeft = p.tabRight = false;
+    p.shiftUp = p.shiftDown = p.camera = p.reset = p.pause = p.hud = p.telemetry = p.nitro = p.confirm = p.back = p.tabLeft = p.tabRight = false;
     p.navUp = p.navDown = p.navLeft = p.navRight = false;
     this.keyActivity = false;
   }
@@ -825,7 +825,7 @@ class InputImpl implements XenoInputSystem {
     if (this.joinOn) this.detectJoiner(primaryBefore);
 
     // 7. consume
-    p.shiftUp = p.shiftDown = p.camera = p.reset = p.pause = p.hud = p.telemetry = p.confirm = p.back = p.tabLeft = p.tabRight = false;
+    p.shiftUp = p.shiftDown = p.camera = p.reset = p.pause = p.hud = p.telemetry = p.nitro = p.confirm = p.back = p.tabLeft = p.tabRight = false;
     p.navUp = p.navDown = p.navLeft = p.navRight = false;
     this.keyActivity = false;
     const rl = this.readerList;
@@ -863,7 +863,8 @@ class InputImpl implements XenoInputSystem {
     }
 
     // 5. one-shot edges: union of both devices
-    f.shiftUp = m.edge(STD.rb) || m.edge(STD.b) || p.shiftUp;
+    f.shiftUp = m.edge(STD.rb) || p.shiftUp;
+    f.nitro = m.edge(STD.b) || p.nitro;
     f.shiftDown = m.edge(STD.lb) || m.edge(STD.x) || p.shiftDown;
     f.cameraNext = m.edge(STD.y) || p.camera;
     f.resetCar = m.edge(STD.back) || p.reset;
@@ -922,6 +923,7 @@ class InputImpl implements XenoInputSystem {
     f.resetCar = s0.resetCar || s1.resetCar;
     f.toggleHud = s0.toggleHud || s1.toggleHud;
     f.toggleTelemetry = s0.toggleTelemetry || s1.toggleTelemetry;
+    f.nitro = s0.nitro || s1.nitro;
     f.pause = s0.pause || s1.pause || p.pause;
 
     // The menus: the keyboard always, and the devices the owner of the menus allows. An owner whose pad has gone cannot navigate
@@ -975,7 +977,8 @@ class InputImpl implements XenoInputSystem {
     f.lookX = tmp[0];
     f.lookY = c.invertLookY ? tmp[1] : -tmp[1];
     f.lookBack = r.cur[STD.rsClick] === 1;
-    f.shiftUp = r.edge(STD.rb) || r.edge(STD.b);
+    f.shiftUp = r.edge(STD.rb);
+    f.nitro = r.edge(STD.b);
     f.shiftDown = r.edge(STD.lb) || r.edge(STD.x);
     f.cameraNext = r.edge(STD.y);
     f.resetCar = r.edge(STD.back);
@@ -1009,6 +1012,7 @@ class InputImpl implements XenoInputSystem {
     f.lookY = c.invertLookY ? -this.kLookY : this.kLookY;
     f.lookBack = this.down('KeyV');
     f.shiftUp = p.shiftUp;
+    f.nitro = p.nitro;
     f.shiftDown = p.shiftDown;
     f.cameraNext = p.camera;
     f.resetCar = p.reset;

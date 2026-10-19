@@ -162,9 +162,9 @@ describe('two pads, two seats', () => {
     expect(input.players[1].lookY).toBe(-1);
   });
 
-  const edges: [string, number, 'shiftUp' | 'shiftDown' | 'cameraNext' | 'resetCar' | 'pause' | 'toggleHud' | 'toggleTelemetry'][] = [
+  const edges: [string, number, 'shiftUp' | 'shiftDown' | 'cameraNext' | 'resetCar' | 'pause' | 'toggleHud' | 'toggleTelemetry' | 'nitro'][] = [
     ['RB', STD.rb, 'shiftUp'],
-    ['B', STD.b, 'shiftUp'],
+    ['B', STD.b, 'nitro'],
     ['LB', STD.lb, 'shiftDown'],
     ['X', STD.x, 'shiftDown'],
     ['Y', STD.y, 'cameraNext'],
@@ -283,7 +283,8 @@ describe('a pad and the keyboard', () => {
     key(target, 'keydown', 'KeyR');
     input.poll(1 / 60);
     expect(input.players[1].cameraNext).toBe(true);
-    expect(input.players[1].shiftUp).toBe(true);
+    expect(input.players[1].nitro).toBe(true);
+    expect(input.players[1].shiftUp).toBe(false); // (E is the nitro; shift up is on Shift)
     expect(input.players[1].resetCar).toBe(true);
     expect(input.players[0].cameraNext).toBe(false);
     input.poll(1 / 60);

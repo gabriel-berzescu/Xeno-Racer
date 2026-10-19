@@ -10,9 +10,10 @@ const SURFACES: SurfaceType[] = ['asphalt', 'curb', 'concrete', 'grass', 'gravel
 const IMPACT_KINDS: ImpactKind[] = ['wall', 'car', 'ground'];
 /**
  * Floats per car before the wheels. 0..23 the pose and the drivetrain; 24..30 the last impact (world point, normal, kind), 31..33
- * the scrape point: the sparks and the debris of a replay are thrown where the car really touched, not from its middle.
+ * the scrape point: the sparks and the debris of a replay are thrown where the car really touched, not from its middle; 34 the nitro
+ * burning (its flames).
  */
-const HEAD = 34;
+const HEAD = 35;
 const WHEEL = 14;
 export const REPLAY_STRIDE = HEAD + 4 * WHEEL;
 const RATE = 30;
@@ -95,6 +96,7 @@ export class ReplayRecorder {
       d[o + 31] = s.scrapePoint.x;
       d[o + 32] = s.scrapePoint.y;
       d[o + 33] = s.scrapePoint.z;
+      d[o + 34] = s.nitro ?? 0;
       let w = o + HEAD;
       for (const wh of s.wheels) {
         d[w] = wh.hub.x;
@@ -183,6 +185,7 @@ export class ReplayPlayer {
       }
       s.scrape = L(22);
       s.scrapePoint.set(d[a + 31], d[a + 32], d[a + 33]);
+      s.nitro = L(34);
       s.revLimiter = (d[a + 23] & 1) === 1;
       s.airborne = (d[a + 23] & 2) === 2;
       for (let wi = 0; wi < 4; wi++) {

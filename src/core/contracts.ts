@@ -263,6 +263,8 @@ export interface VehicleState {
   shiftCount: number;
   /** Increments on every overrun backfire pop (audio pop + exhaust flame). */
   backfireCount: number;
+  /** Nitro burning now, 0..1 (src/core/nitro.ts): the exhaust flames and the camera's rush. Absent = 0. */
+  nitro?: number;
   /** Increments on every distinct impact; read lastImpact when it changes. */
   impactCount: number;
   lastImpact: { strength: number; point: Vector3; normal: Vector3; kind: ImpactKind };
@@ -501,6 +503,8 @@ export interface InputFrame {
   pause: boolean;
   toggleHud: boolean;
   toggleTelemetry: boolean;
+  /** Fire a nitro shot (src/core/nitro.ts). */
+  nitro: boolean;
   /** Menu navigation edges, with auto-repeat while held. */
   nav: { up: boolean; down: boolean; left: boolean; right: boolean; confirm: boolean; back: boolean; tabLeft: boolean; tabRight: boolean };
   /** True on any button/key press this poll (used to unlock audio / dismiss title). */
@@ -869,6 +873,15 @@ export interface HudState {
   damage?: HudDamage | null;
   /** The braking assist is on the brakes right now: the pedal it adds on top of the driver's (0..1; 0 or absent: it is not acting). */
   brakeAssist?: number;
+  /** The player's nitro (src/core/nitro.ts): shots left on this lap of `max`, and what is left of the shot burning (1..0; 0 = none). Absent: hidden. */
+  nitro?: HudNitro | null;
+}
+
+/** The nitro gauge: shots left on this lap, of `max`, and the share left of the shot burning now (1 when fired, down to 0). */
+export interface HudNitro {
+  charges: number;
+  max: number;
+  burn: number;
 }
 
 /**

@@ -21,6 +21,7 @@ import type {
   WheelState,
 } from '../core/contracts';
 import { cloneEffects, isNeutral, type MechEffects } from '../core/mechanical';
+import { NITRO_POWER, NITRO_THRUST_G } from '../core/nitro';
 import { RADS_TO_RPM, RPM_TO_RADS, peakTorque, torqueAt } from './engine';
 import type { DifferentialSpec, SuspensionSpec, TireSpec, VehicleSpec } from './spec';
 import { SURFACES, wetGripFactor } from './surfaces';
@@ -193,6 +194,8 @@ export class Vehicle {
   /** Set each frame by the world: slipstream / dirty air. */
   dragMul = 1;
   downforceMul = 1;
+  /** Nitro burning, 0..1 (set each frame by the game from the car's NitroTank, src/core/nitro.ts): more torque and a push forward. */
+  nitro = 0;
   /** Mechanical damage (setDamage): the share of the front and rear downforce and of the engine's torque that is left. */
   private aeroFrontMul = 1;
   private aeroRearMul = 1;
@@ -899,6 +902,11 @@ export class Vehicle {
         T.add(_t.crossVectors(_r, _f));
       }
     }
+    // nitro: the bottle's push along the car, with the throttle, in a forward gear
+    if (this.nitro > 0 && this.gear >= 1) {
+      const push = this.nitro * NITRO_THRUST_G * GRAVITY * this.mass * clamp01(this.controls.throttle);
+      if (push > 0) F.addScaledVector(az, push);
+    }
     // aerodynamics
     const speed2 = v.lengthSq();
     if (speed2 > 0.01) {
@@ -1012,7 +1020,8 @@ export class Vehicle {
       this.boost += (target - this.boost) * clamp01(rate * dt);
       boostFactor = tb.baseFraction + (1 - tb.baseFraction) * this.boost;
     }
-    const full = torqueAt(e, rpm) * boostFactor * this.powerMul;
+    const nitroMul = this.nitro > 0 && this.gear >= 1 ? 1 + NITRO_POWER * this.nitro : 1;
+    const full = torqueAt(e, rpm) * boostFactor * this.powerMul * nitroMul;
     const braking = e.engineBraking * clamp01(rpm / e.limiterRpm) + 0.015 * this.torquePeak;
     let Te = th * full - (1 - th) * braking;
     if (Te > 0) Te *= d.efficiency;
@@ -1388,6 +1397,7 @@ export class Vehicle {
     st.gear = this.gear;
     st.engineLoad = this.engineLoad;
     st.boost = this.boost;
+    st.nitro = this.nitro;
     st.revLimiter = this.limiterCut;
     st.absActive = this.absActive;
     st.tcsActive = this.tcsActive;

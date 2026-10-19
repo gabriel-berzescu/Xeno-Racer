@@ -1,0 +1,35 @@
+/* ══════════════════════════════════════════════════════════════════════════════
+   Nitro gauge (src/ui/hud/nitro.ts): above the instrument cluster, a slanted cell per shot of the lap. Full cells are blue, the cell
+   of the shot burning drains from right to left, spent cells are dark. The panel glows while a shot burns and flashes on a refill.
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+.xr-hud > .hud-nitro {
+  right: 64px;
+  bottom: 392px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 12px 22px 12px 26px;
+  background: linear-gradient(180deg, rgba(14, 17, 24, 0.78), rgba(7, 9, 13, 0.86));
+  clip-path: polygon(14px 0, 100% 0, calc(100% - 14px) 100%, 0 100%);
+}
+.hud-nitro::after { content: ''; position: absolute; left: 14px; right: 0; top: 0; height: 2px; background: linear-gradient(90deg, var(--blue), rgba(74, 168, 255, 0) 75%); }
+
+.nt-k { font: 800 italic 21px / 1 var(--f-display); letter-spacing: 0.16em; color: rgba(238, 240, 243, 0.62); transition: color 0.15s; }
+.nt-cells { display: flex; gap: 10px; }
+
+.nt-cell { position: relative; display: block; width: 78px; height: 22px; background: rgba(238, 240, 243, 0.1); clip-path: polygon(7px 0, 100% 0, calc(100% - 7px) 100%, 0 100%); overflow: hidden; }
+.nt-cell b { position: absolute; inset: 0; display: block; background: var(--blue); transform-origin: 0 50%; transform: scaleX(0); }
+.nt-cell.full b { background: linear-gradient(90deg, #2f86e8, var(--blue) 60%, #9fd2ff); }
+.nt-cell.burn b { background: linear-gradient(90deg, #6fc0ff, #e8f6ff); animation: xr-nt-pulse 0.24s ease-in-out infinite alternate; }
+
+.hud-nitro.on .nt-k { color: #bfe2ff; text-shadow: 0 0 14px rgba(74, 168, 255, 0.9); }
+.xr-hud > .hud-nitro.on { background: linear-gradient(180deg, rgba(22, 52, 92, 0.86), rgba(9, 22, 42, 0.9)); }
+.hud-nitro.refill .nt-cell.full { animation: xr-nt-refill 0.8s ease-out; }
+
+@keyframes xr-nt-pulse { from { filter: brightness(1); } to { filter: brightness(1.45); } }
+@keyframes xr-nt-refill { 0% { filter: brightness(2.2); } 100% { filter: none; } }
+@media (prefers-reduced-motion: reduce) { .nt-cell.burn b, .hud-nitro.refill .nt-cell.full { animation: none; } }
+
+/* split screen: the cluster is scaled down in a stacked pane, and the gauge steps down with it */
+.xr-hud.split:not(.cols) > .hud-nitro { bottom: 340px; }

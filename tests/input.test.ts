@@ -316,7 +316,7 @@ describe('gamepad driving axes', () => {
 describe('gamepad one-shot edges', () => {
   const cases: [string, number, keyof ReturnType<ReturnType<typeof createInputSystem>['poll']>][] = [
     ['RB -> shiftUp', STD.rb, 'shiftUp'],
-    ['B -> shiftUp', STD.b, 'shiftUp'],
+    ['B -> nitro', STD.b, 'nitro'],
     ['LB -> shiftDown', STD.lb, 'shiftDown'],
     ['X -> shiftDown', STD.x, 'shiftDown'],
     ['Y -> cameraNext', STD.y, 'cameraNext'],
@@ -689,7 +689,7 @@ describe('keyboard driving', () => {
 
 describe('keyboard one-shot edges', () => {
   const cases: [string, string, string][] = [
-    ['E', 'KeyE', 'shiftUp'],
+    ['E', 'KeyE', 'nitro'],
     ['Shift', 'ShiftLeft', 'shiftUp'],
     ['Q', 'KeyQ', 'shiftDown'],
     ['Ctrl', 'ControlLeft', 'shiftDown'],
