@@ -321,7 +321,8 @@ export class Vehicle {
       const front = (c.mass * GRAVITY * b) / c.wheelbase;
       const rear = (c.mass * GRAVITY * a) / c.wheelbase;
       const drivenLoad = dt.layout === 'FWD' ? front * 0.92 : dt.layout === 'RWD' ? rear * 1.12 : (front + rear) * 0.98;
-      const tire = dt.layout === 'FWD' ? s.tireFront : s.tireRear;
+      // (all-wheel drive: the tyre with less grip, which is the rear one when the two are alike, as before)
+      const tire = dt.layout === 'FWD' ? s.tireFront : dt.layout === 'AWD' && s.tireFront.mu < s.tireRear.mu ? s.tireFront : s.tireRear;
       this.launchCapacity = (tire.mu * 1.15 * drivenLoad * tire.radius) / dt.efficiency;
     }
     {
@@ -606,6 +607,7 @@ export class Vehicle {
   substep(dt: number): void {
     const s = this.spec;
     const ch = s.chassis;
+    const layout = s.drivetrain.layout;
     const c = this.controls;
     const as = this.assists;
     const wheels = this.wheels;
@@ -822,7 +824,8 @@ export class Vehicle {
     // TCS: trim throttle when driven wheels spin
     if (as.tcs !== 'off') {
       // PI control of the driven wheels' slip ratio, aiming just past the friction peak
-      const pk = s.tireRear.peakSlipRatio;
+      // (the rear tyre's peak, or for an all-wheel-drive car the smaller of the two: its front axle can be the one that spins)
+      const pk = layout === 'AWD' ? Math.min(s.tireFront.peakSlipRatio, s.tireRear.peakSlipRatio) : s.tireRear.peakSlipRatio;
       const target = (as.tcs === 'high' ? 1.0 : 1.3) * pk;
       let slip = 0;
       for (const wh of wheels) if (wh.driveWeight > 0 && wh.contact) slip = Math.max(slip, wh.kappa * Math.sign(wh.vLong || 1));
