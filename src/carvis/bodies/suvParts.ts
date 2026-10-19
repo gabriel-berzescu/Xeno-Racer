@@ -204,6 +204,25 @@ function addRack(b: PartBuilder, d: SuvDims): void {
   for (const sg of [-1, 1]) for (const z of [zA, zB]) b.box([sg * 0.7, y, z + (z === zA ? 0.012 : -0.012)], 0.016, 0.016, 0.012);
 }
 
+/** What an overlander carries on the rack: two orange recovery boards strapped down on the left, a black cargo box on the right. */
+function addRackGear(b: PartBuilder, d: SuvDims): void {
+  const yb = d.yRoof + 0.04;
+  // recovery boards: a plate, a ladder of ribs and two black straps each
+  for (const x of [0.5, 0.17]) {
+    const zc = -0.9;
+    b.setPart(PART.paintDark);
+    b.extrude(rrect(0.14, 0.56, 0.03, x, zc), { o: [0, yb + 0.014, 0], u: [1, 0, 0], v: [0, 0, 1] }, 0.012, 0.003, 1);
+    for (let i = 0; i < 11; i++) b.box([x, yb + 0.017, zc - 0.5 + i * 0.1], 0.125, 0.007, 0.018);
+    b.setPart(PART.rugged);
+    for (const dz of [-0.3, 0.3]) b.box([x, yb + 0.0165, zc + dz], 0.15, 0.0085, 0.02);
+  }
+  // cargo box: a black lidded box with two orange latches
+  b.setPart(PART.rugged);
+  b.extrude(rrect(0.25, 0.31, 0.04, -0.4, -1.57), { o: [0, yb + 0.16, 0], u: [1, 0, 0], v: [0, 0, 1] }, 0.14, 0.02, 2);
+  b.setPart(PART.paintDark);
+  for (const z of [-1.4, -1.74]) b.box([-0.15, yb + 0.085, z], 0.005, 0.02, 0.022);
+}
+
 /** The snorkel: a 7 cm pipe up the right A-pillar to a forward-facing ram head over the roof edge. */
 function addSnorkel(b: PartBuilder, d: SuvDims): void {
   const yr = d.yRoof;
@@ -311,8 +330,11 @@ function addUnderguards(b: PartBuilder, d: SuvDims): void {
     b.setPart(PART.lampAmber);
     b.box([sg * 0.9, d.yFend + 0.004, zN - 0.28], 0.032, 0.006, 0.014);
   }
-  // rear: a recovery plate under the tail
+  // rear: a tow hitch receiver and its pin, and a recovery plate under the tail
+  b.setPart(PART.rugged);
+  b.box([0, 0.405, d.zTail + 0.1], 0.05, 0.05, 0.12);
   b.setPart(PART.silver);
+  b.cylinder([-0.07, 0.405, d.zTail + 0.12], [0.07, 0.405, d.zTail + 0.12], 0.009, 0.009, 8, true);
   b.extrude(roundPoly([-0.5, d.zTail + 0.04, 0.5, d.zTail + 0.04, 0.5, d.zTail + 0.4, -0.5, d.zTail + 0.4], 0.04), { o: [0, 0.368, 0], u: [1, 0, 0], v: [0, 0, 1] }, 0.016, 0.004, 2);
 }
 
@@ -337,6 +359,13 @@ function addExhaust(b: PartBuilder, s: CarVisualSpec, d: SuvDims): void {
     b.setPart(PART.plastic);
     b.tube([at(0.012), at(0.011)], 0.04, 18, true);
   }
+}
+
+/** A small lip over the top of the tailgate glass, in body paint: it carries the roof's line a hand's width past the tail. */
+function addRoofLip(b: PartBuilder, d: SuvDims): void {
+  b.setPart(PART.body);
+  const y = d.yRoof - 0.052;
+  b.extrude(roundPoly([-0.82, d.zTg + 0.012, 0.82, d.zTg + 0.012, 0.82, d.zTg - 0.075, 0.74, d.zTg - 0.09, -0.74, d.zTg - 0.09, -0.82, d.zTg - 0.075], 0.02), { o: [0, y + 0.012, 0], u: [1, 0, 0], v: [0, 0, 1] }, 0.012, 0.004, 1);
 }
 
 /** Door hinges and handles: the exposed hardware that makes a flat door read as a door. */
@@ -371,10 +400,12 @@ export function addSuvParts(b: PartBuilder, s: CarVisualSpec, d: SuvDims): void 
   addUnderguards(b, d);
   addLightBar(b, d);
   addRack(b, d);
+  addRackGear(b, d);
   addSnorkel(b, d);
   addSpare(b, d, d.rR, s.tireWidthRear);
   addExhaust(b, s, d);
   addHardware(b, d);
+  addRoofLip(b, d);
 
   // mirrors: housing, stalk and glass face, set where the live mirror glass sits (carvis/mirrorLayout.ts)
   addDoorMirrors(b, s);

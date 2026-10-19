@@ -127,6 +127,8 @@ export const makeSuv: BlueprintFactory = (s) => {
   const features = (d: number, ax: number, y: number, z: number): number => {
     // the grille: a deep black pocket the bars sit in
     d = ssub(d, sdRoundBox(ax, y - grilleY, z - zFas, grilleHx, grilleHy, 0.1, 0.03), 0.02);
+    // a louvred vent in each front wing, behind the flare
+    d = ssub(d, sdRoundBox(ax - (slab + 0.02), y - 1.09, z - 0.77, 0.06, 0.11, 0.07, 0.02), 0.01);
     // two air intakes in the bumper face, either side of the winch
     d = ssub(d, sdRoundBox(ax - 0.36, y - 0.5, z - zNose, 0.18, 0.04, 0.05, 0.02), 0.01);
     // the body-side groove: one crisp horizontal line the length of the doors
@@ -174,7 +176,8 @@ export const makeSuv: BlueprintFactory = (s) => {
     // (and the dome's air intake: a black band across its front face)
     const intake = Math.max(sdRoundRect2(ax, y - (yHood + 0.026), 0.22, 0.022, 0.01), 2.0 - z);
     const bumperVent = Math.max(sdRoundRect2(ax - 0.36, y - 0.5, 0.185, 0.045, 0.022), zNose - 0.06 - z);
-    out[o + 3] = Math.min(grille, intake, bumperVent);
+    const wingVent = Math.max(sdRoundRect2(z - 0.77, y - 1.09, 0.07, 0.115, 0.02), 0.9 - ax);
+    out[o + 3] = Math.min(grille, intake, bumperVent, wingVent);
     out[o + 4] = headLamp(ax, y, z);
     out[o + 6] = tailLamp(ax, y, z);
     out[o + 7] = Math.max(sdRoundRect2(ax - 0.74, y - 0.56, 0.06, 0.03, 0.012), z - (zTail + 0.06));
@@ -201,7 +204,7 @@ export const makeSuv: BlueprintFactory = (s) => {
   void smax;
   void rR;
   return {
-    bounds: { min: [-hw - 0.15, 0.02, zTail - 0.2], max: [hw + 0.15, s.height + 0.12, zNose + 0.2] },
+    bounds: { min: [-hw - 0.15, 0.02, zTail - 0.2], max: [hw + 0.15, s.height + 0.2, zNose + 0.2] },
     body,
     zones,
     parts,

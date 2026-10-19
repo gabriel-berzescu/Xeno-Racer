@@ -5,6 +5,8 @@
  *   &dmg=fl:14:wall:25,sl:5:car   crash damage, applied straight to the model: zone:closing speed (m/s):wall|car:angle (deg to the
  *        barrier). Zones: fl fr f (front corners / centre), bl br b (rear), sl sr (flanks). &rub=sl:3 adds a scrape along a flank.
  *        window.__CAR__.hit('fl:14:wall:25') does the same from a script.
+ *   ?lineup=N[&row=1]  a grid of N cars (random liveries); with row=1 the roster in a single row, each in its own default livery, seen from the
+ *        front quarter: a size comparison (&cars=a,b,c picks which, &night=1 lights them).
  */
 import * as THREE from 'three';
 import { getCar } from '../../src/cars';
@@ -365,6 +367,8 @@ function render(): void {
 /** ?lineup=12 : a grid of AI cars (all four models, varied liveries) plus the player car, to test sharing, LOD and cost. */
 async function lineup(count: number): Promise<void> {
   const { CARS } = await import('../../src/cars');
+  const row = q.get('row') === '1';
+  const picks = q.get('cars') ? q.get('cars')!.split(',').map((id) => CARS.findIndex((c) => c.id === id)).filter((i) => i >= 0) : null;
   const patterns: Livery['pattern'][] = ['solid', 'stripes', 'split', 'arrow', 'hoops', 'shards'];
   const hues = ['#c4161c', '#1c6bd8', '#f2c200', '#18a058', '#ece8e0', '#8a2be2', '#ff7a18', '#2ad1c4', '#2b2f3a', '#ff2e63', '#6a7a8c', '#a0e020'];
   const t0 = performance.now();
@@ -372,20 +376,21 @@ async function lineup(count: number): Promise<void> {
   const cols = 4;
   const jobs: Promise<void>[] = [];
   for (let i = 0; i < count; i++) {
-    const d = CARS[i % CARS.length];
-    const lv: Livery = { ...d.defaultLivery, primary: hues[i % hues.length], secondary: hues[(i + 5) % hues.length], accent: hues[(i + 3) % hues.length], pattern: patterns[i % patterns.length], number: 3 + i * 7, metallic: i % 2 === 0 };
+    const d = row && picks ? CARS[picks[i % picks.length]] : CARS[i % CARS.length];
+    const lv: Livery = row ? { ...d.defaultLivery } : { ...d.defaultLivery, primary: hues[i % hues.length], secondary: hues[(i + 5) % hues.length], accent: hues[(i + 3) % hues.length], pattern: patterns[i % patterns.length], number: 3 + i * 7, metallic: i % 2 === 0 };
     jobs.push(
       createCarVisual(d, lv, quality).then((visual) => {
         const st = makeState(d);
-        const col = i % cols, row = Math.floor(i / cols);
-        const ox = (col - (cols - 1) / 2) * 3.6, oz = -row * 6.5;
+        const col = i % cols, rowIdx = Math.floor(i / cols);
+        const ox = row ? (i - (count - 1) / 2) * 3.3 : (col - (cols - 1) / 2) * 3.6;
+        const oz = row ? -i * 0.0 : -rowIdx * 6.5;
         st.position.x += ox;
         st.position.z += oz;
         for (const w of st.wheels) {
           w.hub.x += ox;
           w.hub.z += oz;
         }
-        visual.setPlayer(i === 0);
+        visual.setPlayer(row ? true : i === 0);
         scene.add(visual.root);
         cars.push({ visual, state: st, def: d });
       }),
@@ -395,11 +400,16 @@ async function lineup(count: number): Promise<void> {
   const buildMs = performance.now() - t0;
   for (const c of cars) c.visual.update(c.state, 0, env);
   const cw = innerWidth, ch = innerHeight;
-  cam.fov = 40;
+  cam.fov = row ? 30 : 40;
   cam.aspect = cw / ch;
   cam.updateProjectionMatrix();
-  cam.position.set(9, 4.2, 12.5);
-  cam.lookAt(0, 0.4, -6);
+  if (row) {
+    cam.position.set(-9.5 * (count / 5), 2.1, 15 * (count / 5));
+    cam.lookAt(0, 0.85, 0);
+  } else {
+    cam.position.set(9, 4.2, 12.5);
+    cam.lookAt(0, 0.4, -6);
+  }
   renderer.render(scene, cam);
   const info = renderer.info;
   (window as unknown as Record<string, unknown>).__STATS__ = { triangles: info.render.triangles, drawCalls: info.render.calls, buildMs: Math.round(buildMs), cars: count };
