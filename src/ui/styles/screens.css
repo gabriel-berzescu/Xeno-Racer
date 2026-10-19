@@ -63,6 +63,11 @@
 .scr-pause .pause-head { position: absolute; left: 72px; top: 70px; }
 .scr-pause .pause-info { display: flex; gap: 56px; margin-top: 34px; }
 .scr-pause .pause-menu { position: absolute; left: 72px; top: 400px; width: 760px; }
+/* the race music: what is playing, under the numbers */
+.scr-pause .pause-music { display: flex; align-items: baseline; gap: 14px; margin-top: 24px; font: 700 28px / 1 var(--f-display); letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+.scr-pause .pause-music .note { color: var(--teal); font-size: 30px; }
+.scr-pause .pause-music b { font-weight: 800; font-style: italic; letter-spacing: 0.04em; color: #fff; }
+.scr-pause .pause-music .sub { font-size: 21px; letter-spacing: 0.16em; color: var(--dim); }
 
 /* ── loading ───────────────────────────────────────────────────────────────── */
 
@@ -143,6 +148,14 @@
 .track-list.compact .tc-name { font-size: 40px; }
 .track-list.compact .tc-place { margin-top: 6px; font-size: 20px; }
 .track-list.compact .tc-side { gap: 8px; }
+/* and of more than eight: shorter still */
+.track-list.compact.dense { gap: 6px; }
+.track-list.compact.dense .track-card { height: 70px; }
+.track-list.compact.dense .tc-idx { padding-left: 14px; font-size: 19px; }
+.track-list.compact.dense .tc-name { font-size: 33px; }
+.track-list.compact.dense .tc-place { margin-top: 5px; font-size: 17px; }
+.track-list.compact.dense .tc-side { gap: 6px; }
+.track-list.compact.dense .tc-len { font-size: 22px; }
 
 .track-detail { min-width: 0; padding: 30px 34px 34px; }
 .map-wrap { position: relative; width: 576px; height: 330px; margin: 0 auto 22px; background: radial-gradient(70% 80% at 50% 45%, rgba(22, 224, 189, 0.07), transparent 75%), rgba(0, 0, 0, 0.28); border: 1px solid var(--line); }
@@ -190,6 +203,12 @@
 .swatch.on { background: #fff; transform: translateY(-4px) scale(1.1); box-shadow: 0 0 20px rgba(22, 224, 189, 0.7); }
 .liv-row.is-focus .swatch.on { background: var(--teal); }
 .car-actions .btn { margin: 0; }
+/* the driver's name, above the button: A renames them */
+.car-go { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
+.car-go .drv-row { margin: 0; padding: 6px 14px 6px 20px; }
+.drv-row .liv-k { align-items: center; margin-bottom: 0; }
+.drv-row .drv-name { font: 800 italic 30px / 1 var(--f-display); letter-spacing: 0.08em; }
+.drv-row .drv-name input { width: 440px; padding: 2px 10px; font: inherit; letter-spacing: inherit; text-transform: uppercase; color: var(--text); background: rgba(0, 0, 0, 0.5); border: 0; border-bottom: 3px solid var(--teal); outline: none; }
 
 /* race step */
 .race-panel { min-width: 0; padding: 12px 0 28px; }
@@ -393,6 +412,23 @@
 .st-cal.compact.tight .cc-pos { font-size: 30px; }
 .st-cal.compact.tight .cc-pts { font-size: 17px; }
 .st-cal.compact.tight .cc-next { font-size: 18px; }
+/* more than eight rounds */
+.st-cal.compact.tight.dense { gap: 5px; padding-top: 0; }
+.st-cal.compact.tight.dense .cc { padding: 4px 16px 4px 0; }
+.st-cal.compact.tight.dense .cc-accent { margin: -4px 0; }
+.st-cal.compact.tight.dense .cc-n { width: 36px; height: 36px; font-size: 21px; }
+.st-cal.compact.tight.dense .cc-n .ico { width: 18px; height: 18px; }
+.st-cal.compact.tight.dense .cc-name { font-size: 24px; }
+.st-cal.compact.tight.dense .cc-sub { margin-top: 3px; }
+.st-cal.compact.tight.dense .chip.sm { padding: 2px 9px 2px 11px; font-size: 13px; }
+.st-cal.compact.tight.dense .cc-laps { font-size: 15px; }
+.st-cal.compact.tight.dense .cc-won { margin-top: 2px; font-size: 14px; }
+.st-cal.compact.tight.dense .cc-pos { font-size: 27px; }
+.st-cal.compact.tight.dense .cc-pts { font-size: 16px; }
+.st-cal.compact.tight.dense .cc-next { font-size: 16px; }
+/* the table of a season of more than eight rounds: narrower round columns, so the names keep their room */
+.st-table.many .st-row { grid-template-columns: 60px 72px minmax(0, 1fr) repeat(var(--rounds), 62px) 100px 88px; }
+.st-table.many .st-row .c-rd { padding-right: 8px; font-size: 24px; }
 
 /* ── championship: champion / final standings ──────────────────────────────── */
 
@@ -481,6 +517,14 @@
 .xr-stage[data-narrow] .st-cal.compact .cc { min-height: 0; grid-template-columns: 8px 40px minmax(0, 1fr) auto; }
 .xr-stage[data-narrow] .st-cal.compact .cc-n { width: 40px; height: 40px; font-size: 23px; }
 .xr-stage[data-narrow] .st-cal.compact .cc-name { font-size: 27px; }
+.xr-stage[data-narrow] .st-cal.compact.tight.dense .cc { grid-template-columns: 8px 36px minmax(0, 1fr) auto; }
+.xr-stage[data-narrow] .st-cal.compact.tight.dense .cc-n { width: 36px; height: 36px; font-size: 21px; }
+.xr-stage[data-narrow] .st-cal.compact.tight.dense .cc-name { font-size: 24px; }
+.xr-stage[data-narrow] .st-table.many .st-row { grid-template-columns: 50px 52px minmax(0, 1fr) repeat(var(--rounds), 44px) 76px 64px; }
+.xr-stage[data-narrow] .st-table.many .st-row .c-rd { padding-right: 6px; font-size: 21px; }
+/* (and the buttons under the table end where the table does, before the calendar's last rounds) */
+.xr-stage[data-narrow] .scr-standings .res-buttons { gap: 10px; }
+.xr-stage[data-narrow] .scr-standings .res-buttons .btn { height: 66px; gap: 10px; padding: 0 30px; font-size: 29px; clip-path: polygon(20px 0, 100% 0, calc(100% - 20px) 100%, 0 100%); }
 .xr-stage[data-narrow] .st-me { padding: 12px 28px 14px 26px; }
 .xr-stage[data-narrow] .st-me-val .pn { font-size: 72px; }
 .xr-stage[data-narrow] .podium { width: 770px; gap: 12px; }
@@ -630,7 +674,7 @@
 .seat-tag.s1 b { color: #fff; background: var(--pink); }
 .seat-tag em { font-style: normal; font-size: 21px; letter-spacing: 0.12em; color: var(--dim); }
 .view-car.seat1 { --teal: #ff2e63; --teal-d: #b3143f; }
-.view-car.seat1 .liv-row.is-focus { background: linear-gradient(90deg, rgba(255, 46, 99, 0.16), transparent 80%); }
+.view-car.seat1 .drv-row.is-focus, .view-car.seat1 .liv-row.is-focus { background: linear-gradient(90deg, rgba(255, 46, 99, 0.16), transparent 80%); }
 .view-car.seat1 .swatch.on { box-shadow: 0 0 20px rgba(255, 46, 99, 0.7); }
 .view-car.seat1 .btn.primary { background: rgba(255, 46, 99, 0.22); }
 .view-car.seat1 .btn.primary.is-focus { color: #fff; filter: drop-shadow(0 0 22px rgba(255, 46, 99, 0.55)); }

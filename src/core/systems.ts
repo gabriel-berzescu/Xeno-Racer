@@ -27,6 +27,7 @@ import type {
   InputFrame,
   Livery,
   MinimapTrack,
+  NowPlaying,
   PlayersInfo,
   QualityLevel,
   RaceConfig,
@@ -286,6 +287,16 @@ export interface UISystem {
   setDevice(name: string | null): void;
   /** The replay overlay (what is playing and how to drive it), or null to hide it. */
   setReplay(r: ReplayInfo | null): void;
+  /**
+   * The race music: a song has started (a card on the HUD for a few seconds, a line on the pause menu), or null when nothing plays
+   * any more.
+   */
+  setNowPlaying(np: NowPlaying | null): void;
+  /**
+   * The browser is holding the sound back: a page gets sound only after a click or a key press (a gamepad button does not count),
+   * unless the browser was started to allow it (play.bat). Said every frame; the menus show how to turn the sound on.
+   */
+  setSoundLocked(locked: boolean): void;
   dispose(): void;
 }
 /** export function createUI(container: HTMLElement, deps: UIDeps): UISystem */

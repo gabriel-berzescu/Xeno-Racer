@@ -235,7 +235,7 @@ export async function masterChecks(checks: Checks): Promise<{ hotPeak: number; h
   const res = await renderScene({
     seconds: 5,
     cars: [...cars, { ...crash, isPlayer: false }],
-    volumes: { master: 1, engine: 1, effects: 1, music: 1, ui: 1 },
+    volumes: { master: 1, engine: 1, effects: 1, music: 1, raceMusic: 1, ui: 1 },
     raw: false,
     extra: (ctx, graph) => {
       const music = new MenuMusic(ctx, graph.musicBus, { startBar: 16 });
@@ -407,7 +407,7 @@ export async function realtimeChecks(checks: Checks): Promise<RtReport> {
   const out: RtReport = { ran: false, unlocked: false, engineRmsDb: -999, pausedRmsDb: -999, musicRmsDb: -999, baseLatencyMs: 0 };
   let sys: AudioSystemInternals | null = null;
   try {
-    sys = createAudioSystem({ master: 1, engine: 1, effects: 1, music: 1, ui: 1 }) as unknown as AudioSystemInternals;
+    sys = createAudioSystem({ master: 1, engine: 1, effects: 1, music: 1, raceMusic: 1, ui: 1 }) as unknown as AudioSystemInternals;
     await sys.unlock();
     await sys.ready;
     out.unlocked = sys.unlocked;

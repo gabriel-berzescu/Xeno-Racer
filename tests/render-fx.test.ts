@@ -336,10 +336,16 @@ describe('createEffects', () => {
     expect(burst.puffs).toBeGreaterThan(2);
 
     for (let i = 0; i < 300; i++) fx.update(1 / 60, [s], cam);
-    s.backfireCount++;
-    fx.update(1 / 60, [s], cam);
-    expect(instanceCounts(particles).flames).toBeGreaterThanOrEqual(2); // one flame per exhaust tip
-    expect(instanceCounts(particles).glows).toBeGreaterThanOrEqual(2); // and a round flash per tip
+    expect(instanceCounts(particles).sparks).toBe(0);
+    // three backfires: the first tip always flames, a second one most times (now and then it stays dark)
+    for (let k = 0; k < 3; k++) {
+      s.backfireCount++;
+      fx.update(1 / 60, [s], cam);
+    }
+    const bang = instanceCounts(particles);
+    expect(bang.flames).toBeGreaterThanOrEqual(4);
+    expect(bang.glows).toBeGreaterThanOrEqual(4); // and a round flash per flame
+    expect(bang.sparks).toBe(0); // a flame, not sparks: those read as the car grinding on something
     fx.dispose();
   });
 

@@ -77,8 +77,94 @@ function mk(w: number, h: number): [HTMLCanvasElement, CanvasRenderingContext2D]
   return [c, c.getContext('2d')!];
 }
 
-/** Canvas (tiles side by side) -> un-premultiplied RGBA DataTexture with dilated colours and a mip chain. */
-function toDataTexture(c: HTMLCanvasElement, tiles: number, aniso: number): THREE.DataTexture {
+export interface Mip {
+  data: Uint8Array;
+  width: number;
+  height: number;
+}
+
+/**
+ * The mip chain of an alpha-tested texture, made here and not by the GPU. A plain box filter averages a leaf's edge with the clear
+ * around it, so each level has less alpha above the test than the one before; a tree drawn from a small level thins out, and at a few
+ * hundred metres the alpha test cuts it away altogether. Here each level's alpha is scaled up until at least as much of every tile
+ * passes the test as of the full-size tile (coverage-preserving mipmaps, after Castaño; only ever up: a level may come out a little
+ * fuller than the full-size tile, never thinner), and the colours are averaged weighted by alpha, so the clear texels around a
+ * silhouette do not bleed into it.
+ */
+export function coverageMips(base: Uint8Array, w: number, h: number, tiles: number, cutoff: number): Mip[] {
+  const levels: Mip[] = [{ data: base, width: w, height: h }];
+  // (in the bytes the GPU is given: a texel passes when its byte / 255 is at least the cutoff)
+  const cut = Math.ceil(cutoff * 255);
+  /** Share of a tile's texels at or above the test once their alpha is scaled by `s` (and rounded up, as it is stored). */
+  const coverage = (m: Mip, t: number, n: number, s: number): number => {
+    const tw = m.width / n;
+    const x0 = Math.floor(t * tw);
+    const x1 = Math.max(x0 + 1, Math.floor((t + 1) * tw));
+    let pass = 0;
+    for (let y = 0; y < m.height; y++) for (let x = x0; x < x1; x++) if (Math.ceil(m.data[(y * m.width + x) * 4 + 3] * s) >= cut) pass++;
+    return pass / ((x1 - x0) * m.height);
+  };
+  const target: number[] = [];
+  for (let t = 0; t < tiles; t++) target.push(coverage(levels[0], t, tiles, 1));
+  let src = levels[0];
+  while (src.width > 1 || src.height > 1) {
+    const dw = Math.max(1, src.width >> 1);
+    const dh = Math.max(1, src.height >> 1);
+    const d = new Uint8Array(dw * dh * 4);
+    for (let y = 0; y < dh; y++) {
+      for (let x = 0; x < dw; x++) {
+        let r = 0, g = 0, b = 0, a = 0, pr = 0, pg = 0, pb = 0;
+        for (let k = 0; k < 4; k++) {
+          const sx = Math.min(src.width - 1, x * 2 + (k & 1));
+          const sy = Math.min(src.height - 1, y * 2 + (k >> 1));
+          const i = (sy * src.width + sx) * 4;
+          const sa = src.data[i + 3];
+          r += src.data[i];
+          g += src.data[i + 1];
+          b += src.data[i + 2];
+          pr += src.data[i] * sa;
+          pg += src.data[i + 1] * sa;
+          pb += src.data[i + 2] * sa;
+          a += sa;
+        }
+        const o = (y * dw + x) * 4;
+        d[o] = a > 0 ? pr / a : r / 4;
+        d[o + 1] = a > 0 ? pg / a : g / 4;
+        d[o + 2] = a > 0 ? pb / a : b / 4;
+        d[o + 3] = a / 4;
+      }
+    }
+    const m: Mip = { data: d, width: dw, height: dh };
+    // per tile while a tile is still a texel wide, then the level as a whole
+    const n = dw >= tiles ? tiles : 1;
+    for (let t = 0; t < n; t++) {
+      const want = n === tiles ? target[t] : target.reduce((x, y) => x + y, 0) / tiles;
+      if (want <= 0) continue;
+      let lo = 1;
+      let hi = 16;
+      for (let it = 0; it < 14; it++) {
+        const mid = (lo + hi) / 2;
+        if (coverage(m, t, n, mid) < want) lo = mid;
+        else hi = mid;
+      }
+      const s = hi;
+      if (s <= 1.0001) continue;
+      const tw = dw / n;
+      const x0 = Math.floor(t * tw);
+      const x1 = Math.max(x0 + 1, Math.floor((t + 1) * tw));
+      for (let y = 0; y < dh; y++) for (let x = x0; x < x1; x++) d[(y * dw + x) * 4 + 3] = Math.min(255, Math.ceil(d[(y * dw + x) * 4 + 3] * s));
+    }
+    levels.push(m);
+    src = m;
+  }
+  return levels;
+}
+
+/**
+ * Canvas (tiles side by side) -> un-premultiplied RGBA DataTexture with dilated colours and a mip chain that keeps the coverage of the
+ * alpha test (`cutoff`, the alphaTest of the materials that draw it).
+ */
+function toDataTexture(c: HTMLCanvasElement, tiles: number, aniso: number, cutoff = 0.42): THREE.DataTexture {
   const w = c.width;
   const h = c.height;
   const src = c.getContext('2d')!.getImageData(0, 0, w, h).data;
@@ -118,7 +204,8 @@ function toDataTexture(c: HTMLCanvasElement, tiles: number, aniso: number): THRE
   }
   const tex = new THREE.DataTexture(out, w, h, THREE.RGBAFormat);
   tex.colorSpace = THREE.SRGBColorSpace;
-  tex.generateMipmaps = true;
+  tex.mipmaps = coverageMips(out, w, h, tiles, cutoff);
+  tex.generateMipmaps = false;
   tex.minFilter = THREE.LinearMipmapLinearFilter;
   tex.magFilter = THREE.LinearFilter;
   tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
@@ -643,10 +730,11 @@ function spruceBillboard(g: CanvasRenderingContext2D, dw: number, rnd: () => num
     const yTop = 8 + t * 176;
     const w = 7 + (1 - Math.pow(1 - t, 0.85)) * 62;
     const h = 28 + t * 24;
-    // the dark needles, a little lighter on the sun side
+    // the dark needles, a little lighter on the sun side (darker than the near trees' needle cards: those shade themselves inside the
+    // crown and take the shadows of their neighbours, a billboard is lit all over)
     const gr = g.createLinearGradient(cx - w, 0, cx + w, 0);
-    gr.addColorStop(0, pal.light[1]);
-    gr.addColorStop(0.5, pal.mid[1]);
+    gr.addColorStop(0, pal.mid[0]);
+    gr.addColorStop(0.5, pal.dark[2]);
     gr.addColorStop(1, pal.dark[0]);
     g.fillStyle = gr;
     g.beginPath();
@@ -660,8 +748,9 @@ function spruceBillboard(g: CanvasRenderingContext2D, dw: number, rnd: () => num
     g.lineTo(cx - w, yTop + h * 0.86);
     g.closePath();
     g.fill();
-    // the snow on top of the tier: a white cap following its upper edge, blue underneath
-    g.fillStyle = '#c4d0e6';
+    // the snow on top of the tier: a white cap following its upper edge, blue underneath (no more of it than the near trees show: from
+    // a few hundred metres a whiter billboard reads as a paler tree behind the dark ones)
+    g.fillStyle = '#a9b6cc';
     g.beginPath();
     g.moveTo(cx, yTop - 7);
     g.lineTo(cx + w * 0.97, yTop + h * 0.78);
@@ -669,19 +758,19 @@ function spruceBillboard(g: CanvasRenderingContext2D, dw: number, rnd: () => num
     g.quadraticCurveTo(cx - w * 0.4, yTop + h * 0.46, cx - w * 0.97, yTop + h * 0.78);
     g.closePath();
     g.fill();
-    g.fillStyle = '#f2f6fd';
+    g.fillStyle = '#e6ecf6';
     g.beginPath();
     g.moveTo(cx, yTop - 7);
-    g.lineTo(cx + w * 0.8, yTop + h * 0.64);
-    g.quadraticCurveTo(cx + w * 0.3, yTop + h * 0.34, cx, yTop + h * 0.24);
-    g.quadraticCurveTo(cx - w * 0.3, yTop + h * 0.34, cx - w * 0.8, yTop + h * 0.64);
+    g.lineTo(cx + w * 0.66, yTop + h * 0.52);
+    g.quadraticCurveTo(cx + w * 0.26, yTop + h * 0.3, cx, yTop + h * 0.22);
+    g.quadraticCurveTo(cx - w * 0.26, yTop + h * 0.3, cx - w * 0.66, yTop + h * 0.52);
     g.closePath();
     g.fill();
     const n = Math.floor(10 + w * 0.5);
     for (let k = 0; k < n; k++) {
       const px = cx + (rnd() * 2 - 1) * w * 0.94;
       const py = yTop + h * (0.4 + rnd() * 0.5);
-      dab(g, px, py, 1.8 + rnd() * 2.4, rnd() < 0.5 ? pal.light[2] : pal.mid[0], rnd);
+      dab(g, px, py, 1.8 + rnd() * 2.4, rnd() < 0.5 ? pal.mid[1] : pal.dark[2], rnd);
     }
   }
 }
@@ -768,7 +857,13 @@ export function makeBillboardAtlas(aniso = 4, winter = false): THREE.DataTexture
   });
   inTile(g, 2, BB_WIDTH.pine, (dw) => pineBillboard(g, dw, rnd, PAL.pine));
   inTile(g, 3, BB_WIDTH.palm, (dw) => palmBillboard(g, dw, rnd, PAL.palm));
-  return toDataTexture(c, BB_TILES, aniso);
+  // (painted after the others, so that their tiles come out as they always did; until they were, every tree of a winter circuit past
+  // the near trees' range was drawn from a blank tile, and the forest ended a hundred-odd metres from the road)
+  if (winter) {
+    inTile(g, 4, BB_WIDTH.spruce, (dw) => spruceBillboard(g, dw, rnd, PAL.spruce));
+    inTile(g, 5, BB_WIDTH.bare, (dw) => bareBillboard(g, dw, rnd, PAL.bare));
+  }
+  return toDataTexture(c, tiles, aniso);
 }
 
 // ── grass tufts ──────────────────────────────────────────────────────────────────
@@ -804,5 +899,5 @@ export function makeTuftTexture(aniso = 8): THREE.DataTexture {
     g.closePath();
     g.fill();
   }
-  return toDataTexture(c, 1, aniso);
+  return toDataTexture(c, 1, aniso, 0.5); // (the tufts are drawn with alphaTest 0.5)
 }

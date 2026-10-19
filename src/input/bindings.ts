@@ -16,7 +16,7 @@ export type DrivingAction =
   | 'shiftUp' | 'shiftDown' | 'nitro'
   | 'camera' | 'reset' | 'pause'
   | 'look' | 'lookBack'
-  | 'hud' | 'telemetry';
+  | 'hud' | 'telemetry' | 'nextTrack';
 
 export interface Binding {
   id: DrivingAction;
@@ -45,6 +45,7 @@ export const BINDINGS: readonly Binding[] = [
   { id: 'lookBack', label: 'Look back', pad: ['rsClick'], keys: ['V'], hint: 'Hold to look behind you.' },
   { id: 'hud', label: 'Toggle HUD', pad: ['dUp'], keys: ['H'], hint: 'Hides the whole HUD for clean shots.' },
   { id: 'telemetry', label: 'Telemetry', pad: ['dDown'], keys: ['T'], hint: 'Tires, g-meter and live traces.' },
+  { id: 'nextTrack', label: 'Next track', pad: ['dRight'], keys: ['N'], hint: 'Skips to the next song of the race music.' },
 ];
 
 export const PAD_LABEL: Record<PadControl, string> = {

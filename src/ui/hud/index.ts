@@ -8,12 +8,13 @@
  * pane's size divided by its scale and scaled down (hudScale, about 0.75 in a 538-high view), in the seat's colour, with a five-row
  * tower that shows both humans, no telemetry and no mirror strip. The compact rules are in hud.css under `.xr-hud.split`.
  */
-import type { HudState, MinimapTrack, Seat, Settings, SplitLayout } from '../../core/contracts';
+import type { HudState, MinimapTrack, NowPlaying, Seat, Settings, SplitLayout } from '../../core/contracts';
 import type { UiCtx } from '../ctx';
 import { h } from '../dom';
 import { Center } from './center';
 import { DamageHud } from './damage';
 import { HudMinimap } from './minimap';
+import { NowPlayingCard } from './nowplaying';
 import { NitroHud } from './nitro';
 import { Spotter } from './spotter';
 import { Speedo } from './speedo';
@@ -40,6 +41,8 @@ export interface HudView {
   setVisible(v: boolean): void;
   /** Split screen: this HUD is the view of `pane.seat`, scaled to fit its pane. null: the one HUD of the whole screen. */
   setPane(pane: HudPane | null): void;
+  /** A song of the race music has started: the card says what it is for a few seconds (null: nothing plays, take it down). */
+  nowPlaying(np: NowPlaying | null): void;
   resize(): void;
   dispose(): void;
 }
@@ -62,6 +65,7 @@ export function createHud(ctx: UiCtx): HudView {
   const nitro = new NitroHud(el);
   const center = new Center(el);
   const weather = new WeatherHud(el, center.el);
+  const song = new NowPlayingCard(el);
 
   let visible = false;
   let teleOn = false;
@@ -106,6 +110,7 @@ export function createHud(ctx: UiCtx): HudView {
       if (!split && s.showTelemetry !== teleOn) {
         teleOn = s.showTelemetry;
         tele.setVisible(teleOn);
+        el.classList.toggle('tele', teleOn);
       }
       if (teleOn) tele.update(s, now);
     },
@@ -116,15 +121,23 @@ export function createHud(ctx: UiCtx): HudView {
 
     setSettings(s: Settings): void {
       minimap.setEnabled(s.hud.minimap);
+      el.classList.toggle('no-map', !s.hud.minimap);
       standingsOn = s.hud.standings;
       tower.el.style.display = standingsOn ? '' : 'none';
       spotter.setEnabled(s.hud.spotter);
+    },
+
+    nowPlaying(np: NowPlaying | null): void {
+      // (a song that starts while the HUD is away -- the results, the menus -- is not announced when it comes back)
+      if (np && visible) song.show(np);
+      else song.hide();
     },
 
     setVisible(v: boolean): void {
       if (v === visible) return;
       visible = v;
       el.style.display = v ? '' : 'none';
+      if (!v) song.hide();
       if (v) {
         this.resize();
         // after being hidden, make the telemetry re-sync with the next frame
@@ -155,6 +168,7 @@ export function createHud(ctx: UiCtx): HudView {
         // no telemetry overlay and no mirror strip in a pane
         tele.setVisible(false);
         teleOn = false;
+        el.classList.remove('tele');
         mirrorShown = false;
         el.classList.remove('has-mirror');
       } else if (was) {

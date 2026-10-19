@@ -202,6 +202,25 @@
 /* the HUD mirror strip owns the top centre: the card drops below it */
 .xr-hud.has-mirror .hud-wxnote { top: 262px; }
 
+/* ── the race music: the card that says what has started playing ───────────────────────────────────────────── */
+/* Above the minimap, in its column: nothing else in the HUD is there (the tower ends well above). It slides in for a few seconds and
+   leaves. Where that spot is taken it moves: right of the telemetry's tyre panel while the telemetry is on, down into the corner when
+   the minimap is off, and in a split screen of two rows (whose pane is short, with the tower right down to the minimap) beside the
+   minimap, along the bottom of the first player's view. */
+
+.hud-np { left: 56px; bottom: 350px; max-width: 540px; display: flex; align-items: stretch; background: linear-gradient(90deg, rgba(4, 5, 8, 0.84), rgba(4, 5, 8, 0.66)); clip-path: polygon(14px 0, 100% 0, calc(100% - 14px) 100%, 0 100%); opacity: 0; transform: translateX(-22px); transition: opacity 0.45s var(--ease), transform 0.6s var(--ease); }
+.hud-np.show { opacity: 1; transform: none; }
+.np-bar { display: block; flex: none; width: 7px; margin-left: 14px; background: var(--seat); }
+.np-txt { display: flex; flex-direction: column; gap: 7px; min-width: 0; padding: 12px 40px 13px 18px; }
+.np-title { display: flex; align-items: baseline; gap: 12px; min-width: 0; font: 800 italic 32px / 1 var(--f-display); letter-spacing: 0.04em; text-transform: uppercase; color: #fff; text-shadow: 0 2px 14px rgba(0, 0, 0, 0.6); }
+.np-note { flex: none; font-style: normal; font-weight: 700; color: var(--seat); }
+.np-name { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.np-sub { font: 600 19px / 1 var(--f-display); letter-spacing: 0.14em; text-transform: uppercase; color: rgba(238, 240, 243, 0.72); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.xr-hud.tele .hud-np { left: 424px; }
+.xr-hud.no-map .hud-np { bottom: 56px; }
+.xr-hud.split:not(.cols) .hud-np { left: 392px; bottom: 36px; }
+.xr-hud.split:not(.cols).no-map .hud-np { left: 56px; }
+
 /* ── screen edges: car alongside ───────────────────────────────────────────── */
 /* A bar on the edge that lights up amber, then red, while a car is alongside or closing within a car length. --lv is
    how close (0..1), --at where along your car it is (-1 behind .. 1 ahead). The right edge is the left one flipped. */

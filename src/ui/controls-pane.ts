@@ -43,6 +43,7 @@ const CALLOUTS: Callout[] = [
   { id: 'steer', text: 'STEER', side: 'l', x: 150, y: 196, pts: [[158, 196], [220, 196]], lights: ['ls'] },
   { id: 'hud', text: 'TOGGLE HUD', side: 'l', x: 150, y: 290, pts: [[158, 290], [236, 290], [312, 228]], lights: ['dUp'] },
   { id: 'telemetry', text: 'TELEMETRY', side: 'l', x: 150, y: 338, pts: [[158, 338], [262, 338], [318, 270]], lights: ['dDown'] },
+  { id: 'nextTrack', text: 'NEXT TRACK', sub: 'or N', side: 'l', x: 150, y: 386, pts: [[158, 386], [300, 386], [350, 262]], lights: ['dRight'] },
   { id: 'reset', text: 'RESET CAR', side: 't', x: 345, y: 52, pts: [[349, 58], [349, 150], [362, 194]], lights: ['back'] },
   { id: 'pause', text: 'PAUSE', side: 't', x: 435, y: 52, pts: [[431, 58], [431, 150], [418, 194]], lights: ['start'] },
   { id: 'throttle', text: 'THROTTLE', side: 'r', x: 630, y: 84, pts: [[622, 84], [566, 84], [540, 106]], lights: ['rt'] },
@@ -236,6 +237,7 @@ export class ControlsPane {
     this.flash('start', now, f.pause, 240);
     this.flash('dUp', now, f.toggleHud, 240);
     this.flash('dDown', now, f.toggleTelemetry, 240);
+    this.flash('dRight', now, f.nextTrack, 240);
 
     const m = 11;
     const sx = pad ? f.steer * m : 0;

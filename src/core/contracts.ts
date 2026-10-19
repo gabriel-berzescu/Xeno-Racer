@@ -242,6 +242,11 @@ export interface VehicleState {
   localAccel: Vector3;
   steer: number; // applied steering input -1..1 (after assists)
   throttle: number; // applied 0..1 (after TCS / limiter)
+  /**
+   * The driver's throttle pedal 0..1 (or the AI's). The throttle body follows it: the ignition cut of a flat upshift and the traction
+   * control cut `throttle`, not this, so they do not blow a turbo's blow-off valve.
+   */
+  throttlePedal: number;
   brake: number; // applied 0..1 (after ABS)
   handbrake: number;
   clutch: number; // 0 engaged .. 1 open
@@ -283,8 +288,8 @@ export interface VehicleState {
 export type BodyStyle = 'gt' | 'hatch' | 'coupe' | 'prototype';
 
 /** Everything the car-visual builder needs. Body geometry origin: on the ground, centered
- *  between the axles and between the wheels. The center of mass sits at
- *  (0, cgHeight, cgToFrontAxle - wheelbase/2) relative to that origin. */
+ *  between the axles and between the wheels, +z forward. The center of mass sits at
+ *  (0, cgHeight, bodyCgZ(spec)) relative to that origin. */
 export interface CarVisualSpec {
   style: BodyStyle;
   length: number;
@@ -310,6 +315,16 @@ export interface CarVisualSpec {
   exhaust: { count: 1 | 2 | 4; side: 'center' | 'split' | 'side' };
   /** Seat position relative to body origin, for cockpit camera / driver (left-hand drive). */
   seat: { x: number; y: number; z: number };
+}
+
+/**
+ * Where the center of mass sits along the body, from the body origin (the middle of the wheelbase), +z forward. `cgToFrontAxle` is
+ * measured back from the front axle, so a car heavier at the front has its center of mass ahead of the middle. Every conversion between
+ * the physics frame (centred on the center of mass, the wheels at +cgToFrontAxle and -(wheelbase - cgToFrontAxle)) and the body frame
+ * goes through this.
+ */
+export function bodyCgZ(v: { wheelbase: number; cgToFrontAxle: number }): number {
+  return v.wheelbase / 2 - v.cgToFrontAxle;
 }
 
 /**
@@ -503,6 +518,8 @@ export interface InputFrame {
   pause: boolean;
   toggleHud: boolean;
   toggleTelemetry: boolean;
+  /** D-pad right / N: skip to the next song of the race music. */
+  nextTrack: boolean;
   /** Fire a nitro shot (src/core/nitro.ts). */
   nitro: boolean;
   /** Menu navigation edges, with auto-repeat while held. */
@@ -534,8 +551,20 @@ export interface AudioSettings {
   master: number; // 0..1
   engine: number;
   effects: number;
+  /** The menu theme (it plays on the menus, and on the results screen when the race music is off). */
   music: number;
+  /** The race music: the album that plays, shuffled, while someone drives. 0 turns it off. */
+  raceMusic: number;
   ui: number;
+}
+
+/** A song of the race music, as the "now playing" card and the pause menu show it. */
+export interface NowPlaying {
+  id: string;
+  title: string;
+  genre: string;
+  /** The album's name, as the card prints it after "Xeno-Racer": "Vol. 1". */
+  album: string;
 }
 
 export type CameraMode = 'chase' | 'chase-far' | 'hood' | 'bumper' | 'cockpit' | 'tv' | 'orbit';
@@ -946,6 +975,8 @@ export type UIIntent =
    * 'cancel': stop listening; 'swap': player 1 and player 2 change devices; 'unbind': there is no second player any more (back to the
    * menu, or a one-player setup). The game answers with `setPlayers()`.
    */
-  | { type: 'split'; action: 'join' | 'cancel' | 'swap' | 'unbind' };
+  | { type: 'split'; action: 'join' | 'cancel' | 'swap' | 'unbind' }
+  /** Skip to the next song of the race music (the pause menu's "Next track"). */
+  | { type: 'nextTrack' };
 
 export type UiSound = 'move' | 'select' | 'back' | 'error' | 'countdown' | 'go' | 'lap' | 'bestLap' | 'finish';

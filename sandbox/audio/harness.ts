@@ -11,7 +11,7 @@ import { type ListenerState, type Lod, type SpatialOut, makeListener, makeSpatia
 import type { UiSound } from '../../src/core/contracts';
 import { WCTL, WCTL_LEN, type ThunderEvent } from '../../src/audio/weather-model';
 
-export const DEFAULT_VOLUMES: AudioSettings = { master: 1, engine: 1, effects: 1, music: 1, ui: 1 };
+export const DEFAULT_VOLUMES: AudioSettings = { master: 1, engine: 1, effects: 1, music: 1, raceMusic: 1, ui: 1 };
 export const SR = 48000;
 
 export interface SceneCar {

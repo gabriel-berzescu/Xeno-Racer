@@ -15,10 +15,11 @@
  * results come up the finishing order is scored, the season saved and the UI sent a fresh view model.
  */
 import { Matrix4, Quaternion, Vector3 } from 'three';
+import { version } from '../../package.json';
 import { AIDriver } from '../ai';
 import { NITRO_PER_LAP, NITRO_SECONDS, NitroTank } from '../core/nitro';
 import { CARS, getCar } from '../cars';
-import { armWeather, createAudioSystem, onLightning, primeCarVoices, setWiper } from '../audio';
+import { armWeather, createAudioSystem, onAlbumTrack, onLightning, primeAlbum, primeCarVoices, setDriving, setWiper, skipTrack } from '../audio';
 import { createCarVisual } from '../carvis';
 import type {
   CameraMode,
@@ -73,7 +74,8 @@ import { makePlan, nearestWeather, trackCondition, WET_RECORD, WeatherDirector, 
 /** Camera names for the replay overlay. */
 const CAMERA_LABEL: Record<CameraMode, string> = { chase: 'Chase', 'chase-far': 'Chase far', hood: 'Hood', bumper: 'Bumper', cockpit: 'Cockpit', tv: 'TV', orbit: 'Orbit' };
 
-export const VERSION = '0.9.0';
+/** The game's version: package.json's, the one place it is written (bump it with `npm version patch|minor|major`). */
+export const VERSION: string = version;
 
 interface RaceCar {
   entrant: Entrant;
@@ -270,6 +272,8 @@ export class Game {
     this.audio = createAudioSystem(this.settings.audio);
     // storms: the sky flashes at each strike, and its thunder follows from the audio after the flash-to-bang delay
     onLightning(this.audio, (s) => (this.render as XenoRenderSystem).lightning(lightningStrength(s.distanceKm)));
+    // the race music: a card on the HUD and a line on the pause menu say which song has started
+    onAlbumTrack(this.audio, (np) => this.ui.setNowPlaying(np));
     this.ui = createUI(this.uiRoot, {
       cars: CARS,
       tracks: TRACKS.map((t) => t.info),
@@ -634,7 +638,7 @@ export class Game {
   private async showPreview(carId: string, liveryOver?: Partial<Livery>): Promise<void> {
     if (!this.track) return;
     const def = getCar(carId);
-    const livery: Livery = { ...def.defaultLivery, ...liveryOver, driver: this.settings.playerName };
+    const livery: Livery = { ...def.defaultLivery, ...liveryOver, driver: liveryOver?.driver || this.settings.playerName };
     const key = JSON.stringify(livery);
     if (this.preview && this.preview.carId === carId) {
       if (this.preview.liveryKey !== key) {
@@ -706,6 +710,8 @@ export class Game {
     this.ui.show('loading');
     this.ui.setLoading(0.05, getTrackName(config.trackId));
     this.audio.setMusic(false);
+    // the race music is built behind the loading screen, silently, and starts when the race does (a restart: it is playing already)
+    primeAlbum(this.audio);
     // weather that changes: its plan is fixed by the config (so a restart repeats it); the renderer gets both ends of it to
     // solve and fit before the track is built
     const plan = this.weatherPlan(config);
@@ -857,6 +863,7 @@ export class Game {
     this.ui.show('none');
     this.ui.setHudVisible(this.hudVisible);
     this.phase = 'race';
+    setDriving(this.audio, true);
     this.racePadId = null;
     // switched away while it loaded: the countdown waits behind the pause menu, as it would for an alt-tab mid-race
     if (document.hidden || !document.hasFocus()) this.setPaused(true);
@@ -1042,6 +1049,9 @@ export class Game {
         this.ui.setRaceConfig(null);
         this.ui.show('loading');
         this.ui.setLoading(0.05, 'Back to the paddock');
+        // the way back to the menus: the race music fades out as the menu theme comes in
+        setDriving(this.audio, false);
+        this.audio.setMusic(true);
         void this.loadAttract(this.track?.info.id ?? 'aurelia').then(() => {
           this.ui.show('main');
           this.audio.setMusic(true);
@@ -1063,6 +1073,9 @@ export class Game {
         break;
       case 'split':
         this.onSplitIntent(i.action);
+        break;
+      case 'nextTrack':
+        skipTrack(this.audio);
         break;
       case 'startChampionship':
         void this.beginChampionship(i.setup);
@@ -1290,6 +1303,7 @@ export class Game {
     const cpu0 = performance.now();
     const input = this.input.poll(dt);
     if (input.anyPressed) void this.audio.unlock();
+    this.ui.setSoundLocked(!this.audio.unlocked);
     if (this.pollJoin()) input.nav.confirm = false;
     this.ui.setDevice(input.device === 'gamepad' ? input.gamepadId : null);
 
@@ -1428,6 +1442,8 @@ export class Game {
 
     // global race controls: each human's own camera, HUD and reset
     if (!this.resultsShown) {
+      // (the race music: D-pad right or N, either player's in a split screen)
+      if (input.nextTrack) skipTrack(this.audio);
       for (const d of drivers) {
         const f = this.frameOf(d, input);
         if (f.cameraNext) d.rig.next();

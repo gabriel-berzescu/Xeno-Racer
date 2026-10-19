@@ -556,7 +556,7 @@ function fakeContext(): BaseAudioContext {
   return ctx as unknown as BaseAudioContext;
 }
 
-const VOLUMES = { master: 0.85, engine: 0.9, effects: 0.85, music: 0.5, ui: 0.6 };
+const VOLUMES = { master: 0.85, engine: 0.9, effects: 0.85, music: 0.5, raceMusic: 0.45, ui: 0.6 };
 const profile = CARS[0].sound;
 
 beforeAll(() => {

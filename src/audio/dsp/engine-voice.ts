@@ -57,6 +57,12 @@ export interface EngineInputs {
   driveOmega: number;
   speed: number;
   gear: number;
+  /**
+   * The driver's throttle pedal 0..1, which the throttle body follows: the ignition cut of a flat upshift and the traction control
+   * cut the torque (`throttle`) but leave the throttle open, so they do not blow the turbo's blow-off valve. -1 = not known: the
+   * applied throttle stands in for it.
+   */
+  pedal: number;
 }
 
 export function defaultEngineInputs(): EngineInputs {
@@ -79,6 +85,7 @@ export function defaultEngineInputs(): EngineInputs {
     driveOmega: 0,
     speed: 0,
     gear: 1,
+    pedal: -1,
   };
 }
 
@@ -360,7 +367,9 @@ export class EngineVoice {
   private flutT = 0;
   private flutPh = 0;
   private bovCool = 0;
-  private prevThr = 0;
+  /** The throttle body (the pedal), smoothed like the throttle, and its value a block ago: a quick close blows the blow-off valve. */
+  private sPlate = 0;
+  private prevPlate = 0;
 
   // whine
   private whPh1 = 0;
@@ -489,7 +498,9 @@ export class EngineVoice {
     this.svfMech.set(1900, 0.8, sr);
     this.svfHiss.set(V.hissHz, 0.7, sr);
     this.svfRun.set(V.runnerHz, 1.6, sr);
-    this.svfPopN.set(2600, 0.9, sr);
+    // the crack of a backfire sits in the mids, where the bang of a real one has its body: at 2.6 kHz it was a high "pac" over a
+    // thump, with nothing between them (half the pop's energy above 2 kHz; now about a fifth)
+    this.svfPopN.set(1200, 0.75, sr);
     this.svfCrack.set(3400, 0.7, sr);
     this.clunkR1.set(95, 0.045, sr);
     this.clunkR2.set(240, 0.03, sr);
@@ -585,7 +596,7 @@ export class EngineVoice {
     const rpmN = clamp(I.rpm / Math.max(I.limiterRpm, 1000), 0, 1.1);
     this.therm = 0.12 + 0.88 * clamp01(I.load * 0.75 + rpmN * 0.45);
     this.tSpeed = this.V.turbo ? clamp01(I.boost * (0.55 + 0.45 * rpmN) + 0.12 * I.load * rpmN) : 0;
-    this.prevThr = I.throttle;
+    this.sPlate = this.prevPlate = I.pedal >= 0 ? I.pedal : I.throttle;
     this.recomputeDelays(this.sTs);
   }
 
@@ -651,6 +662,9 @@ export class EngineVoice {
     if (this.asleep) {
       this.reset();
       this.asleep = false;
+      // (what the car did while it was out of earshot, its shifts and backfires, is not played now as if it had just happened)
+      this.lastShift = I.shiftCount;
+      this.lastBackfire = I.backfireCount;
     }
 
     // ── control smoothing ─────────────────────────────────────────────────────
@@ -668,6 +682,7 @@ export class EngineVoice {
     this.rpmRampT = Math.min(this.rpmRampT + dt, this.rpmRampLen);
     this.sRpm = this.rpmFrom + (this.rpmTo - this.rpmFrom) * (this.rpmRampT / this.rpmRampLen);
     this.sThr += smoothCoef(0.03, dt) * (I.throttle - this.sThr);
+    this.sPlate += smoothCoef(0.03, dt) * ((I.pedal >= 0 ? I.pedal : I.throttle) - this.sPlate);
     this.sLoad += smoothCoef(0.035, dt) * (I.load - this.sLoad);
     this.sBoost += smoothCoef(0.04, dt) * (I.boost - this.sBoost);
     this.sInt += smoothCoef(0.06, dt) * (I.interior - this.sInt);
@@ -680,19 +695,25 @@ export class EngineVoice {
     const rpmN = clamp(rpm / limiterRpm, 0, 1.1);
     const idle = Math.max(I.idleRpm, 300);
 
-    // counters -> events
+    // counters -> events (a counter that went back is a replay starting over, not a shift: it is taken as the new count, silently)
     if (I.shiftCount !== this.lastShift) {
+      const fresh = I.shiftCount > this.lastShift;
       this.lastShift = I.shiftCount;
-      this.dipT = 0.07;
-      this.clunkIn += 0.5 + 0.5 * this.sLoad;
-      this.clunkNoise = 1;
-      if (V.crackle > 0.3 && this.ovr > 0.2) this.burstLeft += 1;
+      if (fresh) {
+        this.dipT = 0.07;
+        this.clunkIn += 0.5 + 0.5 * this.sLoad;
+        this.clunkNoise = 1;
+        if (V.crackle > 0.3 && this.ovr > 0.2) this.burstLeft += 1;
+      }
     }
     if (I.backfireCount !== this.lastBackfire) {
+      const fresh = I.backfireCount > this.lastBackfire;
       this.lastBackfire = I.backfireCount;
-      this.firePop(1 + 0.3 * rng.u());
-      this.burstLeft += Math.floor(V.crackle * 1.6 * rng.u());
-      this.burstGap = 0.03;
+      if (fresh) {
+        this.firePop(1 + 0.3 * rng.u());
+        this.burstLeft += Math.floor(V.crackle * 1.6 * rng.u());
+        this.burstGap = 0.03;
+      }
     }
 
     // shift torque-cut dip
@@ -780,10 +801,11 @@ export class EngineVoice {
       const tgt = clamp01(this.sBoost * (0.55 + 0.45 * rpmN) + 0.12 * loadE * rpmN);
       const tau = tgt > this.tSpeed ? 0.09 : 0.9;
       this.tSpeed += smoothCoef(tau, dt) * (tgt - this.tSpeed);
-      const dThr = (this.sThr - this.prevThr) / dt;
-      this.prevThr = this.sThr;
+      // the blow-off valve vents the boost when the throttle body snaps shut: when the driver lifts, not on a flat upshift
+      const dPlate = (this.sPlate - this.prevPlate) / dt;
+      this.prevPlate = this.sPlate;
       this.bovCool = Math.max(0, this.bovCool - dt);
-      if (dThr < -3.5 && this.sBoost > 0.2 && this.bovCool <= 0) {
+      if (dPlate < -3.5 && this.sBoost > 0.2 && this.bovCool <= 0) {
         this.bovEnv = clamp01(this.sBoost * 1.2);
         this.flutT = 0.7 * V.crackle + 0.25;
         this.bovF = 3300;
@@ -1287,6 +1309,13 @@ export class EngineVoice {
           const pair = sinCyc(whPh3) + (pairHz * 2 < nyq ? 0.3 * sinCyc(wrap1(whPh3 * 2)) : 0);
           whine = (pin * whA1 + pair * whA3) * 0.05;
         }
+      } else {
+        // A lite voice renders neither the block nor the ticks, but what feeds them (every combustion, every valve tick) must not pile
+        // up: a voice promoted to full (an opponent coming within 80 m, a TV camera cutting onto a pack) used to throw the whole heap
+        // into the resonators in one sample, a loud crack that grew with the seconds spent in lite (24 times the level of the engine
+        // after one, 370 times after twenty). A blow-off that began in lite dies out unheard.
+        blkIn = blkInN = tickIn = tickInN = 0;
+        if (bovEnv > 0.002) bovEnv *= bovK;
       }
 
       // ── discrete event sounds: shift clunk, backfire pops ─────────────────
@@ -1304,7 +1333,7 @@ export class EngineVoice {
       }
       if (popEnv > 0.001) {
         popNoiseSvf.step(nz2);
-        ev += popNoiseSvf.bpn * popEnv * 0.55;
+        ev += popNoiseSvf.bpn * popEnv * 0.42;
         popEnv *= popEnvK;
       }
       if (popToneEnv > 0.001) {

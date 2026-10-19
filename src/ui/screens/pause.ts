@@ -3,7 +3,7 @@ import type { ScreenId } from '../../core/systems';
 import type { UiCtx } from '../ctx';
 import { h, clearEl } from '../dom';
 import { damageChip } from '../hud/damage';
-import { forecastLabel, formatLapTime, ordinal, weatherLabel } from '../format';
+import { forecastLabel, formatLapTime, nowPlayingLines, ordinal, weatherLabel } from '../format';
 import { MODE_INFO, missingPadLine, pauseOwnerLine, seatName } from '../model';
 import { FocusList, type FocusRow } from '../nav';
 import { Dialog } from '../widgets';
@@ -12,6 +12,8 @@ import { BaseScreen } from './base';
 interface Item {
   label: string;
   danger?: boolean;
+  /** Greyed out, and skipped by the focus. */
+  disabled?(): boolean;
   run(): void;
 }
 
@@ -35,6 +37,10 @@ export class PauseScreen extends BaseScreen {
   private readonly dialog: Dialog;
   private readonly kicker = h('div', 'kicker');
   private readonly info = h('div', 'pause-info');
+  /** What the race music is playing ("♪ Title  Genre · Xeno-Racer Vol. 1"), under the numbers. */
+  private readonly music = h('div', 'pause-music');
+  /** The "Next track" item: it is greyed out while no music plays. */
+  private nextEl: HTMLElement | null = null;
   /** Split screen: whose pad the menu follows ("Paused by Silviu"), and a warning when a controller has come out. */
   private readonly owner = h('div', 'pause-owner');
   private readonly warn = h('div', 'pause-warn');
@@ -56,6 +62,8 @@ export class PauseScreen extends BaseScreen {
               : this.confirm('Start over?', 'You will roll out again before the line. The lap you are on will not count.', 'Restart', 'Keep driving', () => ctx.emit({ type: 'restart' })),
       },
       { label: 'Settings', run: () => ctx.go('settings') },
+      // (the race music: it skips with a short fade, and the line above says what it moved on to)
+      { label: 'Next track', disabled: () => !this.ctx.nowPlaying, run: () => ctx.emit({ type: 'nextTrack' }) },
       {
         label: 'Quit to menu',
         danger: true,
@@ -70,26 +78,31 @@ export class PauseScreen extends BaseScreen {
     const menu = h('nav', 'menu');
     const rows: FocusRow[] = this.items.map((it, i) => {
       const el = h('div', { cls: 'menu-item focusable in' + (it.danger ? ' danger' : ''), style: { '--d': String(220 + i * 70), '--tx': '-70px' } }, h('i', 'plate'), h('i', 'plate-edge'), h('span', 'idx', String(i + 1).padStart(2, '0')), i === 1 ? this.restartLabel : h('span', 'lbl', it.label));
+      if (it.disabled) this.nextEl = el;
       el.addEventListener('pointermove', (e) => {
-        if (this.dialog.open) return;
+        if (this.dialog.open || it.disabled?.()) return;
         if ((e as PointerEvent).movementX !== 0 || (e as PointerEvent).movementY !== 0) {
           if (this.list.focus(i)) ctx.sound('move');
         }
       });
       el.addEventListener('click', () => {
-        if (this.dialog.open) return;
+        if (this.dialog.open || it.disabled?.()) return;
         this.list.focus(i);
         ctx.sound('select');
         it.run();
       });
       menu.appendChild(el);
-      return { setFocused: (on: boolean) => el.classList.toggle('is-focus', on), activate: () => (it.run(), true) };
+      return {
+        setFocused: (on: boolean) => el.classList.toggle('is-focus', on),
+        isDisabled: () => it.disabled?.() ?? false,
+        activate: () => (it.disabled?.() ? false : (it.run(), true)),
+      };
     });
     this.list.setRows(rows, 0);
     this.el.append(
       h('div', 'scrim scrim-flat'),
       h('div', 'scrim scrim-left'),
-      h('div', { cls: 'pause-head in', style: { '--d': '60', '--tx': '-60px' } }, this.kicker, h('h1', 'h1', 'Paused'), this.owner, this.info, this.warn),
+      h('div', { cls: 'pause-head in', style: { '--d': '60', '--tx': '-60px' } }, this.kicker, h('h1', 'h1', 'Paused'), this.owner, this.info, this.music, this.warn),
       h('div', 'pause-menu', menu),
       this.prompts.el,
       this.dialog.el,
@@ -149,6 +162,19 @@ export class PauseScreen extends BaseScreen {
     const season = ch ? this.ctx.championship : null;
     if (season) this.info.append(chip('Championship', season.done === 0 ? 'Not started' : `${ordinal(season.player.position)}  ·  ${season.player.points} pts`));
     this.renderPlayers();
+    this.renderMusic();
+  }
+
+  /** The song being heard, and whether there is one to skip. */
+  private renderMusic(): void {
+    const np = this.ctx.nowPlaying;
+    clearEl(this.music);
+    if (np) {
+      const t = nowPlayingLines(np);
+      this.music.append(h('span', 'note', t.note), h('b', null, t.title), h('span', 'sub', t.sub));
+    }
+    this.music.style.display = np ? '' : 'none';
+    this.nextEl?.classList.toggle('disabled', !np);
   }
 
   /** The two players' names, as the race has them (the config's liveries carry the names it started with). */
@@ -172,6 +198,7 @@ export class PauseScreen extends BaseScreen {
 
   refresh(): void {
     this.renderPlayers();
+    this.renderMusic();
   }
 
   leave(): void {

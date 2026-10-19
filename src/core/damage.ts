@@ -16,7 +16,7 @@
  * m/s. A 4 degree graze of a barrier at 200 km/h reads 3 m/s, a 25 degree one 23 m/s, head on at 60 km/h 14 m/s and at
  * 200 km/h 56 m/s. The hits between AI cars in a pack race read 1.3 to 3.2 m/s.
  */
-import type { CarVisualSpec, DamageMode, VehicleState } from './contracts';
+import { bodyCgZ, type CarVisualSpec, type DamageMode, type VehicleState } from './contracts';
 import { MechState, axleShare, hitEnergy } from './mechanical';
 
 export type V3 = [number, number, number];
@@ -214,7 +214,7 @@ export interface Hull {
 export function hullOf(v: CarVisualSpec): Hull {
   const front = v.wheelbase / 2 + v.frontOverhang;
   const rear = -(v.wheelbase / 2 + (v.length - v.wheelbase - v.frontOverhang));
-  return { hw: v.width / 2, front, rear, bottom: v.rideHeight, top: v.height * 0.92, height: v.height, cgH: v.cgHeight, cgZ: v.cgToFrontAxle - v.wheelbase / 2, wb: v.wheelbase };
+  return { hw: v.width / 2, front, rear, bottom: v.rideHeight, top: v.height * 0.92, height: v.height, cgH: v.cgHeight, cgZ: bodyCgZ(v), wb: v.wheelbase };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

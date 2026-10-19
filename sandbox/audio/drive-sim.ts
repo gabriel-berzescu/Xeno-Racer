@@ -44,6 +44,7 @@ export function makeVehicleState(id = 0): VehicleState {
     localAccel: new Vector3(),
     steer: 0,
     throttle: 0,
+    throttlePedal: 0,
     brake: 0,
     handbrake: 0,
     clutch: 0,
@@ -222,6 +223,7 @@ export class DriveSim {
     const st = this.st;
     const e = this.car.physics.engine;
     st.throttle = this.shifting > 0 ? 0 : throttle;
+    st.throttlePedal = throttle;
     st.brake = brake;
     st.rpm = this.rpm;
     st.gear = this.shifting > 0 ? 0 : this.gear;

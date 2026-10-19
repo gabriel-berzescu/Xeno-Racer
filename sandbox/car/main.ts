@@ -8,7 +8,7 @@
  */
 import * as THREE from 'three';
 import { getCar } from '../../src/cars';
-import type { CarDefinition, EnvironmentState, Livery, QualityLevel, VehicleState } from '../../src/core/contracts';
+import { bodyCgZ, type CarDefinition, type EnvironmentState, type Livery, type QualityLevel, type VehicleState } from '../../src/core/contracts';
 import { createCarVisual } from '../../src/carvis';
 import { hullOf, type DamageEvent, type V3 } from '../../src/core/damage';
 import { createStudioScene } from './studio';
@@ -168,7 +168,7 @@ function makeState(d: CarDefinition): VehicleState {
     wheels: [mk(), mk(), mk(), mk()] as VehicleState['wheels'],
     airborne: false,
   } as VehicleState;
-  const cgZ = v.cgToFrontAxle - v.wheelbase / 2;
+  const cgZ = bodyCgZ(v);
   st.position.set(0, v.cgHeight, cgZ);
   st.speed = 28;
   st.forwardSpeed = 28;
@@ -188,7 +188,7 @@ const eul = new THREE.Euler();
 const tmpV = new THREE.Vector3();
 function animate(st: VehicleState, d: CarDefinition, t: number, dt: number): void {
   const v = d.visual;
-  const cgZ = v.cgToFrontAxle - v.wheelbase / 2;
+  const cgZ = bodyCgZ(v);
   const pitch = 0.012 * Math.sin(t * 1.3) - 0.01 * (st.brake > 0.05 ? 1 : 0);
   const roll = 0.02 * Math.sin(t * 0.9);
   const heave = 0.012 * Math.sin(t * 2.1);

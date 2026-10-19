@@ -9,6 +9,7 @@ export const LOADING_TIPS: readonly string[] = [
   'The right trigger is analog. Squeeze the throttle out of slow corners instead of stamping on it.',
   'Cold tires grip far less. Weave gently on the formation lap to build some heat.',
   'Press D-pad down (or T) for live telemetry: tire temperatures, load, and the g-circle.',
+  'Not your song? D-pad right (or N) skips to the next track of the race music. Settings, Audio sets its volume, and 0 turns it off.',
   'In a rear-drive car, lifting off mid-corner shifts weight forward and can make the rear step out. Be smooth.',
   'Look through the corner, not at the wall. The car follows your eyes.',
   'Curbs are fast but they unsettle the car. Use the flat ones, avoid the tall ones.',

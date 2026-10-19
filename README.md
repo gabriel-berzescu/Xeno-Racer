@@ -10,6 +10,12 @@ synthesized engine sound, and a TV director that films the race.
 
 ## Play
 
+**In the browser:** play at **https://gabriel-berzescu.github.io/Xeno-Racer/** in Chrome or Edge, with nothing to install.
+It is the same game `play.bat` builds, published again on every push to main. A browser lets a page make sound only after a
+click or a key press (a gamepad button does not count), so click once or press a key when the game opens; until then the
+menus say so. **F11** plays full screen. Settings, best laps, ghosts and the championship are saved in the browser, a save of
+their own for each browser (and apart from the save of `play.bat`).
+
 **Windows:** double-click **`play.bat`**. It needs [Node.js](https://nodejs.org) 20+ and Google Chrome.
 On the first run it installs dependencies and builds the game, which takes about a minute. It then
 opens Xeno-Racer full-screen in its own Chrome window, on the dedicated GPU. To quit, close the
@@ -34,6 +40,7 @@ window (**Alt+F4** in full screen).
 | Reset car to track | Back | R |
 | Pause | Start | Esc |
 | HUD / telemetry | D-pad up / D-pad down | H / T |
+| Next track (race music) | D-pad right | N |
 
 Menus use the D-pad or left stick: A confirms, B goes back, and LB/RB step between setup pages and settings tabs (in split screen, either player's pad works in the menus). Settings, Assists has the driving line, the braking assist and a Pro / Standard / Beginner preset, and a tab of its own for player 2 while a second controller is plugged in.
 During a replay, LB/RB switch cars, Y changes the camera and B exits. On a pad with rumble
@@ -44,20 +51,20 @@ window loses focus.
 
 - **Race:** up to 11 AI opponents in four skill levels (rookie, amateur, pro, alien). Start-light countdown, pole/middle/back grid slot, 1–50 laps, time of day, weather and a forecast (rain that arrives part way through the race, or clears away). Results come with a full replay.
 - **Time trial:** a rolling start, sector splits, and a live delta to your best lap, raced against the ghost of your personal best. Best laps and ghosts are saved per track and car.
-- **Championship:** the Xeno Cup, eight rounds over all four circuits, each in different conditions (golden hour, a cloudy morning, a harbour dusk, a forest morning, dusk rain, night under the floodlights, a cloudy night in Porto Vela where the rain comes during the race, and a thunderstorm finale). Every race scores 25-18-15-12-10-8-6-4-2-1, plus a point for the fastest lap, with the standings and a calendar of winners after each round. Pick your car, difficulty, field (up to 11 opponents who keep their names and liveries all season), race length and how the grid is set. The season is saved after every round, so you can quit to the menu and carry on later, and it ends with a podium and your season summary.
+- **Championship:** the Xeno Cup, ten rounds over all five circuits, each in different conditions (golden hour, a cloudy morning, a harbour dusk, a winter night under the northern lights at Isvik, a forest morning, dusk rain, a golden hour on the ice that starts in falling snow and clears, night under the floodlights, a cloudy night in Porto Vela where the rain comes during the race, and a thunderstorm finale). A season saved before Isvik joined keeps its eight rounds. Every race scores 25-18-15-12-10-8-6-4-2-1, plus a point for the fastest lap, with the standings and a calendar of winners after each round. Pick your car, difficulty, field (up to 11 opponents who keep their names and liveries all season), race length and how the grid is set. The season is saved after every round, so you can quit to the menu and carry on later, and it ends with a podium and your season summary.
 - **Free roam:** the track to yourself.
 
 Opponents drive the same car as you, so the racing is about driving, not horsepower.
 
 ## Split screen
 
-Two players, one screen, two controllers. Choose **Split screen** in the main menu (or set **Players** to 2 in the Race and Free Roam setup). Each player picks their own car and livery with their own pad. The second player joins with "Player 2, press A to join" on a second controller; with only one controller, press Enter to play on the keyboard instead, and Y swaps who is player 1 and who is player 2. The time trial and the Xeno Cup stay one-player.
+Two players, one screen, two controllers. Choose **Split screen** in the main menu (or set **Players** to 2 on the Race step of the Race and Free Roam setup: the setup goes Track, Race, then a car step for each player, the last of which starts the race). Each player picks their own car and livery with their own pad. The second player joins with "Player 2, press A to join" on a second controller; with only one controller, press Enter to play on the keyboard instead, and Y swaps who is player 1 and who is player 2. The time trial and the Xeno Cup stay one-player.
 
 ![Two players, one screen: the same race from two cars](docs/img/split.jpg)
 
 - **Layout:** two wide views, one above the other (each 1920×538 at 1080p), or side by side (Settings, Gameplay: Split screen layout). The lens of each view is set for its shape, so neither looks stretched or like a keyhole. A thin divider runs between them.
 - **Everything is per player:** the camera (Y cycles, the right stick looks around, clicking it looks back, and the cockpit, hood and bumper views have their own interiors), the HUD, the spotter, the wrong-way warning, the rain on the windscreen with its wiper, and lap and sector timing. The tower shows both players, in teal and pink, and each minimap shows both. The telemetry overlay and the mirrors are off.
-- **The grid:** the two cars start side by side at the position you chose, with up to 10 opponents, who drive the two players' cars in turn. Both players are on the tower, on the minimaps and on the results with their names (Settings, Gameplay: Player 2 name).
+- **The grid:** the two cars start side by side at the position you chose, with up to 10 opponents, who drive the two players' cars in turn. Both players are on the tower, on the minimaps and on the results with their names (each player renames themselves on their car step: A on Driver; or Settings, Gameplay).
 - **Assists:** each player has a set of their own (Settings, Assists P1 and Assists P2, each with the Pro, Standard and Beginner presets): one can drive a manual gearbox with nothing to help while the other has ABS, traction and stability control, the driving line and the braking assist on. An older save starts player 2 with what player 1 had, as both drove with before.
 - **Pause:** either player's Start pauses the race for both and the pause menu follows the pad that paused. Unplugging a controller pauses the race and says whose it was.
 - **Results:** both players in the standings, and a head-to-head card: who beat whom, by how much, and each player's laps. Best laps are saved per track and car for both players, each with its ghost lap for the time trial. No ghost is shown in a split race; the replay is the usual one-screen replay, from any car.
@@ -76,6 +83,14 @@ Two players, one screen, two controllers. Choose **Split screen** in the main me
 - **Spotter:** the edge of the screen glows amber, then red, while a car is alongside you.
 - **Cameras:** chase, far chase, hood, bumper, cockpit, TV and orbit. The right stick looks around, and clicking it looks back.
 - **Replays:** every race can be watched again from start to finish, from any car and camera.
+
+## Music
+
+Xeno-Racer has an album of its own: instrumental race music, composed in code and synthesized sample by sample (no recordings), which plays **shuffled whenever you drive**, on any circuit: a race, a time trial, free roam or a championship round, through the results and the replay. Every song plays once before any plays again and never the same one twice in a row, and the order carries on where it stopped last time. A restart keeps the song that is playing; going back to the menus fades it out and brings the menu theme back.
+
+- **Next track:** D-pad right (either player's, in split screen) or **N** skips to the next song, with a short fade. The pause menu has a **Next track** item too and says what is playing, and the music drops by 10 dB while the game is paused.
+- **Now playing:** when a song starts, a small card in the corner above the minimap shows its title, its genre and the album ("♪ Neon Overdrive, Cyberpunk · Xeno-Racer Vol. 1") for about five seconds. In split screen it is shown once, in player 1's view.
+- **Volume:** Settings, Audio: **Race music** (0 turns it off, and nothing is rendered then) and **Menu music**, the theme of the menus, which keeps its own slider.
 
 ## Cars
 
@@ -176,7 +191,7 @@ The setup's **Forecast** row (Stable, Rain later, Clearing) makes the weather mo
   - **Mirrors:** each mirror is the scene drawn again from the driver's reflected eye into a small HDR texture, reusing the frame's shadow maps. They add about 0.6 ms of GPU and 1-2 ms of CPU time per frame at 1080p high, and less on the lower presets.
   - **Tracks:** terrain, trees, buildings and props are all procedural, plus CC0 surface textures. Porto Vela's town is built from instanced blocks whose windows, shutters and shop fronts are drawn in the fragment shader.
   - **Performance:** the high preset renders 1080p in 7.5 to 10 ms on an RTX 3050 laptop GPU, depending on the track and the weather. Shaders are compiled behind the loading screen, not in the first frames of the race.
-- **Audio** (`src/audio`) synthesizes engines in AudioWorklets, with intake, exhaust, turbo whistle, backfires, tire squeal, wind, impacts and 3D positioning. It also synthesizes rain (outside and inside the car), rolling thunder, wet-tyre hiss and spray, and the cockpit wiper, timed to the blade on screen.
+- **Audio** (`src/audio`) synthesizes engines in AudioWorklets, with intake, exhaust, turbo whistle, backfires, tire squeal, wind, impacts and 3D positioning. It also synthesizes rain (outside and inside the car), rolling thunder, wet-tyre hiss and spray, and the cockpit wiper, timed to the blade on screen. The race music (`src/audio/album-player.ts`) is rendered in a Web Worker a few seconds ahead of the playhead and streamed straight to an AudioWorklet ring buffer, so the main thread does nothing per frame for it: the songs are crossfaded into one stream, the next one is rendered before it is needed, and the buffer runs through a stalled frame or a suspended audio context without a gap.
 
 ![TV camera](docs/img/tv.jpg)
 ![Car select](docs/img/showroom.jpg)
@@ -190,6 +205,7 @@ npm test           # vitest: physics, AI, handling, tracks, session, UI, audio, 
 npm run typecheck
 ```
 
+- The version is written in one place, `package.json`; the title screen and the credits read it from there. Bump it with `npm version patch` (or `minor`, `major`), which also updates `package-lock.json`.
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) describes the subsystems and the shared contracts in `src/core`.
 - `sandbox/*.html` holds standalone labs for the car models, tracks, rendering, audio and UI.
 - `scripts/tour.mjs` scripts a play-through in headless Chrome. It can wait, press keys, take screenshots, evaluate code and collect perf stats. With `--init scripts/fixtures/fake-pad.js` it drives a fake F310.
@@ -203,3 +219,7 @@ Surface textures are CC0 from [Poly Haven](https://polyhaven.com) (see `public/a
 Everything else is generated in code: cars, terrain, trees, buildings, signage, sky, engine sound and music.
 
 Built by Claude (Anthropic) for Gabriel.
+
+## License
+
+Xeno-Racer is released under the [MIT License](LICENSE). The bundled fonts keep their own license, the SIL Open Font License 1.1 (`public/assets/ui/fonts/OFL-*.txt`), and the Poly Haven textures are CC0.

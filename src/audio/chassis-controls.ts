@@ -154,6 +154,8 @@ export class ChassisMapper {
     // scrape + impacts
     v[CTL.SCRAPE] = clamp(st.scrape, 0, 1);
     if (this.lastImpactSeen < 0) this.lastImpactSeen = st.impactCount;
+    // (a count that went back is a replay starting over: the new count is taken, nothing hit anything)
+    if (st.impactCount < this.lastImpactSeen) this.lastImpactSeen = st.impactCount;
     if (st.impactCount !== this.lastImpactSeen) {
       this.lastImpactSeen = st.impactCount;
       this.impactCount = (this.impactCount + 1) % 60000;

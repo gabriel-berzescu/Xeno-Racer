@@ -3,7 +3,7 @@
  *
  *   createAudioSystem(volumes): AudioSystem          (see core/systems.ts)
  *
- * Web Audio graph:  per-source -> buses (engine, effects, music, ui) -> master -> gentle
+ * Web Audio graph:  per-source -> buses (engine, effects, music, race music, ui) -> master -> gentle
  * compressor -> soft limiter -> destination.  Engines / tires / wind / impacts are synthesised in an
  * AudioWorklet (engine.worklet.ts); UI sounds and music use native nodes.
  *
@@ -20,11 +20,17 @@
  * windscreen pass's clock, the blade's schedule) once per frame and plays the motor, the rubber's swish and the thunks at the
  * ends of each sweep on the blade's own schedule, sample-accurately, from a worklet voice that exists only while the blade is on
  * screen (wiper.ts, wiper-model.ts, dsp/wiper-voice.ts).
+ *
+ * Music, of two kinds. The menu theme (music.ts, setMusic) plays on the menus. The race music (album-player.ts, setDriving) is the
+ * album that plays, shuffled, while someone drives: rendered in a worker, played by a worklet, on a stage of its own on the master
+ * graph (raceMusicBus) with its own slider. Which of the two is heard is decided in applyMusic: the album while someone drives and
+ * the Race music slider is above 0, otherwise the menu theme if the menus want it. They cross-fade and never overlap at full level.
  */
 import type * as THREE from 'three';
-import type { AudioSettings, EngineSoundProfile, Seat, UiSound } from '../core/contracts';
+import type { AudioSettings, EngineSoundProfile, NowPlaying, Seat, UiSound } from '../core/contracts';
 import type { AudioSystem, CarSound, CreateAudioSystem } from '../core/systems';
 import workletUrl from './engine.worklet.ts?worker&url';
+import { AlbumPlayer, type AlbumPlayerOptions } from './album-player';
 import { CarSoundImpl, type CarHost } from './carsound';
 import { type MasterGraph, buildMasterGraph } from './graph';
 import { MenuMusic } from './music';
@@ -40,6 +46,9 @@ export type { CarHost, CarNodes } from './carsound';
 export { buildMasterGraph, volumeCurve } from './graph';
 export type { MasterGraph } from './graph';
 export { MenuMusic, MUSIC_INFO } from './music';
+export { AlbumPlayer } from './album-player';
+export type { AlbumPlayerOptions } from './album-player';
+export { ShuffleBag } from './album-shuffle';
 export { UiSynth, UI_SOUND_LIST } from './ui-sounds';
 export { WeatherSystem, createWeatherNode, WEATHER_FADE_OUT_S } from './weather';
 export type { StrikeInfo, WeatherNode, WeatherNodeLike } from './weather';
@@ -61,6 +70,8 @@ export function loadAudioWorklet(ctx: BaseAudioContext): Promise<void> {
 interface SystemOptions {
   /** Use this context instead of creating a real-time one (offline rendering / tests). */
   ctx?: BaseAudioContext;
+  /** The race music's worker, worklet and storage (tests stand in for them). */
+  album?: AlbumPlayerOptions;
 }
 
 type Win = Window & { webkitAudioContext?: typeof AudioContext };
@@ -88,7 +99,18 @@ class AudioSystemImpl implements AudioSystem, CarHost {
 
   private ui_: UiSynth;
   private music: MenuMusic | null = null;
+  /** The menus want their theme (setMusic). Whether it plays also depends on the race music: see applyMusic. */
   private musicWanted = false;
+  /** What applyMusic last did: the menu theme is on / the album is on. */
+  private menuApplied = false;
+  private albumApplied = false;
+  /** Someone is driving (setDriving): the album plays, if the Race music slider is above 0. */
+  private driving = false;
+  private vols: AudioSettings;
+  /** The race music; made the first time it is wanted. */
+  private album: AlbumPlayer | null = null;
+  private albumCb: ((np: NowPlaying | null) => void) | null = null;
+  private readonly albumOptions: AlbumPlayerOptions | undefined;
   private cars = new Set<CarSoundImpl>();
   /** The player's car (for the cabin / speed the rain ambience follows). */
   private player: CarSoundImpl | null = null;
@@ -113,6 +135,8 @@ class AudioSystemImpl implements AudioSystem, CarHost {
   private watchdog: ReturnType<typeof setInterval> | null = null;
 
   constructor(v: AudioSettings, opts: SystemOptions = {}) {
+    this.vols = v;
+    this.albumOptions = opts.album;
     this.owned = !opts.ctx;
     if (opts.ctx) this.ctx = opts.ctx;
     else {
@@ -196,7 +220,7 @@ class AudioSystemImpl implements AudioSystem, CarHost {
       const now = performance.now();
       for (const q of this.uiQueue) if (now - q.at < 500) this.ui_.play(q.s);
       this.uiQueue.length = 0;
-      if (this.musicWanted) this.startMusic();
+      if (this.menuApplied) this.startMusic();
     }
   }
 
@@ -373,12 +397,17 @@ class AudioSystemImpl implements AudioSystem, CarHost {
   }
 
   setVolumes(v: AudioSettings): void {
+    this.vols = v;
     this.graph.setVolumes(v);
+    // (the Race music slider reaching 0 turns the album off, and leaving 0 brings it back)
+    this.applyMusic();
   }
 
   setPaused(p: boolean): void {
     if (p === this.paused) return;
     this.paused = p;
+    // the race music drops by 10 dB under the pause menu (the cars go silent; the music stays, quieter)
+    this.album?.setDucked(p);
     this.graph.setPaused(p || this.stale);
     if (p) {
       for (const c of this.cars) c.sleep();
@@ -419,16 +448,87 @@ class AudioSystemImpl implements AudioSystem, CarHost {
 
   setMusic(on: boolean): void {
     this.musicWanted = on;
-    if (on) {
-      if (this.ctx.state === 'running') this.startMusic();
-      else void this.unlock();
-    } else if (this.music) {
-      this.graph.setMusicGate(0, 1.4);
-      const m = this.music;
-      if (this.musicStopTimer) clearTimeout(this.musicStopTimer);
-      this.musicStopTimer = setTimeout(() => {
-        if (!this.musicWanted) m.stop();
-      }, 1600);
+    this.applyMusic();
+  }
+
+  /** Someone is driving (a race, a time trial, free roam, a championship round, up to the way back to the menus): the album plays. */
+  setDriving(on: boolean): void {
+    if (on === this.driving) return;
+    this.driving = on;
+    this.applyMusic();
+  }
+
+  /** Behind the loading screen: get the album ready without a sound, so that it starts the moment the race does. */
+  primeAlbum(): void {
+    if (this.disposed || this.vols.raceMusic <= 0) return;
+    this.getAlbum().prime();
+  }
+
+  /** Skip to the next song of the album (a short fade). */
+  skipTrack(): void {
+    this.album?.skip();
+  }
+
+  /** The song being heard, or null. */
+  get nowPlaying(): NowPlaying | null {
+    return this.album?.track ?? null;
+  }
+
+  /** Tell `cb` when a song starts to be heard (and with null when the race music stops). */
+  setAlbumListener(cb: ((np: NowPlaying | null) => void) | null): void {
+    this.albumCb = cb;
+  }
+
+  private getAlbum(): AlbumPlayer {
+    if (!this.album) {
+      const a = new AlbumPlayer(this.ctx, this.graph.raceMusicBus, this.albumOptions);
+      a.onTrack = (np) => this.albumCb?.(np);
+      // (an album that cannot play leaves the music to the menu theme, as before there was one)
+      a.onFail = () => this.applyMusic();
+      if (this.paused) a.setDucked(true);
+      this.album = a;
+    }
+    return this.album;
+  }
+
+  /** The album plays while someone drives and the Race music slider is above 0 (and it has not given up). */
+  private albumWanted(): boolean {
+    return this.driving && this.vols.raceMusic > 0 && !this.album?.isFailed;
+  }
+
+  /**
+   * Decide which music is heard. The album, when it is wanted; the menu theme, when the menus want it and the album is not playing
+   * (so with the Race music at 0 the results screen has its theme, as it always had). Only changes are acted on, and the two fade
+   * across each other (the theme's gate 1.4 s out and 1.8 s in, the album 1.5 s each way).
+   */
+  private applyMusic(): void {
+    if (this.disposed) return;
+    const album = this.albumWanted();
+    const menu = this.musicWanted && !album;
+    if (menu !== this.menuApplied) {
+      this.menuApplied = menu;
+      if (menu) {
+        if (this.ctx.state === 'running') this.startMusic();
+        else void this.unlock();
+      } else if (this.music) {
+        this.graph.setMusicGate(0, 1.4);
+        const m = this.music;
+        if (this.musicStopTimer) clearTimeout(this.musicStopTimer);
+        this.musicStopTimer = setTimeout(() => {
+          if (!this.menuApplied) m.stop();
+        }, 1600);
+      }
+    }
+    if (album !== this.albumApplied) {
+      this.albumApplied = album;
+      if (album) {
+        this.getAlbum().start();
+        // (the stream is built and buffered meanwhile; it is heard once the context runs)
+        if (this.ctx.state !== 'running') void this.unlock();
+      } else this.album?.stop();
+    } else if (!album && this.vols.raceMusic <= 0) {
+      // (an album that was primed behind a loading screen and then switched off before the race lets go)
+      this.album?.stop();
     }
   }
 
@@ -442,6 +542,7 @@ class AudioSystemImpl implements AudioSystem, CarHost {
     this.weather.dispose();
     this.wiper.dispose();
     this.music?.dispose();
+    this.album?.dispose();
     this.ui_.dispose();
     this.graph.dispose();
     if (this.owned) void (this.ctx as AudioContext).close().catch(() => undefined);
@@ -500,6 +601,39 @@ export function primeCarVoices(audio: AudioSystem): void {
 }
 
 /**
+ * Someone is driving (true) or is back in the menus (false): the race music (album-player.ts) plays while they drive, shuffled,
+ * fading in and out, and the menu theme steps aside for it. Returns false when this audio system has no race music (the silent
+ * fallback).
+ */
+export function setDriving(audio: AudioSystem, on: boolean): boolean {
+  const a = audio as Partial<AudioSystemImpl>;
+  if (!a.setDriving) return false;
+  a.setDriving(on);
+  return true;
+}
+
+/**
+ * Behind a loading screen: build the race music's worker and worklet and render the first seconds of its first song now, silently, so
+ * that setDriving(true) starts it at once. Does nothing while the Race music slider is at 0. Call it again on a restart: it is free.
+ */
+export function primeAlbum(audio: AudioSystem): void {
+  (audio as Partial<AudioSystemImpl>).primeAlbum?.();
+}
+
+/** Skip to the next song of the race music (D-pad right, N, the pause menu), with a short fade. */
+export function skipTrack(audio: AudioSystem): void {
+  (audio as Partial<AudioSystemImpl>).skipTrack?.();
+}
+
+/** Be told when a song of the race music starts to be heard (with its title and genre), and with null when it stops. */
+export function onAlbumTrack(audio: AudioSystem, cb: ((np: NowPlaying | null) => void) | null): boolean {
+  const a = audio as Partial<AudioSystemImpl>;
+  if (!a.setAlbumListener) return false;
+  a.setAlbumListener(cb);
+  return true;
+}
+
+/**
  * Behind a loading screen, for a race whose weather is going to change: build the rain and wiper voices now and keep them (asleep)
  * until the race is over, instead of when the rain first falls (their first build is a few tens of ms of work for the audio
  * thread: a dropout in the engines). Call with false for any race that does not need them. Returns false when this audio system
@@ -530,7 +664,7 @@ export function setWiper(audio: AudioSystem, feed: WiperFeed): boolean {
 const contractCheck: CreateAudioSystem = createAudioSystem;
 void contractCheck;
 
-/** Internal / test factory: build the system on an existing (e.g. offline) context. */
-export function createAudioSystemOn(ctx: BaseAudioContext, v: AudioSettings): AudioSystemImpl {
-  return new AudioSystemImpl(v, { ctx });
+/** Internal / test factory: build the system on an existing (e.g. offline) context. `album`: stand-ins for the race music's worker and worklet. */
+export function createAudioSystemOn(ctx: BaseAudioContext, v: AudioSettings, album?: AlbumPlayerOptions): AudioSystemImpl {
+  return new AudioSystemImpl(v, { ctx, album });
 }

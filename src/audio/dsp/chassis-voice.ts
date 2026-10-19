@@ -437,6 +437,9 @@ export class ChassisVoice {
     if (this.asleep) {
       this.reset();
       this.asleep = false;
+      // (a thump or a hit counted while the car was out of earshot is not played now: the strength it still carries is of the last one)
+      this.lastThump = I.thumpCount;
+      this.lastImpact = I.impactCount;
     }
     const first = this.firstBlock;
     this.firstBlock = false;

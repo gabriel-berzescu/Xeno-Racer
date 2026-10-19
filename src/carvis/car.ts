@@ -37,7 +37,7 @@ import {
   SpotLight,
   Vector3,
 } from 'three';
-import type { CarDefinition, DamageMode, EnvironmentState, Livery, QualityLevel, VehicleState } from '../core/contracts';
+import { bodyCgZ, type CarDefinition, type DamageMode, type EnvironmentState, type Livery, type QualityLevel, type VehicleState } from '../core/contracts';
 import { CarDamage, ImpactObserver, MAX_DENTS, hullOf, type CarDamageControl, type DamageEvent } from '../core/damage';
 import { mechanicalEffects, neutralEffects } from '../core/mechanical';
 import type { CarVisual } from '../core/systems';
@@ -572,7 +572,7 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
   anchors.chase.position.set(...layout.chase);
   root.add(anchors.hood, anchors.bumper, anchors.cockpit, anchors.chase);
 
-  const cgZ = spec.cgToFrontAxle - spec.wheelbase / 2;
+  const cgZ = bodyCgZ(spec);
   const tmp = new Vector3();
   const qi = new Quaternion();
   const qs = new Quaternion();
