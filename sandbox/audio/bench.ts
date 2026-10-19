@@ -226,6 +226,22 @@ export function startBench(): void {
     profile.crackle = v;
     markCustom();
   });
+  const dualChk = toggle('true dual exhaust (a pipe to each bank: the burble of a crossplane V8)', profile.exhaustSystem === 'dual', (v) => {
+    profile.exhaustSystem = v ? 'dual' : 'merged';
+    markCustom();
+  });
+  const blowerChk = toggle('supercharger (whine locked to the rpm)', profile.supercharger !== undefined, (v) => {
+    profile.supercharger = v ? { ratio: blowRatioS.get(), lobes: Math.round(blowLobesS.get()) } : undefined;
+    markCustom();
+  });
+  const blowRatioS = slider('blower pulley ratio (use 2 x ratio x lobes whole)', 1, 4, 0.05, profile.supercharger?.ratio ?? 2.5, (v) => {
+    if (profile.supercharger) profile.supercharger = { ...profile.supercharger, ratio: v };
+    markCustom();
+  });
+  const blowLobesS = slider('blower lobes (pulses per rotor turn)', 2, 12, 1, profile.supercharger?.lobes ?? 4, (v) => {
+    if (profile.supercharger) profile.supercharger = { ...profile.supercharger, lobes: Math.round(v) };
+    markCustom();
+  });
   let rebuildTimer = 0;
   function markCustom(): void {
     carSel.set('custom');
@@ -242,6 +258,10 @@ export function startBench(): void {
     brightS.set(profile.brightness);
     whineS.set(profile.gearWhine);
     crackS.set(profile.crackle);
+    dualChk.set(profile.exhaustSystem === 'dual' ? 1 : 0);
+    blowerChk.set(profile.supercharger ? 1 : 0);
+    blowRatioS.set(profile.supercharger?.ratio ?? 2.5);
+    blowLobesS.set(profile.supercharger?.lobes ?? 4);
     rpm.set(Math.round(car.physics.engine.limiterRpm * 0.35));
   }
 
@@ -353,7 +373,7 @@ export function startBench(): void {
       'div',
       { class: 'grid' },
       panel('Engine', carSel.el, modeSel.el, camSel.el, interiorChk.el, rpm.el, thr.el, boost.el, limiter.el, speedS.el, h('div', { class: 'btns' }, shiftBtn, popBtn), h('p', { class: 'hint' }, 'W / up = throttle, S / down = brake, E = shift, B = pop. Gamepad: RT throttle, LT brake, RB shift.')),
-      panel('Custom engine profile (live)', cylSel.el, layoutSel.el, crankSel.el, dispS.el, turboChk.el, openS.el, brightS.el, whineS.el, crackS.el, h('p', { class: 'hint' }, 'Any change switches to "custom" and rebuilds the voice. Try V8 + crossplane for the burble, 4 + flat + boxer for the rumble.')),
+      panel('Custom engine profile (live)', cylSel.el, layoutSel.el, crankSel.el, dispS.el, turboChk.el, openS.el, brightS.el, whineS.el, crackS.el, dualChk.el, blowerChk.el, blowRatioS.el, blowLobesS.el, h('p', { class: 'hint' }, 'Any change switches to "custom" and rebuilds the voice. Try V8 + crossplane + true dual exhaust for the burble (and merged for the same engine without it), 4 + flat + boxer for the rumble, a supercharger for the whine.')),
       panel('Tires, road, chassis', surface.el, skidF.el, skidR.el, slip.el, spinS.el, scrape.el, curb.el, air.el, h('div', { class: 'btns' }, sweepBtn, thumpBtn)),
       panel(
         'Weather',

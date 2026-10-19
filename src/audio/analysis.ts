@@ -517,6 +517,57 @@ export function chirpDeviation(
   return { t: Float64Array.from(tt), relDev: Float64Array.from(rd), level: Float64Array.from(lv) };
 }
 
+/** Where the power of an engine note sits relative to its crank (see orderFamilies). Powers are sums over the lines in the band. */
+export interface OrderFamilies {
+  /** The firing lines: multiples of `fireOrder` x f0. */
+  fire: number;
+  /** The half orders of the crank: odd multiples of f0 = rpm/120. */
+  half: number;
+  /** The other even multiples of f0 (whole orders of the crank that are not firing lines). */
+  whole: number;
+  /** Everything between the lines (noise, jitter, anything off the grid). */
+  between: number;
+  /** How many distinct lines of each family fell in the band, so that families can be compared line for line. */
+  lines: { fire: number; half: number; whole: number };
+  /** The share of all the power in the band that sits in the half-order lines. */
+  halfShare: number;
+}
+
+/**
+ * Splits the spectrum of a four-stroke engine into the families of lines the crank makes: f0 = rpm/120 is one turn of the 720 degree
+ * cycle, an engine of N cylinders fires N times in it, so its firing lines are at multiples of N x f0. An engine whose pulses are even
+ * has nothing else but noise; the lines at the odd multiples of f0 (the half orders of the crank) belong to an engine whose pulses are
+ * uneven from one half-turn to the next: the burble of a cross-plane V8 through a dual exhaust, the rumble of a boxer. The PSD needs a
+ * resolution of about f0/9 or finer (the lines are told from the gaps between them within `tolFrac` x f0 of each multiple).
+ */
+export function orderFamilies(psd: Arr, sr: number, f0: number, fireOrder: number, fLo: number, fHi: number, tolFrac = 0.13): OrderFamilies {
+  const nfft = (psd.length - 1) * 2;
+  const df = sr / nfft;
+  const sum = { fire: 0, half: 0, whole: 0 };
+  const seen = { fire: new Set<number>(), half: new Set<number>(), whole: new Set<number>() };
+  let between = 0;
+  const tol = tolFrac * f0;
+  for (let i = Math.max(1, Math.floor(fLo / df)); i <= Math.min(psd.length - 1, Math.ceil(fHi / df)); i++) {
+    const f = i * df;
+    const m = Math.round(f / f0);
+    if (m < 1) continue;
+    if (Math.abs(f - m * f0) > tol) {
+      between += psd[i];
+      continue;
+    }
+    const fam = m % fireOrder === 0 ? 'fire' : m % 2 === 1 ? 'half' : 'whole';
+    sum[fam] += psd[i];
+    seen[fam].add(m);
+  }
+  const total = sum.fire + sum.half + sum.whole + between;
+  return {
+    ...sum,
+    between,
+    lines: { fire: seen.fire.size, half: seen.half.size, whole: seen.whole.size },
+    halfShare: total > 0 ? sum.half / total : 0,
+  };
+}
+
 /**
  * Aliasing / inharmonic-line detector: finds tonal peaks (prominent over the local floor) that do NOT
  * sit on integer multiples of `baseHz`. Aliased components of a band-limited synthesiser fold back to

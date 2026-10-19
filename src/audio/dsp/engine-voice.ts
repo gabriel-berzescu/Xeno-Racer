@@ -17,6 +17,20 @@
  *   + turbo (spool whistle / flutter / blow-off), gear whine, shift clunk, backfire pops, rev limiter
  *   + interior / exterior mix (cabin resonance, muffled exhaust path)
  *
+ * Two things a profile can ask for beyond that (both off, and costing nothing, for every other engine):
+ *
+ *   `exhaustSystem: 'dual'`  the secondaries do not meet: each bank goes on through a main pipe, muffler and tailpipe of its own (TailChain)
+ *        and the listener hears the sum, a little nearer one tailpipe than the other. Through twin pipes the sum of a cross-plane V8's banks
+ *        (which fire 90 / 180 / 270 / 180 degrees apart, copies of each other 360 degrees apart) is the same even train as a flat-plane's:
+ *        a linear system cannot tell them apart. The lope is the difference between the two pipes, small in level, length and delay and
+ *        fading with the rpm as the pulses crowd into the roar; an X-pipe throws that difference away, which is why a merged exhaust is smoother.
+ *   `supercharger`  a positive-displacement blower: a whine locked to the crank (rpm/60 x pulley ratio x lobes) with its harmonics, the rotor's
+ *        own turn and the hiss of the air, following the pedal through the bypass valve (a whirr off the throttle, a whine on it).
+ *
+ * A cross-plane V8 (crankType 'crossplane') is also lumpier, strongest at idle: what each bank's pipe still holds of its last pulse, the cammed
+ * idle's cycle-to-cycle spread and weak cylinders, a bank that runs richer for a while, and a burble of unburnt charge on a lift-off
+ * (see pulseFactor, burnFactor, and the burble in block()). These are events, so the lite voice has them too.
+ *
  * No allocation after construction; process() is safe to call from an AudioWorklet.
  */
 import type { EngineSoundProfile } from '../../core/contracts';
@@ -28,7 +42,7 @@ import {
   type EngineLayout,
 } from './engine-layout';
 import { Biquad, DcBlock, DelayLine, OnePole, Resonator, SVF } from './filters';
-import { Rng, TAU, clamp, clamp01, lerp, sinCyc, smoothCoef, smoothstep, wrap1 } from './util';
+import { Rng, TAU, clamp, clamp01, lerp, ouStep, sinCyc, smoothCoef, smoothstep, wrap1 } from './util';
 
 /** Live control inputs (targets). The voice smooths them itself. */
 export interface EngineInputs {
@@ -168,6 +182,43 @@ export interface Voicing {
   whine: number;
   crackle: number;
   liteGain: number;
+  // supercharger: a positive-displacement blower, its whine locked to the crank
+  blower: boolean;
+  /** Whine fundamental per rpm (Hz): pulley ratio x lobes / 60. */
+  blowerHzPerRpm: number;
+  /** Whole lobes: the rotor turns at fundamental / lobes. */
+  blowerLobes: number;
+  blowerLevel: number;
+  // the cross-plane V8's lumpiness (see EngineVoice.pulseFactor): all 0 for every other engine
+  /** Depth of the back-pressure memory of a bank's pipe, 0 = none. */
+  lope: number;
+  /** Seconds in which a bank's pipe forgets the last pulse. */
+  lopeTau: number;
+  /** Spread (log) of the pulse strengths at idle: the cammed idle's cycle-to-cycle irregularity. */
+  lump: number;
+  /** Chance per exhaust event at idle that a cylinder fires weakly. */
+  misfire: number;
+  /** How far (log) the strength of one bank wanders from the other's at idle: a bank that runs a little richer for a while. */
+  bankDrift: number;
+  /** Chance per exhaust event of an engine that is being lifted off that the unburnt charge lights in the pipe. */
+  burble: number;
+  /**
+   * Depth of the idle's slow hunting of the rpm: the factor on the wobble state, a smoothed noise whose standard deviation is only ~0.04 (so the
+   * 0.03 every engine has makes ~0.1 % of rpm, a pitch change nobody hears); a cammed V8 hunts a good percent or two: 0.4 makes 1.5 %.
+   */
+  idleWobble: number;
+  // exhaust: a true dual system, each bank to its own tailpipe (full quality)
+  dual: boolean;
+  /** Length of the left / right pipes (after the collector) relative to the nominal ones. */
+  dualLen: [number, number];
+  /** Muffler cut-off of the left / right pipes relative to the nominal one. */
+  dualMuff: [number, number];
+  /** What reaches the listener from the left / right tailpipe: the listener is nearer one of them. */
+  dualGain: [number, number];
+  /** Seconds by which the right tailpipe arrives after the left (the listener's extra path to the far side of the car). */
+  dualDelay: number;
+  /** How much of the difference between the two pipes is left at the top of the rev range (1 = all of it, 0 = twins). */
+  dualFloor: number;
 }
 
 export function deriveVoicing(p: EngineSoundProfile, layout: EngineLayout): Voicing {
@@ -177,6 +228,11 @@ export function deriveVoicing(p: EngineSoundProfile, layout: EngineLayout): Voic
   const fScale = Math.pow(0.5 / Math.max(perCyl, 0.15), 0.25);
   const smallTurbo = p.displacement <= 2.6;
   const boxer = p.crankType === 'boxer';
+  // a cross-plane V8: its banks fire unevenly, so each bank's pipe sees pulses 90, 180, 270 and 180 degrees apart
+  const cross = p.crankType === 'crossplane' && p.cylinders === 8 && layout.banks === 2;
+  const dual = p.exhaustSystem === 'dual' && layout.banks === 2;
+  const sc = p.supercharger;
+  const lobes = sc ? Math.max(1, Math.round(sc.lobes)) : 0;
   return {
     Ls: lerp(0.62, 0.4, o),
     Lm: lerp(1.0, 0.55, o),
@@ -187,8 +243,11 @@ export function deriveVoicing(p: EngineSoundProfile, layout: EngineLayout): Voic
     gM: layout.banks === 2 ? 1.5 : 1.0,
     rc: lerp(5.2, 1.18, Math.pow(o, 0.8)),
     rq: lerp(0.45, 0.06, o),
-    Rc: 0.78,
-    Ro: lerp(0.95, 0.88, o),
+    // (a dual exhaust is two separate pipes with the big mufflers of a truck and nothing to scatter the energy of a resonance into, as the junction
+    // of a merged system does: damped a little more, so that the exhaust does not surge as the firing harmonics sweep a pipe resonance: 2 dB
+    // between two 66 ms windows of a rev sweep, where it was 4.7)
+    Rc: dual ? 0.66 : 0.78,
+    Ro: lerp(0.95, 0.88, o) * (dual ? 0.88 : 1),
     Rq: 0.85,
     fcP: 5200 + 3500 * b,
     fcS: 6000 + 3000 * b,
@@ -224,8 +283,118 @@ export function deriveVoicing(p: EngineSoundProfile, layout: EngineLayout): Voic
     whistleLevel: 0.09,
     whine: p.gearWhine,
     crackle: p.crackle,
-    liteGain: 1.35,
+    // (the dual exhaust is louder through its two separate chains than the one shared chain of lite: averaged over the rev range, with
+    // the same pulses, the lite voice came out 5.6 dB under the full one at a gain of 1.35, and a little above it at 1.7, where the others' lite voices come out within 2 dB of theirs)
+    liteGain: dual ? 1.35 * 1.7 : 1.35,
+    blower: sc !== undefined && sc.ratio > 0 && lobes > 0,
+    blowerHzPerRpm: sc ? (sc.ratio * lobes) / 60 : 0,
+    blowerLobes: lobes,
+    blowerLevel: sc ? clamp01(sc.level ?? 1) : 0,
+    lope: cross ? 0.28 : 0,
+    lopeTau: 0.018,
+    lump: cross ? 0.3 : 0,
+    misfire: cross ? 0.02 : 0,
+    bankDrift: cross ? 0.16 : 0,
+    burble: cross ? 1 : 0,
+    idleWobble: cross ? 0.4 : 0.03,
+    dual,
+    dualLen: [1, 1.004],
+    dualMuff: [1, 0.97],
+    dualGain: [1.28, 0.78],
+    dualDelay: 0.0005,
+    dualFloor: 0.12,
   };
+}
+
+/**
+ * One bank's own pipe in a true dual exhaust, from the end of its secondary to its open tailpipe: main pipe, muffler (expansion chamber
+ * with a quarter-wave stub) and tailpipe with its radiating end. The equations are those of the shared chain of the merged system
+ * in EngineVoice.block(); here each bank has a copy of its own with a length of its own and a muffler that damps a little differently,
+ * and what leaves the end is delayed and weighted by where the listener is (nearer one tailpipe than the other).
+ */
+class TailChain {
+  readonly mf: DelayLine;
+  readonly mb: DelayLine;
+  readonly cf: DelayLine;
+  readonly cb: DelayLine;
+  readonly qd: DelayLine;
+  readonly tf: DelayLine;
+  readonly tb: DelayLine;
+  /** The listener's extra path to this tailpipe. */
+  readonly rad: DelayLine;
+  readonly lpMf = new OnePole();
+  readonly lpMb = new OnePole();
+  readonly lpCf = new OnePole();
+  readonly lpCb = new OnePole();
+  readonly lpQ = new OnePole();
+  readonly lpTf = new OnePole();
+  readonly lpEnd = new OnePole();
+  readonly dc = new DcBlock();
+  uPrev = 0;
+  /** Length, muffler cut-off and radiated gain relative to the nominal ones, and the extra path (s): followed from the voicing every block. */
+  lenMul = 1;
+  muffMul = 1;
+  gain = 1;
+  delayS = 0;
+  /** Delays in samples (kept up to date with the speed of sound and the Doppler time-scale). */
+  Ds = 2;
+  Dm = 2;
+  Dc = 2;
+  Dq = 2;
+  Dt = 2;
+  Dr = 0;
+
+  /** Room for pipes up to 1.35 x the nominal length and for a listener's path up to 10 ms longer. */
+  constructor(V: Voicing, sr: number, readonly index: number) {
+    const maxD = (len: number): number => Math.ceil(((len * 1.35) / 380) * sr * 1.8) + 8;
+    this.mf = new DelayLine(maxD(V.Lm));
+    this.mb = new DelayLine(maxD(V.Lm));
+    this.cf = new DelayLine(maxD(V.Lc));
+    this.cb = new DelayLine(maxD(V.Lc));
+    this.qd = new DelayLine(maxD(V.Lq * 2));
+    this.tf = new DelayLine(maxD(V.Lt));
+    this.tb = new DelayLine(maxD(V.Lt));
+    this.rad = new DelayLine(Math.ceil(0.01 * sr * 2) + 8);
+    this.dc.setFc(18, sr);
+    this.follow(V, 1);
+  }
+
+  /**
+   * What distinguishes this pipe from the nominal one, read from the voicing (the left pipe is the nominal one, the right the longer and
+   * the later), scaled by `asym`: 1 = the pipes differ as the voicing says, 0 = they are twins.
+   */
+  follow(V: Voicing, asym: number): void {
+    this.lenMul = 1 + (V.dualLen[this.index] - 1) * asym;
+    this.muffMul = 1 + (V.dualMuff[this.index] - 1) * asym;
+    this.gain = 1 + (V.dualGain[this.index] - 1) * asym;
+    this.delayS = this.index === 0 ? 0 : V.dualDelay * asym;
+  }
+
+  /** `k` = samples per metre of pipe (sample rate / speed of sound / time-scale). */
+  setDelays(V: Voicing, k: number, sr: number, ts: number, asym: number): void {
+    this.follow(V, asym);
+    const m = this.lenMul;
+    this.Ds = Math.max(2, V.Ls * m * k);
+    this.Dm = Math.max(2, V.Lm * m * k);
+    this.Dc = Math.max(2, V.Lc * m * k);
+    this.Dq = Math.max(2, V.Lq * 2 * m * k);
+    this.Dt = Math.max(2, V.Lt * m * k);
+    this.Dr = (this.delayS * sr) / ts;
+  }
+
+  clear(): void {
+    this.mf.clear();
+    this.mb.clear();
+    this.cf.clear();
+    this.cb.clear();
+    this.qd.clear();
+    this.tf.clear();
+    this.tb.clear();
+    this.rad.clear();
+    this.lpMf.y = this.lpMb.y = this.lpCf.y = this.lpCb.y = this.lpQ.y = this.lpTf.y = this.lpEnd.y = 0;
+    this.dc.x1 = this.dc.y1 = 0;
+    this.uPrev = 0;
+  }
 }
 
 const K_FINAL_DRIVE = 3.7;
@@ -377,6 +546,40 @@ export class EngineVoice {
   private whA1 = 0;
   private whA3 = 0;
 
+  // supercharger: rotor phase (turns), smoothed strength, the hiss of the air
+  private scPh = 0;
+  private scA = 0;
+  /** The slow unevenness of the whine (a few percent, a few times a second): the air is never quite steady. */
+  private scDr = 0;
+  private svfSc = new SVF();
+
+  // the cross-plane V8's lumpiness (pulseFactor): what each bank's pipe still holds of the last pulses, when the bank last fired (in samples)
+  private lopeH: Float64Array;
+  private lopeT: Float64Array;
+  private lopeAvg = 0.3;
+  /** How strongly each cylinder burned in its last cycle (its combustion thump and, 130 degrees later, its exhaust pulse). */
+  private cylBurn: Float64Array;
+  private bankDr = new Float64Array(2);
+  private bankDrW = 0;
+  private lopeDepth = 0;
+  private lumpSigma = 0;
+  private misProb = 0;
+  private burbleP = 0;
+  /** Exhaust events still to burble in the run that has begun. */
+  private burbleRun = 0;
+  /** Exhaust events that have burbled so far (for the lab and the tests). */
+  burbles = 0;
+  /** Samples rendered so far: the clock the exhaust events are timed on. */
+  private clock = 0;
+  /** True dual exhaust: one chain per bank after the collectors (empty otherwise). */
+  private tails: TailChain[] = [];
+  private kMuffBank = new Float64Array(2);
+  /** How much the two pipes differ now (1 at idle, less as the pulses crowd together into the roar). */
+  private dualAsym = 1;
+  /** What the nearer / farther tailpipe's pulses are worth in lite quality, where there are no pipes of their own (the same asymmetry). */
+  private liteBias = new Float64Array(2);
+  private wasFull = true;
+
   // events
   private clunkR1 = new Resonator();
   private clunkR2 = new Resonator();
@@ -423,7 +626,7 @@ export class EngineVoice {
     this.profile = profile;
     this.layout = buildLayout(profile);
     this.V = deriveVoicing(profile, this.layout);
-    this.V.crackAbs = this.V.crackLevel * Math.pow(10, exhaustTargetDb(profile.exhaustOpenness) / 20) * CRACK_K;
+    this.V.crackAbs = this.V.crackLevel * Math.pow(10, exhaustTargetDb(profile.exhaustOpenness, profile.displacement) / 20) * CRACK_K;
     this.rng = new Rng(seed * 7919 + 13);
     const L = this.layout;
     const V = this.V;
@@ -459,6 +662,9 @@ export class EngineVoice {
     this.bankN = mk(B);
     this.blA = mk(B);
     this.asA = mk(B);
+    this.lopeH = mk(B);
+    this.lopeT = mk(B);
+    this.cylBurn = mk(this.N).fill(1);
     for (let g = 0; g < G; g++) {
       this.grpCnt[g] = L.groups[g].count;
       this.grpBank[g] = L.groups[g].bank;
@@ -488,6 +694,16 @@ export class EngineVoice {
     this.qd = new DelayLine(maxD(V.Lq * 2));
     this.tf = new DelayLine(maxD(V.Lt));
     this.tb = new DelayLine(maxD(V.Lt));
+    if (V.dual) {
+      // a true dual exhaust: the left pipe is the nominal one, the right a little longer and damping more, and heard a little later
+      for (let b = 0; b < B; b++) {
+        this.tails.push(new TailChain(V, sr, b));
+        // (the secondary of a longer pipe is longer: room for it)
+        const m = maxD(V.Ls * 1.35);
+        this.sf[b] = new DelayLine(m);
+        this.sb[b] = new DelayLine(m);
+      }
+    }
 
     for (let i = 0; i < 3; i++) {
       const r = new Resonator();
@@ -548,6 +764,9 @@ export class EngineVoice {
     this.tf.clear();
     this.tb.clear();
     this.lpMf.y = this.lpMb.y = this.lpCf.y = this.lpCb.y = this.lpQ.y = this.lpTf.y = this.lpEnd.y = 0;
+    for (const t of this.tails) t.clear();
+    this.scA = 0;
+    this.lopeH.fill(0);
     for (const r of this.blk) r.reset();
     this.clunkR1.reset();
     this.clunkR2.reset();
@@ -557,6 +776,38 @@ export class EngineVoice {
     this.popToneEnv = 0;
     this.flutT = 0;
     this.blkIn = this.blkInN = this.tickIn = this.tickInN = this.clunkIn = 0;
+  }
+
+  /**
+   * The chain a lite voice shares between its banks (the merged system's main pipe, muffler and tailpipe) is not run by a dual exhaust at full
+   * quality, which has a chain per bank: what it held when the voice last was lite is old news when the voice goes lite again.
+   */
+  private clearShared(): void {
+    this.mf.clear();
+    this.mb.clear();
+    this.cf.clear();
+    this.cb.clear();
+    this.qd.clear();
+    this.tf.clear();
+    this.tb.clear();
+    this.lpMf.y = this.lpMb.y = this.lpCf.y = this.lpCb.y = this.lpQ.y = this.lpTf.y = this.lpEnd.y = 0;
+    this.dcEx.x1 = this.dcEx.y1 = 0;
+    this.uPrev = 0;
+  }
+
+  /** A dual exhaust's pipes are not run in lite quality: what they held when the voice went lite is old news when it comes back. */
+  private clearPipes(): void {
+    for (let g = 0; g < this.G; g++) {
+      this.pf[g].clear();
+      this.pb[g].clear();
+      this.lpP[g].y = 0;
+    }
+    for (let b = 0; b < this.B; b++) {
+      this.sf[b].clear();
+      this.sb[b].clear();
+      this.lpTurb[b].y = this.lpSf[b].y = this.lpSb[b].y = 0;
+    }
+    for (const t of this.tails) t.clear();
   }
 
   private firstBlock = true;
@@ -611,6 +862,7 @@ export class EngineVoice {
     this.Dc = Math.max(2, V.Lc * k);
     this.Dq = Math.max(2, V.Lq * 2 * k);
     this.Dt = Math.max(2, V.Lt * k);
+    for (const t of this.tails) t.setDelays(V, k, this.sr, ts, this.dualAsym);
   }
 
   /** Render `n` samples into out[offset..offset+n). */
@@ -639,6 +891,7 @@ export class EngineVoice {
     I.load = sane(I.load, 0, 1, 0);
     I.boost = sane(I.boost, 0, 1.5, 0);
     I.clutch = sane(I.clutch, 0, 1, 0);
+    I.pedal = sane(I.pedal, -1, 1, -1);
     I.interior = sane(I.interior, 0, 1, 0);
     I.gain = sane(I.gain, 0, 4, 1);
     I.driveOmega = sane(I.driveOmega, -4000, 4000, 0);
@@ -666,6 +919,11 @@ export class EngineVoice {
       this.lastShift = I.shiftCount;
       this.lastBackfire = I.backfireCount;
     }
+    if (this.tails.length > 0) {
+      if (full && !this.wasFull) this.clearPipes();
+      else if (!full && this.wasFull) this.clearShared();
+    }
+    this.wasFull = full;
 
     // ── control smoothing ─────────────────────────────────────────────────────
     const rpmPrev = this.sRpm;
@@ -730,6 +988,12 @@ export class EngineVoice {
     // thermal state -> speed of sound -> pipe resonances
     const thermT = 0.12 + 0.88 * clamp01(loadE * 0.75 + rpmN * 0.45);
     this.therm += smoothCoef(1.6, dt) * (thermT - this.therm);
+    if (V.dual) {
+      // two pipes that differ make a lope while the pulses are single events; as they crowd together into the roar of the top end the
+      // difference between the pipes matters less (a pipe that rings at one of the half orders would otherwise make the half order the loudest line)
+      this.dualAsym = lerp(1, V.dualFloor, smoothstep(0.12, 0.7, rpmN));
+      for (let b = 0; b < 2; b++) this.liteBias[b] = 1 + (V.dualGain[b] - 1) * this.dualAsym;
+    }
     this.recomputeDelays(this.sTs);
 
     // limiter chop (time-based fuel cut, like a real ECU)
@@ -750,8 +1014,8 @@ export class EngineVoice {
     this.wobbleLp += smoothCoef(0.25, dt) * (rng.s2() - this.wobbleLp);
     this.wobble += smoothCoef(0.12, dt) * (this.wobbleLp - this.wobble);
     const idleness = smoothstep(idle * 1.3, idle * 1.02, rpm);
-    const wobPrev = 1 + this.wobbleBlockPrev * 0.03 * this.idlenessPrev;
-    const wobNow = 1 + this.wobble * 0.03 * idleness;
+    const wobPrev = 1 + this.wobbleBlockPrev * V.idleWobble * this.idlenessPrev;
+    const wobNow = 1 + this.wobble * V.idleWobble * idleness;
     this.wobbleBlockPrev = this.wobble;
     this.idlenessPrev = idleness;
 
@@ -773,6 +1037,18 @@ export class EngineVoice {
     this.kP = 1 - Math.exp(-1 / (0.00009 * sr));
     this.jitAmp = V.jitter * (1.6 - 1.2 * rpmN) * (1.3 - 0.8 * loadE) * (1 + 0.8 * idleness);
     this.jitPh = (V.timingJitterDeg * (1.4 - 0.9 * rpmN) * (1 + idleness)) / 720;
+    if (V.lope > 0) {
+      // the cross-plane's lumpiness is strongest at idle and light load and gives way to the roar as the pulses crowd together
+      const lowW = smoothstep(idle * 2.8, idle * 1.0, rpm);
+      this.lopeDepth = V.lope * (1 - 0.55 * loadE) * smoothstep(0.8, 0.23, rpmN);
+      this.lumpSigma = V.lump * lowW * (1 - 0.7 * loadE);
+      this.misProb = V.misfire * lowW * (1 - loadE);
+      // one bank runs a little richer than the other for a second or so, then the other: the half orders at idle breathe
+      const kDr = smoothCoef(0.9, dt);
+      this.bankDr[0] = ouStep(this.bankDr[0], kDr, V.bankDrift, rng.s2());
+      this.bankDr[1] = ouStep(this.bankDr[1], kDr, V.bankDrift, rng.s2());
+      this.bankDrW = lowW * (1 - 0.7 * loadE);
+    }
 
     // ── crackle / pops ───────────────────────────────────────────────────────
     this.heat += smoothCoef(this.heatTarget(loadE, rpmN) > this.heat ? 0.3 : 3.0, dt) * (this.heatTarget(loadE, rpmN) - this.heat);
@@ -795,6 +1071,12 @@ export class EngineVoice {
         this.nextPopIn = -Math.log(Math.max(rng.u(), 1e-6)) / popRate;
       }
     } else this.nextPopIn = 1e9;
+    // the burble of a cross-plane V8 that is being lifted off: unburnt charge lights in the pipe on some of the exhaust events (see below), a
+    // dozen to thirty a second through the middle of the rev range while the exhaust is hot, and none at idle or near the limiter
+    if (V.burble > 0) {
+      // (it is the driver's foot that is off: an automatic's ignition cut on a shift, with the pedal down, is not a lift-off)
+      this.burbleP = V.burble * ovr * smoothstep(0.35, 0.08, this.sPlate) * (0.25 + 0.75 * this.heat) * smoothstep(idle * 1.5, idle * 2.6, rpm) * smoothstep(0.8, 0.55, rpmN) * 0.1;
+    }
 
     // ── turbo spool state ────────────────────────────────────────────────────
     if (V.turbo) {
@@ -823,7 +1105,7 @@ export class EngineVoice {
     const tBlk = lerp(0.5, 0.85, sI) * (0.15 + 0.85 * loadE) * (0.35 + 0.65 * rpmN) * (1 + 1.2 * smoothstep(idle * 2.2, idle * 1.0, rpm));
     const tInt = lerp(0.42, 1.05, sI) * V.intakeGain * intakeAmt;
     const tMech = lerp(0.145, 0.36, sI) * (0.25 + 0.75 * Math.pow(rpmN, 1.6)) * (0.45 + 0.55 * loadE);
-    const tTur = V.turbo ? lerp(0.165, 0.46, sI) : 0;
+    const tTur = V.turbo ? lerp(0.165, 0.46, sI) : V.blower ? lerp(1.15, 2.1, sI) : 0;
     const tWh = lerp(0.14, 0.9, sI) * V.whine;
     const tEv = lerp(0.7, 1.0, sI);
     if (firstBlock) {
@@ -909,6 +1191,27 @@ export class EngineVoice {
     const whTargetP = omega > 2 && pinionHz < nyq && pinionHz > 30 ? whLoad : 0;
     const whTargetQ = pairHz < nyq && pairHz > 40 ? (1 - this.sClutch) * whLoad * 0.7 : 0;
     const whK = 1 - Math.exp(-invSr / 0.03);
+
+    // supercharger block parameters. The rotors are driven by a belt off the crank, so the tone sits at rpm/60 x ratio x lobes and follows
+    // every change of the rpm at once (positive displacement: no lag, no spool), whatever the throttle does; how much of it there is
+    // depends on what the blower is doing: with the throttle shut the bypass valve is open and lets the air go round the rotors (a
+    // whirr, the rotors' own noise), on the throttle the valve is shut and the whole of the rotor speed becomes pressure and a whine
+    const blowOn = V.blower && full;
+    const blowInc0 = V.blowerHzPerRpm * rpmPrev * tsPrev * invSr; // fundamental, cycles per sample, at the start and end of the block
+    const blowInc1 = V.blowerHzPerRpm * rpm * this.sTs * invSr;
+    const plateB = Math.pow(this.sPlate, 1.3);
+    const blowSpeed = Math.pow(clamp(rpm / limiterRpm, 0, 1.1), 1.7);
+    const blowTarget = blowOn && blowInc1 < 0.42 ? V.blowerLevel * (0.16 + 0.84 * plateB) * (0.08 + 0.92 * blowSpeed) : 0;
+    // harmonics: more of them the harder it pushes; none beyond the Nyquist guard (a partial that folded back would be a whistle off the engine orders)
+    const blowW2 = blowInc1 * 2 < 0.42 ? 0.35 + 0.35 * plateB : 0;
+    const blowW3 = blowInc1 * 3 < 0.42 ? 0.15 + 0.3 * plateB : 0;
+    const blowW4 = blowInc1 * 4 < 0.42 ? 0.06 + 0.16 * plateB : 0;
+    const blowLobes = V.blowerLobes;
+    const blowKa = 1 - Math.exp(-invSr / 0.05);
+    const blowKr = 1 - Math.exp(-invSr / 0.03);
+    const blowKdr = 1 - Math.exp((-TAU * 4) / sr);
+    if (blowOn) this.svfSc.set(clamp(blowInc1 * sr * 3.3, 900, sr * 0.4), 2.5, sr);
+    const svfSc = this.svfSc;
 
     // event-sound decay constants (sample-rate independent)
     const popEnvK = Math.exp(-invSr / 0.017);
@@ -1020,6 +1323,9 @@ export class EngineVoice {
     let whPh3 = this.whPh3;
     let whA1 = this.whA1;
     let whA3 = this.whA3;
+    let scPh = this.scPh;
+    let scA = blowOn ? this.scA : 0; // a blower that was not rendered (lite) fades in again, it does not come back at its old level
+    let scDr = this.scDr;
     let bovEnv = this.bovEnv;
     let flutPh = this.flutPh;
     let popEnv = this.popEnv;
@@ -1045,6 +1351,13 @@ export class EngineVoice {
     const kP = this.kP;
     const cutActive = this.cutActive;
     const sIntNow = sI;
+    const lopeOn = V.lope > 0;
+    const burbleP = this.burbleP;
+    const tails = this.tails;
+    const dualOn = full && tails.length > 0;
+    const gMd = 1.1; // a true dual exhaust: each pipe a little wider than the secondary it continues
+    const kMuffBank = this.kMuffBank;
+    if (dualOn) for (let b = 0; b < 2; b++) kMuffBank[b] = 1 - Math.exp((-TAU * V.fcMuff * tails[b].muffMul) / sr);
 
     for (let i = 0; i < len; i++) {
       const fr = (i + 1) * invLen;
@@ -1060,6 +1373,25 @@ export class EngineVoice {
         if (ty === EV_EXHAUST) {
           const cs = L.cyl[cy];
           let amp = pArea * cs.gain * (1 + jitAmp * rng.s2());
+          let burb = 0;
+          let pf = 1;
+          if (lopeOn) {
+            pf = this.pulseFactor(cs.bank, this.clock + i + 1 - frac, !full) * this.cylBurn[cy];
+            amp *= pf;
+            // a burble comes in runs ("brrrap"): once the charge has lit in the pipe, the next few exhaust events are likely to light it too
+            if (burbleP > 0) {
+              if (this.burbleRun > 0) {
+                this.burbleRun--;
+                burb = 0.5 + 1.2 * rng.u() * rng.u();
+              } else if (rng.u() < burbleP) {
+                burb = 0.8 + 2.0 * rng.u() * rng.u();
+                this.burbleRun = (rng.u() * 3.5) | 0;
+              }
+              if (burb > 0) this.burbles++;
+              if (burb > 1.6) popToneEnv = Math.max(popToneEnv, 0.15 * burb);
+            } else this.burbleRun = 0;
+          }
+          amp *= 1 + burb;
           if (cutActive) amp *= 0.07;
           const g = L.cylGroup[cy];
           const aF = amp * pFast;
@@ -1069,12 +1401,15 @@ export class EngineVoice {
           accS[g] += aS * frac;
           accSn[g] += aS * (1 - frac);
           if (!cutActive) {
-            const ca = crackAmp * cs.gain * (0.6 + 0.8 * rng.u());
+            // (the rasp of a weak pulse is weak, and the rasp of the tailpipe the listener is nearer to is the stronger)
+            const ca = (crackAmp + burb * V.crackAbs * 0.12) * cs.gain * (0.6 + 0.8 * rng.u()) * pf * (dualOn ? tails[cs.bank].gain : 1);
             crackIn += ca * frac;
             crackInN += ca * (1 - frac);
           }
         } else if (ty === EV_COMBUSTION) {
-          const a = combAmp * L.cyl[cy].gain * (cutActive ? 0.05 : 1) * (1 + 0.3 * rng.s2());
+          // (a cylinder that burns weakly thumps weakly, and its exhaust pulse, 130 degrees later, is as weak)
+          if (lopeOn) this.cylBurn[cy] = this.burnFactor(L.cyl[cy].bank);
+          const a = combAmp * L.cyl[cy].gain * (cutActive ? 0.05 : 1) * (1 + 0.3 * rng.s2()) * (lopeOn ? this.cylBurn[cy] : 1);
           blkIn += a * frac;
           blkInN += a * (1 - frac);
         } else {
@@ -1138,8 +1473,9 @@ export class EngineVoice {
         for (let g = 0; g < G; g++) arr[g] = inj[g] * liteGain;
       }
       for (let b = 0; b < bankCount; b++) {
-        blA[b] = sb[b].tap(Ds - 1);
-        asA[b] = sf[b].tap(Ds - 1);
+        const dsb = dualOn ? tails[b].Ds : Ds;
+        blA[b] = sb[b].tap(dsb - 1);
+        asA[b] = sf[b].tap(dsb - 1);
       }
       const ml = mb.tap(Dm - 1);
       const mfa = mf.tap(Dm - 1);
@@ -1186,41 +1522,97 @@ export class EngineVoice {
         asSum += asA[b];
       }
 
-      // merge junction (X-pipe): secondaries <-> main pipe
-      const pM = (2 * (asSum + gM * ml)) / (bankCount + gM);
-      for (let b = 0; b < bankCount; b++) {
-        const lb = lpSb[b];
-        lb.y += kLpS * (pM - asA[b] - lb.y);
-        sb[b].write(lb.y);
+      let u = 0;
+      let exD = 0;
+      if (dualOn) {
+        // a true dual exhaust: each secondary goes on into a pipe of its own (no X-pipe, no crossover), through its own muffler to its own
+        // tailpipe; the two come out on opposite sides of the car and the listener hears the sum, a little later and a little less from the
+        // far one. Same equations as the shared chain below.
+        for (let b = 0; b < 2; b++) {
+          const t = tails[b];
+          const sa = asA[b];
+          const mlb = t.mb.tap(t.Dm - 1);
+          const mfb = t.mf.tap(t.Dm - 1);
+          const cbb = t.cb.tap(t.Dc - 1);
+          const cfb = t.cf.tap(t.Dc - 1);
+          const qdb = t.qd.tap(t.Dq - 1);
+          const tbb = t.tb.tap(t.Dt - 1);
+          const tab = t.tf.tap(t.Dt - 1);
+          // the secondary meets the main pipe: a small step in area, nothing else on the junction
+          const pMb = (2 * (sa + gMd * mlb)) / (1 + gMd);
+          const lb = lpSb[b];
+          lb.y += kLpS * (pMb - sa - lb.y);
+          sb[b].write(lb.y);
+          t.lpMf.y += kLpM * (pMb - mlb - t.lpMf.y);
+          t.mf.write(t.lpMf.y);
+          // muffler entrance X1
+          t.lpQ.y += kLpQ * (qdb - t.lpQ.y);
+          const qab = Rq * t.lpQ.y;
+          const pX1b = (2 * (mfb + rc * cbb + rq * qab)) / Y1;
+          t.lpMb.y += kLpM * (pX1b - mfb - t.lpMb.y);
+          t.mb.write(t.lpMb.y);
+          const kMuffB = kMuffBank[b];
+          t.lpCf.y += kMuffB * (pX1b - cbb - t.lpCf.y);
+          t.cf.write(t.lpCf.y);
+          t.qd.write(pX1b - qab);
+          // X2: chamber -> tailpipe
+          const pX2b = (2 * (rc * cfb + tbb)) / Y2;
+          t.lpCb.y += kMuffB * (pX2b - cfb - t.lpCb.y);
+          t.cb.write(t.lpCb.y);
+          t.lpTf.y += kLpTail * (pX2b - tbb - t.lpTf.y);
+          t.tf.write(t.lpTf.y);
+          // open end, then the listener's path to it
+          t.lpEnd.y += kLpEnd * (tab - t.lpEnd.y);
+          const reflb = -Ro * t.lpEnd.y;
+          t.tb.write(reflb);
+          let xb = tab - reflb;
+          if (t.Dr > 0) {
+            t.rad.write(xb);
+            xb = t.rad.tap(t.Dr);
+          }
+          const ub = t.dc.step(xb);
+          const dub = ub - t.uPrev;
+          t.uPrev = ub;
+          u += t.gain * ub;
+          exD += t.gain * ((1 - exTilt) * ub + exTilt * kd * dub);
+        }
+      } else {
+        // merge junction (X-pipe): secondaries <-> main pipe
+        const pM = (2 * (asSum + gM * ml)) / (bankCount + gM);
+        for (let b = 0; b < bankCount; b++) {
+          const lb = lpSb[b];
+          lb.y += kLpS * (pM - asA[b] - lb.y);
+          sb[b].write(lb.y);
+        }
+        lpMf.y += kLpM * (pM - ml - lpMf.y);
+        mf.write(lpMf.y);
+
+        // muffler entrance X1: main / expansion chamber / quarter-wave stub
+        lpQ.y += kLpQ * (qdOut - lpQ.y);
+        const qa = Rq * lpQ.y;
+        const pX1 = (2 * (mfa + rc * cbl + rq * qa)) / Y1;
+        lpMb.y += kLpM * (pX1 - mfa - lpMb.y);
+        mb.write(lpMb.y);
+        lpCf.y += kLpMuff * (pX1 - cbl - lpCf.y);
+        cf.write(lpCf.y);
+        qd.write(pX1 - qa);
+
+        // X2: chamber -> tailpipe
+        const pX2 = (2 * (rc * caf + tbl)) / Y2;
+        lpCb.y += kLpMuff * (pX2 - caf - lpCb.y);
+        cb.write(lpCb.y);
+        lpTf.y += kLpTail * (pX2 - tbl - lpTf.y);
+        tf.write(lpTf.y);
+
+        // open end: reflection (inverted, HF leaks out) + radiation (volume-velocity derivative)
+        lpEnd.y += kLpEnd * (ta - lpEnd.y);
+        const refl = -Ro * lpEnd.y;
+        tb.write(refl);
+        u = dcEx.step(ta - refl);
+        const du = u - uPrev;
+        uPrev = u;
+        exD = (1 - exTilt) * u + exTilt * kd * du;
       }
-      lpMf.y += kLpM * (pM - ml - lpMf.y);
-      mf.write(lpMf.y);
-
-      // muffler entrance X1: main / expansion chamber / quarter-wave stub
-      lpQ.y += kLpQ * (qdOut - lpQ.y);
-      const qa = Rq * lpQ.y;
-      const pX1 = (2 * (mfa + rc * cbl + rq * qa)) / Y1;
-      lpMb.y += kLpM * (pX1 - mfa - lpMb.y);
-      mb.write(lpMb.y);
-      lpCf.y += kLpMuff * (pX1 - cbl - lpCf.y);
-      cf.write(lpCf.y);
-      qd.write(pX1 - qa);
-
-      // X2: chamber -> tailpipe
-      const pX2 = (2 * (rc * caf + tbl)) / Y2;
-      lpCb.y += kLpMuff * (pX2 - caf - lpCb.y);
-      cb.write(lpCb.y);
-      lpTf.y += kLpTail * (pX2 - tbl - lpTf.y);
-      tf.write(lpTf.y);
-
-      // open end: reflection (inverted, HF leaks out) + radiation (volume-velocity derivative)
-      lpEnd.y += kLpEnd * (ta - lpEnd.y);
-      const refl = -Ro * lpEnd.y;
-      tb.write(refl);
-      const u = dcEx.step(ta - refl);
-      const du = u - uPrev;
-      uPrev = u;
-      const exD = (1 - exTilt) * u + exTilt * kd * du;
 
       // ── noise sources ─────────────────────────────────────────────────────
       nzState ^= nzState << 13;
@@ -1309,6 +1701,24 @@ export class EngineVoice {
           const pair = sinCyc(whPh3) + (pairHz * 2 < nyq ? 0.3 * sinCyc(wrap1(whPh3 * 2)) : 0);
           whine = (pin * whA1 + pair * whA3) * 0.05;
         }
+
+        // supercharger: the lobe-pass whine and its harmonics (the rotor's own turn beneath them) and the hiss of the air. The belt
+        // drive's speed fluctuates a little at the firing frequency, and the intake's pressure pulses at it modulate the air the blower
+        // pushes: every line has sidebands one firing frequency either side. A slow unevenness of a few percent keeps the tone from being a sine.
+        if (blowOn) {
+          scA += (blowTarget > scA ? blowKa : blowKr) * (blowTarget - scA);
+          scDr += blowKdr * (nz - scDr);
+          if (scA > 1e-4) {
+            const bInc = blowInc0 + (blowInc1 - blowInc0) * fr;
+            scPh += (bInc / blowLobes) * (1 + 0.03 * sinCyc(wrap1(nN * cyc)));
+            if (scPh >= 1) scPh -= 1;
+            const bl = wrap1(scPh * blowLobes);
+            const tone =
+              sinCyc(bl) + 0.12 * sinCyc(scPh) + blowW2 * sinCyc(wrap1(bl * 2)) + blowW3 * sinCyc(wrap1(bl * 3)) + blowW4 * sinCyc(wrap1(bl * 4));
+            svfSc.step(nz2);
+            turbo += (tone + 0.5 * svfSc.bpn) * scA * 0.05 * (1 + 0.1 * sinCyc(wrap1(nN * cyc + 0.3)) + 6.5 * scDr);
+          }
+        }
       } else {
         // A lite voice renders neither the block nor the ticks, but what feeds them (every combustion, every valve tick) must not pile
         // up: a voice promoted to full (an opponent coming within 80 m, a TV camera cutting onto a pack) used to throw the whole heap
@@ -1381,6 +1791,10 @@ export class EngineVoice {
     this.whPh3 = whPh3;
     this.whA1 = whA1;
     this.whA3 = whA3;
+    this.scPh = scPh;
+    this.scA = scA;
+    this.scDr = scDr;
+    this.clock += len;
     this.bovEnv = bovEnv;
     this.flutPh = flutPh;
     this.popEnv = popEnv;
@@ -1410,6 +1824,43 @@ export class EngineVoice {
   private wobbleBlockPrev = 0;
   private idlenessPrev = 0;
 
+  /**
+   * The strength of one exhaust pulse of a cross-plane V8 relative to an even one, `t` the time of the event in samples: what the bank's
+   * pipe still holds of its last pulse (and, in lite quality, where the banks have no pipes of their own, the loudness of the side the
+   * listener hears more of). A bank fires 90, 180, 270 and 180 degrees apart; the pulse that comes 90 degrees after another meets a
+   * pipe still full of it, with less pressure to drive it out and a weaker blowdown, and the one after the long 270 degree gap meets an
+   * empty pipe. The pipe forgets a pulse in about `lopeTau`, a time and not an angle, so the memory gets longer than the gaps as the rpm
+   * rises and every pulse sees much the same pipe: the pattern fades into the roar. (Both banks are copies of each other 360 degrees
+   * apart, so this alone makes a pattern that repeats every crank turn: whole orders. The half orders, the lope itself, need the
+   * two pipes to differ, which is what the dual exhaust is.)
+   */
+  private pulseFactor(bank: number, t: number, lite: boolean): number {
+    const V = this.V;
+    const dt = (t - this.lopeT[bank]) / this.sr;
+    this.lopeT[bank] = t;
+    const held = this.lopeH[bank] * Math.exp(-Math.max(dt, 0) / V.lopeTau);
+    this.lopeH[bank] = held + 1;
+    const avg = this.lopeAvg;
+    this.lopeAvg += 0.12 * (held - avg);
+    let f = 1 - this.lopeDepth * (held / Math.max(avg, 0.15) - 1);
+    f = f < 0.4 ? 0.4 : f > 1.5 ? 1.5 : f;
+    if (lite && V.dual) f *= this.liteBias[bank];
+    return f;
+  }
+
+  /**
+   * How well a cylinder burns this cycle, relative to an even one: the cammed idle's irregularity. A big cam overlaps the valves for
+   * so long that an idle burns a little differently every cycle (a log-normal spread of the strengths), now and then a cylinder
+   * hardly burns at all, and one bank runs a little richer than the other for a second or so, then the other (`bankDrift`).
+   */
+  private burnFactor(bank: number): number {
+    const s = this.lumpSigma;
+    if (s <= 0.001) return 1;
+    let f = Math.exp(s * 1.732 * this.rng.g() - 0.5 * s * s + this.bankDrW * this.bankDr[bank]);
+    if (this.rng.u() < this.misProb) f *= 0.2 + 0.25 * this.rng.u();
+    return f;
+  }
+
   /** Inject a backfire / crackle pop into a random header group. */
   private firePop(size: number): void {
     const g = (this.rng.u() * this.G) | 0;
@@ -1422,11 +1873,24 @@ export class EngineVoice {
 
 /** Nominal rpm range used for the loudness reference (the profile itself carries no rpm limits). */
 const CAL_LIMITER = 8000;
+/**
+ * The nominal limiter of the loudness sweep. Small and medium engines are measured over 2800..8000 rpm; a big V8 (a 6.2 L turns to 6500, not 8000) over
+ * its own range, since what is averaged is the exhaust's loudness at the rpm it actually runs at, and a pipe that rings at 7000 rpm
+ * must not decide how loud the engine is at 4500. 5 L and below: 8000 as it always was; 6.5 L and up: 6200.
+ */
+function calLimiter(profile: EngineSoundProfile): number {
+  return profile.displacement > 5 ? lerp(CAL_LIMITER, 6200, clamp01((profile.displacement - 5) / 1.5)) : CAL_LIMITER;
+}
 const calCache = new Map<string, number>();
 
-/** Target exhaust RMS (dBFS), power-averaged over a WOT sweep: open exhausts are a little louder. */
-export function exhaustTargetDb(openness: number): number {
-  return -20.5 + 4.5 * openness;
+/**
+ * Target exhaust RMS (dBFS), power-averaged over a WOT sweep: open exhausts are a little louder, and so is a big engine, which moves
+ * more air through the same pipes (6.5 dB for every doubling of the displacement above 4.5 L: a 6.2 L V8 is 3 dB louder than the 4.5 L
+ * V10 of the roster at the same openness, which puts a big truck of a V8 level with the sports car in the loudness lab; every engine of
+ * 4.5 L and under is exactly where it was).
+ */
+export function exhaustTargetDb(openness: number, displacement = 0): number {
+  return -20.5 + 4.5 * openness + 6.5 * Math.log2(Math.max(displacement, 4.5) / 4.5);
 }
 
 /**
@@ -1437,21 +1901,22 @@ export function measureExhaustSweepRms(profile: EngineSoundProfile, sr: number, 
   const v = new EngineVoice(sr, profile, 99, exGain);
   if (!withCrack) v.V.crackAbs = 0;
   const i = v.inp;
-  i.limiterRpm = CAL_LIMITER;
-  i.redlineRpm = CAL_LIMITER * 0.97;
+  const lim = calLimiter(profile);
+  i.limiterRpm = lim;
+  i.redlineRpm = lim * 0.97;
   i.idleRpm = 900;
   i.throttle = 1;
   i.load = 1;
   i.boost = 0;
   i.quality = 2;
-  i.rpm = CAL_LIMITER * 0.35;
+  i.rpm = lim * 0.35;
   const secs = 0.5;
   const n = Math.floor(sr * secs);
   const out = new Float32Array(n);
   const dbg = createEngineDebug(n);
   v.debug = dbg;
   for (let k = 0; k < n; k += 128) {
-    i.rpm = CAL_LIMITER * (0.35 + 0.65 * (k / n));
+    i.rpm = lim * (0.35 + 0.65 * (k / n));
     const len = Math.min(128, n - k);
     v.debug = {
       exhaust: dbg.exhaust.subarray(k),
@@ -1476,12 +1941,12 @@ export function measureExhaustSweepRms(profile: EngineSoundProfile, sr: number, 
  * muffler topology attenuates. Cached per profile; costs ~15 ms once.
  */
 export function calibratedExhaustGain(profile: EngineSoundProfile, sr: number): number {
-  const key = [sr, profile.cylinders, profile.layout, profile.crankType, profile.displacement, profile.turbo ? 1 : 0, profile.exhaustOpenness, profile.brightness].join('|');
+  const key = [sr, profile.cylinders, profile.layout, profile.crankType, profile.displacement, profile.turbo ? 1 : 0, profile.exhaustOpenness, profile.brightness, profile.exhaustSystem ?? 'merged'].join('|');
   const hit = calCache.get(key);
   if (hit !== undefined) return hit;
   const rmsCrack = measureExhaustSweepRms(profile, sr, 0, true); // pulses off: crack only
   const pulses1 = measureExhaustSweepRms(profile, sr, 1, false); // crack off: pulses at unit gain
-  const target = Math.pow(10, exhaustTargetDb(profile.exhaustOpenness) / 20);
+  const target = Math.pow(10, exhaustTargetDb(profile.exhaustOpenness, profile.displacement) / 20);
   // total^2 = pulses^2 + crack^2 = target^2 (independent noise-like sources add in power)
   const wanted = Math.sqrt(Math.max(target * target - rmsCrack * rmsCrack, 0.04 * target * target));
   const g = pulses1 > 1e-12 ? wanted / pulses1 : 1;

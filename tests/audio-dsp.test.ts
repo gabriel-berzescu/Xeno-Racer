@@ -384,7 +384,7 @@ describe('loudness calibration', () => {
     for (const c of CARS) {
       const g = calibratedExhaustGain(c.sound, SR);
       const db = 20 * Math.log10(measureExhaustSweepRms(c.sound, SR, g));
-      expect(Math.abs(db - exhaustTargetDb(c.sound.exhaustOpenness))).toBeLessThan(0.6);
+      expect(Math.abs(db - exhaustTargetDb(c.sound.exhaustOpenness, c.sound.displacement)), c.id).toBeLessThan(0.6);
     }
   });
 
@@ -398,7 +398,7 @@ describe('loudness calibration', () => {
     for (const p of odd) {
       const g = calibratedExhaustGain(p, SR);
       const db = 20 * Math.log10(measureExhaustSweepRms(p, SR, g));
-      expect(Math.abs(db - exhaustTargetDb(p.exhaustOpenness))).toBeLessThan(0.8);
+      expect(Math.abs(db - exhaustTargetDb(p.exhaustOpenness, p.displacement))).toBeLessThan(0.8);
       const v = new EngineVoice(SR, p, 1);
       setSteady(v, 5000, 1, 1, 7500);
       const x = render(v, 1.5);
