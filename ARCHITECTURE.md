@@ -59,13 +59,27 @@ visual (it watches `VehicleState.impactCount`) and rebuilt by replays from the e
 ```
 VehicleState ─ImpactObserver─► DamageEvent ─CarDamage─► dents, marks, lamps, glass, zones      src/core/damage.ts  (how it looks)
                                                    └─► MechState ─mechanicalEffects─► MechEffects  src/core/mechanical.ts  (how it drives)
-                                                          ├─► Vehicle.setDamage     toe and camber per wheel, downforce per axle, torque
+                                                          ├─► Vehicle.setDamage     toe and camber per wheel, downforce per axle that has some, torque
                                                           ├─► AIDriver.setDamage    the driver works with the car it has
                                                           ├─► the wheels the car visual draws, and HudDamage → src/ui/hud/damage.ts
 ```
 
 `MechLink` (src/game/mechsync.ts) puts a car's record on its physics and its driver whenever it changes, in Full only, and
 takes it off again outside it. Cars are rebuilt for a restart or a round (repaired); a reset to the track touches nothing.
+
+A car is only hurt in the ways it has. What a hit can take from it is read off the car (`mechanicalProfile(def)`, from its own lift areas, mass and
+engine position) and kept with its record (`MechState.profile`; a record made without a car is one that has everything). `mechanicalEffects` (the
+physics, the AI, the drawn wheels) and `mechanicalReport` (the HUD) both read it, so they cannot disagree: a part of the indicator lights exactly when
+the hit changed how that car drives. `Vehicle.setDamage` also refuses to scale a lift area that is not downforce, whatever it is handed.
+
+| the nose and tail can lose | Vanta GT | Kestrel R | Ronin 86 | LMP-X | Mammoth |
+|---|---|---|---|---|---|
+| front and rear downforce (to 60 %) | yes | no: a lip and a ducktail | no: the same | yes, a great deal | no: its aero is lift |
+| engine power (up to 10 %, heavy nose hits) | yes | yes | yes | no: radiators in the side pods | yes |
+| the rear wheels pushed out of line (a trace, tail hits) | yes | yes | yes | yes | yes |
+
+The wheels are every car's (toe and camber, from the hits along the flank). The indicator shows a nose by its downforce where the car has any and by its
+engine where not (so a Mammoth's stays dark until a hit reaches the radiator), and a tail by its downforce or by the trace of toe (never worse than Light).
 
 Track: `loadTrackRuntime(id)` is headless (physics/AI/tests use it); `buildTrackScene()` makes the
 visible world. Physics asks the track `groundAt()` for every wheel every substep and `project()`

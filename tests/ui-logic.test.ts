@@ -49,7 +49,8 @@ import { buildChampionshipSetup, CHAMP_DEFAULTS, CHAMP_OPPONENTS_MIN, championsh
 import { formatConditions, formatPointsGap, lapsLabel, leadText, seasonTitle, trackCode } from '../src/ui/format';
 import { buildView, championshipDef, createChampionship, recordRound } from '../src/game/championship';
 import { autoCase, keyAtColumn } from '../src/ui/osk';
-import { CARS } from '../src/cars';
+import { CARS, getCar } from '../src/cars';
+import { MechState, mechanicalProfile, mechanicalReport } from '../src/core/mechanical';
 import { DEFAULT_SETTINGS, QUALITY_PRESETS } from '../src/core/settings';
 import type { HudStanding, Settings, TrackInfo } from '../src/core/contracts';
 
@@ -412,6 +413,23 @@ describe('settings schema', () => {
     expect(damageWord({ ...d(0.1), wheels: [0, 0, 0.8, 0] })).toBe('Severe');
   });
 
+  it('puts the word the car has earned: a wrecked tail is Severe on a car with a wing, and Light on one without', () => {
+    const word = (id: string, parts: { front?: number; rear?: number }): string => {
+      const m = new MechState(mechanicalProfile(getCar(id)));
+      m.front = parts.front ?? 0;
+      m.rear = parts.rear ?? 0;
+      const d = { front: 0, rear: 0, left: 0, right: 0, wheels: [0, 0, 0, 0] as [number, number, number, number] };
+      mechanicalReport(m, d);
+      return damageWord(d);
+    };
+    // (hit energy 6: wrecked, 0.9975 of the way)
+    expect(['vanta-gt', 'lmp-x'].map((id) => word(id, { rear: 6 }))).toEqual(['Severe', 'Severe']);
+    expect(['kestrel-r', 'ronin-86', 'mammoth'].map((id) => word(id, { rear: 6 }))).toEqual(['Light', 'Light', 'Light']);
+    // the nose, for the same hit: a car with no wings there is judged by its engine (which has hardly started to tire), one with wings by the wings
+    expect(['kestrel-r', 'ronin-86', 'mammoth'].map((id) => word(id, { front: 0.9 }))).toEqual(['Moderate', 'Moderate', 'Moderate']);
+    expect(['vanta-gt', 'lmp-x'].map((id) => word(id, { front: 0.9 }))).toEqual(['Heavy', 'Heavy']);
+  });
+
   it('offers the damage as Off, Visual and Full, and says what Full does', () => {
     const row = SETTINGS_TABS.find((t) => t.id === 'gameplay')!.rows.find((r) => r.id === 'damage')!;
     expect(row.kind).toBe('select');
@@ -420,6 +438,9 @@ describe('settings schema', () => {
     expect(row.desc).toMatch(/bent suspension/);
     expect(row.desc).toMatch(/downforce/);
     expect(row.desc).toMatch(/engine/);
+    // (not every car has downforce to lose, and not every car's engine is behind a nose that can be smashed)
+    expect(row.desc).toMatch(/cars that have any/);
+    expect(row.desc).toMatch(/front-engined/);
     const s: Settings = structuredClone(DEFAULT_SETTINGS);
     row.set(s, 'full');
     expect(s.damage).toBe('full');

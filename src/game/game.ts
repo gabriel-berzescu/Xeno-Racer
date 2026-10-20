@@ -1661,8 +1661,9 @@ export class Game {
 
   /**
    * Damage: Full. What the crashes did to each car's mechanics (the CarDamage record of its visual, src/core/mechanical.ts) goes
-   * on its physics and its driver, when it changes: bent suspension, lost downforce, a tired engine, and an AI that drives the car
-   * it has now. Any other mode takes it off again. Every car, the AI's too; the ghost is no car in this list.
+   * on its physics and its driver, when it changes: bent suspension, lost downforce and a tired engine on the cars that have them to
+   * lose (the record knows its car), and an AI that drives the car it has now. Any other mode takes it off again. Every car, the AI's
+   * too; the ghost is no car in this list.
    * A restart or the next round builds new cars (repaired), and a reset to the track leaves the car as it is.
    */
   private syncMechanical(): void {

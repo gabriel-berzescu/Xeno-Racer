@@ -941,7 +941,11 @@ export interface HudNitro {
  * car outline tints, amber to red. The game keeps one object and rewrites it in place.
  */
 export interface HudDamage {
-  /** The nose (front downforce, engine cooling), the tail (rear downforce), and the two flanks (the suspension on that side). */
+  /**
+   * The nose (the front downforce, on a car that has any, else the engine, on a car with its radiator in the nose), the tail (the rear
+   * downforce, on a car that has any, else the rear wheels knocked a little out of line), and the two flanks (the suspension on that
+   * side). A part lights only for what its damage costs this car: see mechanicalReport.
+   */
   front: number;
   rear: number;
   left: number;

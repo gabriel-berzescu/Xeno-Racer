@@ -797,7 +797,7 @@ export const SETTINGS_TABS: TabDef[] = [
       },
       { kind: 'toggle', id: 'spotter', label: 'Car alongside indicator', desc: 'Lights the left or right edge of the screen when a car is alongside you or closing within a car length, brighter the closer it is.', get: (s) => s.hud.spotter, set: (s, v) => { s.hud.spotter = v; } },
       {
-        kind: 'select', id: 'damage', label: 'Damage', desc: 'What crashes do to the cars. Off keeps every car pristine. Visual crumples panels, scrapes paint and breaks lamps on every car on track, and does not change how a car drives. Full: hard hits also hurt how the car drives: bent suspension, lost downforce, a tired engine. Taps and light scrapes never do.',
+        kind: 'select', id: 'damage', label: 'Damage', desc: 'What crashes do to the cars. Off keeps every car pristine. Visual crumples panels, scrapes paint and breaks lamps on every car on track, and does not change how a car drives. Full: hard hits also hurt how the car drives: bent suspension, lost downforce on the cars that have any, and a tired engine from a smashed nose on the front-engined ones. Taps and light scrapes never do.',
         options: opts([['off', 'Off'], ['visual', 'Visual'], ['full', 'Full']]),
         get: (s) => s.damage, set: (s, v) => { s.damage = v as Settings['damage']; },
       },
