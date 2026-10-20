@@ -354,13 +354,13 @@ export class CarDamage {
   private replayList: readonly StampedEvent[] | null = null;
   private replayCursor = 0;
 
-  /** `mech`: what this car can lose (mechanicalProfile of its definition); without one it is a car that has everything. The look of the damage is the same for every car. */
+  /** `profile`: what this car can lose (mechanicalProfile of its definition); without one it is a car that has everything. The look of the damage is the same for every car. */
   constructor(
     readonly hull: Hull,
     readonly geom: DamageGeometry,
-    mech: MechProfile = FULL_CAR,
+    profile: MechProfile = FULL_CAR,
   ) {
-    this.mech = new MechState(mech);
+    this.mech = new MechState(profile);
   }
 
   /** Back to a pristine car. */

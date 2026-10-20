@@ -34,7 +34,7 @@
  *              weight pressed down at 250 km/h). The Vanta GT (0.22 and 0.32 m^2) and the LMP-X (1.55 and 2.05) have; the Kestrel R and the
  *              Ronin 86 (0.02 to 0.08: a splitter lip and a ducktail, 6 to 24 kgf at 250 km/h) do not, there is nothing there to lose; and the
  *              Mammoth's is not downforce at all but lift (-0.10 and -0.06 m^2: a brick with a light bar), which damage must not touch, since
- *              60 % of a lift is less lift, a car that gets better in a crash (it used to: 180 N less lift at 250 km/h, 1.4 % more peak grip
+ *              60 % of a lift is less lift, a car that gets better in a crash (it used to: 180 N less lift at 250 km/h, 1 % more peak grip
  *              on its front tyres)
  *   engine     a tired engine comes with a smashed nose where the radiator is in it: the front-engined cars (Vanta GT, Kestrel R, Ronin 86,
  *              Mammoth). The LMP-X is mid-engined, its radiators are in its side pods, so a nose hit leaves its engine alone
@@ -214,7 +214,7 @@ export function isNeutral(e: MechEffects | null | undefined): boolean {
 
 /**
  * The effects of a MechState, for the car it belongs to (its profile): a car that has no downforce at an axle keeps its aero exactly as
- * it is there, one with the engine behind the cabin keeps its power. Pass `out` to reuse an object.
+ * it is there, and one whose radiator is not in its nose keeps its power. Pass `out` to reuse an object.
  */
 export function mechanicalEffects(m: MechState, out: MechEffects = neutralEffects()): MechEffects {
   const T = MECH_TUNING;
