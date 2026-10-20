@@ -410,7 +410,8 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
       sp.r0 = rr(0.3, 0.46) + 0.12 * amt;
       sp.r1 = rr(0.8, 1.2) + 1.25 * amt;
       sp.life = rr(1.4, 2.1) + 0.9 * amt;
-      sp.alpha = (0.08 + 0.34 * amt) * rr(0.75, 1.1);
+      // (a hard drift's cloud at half the density it had: at 0.42 a long slide filled the chase camera's view of the road ahead)
+      sp.alpha = (0.08 + 0.13 * amt) * rr(0.75, 1.1);
       const g = rr(0.76, 0.9);
       sp.cr = g; sp.cg = g; sp.cb = g * 1.02;
       sp.rotVel = 0.3;
