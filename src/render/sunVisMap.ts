@@ -14,7 +14,7 @@ import { DataUtils, FloatType, HalfFloatType, LinearFilter, type WebGLRenderer }
 import type { TerrainSource } from '../core/systems';
 import { FOG_TABLE_SIZE } from './atmosphere';
 import { sunVisTexture, xrFogSunUniform, xrSunVisUniform } from './shaderPatches';
-import { computeSunVisibility, FINE_BLEND_NODES, HEIGHT_BIAS, NO_GROUND, sampleSunVisibility, SUNVIS_STRIDE, type SunVisField, type SunVisGrid } from './sunVisibility';
+import { computeSunVisibility, FINE_BLEND_NODES, HEIGHT_BIAS, NO_GROUND, sampleSunVisibility, SHADE_HAZE_GLOW, SUNVIS_STRIDE, type SunVisField, type SunVisGrid } from './sunVisibility';
 
 export class SunVisMap {
   /** The map in use; null until one is made and while there is no terrain. */
@@ -34,6 +34,10 @@ export class SunVisMap {
   private half = false;
   /** Atlas data that is on the GPU now (kept: the texture does not copy it). */
   private data: Float32Array | Uint16Array | null = null;
+  /** Milliseconds the last map took to make and hand to the GPU (slices and the frames between them included). */
+  lastMs = 0;
+  /** The share of the sun's in-scatter that the air in a hill's shade keeps (SHADE_HAZE_GLOW). */
+  private glow = SHADE_HAZE_GLOW;
 
   constructor(renderer: WebGLRenderer) {
     this.floatLinear = renderer.extensions.has('OES_texture_float_linear');
@@ -58,18 +62,43 @@ export class SunVisMap {
     if (key === this.pendingKey && this.pending) return this.pending;
     const token = ++this.token;
     this.pendingKey = key;
-    const run = (async (): Promise<void> => {
+    // (the map in use was made for another sun or circuit: it says nothing about this one while the new one is being made)
+    if (this.field) {
+      this.field = null;
+      this.key = '';
+      this.writeParams();
+    }
+    const run = this.make(terrain, dir, radius, yieldFn, key, token);
+    this.pending = run;
+    return run;
+  }
+
+  private async make(terrain: TerrainSource, dir: readonly [number, number, number], radius: number, yieldFn: (() => Promise<void>) | undefined, key: string, token: number): Promise<void> {
+    const t0 = performance.now();
+    try {
       const field = await computeSunVisibility(terrain, dir, radius, {}, yieldFn);
       // (a newer call took over while this one was being made: its map is the one that counts)
       if (token !== this.token) return;
       this.field = field;
       this.key = key;
-      this.pendingKey = '';
-      this.pending = null;
       this.upload(field);
-    })();
-    this.pending = run;
-    return run;
+      this.lastMs = performance.now() - t0;
+    } finally {
+      if (token === this.token) {
+        this.pendingKey = '';
+        this.pending = null;
+      }
+    }
+  }
+
+  /** The share of the sun's in-scatter that the air in the shade of a hill keeps (the glow of the sky above the ridge lights it): a dial for the look. */
+  get hazeGlow(): number {
+    return this.glow;
+  }
+
+  set hazeGlow(v: number) {
+    this.glow = Math.min(1, Math.max(0, v));
+    this.writeParams();
   }
 
   /** How much of the terrain's shade the weather lets through, 0..1 (the sun shadow strength of the weather preset). */
@@ -130,6 +159,16 @@ export class SunVisMap {
     };
     if (fg) put(fg, 0);
     put(cg, hf);
+    // from now on the CPU's grids read their numbers from the atlas too (one copy of them, not two)
+    const stride = w * SUNVIS_STRIDE;
+    if (fg) {
+      fg.data = data;
+      fg.base = 0;
+      fg.rowStride = stride;
+    }
+    cg.data = data;
+    cg.base = hf * stride;
+    cg.rowStride = stride;
 
     const tex = sunVisTexture;
     const half = !this.floatLinear;
@@ -157,6 +196,7 @@ export class SunVisMap {
   private writeParams(): void {
     const p = xrSunVisUniform.value;
     const f = this.field;
+    p[24] = this.glow;
     if (!f || !f.active || this.weather <= 0) {
       p[3] = 0;
       return;

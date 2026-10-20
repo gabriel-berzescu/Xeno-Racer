@@ -96,6 +96,13 @@ export const NO_GROUND = -1e4;
 export const HEIGHT_BIAS = 0.12;
 /** Floats per node. */
 export const SUNVIS_STRIDE = 4;
+/** The share of a circuit's surroundings (the fine grid's nodes inside its bounds) the sun must not reach for the map to be put to use. */
+export const ACTIVE_SHADE = 0.005;
+/**
+ * The share of the sun's in-scatter that the air in the shade of a hill keeps: the sky above the ridge is bright, and its glow lights the
+ * shadowed air from the side. Without it the haze in front of a hidden sun would be the sky's multiple scattering alone, a dead teal.
+ */
+export const SHADE_HAZE_GLOW = 0.25;
 
 /** One grid of the map. Node (i, j) sits at sun-frame position (u0 + i cell, v0 + j cell); `data` holds SUNVIS_STRIDE floats per node. */
 export interface SunVisGrid {
@@ -106,6 +113,9 @@ export interface SunVisGrid {
   h: number;
   /** [H_lo - yRef, H_hi - yRef, 1/(u_lo dt), 1/(u_hi dt)] per node, row-major (u fast). */
   data: Float32Array;
+  /** Where the grid is in `data` when it shares an atlas with another: the index of node (0, 0) and the floats between two rows (default 0 and 4 w). */
+  base?: number;
+  rowStride?: number;
 }
 
 export interface SunVisField {
@@ -360,25 +370,10 @@ export async function computeSunVisibility(
     }
   }
   field.shadedFine = n > 0 ? shaded / n : 0;
-  // does the map hide the sun from anywhere that is drawn? A coarse node counts where its ground is below the upper limb's horizon.
-  let coarseShaded = 0;
-  const csJ = Math.max(1, Math.floor(coarse.h / 128));
-  const csI = Math.max(1, Math.floor(coarse.w / 128));
-  let cn = 0;
-  for (let j = 0; j < coarse.h; j += csJ) {
-    for (let i = 0; i < coarse.w; i += csI) {
-      const u = coarse.u0 + i * coarse.cell;
-      const v = coarse.v0 + j * coarse.cell;
-      const x = u * ax - v * az;
-      const z = u * az + v * ax;
-      const e = terrain.extent;
-      if (x < e.minX || x > e.maxX || z < e.minZ || z > e.maxZ) continue;
-      cn++;
-      if (coarse.hHi[j * coarse.w + i] > terrain.height(x, z) + HEIGHT_BIAS) coarseShaded++;
-    }
-  }
-  // (a few shaded nodes of a mountain's back side are no reason to touch a noon picture: the sun is "visible" while under 0.5 % of the ground is hidden from it)
-  field.active = field.shadedFine > 0 || (cn > 0 && coarseShaded / cn > 0.005);
+  // Does the map hide the sun from the circuit? The sun is "visible" from a circuit while under ACTIVE_SHADE of its surroundings are out of
+  // its reach: nothing is changed there, the picture is the old one bit for bit (what a hill hides from another hill far away, the back
+  // side of a far mountain, is not worth touching a noon or a morning for).
+  field.active = field.shadedFine >= ACTIVE_SHADE;
   return field;
 }
 
@@ -402,8 +397,8 @@ export function readGrid(g: SunVisGrid, u: number, v: number, out: Node4): boole
   const tx = fi - i;
   const ty = fj - j;
   const d = g.data;
-  const k = SUNVIS_STRIDE * (j * g.w + i);
-  const s = SUNVIS_STRIDE * g.w;
+  const s = g.rowStride ?? SUNVIS_STRIDE * g.w;
+  const k = (g.base ?? 0) + j * s + SUNVIS_STRIDE * i;
   const w00 = (1 - tx) * (1 - ty);
   const w10 = tx * (1 - ty);
   const w01 = (1 - tx) * ty;
@@ -489,9 +484,10 @@ export function hazeSunShare(f: SunVisField, cx: number, cy: number, cz: number,
 /**
  * One channel of the haze colour with the sun's part scaled by the sunlit share of the view ray: `total` is the colour the fog table
  * gives (the sun's in-scatter plus the sky's), `sun` the sun's part of it, `share` what hazeSunShare says. Exactly `total` where the
- * ray is in the sun (share 1: the old colour bit for bit), the sky's part alone where none of it is. The CPU twin of xrFogColorLit.
+ * ray is in the sun (share 1: the old colour bit for bit), the sky's part and `glow` of the sun's where none of it is (the glow of the
+ * sky above the ridge lights the shadowed air from the side: SHADE_HAZE_GLOW). The CPU twin of xrFogColorLit.
  */
-export function sunlitHaze(total: number, sun: number, share: number): number {
-  const c = total - sun * (1 - share);
+export function sunlitHaze(total: number, sun: number, share: number, glow = SHADE_HAZE_GLOW): number {
+  const c = total - sun * (1 - share) * (1 - glow);
   return c > 0 ? c : 0;
 }

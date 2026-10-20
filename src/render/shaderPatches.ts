@@ -62,8 +62,9 @@ export const xrFogSunUniform = { value: new Float32Array(4 * 8) };
  *   [3] = coarse grid: (1/cell, -u0/cell, -v0/cell, 0)
  *   [4] = coarse grid: (w - 1, h - 1, atlas x + 0.5, atlas y + 0.5)
  *   [5] = (1/atlas width, 1/atlas height, height bias, 1 = the whole disc is below the horizon)
+ *   [6] = (the share of the sun's in-scatter the air in a hill's shade keeps, 0, 0, 0)
  */
-export const xrSunVisUniform = { value: new Float32Array(4 * 6) };
+export const xrSunVisUniform = { value: new Float32Array(4 * 7) };
 
 /**
  * The sun visibility atlas: RGBA32F (or RGBA16F where 32-bit floats do not filter) with the fine and the coarse grid one above the
@@ -137,7 +138,7 @@ export const SUNVIS_PARS = /* glsl */ `
 #ifndef XR_SUNVIS_PARS
 #define XR_SUNVIS_PARS
 
-uniform vec4 xrSunVis[ 6 ];
+uniform vec4 xrSunVis[ 7 ];
 uniform sampler2D xrSunVisTex;
 
 // the sun's share this fragment's light 0 keeps after the terrain (set by the lights block, read by whatever else needs the sun: the snow's glitter)
@@ -317,7 +318,8 @@ const FOG_PARS_FRAGMENT = /* glsl */ `
 		vec3 xrFogColorLit( vec3 dirN, float depth, float dist, float F ) {
 
 			vec3 c = xrFogColor( dirN );
-			if ( xrSunVis[ 0 ].w > 0.0 && F > 0.012 ) c = max( c - xrFogSunPart( dirN ) * ( 1.0 - xrSunHaze( dirN, depth, dist, F ) ), vec3( 0.0 ) );
+			// (the air in a hill's shade keeps xrSunVis[ 6 ].x of the sun's part: the glow of the sky above the ridge lights it from the side)
+			if ( xrSunVis[ 0 ].w > 0.0 && F > 0.012 ) c = max( c - xrFogSunPart( dirN ) * ( ( 1.0 - xrSunHaze( dirN, depth, dist, F ) ) * ( 1.0 - xrSunVis[ 6 ].x ) ), vec3( 0.0 ) );
 			return c;
 
 		}

@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import type { TerrainSource } from '../src/core/systems';
 import { installShaderPatches, SUNVIS_PARS, sunVisTexture, xrSunVisUniform } from '../src/render/shaderPatches';
 import { SunVisMap } from '../src/render/sunVisMap';
-import { sampleSunVisibility, sunFrame } from '../src/render/sunVisibility';
+import { computeSunVisibility, sampleSunVisibility, sunFrame } from '../src/render/sunVisibility';
 
 const DEG = Math.PI / 180;
 const R = 0.0135;
@@ -88,10 +88,13 @@ function glslSunVisAt(x: number, y: number, z: number): number {
 describe('the sun visibility atlas and uniforms', () => {
   it('give the shader what the CPU sampler gives, over the fine grid, its blended edge and the coarse grid', async () => {
     const map = new SunVisMap(fakeRenderer);
-    for (const [el, az] of [[3.5, 80], [8.5, 262], [0.9, 285], [5, 20]] as const) {
+    for (const [el, az] of [[3.5, 80], [8.5, 262], [0.9, 285], [3, 37]] as const) {
       await map.update(hills(), sun(el, az), R);
       map.setWeather(1);
       expect(map.field?.active, `${el}/${az}`).toBe(true);
+      // (the map's own grids now read their numbers from the atlas: a field made again, with arrays of its own, is the independent witness of what was copied into it)
+      const fresh = await computeSunVisibility(hills(), sun(el, az), R);
+      expect(fresh.fine?.data).not.toBe(map.field?.fine?.data);
       expect(xrSunVisUniform.value[3]).toBe(1);
       let worst = 0;
       let lit = 0;
@@ -105,7 +108,7 @@ describe('the sun visibility atlas and uniforms', () => {
         for (const y of [0, 22, 60, 200]) {
           const gpu = glslSunVisAt(x, y, z);
           const cpu = map.visibilityAt(x, y, z);
-          worst = Math.max(worst, Math.abs(gpu - cpu));
+          worst = Math.max(worst, Math.abs(gpu - cpu), Math.abs(gpu - sampleSunVisibility(fresh, x, y, z)));
           if (cpu > 0.99) lit++;
           if (cpu < 0.01) dark++;
           n++;

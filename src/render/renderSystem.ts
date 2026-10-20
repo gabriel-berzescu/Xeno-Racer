@@ -61,6 +61,7 @@ import { MirrorSystem, type MirrorFrame } from './mirrors';
 import { DropletPass, makeWiperFeed, makeWiperState, wiperStateInto, type WiperFeed } from './wet/droplets';
 import { SSRPass } from './wet/ssr';
 import { installShaderPatches, XR_LAMPS, xrFogUniform, xrLampColUniform, xrLampUniform, xrLampUpUniform } from './shaderPatches';
+import { coveredByShade, fillViewScale, shadeFillLook } from './shadeFill';
 import { SHADOW_OFF, shadowConfigFor, SunShadows } from './shadows';
 import { SkyDome, SUN_ANGULAR_RADIUS } from './sky';
 import { SunVisMap } from './sunVisMap';
@@ -276,6 +277,8 @@ class ViewState {
   readonly pan = new Vector2();
   /** How much of the sun the terrain takes from the car this view films (0..1, smoothed): the skylight fill follows it (see updateFill). */
   shade = 0;
+  /** How much of the fill the camera of this view needs (fillViewScale, smoothed): all of it looking toward the sun. */
+  fillView = 1;
   haveShade = false;
 }
 
@@ -306,20 +309,29 @@ class RenderSystemImpl implements XenoRenderSystem {
   /** Where the terrain hides the sun (see setTerrain). */
   readonly sunVis: SunVisMap;
   /**
-   * The skylight a surface gets in the terrain's shade to make up for the sun it lost, as a share of what it lost (0 = none): with the
-   * sun behind a ridge the light of a circuit is the sky's alone, and the sky's alone is dimmer than the sky and the sun together that the
-   * exposure was set for. A real eye would open up, and the shade is lit by the sunlit slopes around it too. Scales the ambient light
-   * (the hemisphere and the environment map) by 1 + fillGain x (the sun's share of the light) x (the share of it the terrain takes).
-   * Exactly nothing wherever the sun reaches the car, so the sunlit pictures are as they were.
+   * The light a surface gets in the terrain's shade in place of part of the sun it lost, as a share of that sun (0 = none). With the
+   * sun behind a ridge the light of a circuit is the sky's alone, and that is dimmer, and bluer, than the sky and the sun together that
+   * the exposure and the grade were set for: a real eye would open up, and the shade is lit by the glow of the sky above the ridge and by
+   * the sunlit slopes around as well. It is a hemisphere light of its own (`shadeFill`: diffuse only, no glints) whose axis points at the
+   * sun, tilted up a little: warm on the surfaces that face the glow, cooler on the ones that turn from it, so that the shade has form
+   * and is the sky's colours, not one blue. Its strength follows how much of the sun the terrain takes from the car, and how much the
+   * camera looks toward the sun (`fillViewScale`: the pictures that need it are the backlit ones), and it is nothing (the light is as the
+   * look has it, and the light's program too, for it is not in the scene) wherever the map is off.
    */
-  fillGain = 0.7;
-  /** The hemisphere light's and the environment map's intensity the look asks for (a flash of lightning raises them), before the fill. */
-  private hemiBase = 1;
-  private envBase = 1;
-  /** The sun's light against the sky's in this look (an average surface: sun x 0.3 / pi against the sky's diffuse, 1.6 x its ambient), 0..4. */
-  private sunRatio = 0;
-  /** What the fill of the view being drawn multiplies the ambient light by (>= 1). */
-  private fillMul = 1;
+  get fillGain(): number {
+    return this.fillShare;
+  }
+
+  set fillGain(v: number) {
+    this.fillShare = Math.max(0, v);
+    if (this.solution) this.lightShadeFill(this.solution);
+  }
+
+  private fillShare = 1.1;
+  /** The map's verdict at a point, for the CPU's questions (the cascades' skip). */
+  private readonly visFn = (x: number, y: number, z: number): number => this.sunVis.visibilityAt(x, y, z);
+  /** The fill light (see fillGain). In the scene only while a sun visibility map is on for this race, so a sunny race's programs are the old ones. */
+  private readonly shadeFill = new HemisphereLight(0xffffff, 0xffffff, 0);
   /** The ground the sun visibility map is made from. */
   private terrainSrc: TerrainSource | null = null;
   camera: PerspectiveCamera = new PerspectiveCamera(60, 1, 0.1, 4000);
@@ -463,6 +475,10 @@ class RenderSystemImpl implements XenoRenderSystem {
     this.sun = new SunShadows(patches.csm);
     this.scene.add(this.sun.group);
     this.scene.add(this.hemi);
+    // (not visible until a map is on for the race: see syncSunVis)
+    this.shadeFill.visible = false;
+    this.shadeFill.name = 'xr.shadeFill';
+    this.scene.add(this.shadeFill);
     this.particleScene.name = 'xr.particles';
     this.mirrors = new MirrorSystem(r, this.scene, this.particleScene, { setView: (cam) => this.setLampView(cam), time: (name) => this.timeBegin(name) });
 
@@ -532,6 +548,8 @@ class RenderSystemImpl implements XenoRenderSystem {
     const sol = this.solution;
     if (!sol) return;
     await this.sunVis.update(this.terrainSrc, sol.sunDir, SUN_ANGULAR_RADIUS, yieldToBrowser);
+    // the shade fill is part of the lights (and so of every lit program) only in a race that has a map on: decided here, behind the loading screen
+    this.shadeFill.visible = this.sunVis.field?.active === true;
   }
 
   async precompile(): Promise<void> {
@@ -707,9 +725,8 @@ class RenderSystemImpl implements XenoRenderSystem {
     const gain = f * (2.2 + 5 * dark);
     const add = f * 0.55 / Math.max(sol.exposure, 0.5);
     this.sky.setFlash(f, add * 0.92, add * 0.96, add * 1.06, this.flashDirX, this.flashDirZ);
-    this.hemiBase = 1 + gain;
-    this.envBase = sol.envIntensity * this.envScale * (1 + gain);
-    this.applyAmbient();
+    this.hemi.intensity = 1 + gain;
+    this.scene.environmentIntensity = sol.envIntensity * this.envScale * (1 + gain);
     const haze = 1 + f * (1.5 + 2 * dark);
     const fa = xrFogUniform.value;
     for (let k = 0; k < FOG_TABLE_SIZE; k++) {
@@ -781,7 +798,7 @@ class RenderSystemImpl implements XenoRenderSystem {
     if (!Number.isFinite(speed)) speed = 0;
     this.frameIndex++;
     this.prepareView(this.views[0], camera, this.focus, this.cockpitView, speed, dt, dt);
-    this.updateFill(this.views[0], this.focus, dt);
+    this.updateFill(this.views[0], camera, this.focus, dt);
 
     this.renderer.info.reset();
     this.beginGpu();
@@ -839,7 +856,7 @@ class RenderSystemImpl implements XenoRenderSystem {
         this.updateSpeedEffects(v, spec.camera, dt, speed);
         this.updateShafts(spec.camera);
         if (this.finalEffect) this.finalEffect.seed = (this.frameIndex % 64) / 64;
-        this.updateFill(v, spec.focus, dt);
+        this.updateFill(v, spec.camera, spec.focus, dt);
         this.aimView(geo.views[i]);
         this.scene.matrixWorldAutoUpdate = i === 0;
         this.composer.render(dt);
@@ -925,18 +942,10 @@ class RenderSystemImpl implements XenoRenderSystem {
    * is the CPU twin of the shader's, at the top of the tallest caster and in 8 directions, with room for the ground to be higher out there.
    */
   private terrainDark(focus: Vector3): boolean {
-    const m = this.sunVis;
-    if (!m.on) return false;
+    if (!this.sunVis.on) return false;
     const cfg = this.sun.config;
     if (cfg.count === 0) return false;
-    const reach = cfg.radii[cfg.count - 1] * 0.8;
-    const y = focus.y + cfg.maxCasterHeight + 20;
-    if (m.visibilityAt(focus.x, y, focus.z) > 0.01) return false;
-    for (let k = 0; k < 8; k++) {
-      const a = k * (Math.PI / 4);
-      if (m.visibilityAt(focus.x + Math.cos(a) * reach, y, focus.z + Math.sin(a) * reach) > 0.01) return false;
-    }
-    return true;
+    return coveredByShade(this.visFn, focus.x, focus.y + cfg.maxCasterHeight + 20, focus.z, cfg.radii[cfg.count - 1] * 0.8);
   }
 
   private endFrame(t0: number): void {
@@ -1560,9 +1569,8 @@ class RenderSystemImpl implements XenoRenderSystem {
     this.sun.setShadowIntensity(sol.shadowIntensity);
     this.hemi.color.setRGB(sol.hemiSky[0], sol.hemiSky[1], sol.hemiSky[2]);
     this.hemi.groundColor.setRGB(sol.hemiGround[0], sol.hemiGround[1], sol.hemiGround[2]);
-    this.hemiBase = 1;
-    this.sunRatio = Math.min(4, (lumOf(sol.lightColor) * sol.lightIntensity * 0.3) / Math.PI / Math.max(1.6 * lumOf(sol.skyAmbient), 1e-4));
-    this.applyAmbient();
+    this.hemi.intensity = 1;
+    this.lightShadeFill(sol);
 
     // particles share the same lighting
     const pu = particleUniforms;
@@ -1611,8 +1619,7 @@ class RenderSystemImpl implements XenoRenderSystem {
       fc.cap.ambient = ambient;
     }
     this.envScale = fc.cap.ambient > 1e-9 ? ambient / fc.cap.ambient : 1;
-    this.envBase = sol.envIntensity * this.envScale;
-    this.applyAmbient();
+    this.scene.environmentIntensity = sol.envIntensity * this.envScale;
   }
 
   private captureEnvironment(sol: EnvSolution): void {
@@ -1621,32 +1628,44 @@ class RenderSystemImpl implements XenoRenderSystem {
     this.envTarget = this.pmrem.fromScene(this.envScene, 0, 0.1, 100, { size: this.tier.pmrem });
     this.sky.setShowSun(true);
     this.scene.environment = this.envTarget.texture;
-    this.envBase = sol.envIntensity;
-    this.applyAmbient();
-  }
-
-  /** The ambient light (hemisphere and environment map) the look asks for, times the skylight fill of the view being drawn. */
-  private applyAmbient(): void {
-    this.hemi.intensity = this.hemiBase * this.fillMul;
-    if (this.scene.environment) this.scene.environmentIntensity = this.envBase * this.fillMul;
+    this.scene.environmentIntensity = sol.envIntensity;
   }
 
   /**
-   * The skylight fill of the view about to be drawn (see fillGain): the share of the sun the terrain takes from the car it films (the
-   * CPU twin of what the shaders do, smoothed over half a second so that a car crossing a long penumbra sees no step), times how much
-   * of the light of this look is the sun's. Nothing (the ambient exactly as the look has it) while the car is in the sun.
+   * The colours of the shade fill for this look (see fillGain, shadeFill.ts): the share `fillGain` of the sun a racing picture's surfaces
+   * lose in the shade, warm toward the glow, fainter away from it. Scaled by the shade the view's car is in, when that view is drawn.
    */
-  private updateFill(v: ViewState, focus: Vector3, dt: number): void {
+  private lightShadeFill(sol: EnvSolution): void {
+    const look = shadeFillLook({ lightColor: sol.lightColor, lightIntensity: sol.lightIntensity, glow: [sol.fogTable[0], sol.fogTable[1], sol.fogTable[2]], sunDir: sol.sunDir, gain: this.fillShare });
+    this.shadeFill.color.setRGB(look.sky[0], look.sky[1], look.sky[2]);
+    this.shadeFill.groundColor.setRGB(look.ground[0], look.ground[1], look.ground[2]);
+    this.shadeFill.position.set(look.axis[0], look.axis[1], look.axis[2]);
+  }
+
+  /**
+   * The shade fill of the view about to be drawn (see fillGain): how much of the sun the terrain takes from the car it films (the CPU twin of
+   * what the shaders do, smoothed over half a second so that a car crossing a long penumbra sees no step).
+   */
+  private updateFill(v: ViewState, camera: PerspectiveCamera, focus: Vector3, dt: number): void {
     const m = this.sunVis;
     const target = m.on ? 1 - m.visibilityAt(focus.x, focus.y + 1, focus.z) : 0;
+    // (what the camera looks at: the picture needs the most of the fill where it looks toward the sun, see fillViewScale)
+    let view = 1;
+    const sol = this.solution;
+    if (sol && target > 0) {
+      camera.getWorldDirection(this._camFwd);
+      view = fillViewScale(this._camFwd.x, this._camFwd.z, sol.sunDir[0], sol.sunDir[2]);
+    }
     if (!v.haveShade) {
       v.shade = target;
+      v.fillView = view;
       v.haveShade = true;
-    } else v.shade += (target - v.shade) * (1 - Math.exp(-dt / 0.5));
-    const mul = v.shade > 1e-4 ? 1 + this.fillGain * this.sunRatio * v.shade : 1;
-    if (mul === this.fillMul) return;
-    this.fillMul = mul;
-    this.applyAmbient();
+    } else {
+      const k = 1 - Math.exp(-dt / 0.5);
+      v.shade += (target - v.shade) * k;
+      if (target > 0 || v.shade > 1e-4) v.fillView += (view - v.fillView) * k;
+    }
+    this.shadeFill.intensity = v.shade > 1e-4 ? v.shade * v.fillView : 0;
   }
 
   private updateSpeedEffects(v: ViewState, camera: PerspectiveCamera, dt: number, speed: number): void {

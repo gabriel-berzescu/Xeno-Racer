@@ -4,7 +4,7 @@ import type { TimeOfDay, Weather } from '../src/core/contracts';
 import { FOG_TABLE_SIZE } from '../src/render/atmosphere';
 import { blendInto, cloneSolution, solveEnvironment } from '../src/render/environment';
 import { installShaderPatches, sunVisTexture, xrFogSunUniform, xrSunVisTexUniform, xrSunVisUniform } from '../src/render/shaderPatches';
-import { sunlitHaze } from '../src/render/sunVisibility';
+import { SHADE_HAZE_GLOW, sunlitHaze } from '../src/render/sunVisibility';
 
 const TODS: TimeOfDay[] = ['dawn', 'morning', 'noon', 'golden', 'dusk', 'night'];
 const WEATHERS: Weather[] = ['clear', 'cloudy', 'overcast', 'rain', 'storm'];
@@ -56,20 +56,30 @@ describe("the haze split into the sun's in-scatter and the sky's", () => {
     for (let i = 0; i < mix.fogTableSun.length; i++) expect(mix.fogTableSun[i]).toBeLessThanOrEqual(mix.fogTable[i] + 1e-7);
   });
 
-  it("keeps the old colour where the ray is in the sun and only the sky's part where none of it is", async () => {
+  it("keeps the old colour where the ray is in the sun and only the sky's part (and the glow's) where none of it is", async () => {
     const s = await solveEnvironment({ timeOfDay: 'dusk', weather: 'clear' });
     for (let k = 0; k < FOG_TABLE_SIZE; k++) {
       for (let c = 0; c < 3; c++) {
         const total = s.fogTable[k * 3 + c];
         const sun = s.fogTableSun[k * 3 + c];
-        // the sun's whole share: exactly the colour the fog had (bit for bit: nothing is added and taken away)
+        // the sun's whole share: exactly the colour the fog had (bit for bit: nothing is added and taken away), whatever the glow
         expect(sunlitHaze(total, sun, 1)).toBe(total);
-        // none of it: the sky's part
-        expect(sunlitHaze(total, sun, 0)).toBeCloseTo(total - sun, 9);
+        expect(sunlitHaze(total, sun, 1, 0.7)).toBe(total);
+        // none of it, and no glow: the sky's part alone, no sun in the haze
+        expect(sunlitHaze(total, sun, 0, 0)).toBeCloseTo(total - sun, 9);
+        // the glow of the sky above the ridge lights the shadowed air from the side: a share of the sun's part stays, never more than it
+        expect(sunlitHaze(total, sun, 0)).toBeCloseTo(total - sun * (1 - SHADE_HAZE_GLOW), 9);
+        expect(sunlitHaze(total, sun, 0)).toBeLessThanOrEqual(total);
         // in between: monotone
         expect(sunlitHaze(total, sun, 0.5)).toBeGreaterThanOrEqual(sunlitHaze(total, sun, 0.25));
       }
     }
+    // a hill in front of a hidden sun stays far darker than the sunlit haze toward it (the glow is a fifth, not the whole)
+    const lumSun = lum(s.fogTableSun, 0);
+    const lumAll = lum(s.fogTable, 0);
+    const shaded = sunlitHaze(lumAll, lumSun, 0);
+    expect(shaded).toBeLessThan(lumAll * 0.5);
+    expect(shaded).toBeGreaterThan(lumAll - lumSun);
   });
 });
 
@@ -118,7 +128,7 @@ describe('the terrain shade in the shader patches', () => {
     const libU = UniformsLib as unknown as Record<string, Record<string, unknown>>;
     expect(libU.fog.xrSunVisTex).toBe(xrSunVisTexUniform);
     expect(libU.lights.xrSunVis).toBe(xrSunVisUniform);
-    expect(xrSunVisUniform.value.length).toBe(6 * 4);
+    expect(xrSunVisUniform.value.length).toBe(7 * 4);
     expect(xrFogSunUniform.value.length).toBe(8 * 4);
     // three clones the textures of a built-in material's uniforms: this one answers with itself, so that a later map reaches them all
     expect(xrSunVisTexUniform.value).toBe(sunVisTexture);
