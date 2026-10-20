@@ -56,8 +56,10 @@ describe("the haze split into the sun's in-scatter and the sky's", () => {
     for (let i = 0; i < mix.fogTableSun.length; i++) expect(mix.fogTableSun[i]).toBeLessThanOrEqual(mix.fogTable[i] + 1e-7);
   });
 
-  it("keeps the old colour where the ray is in the sun and only the sky's part (and the glow's) where none of it is", async () => {
+  it("keeps the old colour where the ray is in the sun and only the sky's part where none of it is", async () => {
     const s = await solveEnvironment({ timeOfDay: 'dusk', weather: 'clear' });
+    // (the air in the shade of a hill is lit by the sky alone: the default keeps none of the sun's in-scatter)
+    expect(SHADE_HAZE_GLOW).toBe(0);
     for (let k = 0; k < FOG_TABLE_SIZE; k++) {
       for (let c = 0; c < 3; c++) {
         const total = s.fogTable[k * 3 + c];
@@ -65,21 +67,41 @@ describe("the haze split into the sun's in-scatter and the sky's", () => {
         // the sun's whole share: exactly the colour the fog had (bit for bit: nothing is added and taken away), whatever the glow
         expect(sunlitHaze(total, sun, 1)).toBe(total);
         expect(sunlitHaze(total, sun, 1, 0.7)).toBe(total);
-        // none of it, and no glow: the sky's part alone, no sun in the haze
-        expect(sunlitHaze(total, sun, 0, 0)).toBeCloseTo(total - sun, 9);
-        // the glow of the sky above the ridge lights the shadowed air from the side: a share of the sun's part stays, never more than it
-        expect(sunlitHaze(total, sun, 0)).toBeCloseTo(total - sun * (1 - SHADE_HAZE_GLOW), 9);
-        expect(sunlitHaze(total, sun, 0)).toBeLessThanOrEqual(total);
+        // none of it: the sky's part alone, no sun in the haze
+        expect(sunlitHaze(total, sun, 0)).toBeCloseTo(total - sun, 9);
+        // a dial for a look that wants some glow in the shadowed air: a share of the sun's part stays, never more than it
+        expect(sunlitHaze(total, sun, 0, 0.3)).toBeCloseTo(total - sun * 0.7, 9);
+        expect(sunlitHaze(total, sun, 0, 0.3)).toBeLessThanOrEqual(total);
         // in between: monotone
         expect(sunlitHaze(total, sun, 0.5)).toBeGreaterThanOrEqual(sunlitHaze(total, sun, 0.25));
       }
     }
-    // a hill in front of a hidden sun stays far darker than the sunlit haze toward it (the glow is a fifth, not the whole)
+    // a hill in front of a hidden sun is a silhouette: the haze toward it is the sky's dim part alone, a small share of the glow that
+    // the sunlit haze has there
     const lumSun = lum(s.fogTableSun, 0);
     const lumAll = lum(s.fogTable, 0);
     const shaded = sunlitHaze(lumAll, lumSun, 0);
-    expect(shaded).toBeLessThan(lumAll * 0.5);
-    expect(shaded).toBeGreaterThan(lumAll - lumSun);
+    expect(shaded).toBeCloseTo(lumAll - lumSun, 9);
+    expect(shaded).toBeLessThan(lumAll * 0.2);
+  });
+
+  it("is, in the shade of a hill, the sky's part alone: one dim, cool grey in every direction, with no aureole in it", async () => {
+    // Why the hills in front of a hidden sun were a bright warm tan with a quarter of the sun's in-scatter left in the shadowed air: the sky's
+    // part of the fog table (the model's multiple scattering) is not where the glow was. It is the same colour toward the sun and away
+    // from it, a few percent of the glow's luminance, and not warm.
+    for (const tod of ['dawn', 'golden', 'dusk', 'morning'] as const) {
+      const s = await solveEnvironment({ timeOfDay: tod, weather: 'clear' });
+      const part = (k: number): number[] => [0, 1, 2].map((c) => s.fogTable[k * 3 + c] - s.fogTableSun[k * 3 + c]);
+      const first = part(0);
+      for (let k = 1; k < FOG_TABLE_SIZE; k++) {
+        const p = part(k);
+        for (let c = 0; c < 3; c++) expect(p[c], `${tod} ${k} ${c}`).toBeCloseTo(first[c], 5);
+      }
+      // dim next to the glow toward the sun, and no warmer than neutral (blue at least four fifths of red; the sun's part is a lot of red)
+      expect(lum(Float32Array.from(first), 0), tod).toBeLessThan(0.2 * lum(s.fogTable, 0));
+      expect(first[2] / first[0], tod).toBeGreaterThan(0.8);
+      expect(s.fogTableSun[0] / s.fogTableSun[2], tod).toBeGreaterThan(1.2);
+    }
   });
 });
 

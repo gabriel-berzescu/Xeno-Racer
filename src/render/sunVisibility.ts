@@ -99,10 +99,12 @@ export const SUNVIS_STRIDE = 4;
 /** The share of a circuit's surroundings (the fine grid's nodes inside its bounds) the sun must not reach for the map to be put to use. */
 export const ACTIVE_SHADE = 0.005;
 /**
- * The share of the sun's in-scatter that the air in the shade of a hill keeps: the sky above the ridge is bright, and its glow lights the
- * shadowed air from the side. Without it the haze in front of a hidden sun would be the sky's multiple scattering alone, a dead teal.
+ * The share of the sun's in-scatter that the air in the shade of a hill keeps. None: the view ray to a ridge that hides the sun runs in
+ * that ridge's shadow, and the air in front of it is lit by the sky alone (the fog table's sky part: its multiple scattering, the same
+ * dim, cool grey in every direction), so the hills in front of a hidden sun are silhouettes, darker and cooler than the glow of the sky
+ * above the ridge, and the farther ridges paler from the sky's light in the air between. A dial for a look that wants some glow in it.
  */
-export const SHADE_HAZE_GLOW = 0.25;
+export const SHADE_HAZE_GLOW = 0;
 
 /** One grid of the map. Node (i, j) sits at sun-frame position (u0 + i cell, v0 + j cell); `data` holds SUNVIS_STRIDE floats per node. */
 export interface SunVisGrid {
