@@ -15,7 +15,7 @@ import { makeMaterials } from './materials';
 import { buildProps } from './props';
 import { buildRockCuts, buildTunnels } from './rocks';
 import { buildRoad } from './road';
-import { buildTerrainTiles } from './terrainTiles';
+import { buildTerrainTiles, REACH } from './terrainTiles';
 import { buildTrees } from './trees';
 import { buildWinterScenery } from './winter';
 import { buildTufts } from './tufts';
@@ -98,8 +98,16 @@ export async function buildTrackScene(rt: TrackRuntimeImpl, opts: TrackSceneOpti
   if (!rt.def.winter) tintScene(ctx, root);
   ctx.progress(1, 'done');
 
+  // the ground, for the sun visibility map: heights as drawn, over the terrain the tiles cover, around the circuit
+  const b = rt.bounds;
   const scene: TrackScene = {
     root,
+    terrain: {
+      id: rt.info.id,
+      height: (x, z) => rt.drawnHeight(x, z),
+      extent: { minX: b.minX - REACH, maxX: b.maxX + REACH, minZ: b.minZ - REACH, maxZ: b.maxZ + REACH },
+      focus: { minX: b.minX, maxX: b.maxX, minZ: b.minZ, maxZ: b.maxZ },
+    },
     update(dt, camera) {
       const time = performance.now() / 1000;
       for (const u of ctx.updaters) u(dt, camera, time);

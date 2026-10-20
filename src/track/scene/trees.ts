@@ -508,11 +508,13 @@ function foliageMaterial(tex: THREE.Texture, fade: [number, number, number, numb
   // leaves lit from behind (camera looking toward the sun) glow with transmitted light
   vec3 Lv = normalize((viewMatrix * vec4(uSunDir, 0.0)).xyz);
   float back = clamp(-dot(normalize(vViewPosition), Lv), 0.0, 1.0);
-  totalEmissiveRadiance += diffuseColor.rgb * uSunCol * (pow(back, 3.0) * smoothstep(0.02, 0.16, uSunDir.y));
+  // (no sun to shine through the leaves where the terrain hides it: the share of its disc that is visible from here, xrSunVisAt)
+  float sunSeen = xrSunVisAt(cameraPosition + (vec4(-vViewPosition, 0.0) * viewMatrix).xyz);
+  totalEmissiveRadiance += diffuseColor.rgb * uSunCol * (pow(back, 3.0) * smoothstep(0.02, 0.16, uSunDir.y) * sunSeen);
 }`,
       );
   };
-  mat.customProgramCacheKey = () => `tree-${billboard ? 'bb' : 'card'}-5`;
+  mat.customProgramCacheKey = () => `tree-${billboard ? 'bb' : 'card'}-6`;
   return mat;
 }
 
@@ -820,7 +822,7 @@ export function instantiateTrees(inst: Record<SpeciesId, Inst[]>, tier: number, 
       .replace('#include <common>', '#include <common>\nattribute vec4 aBB;')
       .replace('#include <uv_vertex>', '#include <uv_vertex>\n#ifdef USE_MAP\n  vMapUv = vMapUv * aBB.zw + aBB.xy;\n#endif');
   };
-  bbMat.customProgramCacheKey = () => 'tree-bb-atlas-5';
+  bbMat.customProgramCacheKey = () => 'tree-bb-atlas-6';
   const geoB = billboardGeometry();
   disposables.push(bbAtlas, bbMat, geoB);
 

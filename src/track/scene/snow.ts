@@ -64,7 +64,8 @@ const SNOW_SPARKLE = /* glsl */ `
     vec3 gn = normalize(normal + (vec3(snHash(cell + 3.7), snHash(cell + 9.1), snHash(cell + 1.3)) - 0.5) * 1.3);
     float sp = pow(max(dot(gn, Hh), 0.0), 240.0) * step(0.86, rr);
     float lit = smoothstep(0.01, 0.1, dot(reflectedLight.directDiffuse, vec3(0.3333)));
-    reflectedLight.directSpecular += directionalLights[0].color * sp * 2.4 * lit * gSparkle * (1.0 - smoothstep(12.0, 40.0, camDist));
+    // (xrSunVG: the share of the sun's disc the terrain leaves visible here, set by the lights block: a ridge between the sun and the snow puts the glitter out)
+    reflectedLight.directSpecular += directionalLights[0].color * sp * 2.4 * lit * gSparkle * xrSunVG * (1.0 - smoothstep(12.0, 40.0, camDist));
   }
 #endif
 `;
@@ -246,7 +247,7 @@ export function makeSnowGround(ctx: Ctx, strip = false, ice: { tex: THREE.DataTe
     // gFar is declared in the map block (it is also the bump's fade): make it visible to the normal block
     shader.fragmentShader = shader.fragmentShader.replace('float gFar = smoothstep(50.0, 320.0, camDist);', 'gFar = smoothstep(50.0, 320.0, camDist);').replace('float gHeight;', 'float gHeight;\nfloat gFar;');
   };
-  mat.customProgramCacheKey = () => 'snow-ground-v1' + (strip ? 's' : '');
+  mat.customProgramCacheKey = () => 'snow-ground-v2' + (strip ? 's' : '');
   mat.userData.wetShader = true;
   return mat;
 }
@@ -418,7 +419,7 @@ export function makeSnowRoad(ctx: Ctx, markings: boolean, surf: THREE.DataTextur
       .replace('#include <normal_fragment_maps>', ROAD_NORMAL)
       .replace('#include <lights_fragment_end>', SNOW_SPARKLE);
   };
-  mat.customProgramCacheKey = () => (markings ? 'snow-road-marked-v1' : 'snow-road-plain-v1');
+  mat.customProgramCacheKey = () => (markings ? 'snow-road-marked-v2' : 'snow-road-plain-v2');
   mat.userData.wetShader = true;
   return mat;
 }

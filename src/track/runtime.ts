@@ -751,6 +751,32 @@ export class TrackRuntimeImpl implements TrackRuntime {
     return this.heightXZ(x, z, i);
   }
 
+  /**
+   * The ground as it is drawn, for questions asked of a whole region (the sun visibility map asks a few hundred thousand): the road's
+   * own surface within reach of the road (where the baked field is not what is drawn: a road in a cutting is below it) and the
+   * baked field everywhere else, which is nearly everywhere and which heightFast would reach only after a ring search for the nearest
+   * road sample. A point is near the road when a grid cell of the spatial grid within the corridor's reach of it holds a sample.
+   */
+  drawnHeight(x: number, z: number): number {
+    const cell = this.gCell;
+    const cx = Math.floor((x - this.gMinX) / cell);
+    const cz = Math.floor((z - this.gMinZ) / cell);
+    // (heightFast's corridor: maxWall + xfadeEnd + 12 m from the road; a road sample within it is in a cell at most this many cells away)
+    const r = Math.ceil((this.maxWall + this.xfadeEnd + 12) / cell);
+    const nx = this.gNx;
+    const nz = this.gNz;
+    const x0 = Math.max(0, cx - r);
+    const x1 = Math.min(nx - 1, cx + r);
+    if (x0 <= x1) {
+      const start = this.gStart;
+      for (let gz = Math.max(0, cz - r), z1 = Math.min(nz - 1, cz + r); gz <= z1; gz++) {
+        // (the cells are laid out row by row: the samples of a run of cells in a row are a run of the item list)
+        if (start[gz * nx + x1 + 1] > start[gz * nx + x0]) return this.heightFast(x, z);
+      }
+    }
+    return this.fieldHeight(x, z);
+  }
+
   /** Scalar ground height at (x, z); `hint` speeds up the search. */
   heightXZ(x: number, z: number, hint = -1): number {
     const i = this.locate(x, z, hint);

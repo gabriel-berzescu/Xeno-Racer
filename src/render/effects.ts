@@ -28,6 +28,7 @@ import type { CarDamageControl } from '../core/damage';
 import type { EffectsSystem, RenderSystem } from '../core/systems';
 import { makeSmokeAtlas } from './noise';
 import { particleUniforms } from './post';
+import { sunVisUniforms } from './shaderPatches';
 import type { XenoRenderSystem } from './renderSystem';
 import { ContactShadows } from './fx/contactShadow';
 import {
@@ -190,7 +191,7 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
     fog: false,
   };
   const U = particleUniforms;
-  const shared = { uDepth: U.uDepth, uHasDepth: U.uHasDepth, uResolution: U.uResolution, uNearFar: U.uNearFar, uSunDir: U.uSunDir, uSunLight: U.uSunLight, uSkyAmb: U.uSkyAmb, uGroundAmb: U.uGroundAmb, uFogColor: U.uFogColor, uFogDensity: U.uFogDensity, uFogLin: U.uFogLin, uNearFade: U.uNearFade, uAlphaMul: U.uAlphaMul };
+  const shared = { uDepth: U.uDepth, uHasDepth: U.uHasDepth, uResolution: U.uResolution, uNearFar: U.uNearFar, uSunDir: U.uSunDir, uSunLight: U.uSunLight, uSkyAmb: U.uSkyAmb, uGroundAmb: U.uGroundAmb, uFogColor: U.uFogColor, uFogDensity: U.uFogDensity, uFogLin: U.uFogLin, uNearFade: U.uNearFade, uAlphaMul: U.uAlphaMul, ...sunVisUniforms };
 
   const puffMat = new ShaderMaterial({
     ...baseMat,

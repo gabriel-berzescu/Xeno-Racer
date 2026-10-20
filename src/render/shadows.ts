@@ -195,6 +195,12 @@ export class SunShadows {
     for (const d of this.dirtySets) for (let i = 0; i < d.length; i++) d[i] = true;
   }
 
+  /** The cascades of the set in use only: they were left alone for a while and must be drawn again (see RenderSystem.fitSun). */
+  markSelectedDirty(): void {
+    const d = this.dirty;
+    for (let i = 0; i < d.length; i++) d[i] = true;
+  }
+
   /**
    * Re-fit cascades around `focus`. Returns true when at least one shadow map has to re-render this
    * frame (the caller then sets renderer.shadowMap.needsUpdate).

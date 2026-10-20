@@ -89,6 +89,12 @@ export interface SkyModel {
    * fades into, so fog meets the sky at the horizon in every direction.
    */
   fogTable: Float32Array;
+  /**
+   * The part of `fogTable` that is the sun's own in-scatter: single scattering of the direct sun (with the aerosols' forward lobe: the
+   * glow toward the sun), read before the multiple-scattering term is added. `fogTable - fogTableSun` is the sky's part, which terrain
+   * in front of the sun does not take away; the fog scales the sun's part by the sunlit share of the view ray.
+   */
+  fogTableSun: Float32Array;
 }
 
 export const FOG_TABLE_SIZE = 8;
@@ -271,6 +277,31 @@ export async function computeSkyModel(p: SkyModelParams, yieldFn?: () => Promise
     if (yieldFn && (j + 1) % rowsPerChunk === 0) await yieldFn();
   }
 
+  // Bilinear read of the LUT as it is now (first order until the multiple-scattering term is added below).
+  const sample = (phi: number, el: number): RGB => {
+    const u = lutU(phi) * width - 0.5;
+    const v = lutV(el) * height - 0.5;
+    const i0 = Math.max(0, Math.min(width - 2, Math.floor(u)));
+    const j0 = Math.max(0, Math.min(height - 2, Math.floor(v)));
+    const fu = Math.min(1, Math.max(0, u - i0));
+    const fv = Math.min(1, Math.max(0, v - j0));
+    const r: RGB = [0, 0, 0];
+    for (let c = 0; c < 3; c++) {
+      const a = lut[(j0 * width + i0) * 4 + c], b = lut[(j0 * width + i0 + 1) * 4 + c];
+      const d = lut[((j0 + 1) * width + i0) * 4 + c], e = lut[((j0 + 1) * width + i0 + 1) * 4 + c];
+      r[c] = (a * (1 - fu) + b * fu) * (1 - fv) + (d * (1 - fu) + e * fu) * fv;
+    }
+    return r;
+  };
+  // the sun's own in-scatter along the horizon, before multiple scattering (see fogTableSun)
+  const fogTableSun = new Float32Array(FOG_TABLE_SIZE * 3);
+  for (let k = 0; k < FOG_TABLE_SIZE; k++) {
+    const c = sample(PI * Math.pow(k / (FOG_TABLE_SIZE - 1), 2), 0.02);
+    fogTableSun[k * 3] = c[0];
+    fogTableSun[k * 3 + 1] = c[1];
+    fogTableSun[k * 3 + 2] = c[2];
+  }
+
   // Hemisphere statistics from the first-order radiance (cells above the horizon).
   let wSum = 0, wCos = 0;
   const mean: RGB = [0, 0, 0];
@@ -341,21 +372,6 @@ export async function computeSkyModel(p: SkyModelParams, yieldFn?: () => Promise
   }
 
   // Horizon samples (read from the finished LUT so they include multiple scattering).
-  const sample = (phi: number, el: number): RGB => {
-    const u = lutU(phi) * width - 0.5;
-    const v = lutV(el) * height - 0.5;
-    const i0 = Math.max(0, Math.min(width - 2, Math.floor(u)));
-    const j0 = Math.max(0, Math.min(height - 2, Math.floor(v)));
-    const fu = Math.min(1, Math.max(0, u - i0));
-    const fv = Math.min(1, Math.max(0, v - j0));
-    const r: RGB = [0, 0, 0];
-    for (let c = 0; c < 3; c++) {
-      const a = lut[(j0 * width + i0) * 4 + c], b = lut[(j0 * width + i0 + 1) * 4 + c];
-      const d = lut[((j0 + 1) * width + i0) * 4 + c], e = lut[((j0 + 1) * width + i0 + 1) * 4 + c];
-      r[c] = (a * (1 - fu) + b * fu) * (1 - fv) + (d * (1 - fu) + e * fu) * fv;
-    }
-    return r;
-  };
   const hEl = 0.03;
   const horizonSun = sample(0.0, hEl);
   const horizonSide = sample(PI * 0.5, hEl);
@@ -384,5 +400,6 @@ export async function computeSkyModel(p: SkyModelParams, yieldFn?: () => Promise
     horizonSide,
     horizonAway,
     fogTable,
+    fogTableSun,
   };
 }
