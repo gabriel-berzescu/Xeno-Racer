@@ -17,7 +17,7 @@
  *
  * The game must expose window.__READY__ (always waited for first).
  */
-import { chromium } from 'playwright-core';
+import { launchChrome } from './chrome.mjs';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -43,7 +43,7 @@ if (!/^https?:/.test(target)) target = `http://127.0.0.1:${port}/${target.replac
 const outDir = resolve(opts.out ?? 'shots/tour');
 mkdirSync(outDir, { recursive: true });
 
-const browser = await chromium.launch({
+const browser = await launchChrome({
   channel: 'chrome',
   headless: true,
   args: ['--use-angle=d3d11', '--enable-gpu', '--ignore-gpu-blocklist', '--force_high_performance_gpu', '--autoplay-policy=no-user-gesture-required'],

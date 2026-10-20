@@ -9,7 +9,7 @@
  * a black frame) and reports how many frames came back completely black. One NaN in the HDR pipeline smears over
  * the whole frame through the bloom blur, so any count above zero is a bug.
  */
-import { chromium } from 'playwright-core';
+import { launchChrome } from '../../scripts/chrome.mjs';
 
 const argv = process.argv.slice(2);
 const opt = { query: 'track=aurelia&tod=night&weather=storm&cam=chase&v=45', n: 400, gap: 20, w: 1280, h: 720, port: 5199, quality: 'high' };
@@ -17,7 +17,7 @@ for (let i = 0; i < argv.length; i += 2) opt[argv[i].slice(2)] = argv[i + 1];
 opt.n = +opt.n;
 opt.gap = +opt.gap;
 
-const browser = await chromium.launch({
+const browser = await launchChrome({
   channel: 'chrome',
   headless: true,
   args: ['--use-angle=d3d11', '--enable-gpu', '--ignore-gpu-blocklist', '--force_high_performance_gpu'],

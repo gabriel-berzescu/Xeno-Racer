@@ -6,7 +6,7 @@
  *
  * Uses the system Chrome through playwright-core (same as scripts/shot.mjs). Owner: render.
  */
-import { chromium } from 'playwright-core';
+import { launchChrome } from '../../scripts/chrome.mjs';
 import { mkdirSync, writeFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
@@ -54,7 +54,7 @@ const dir = mkdtempSync(join(tmpdir(), 'xr-sheet-'));
 const file = join(dir, 'sheet.html');
 writeFileSync(file, html);
 
-const browser = await chromium.launch({ channel: 'chrome', headless: true });
+const browser = await launchChrome({ channel: 'chrome', headless: true });
 const rows = Math.ceil(items.length / opts.cols);
 const cellH = opts.crop ? Math.round(opts.crop[3] * (opts.w / opts.crop[2])) : Math.round(opts.w * 0.5625);
 const page = await browser.newPage({ viewport: { width: opts.cols * (opts.w + 4), height: rows * (cellH + 4) } });

@@ -15,14 +15,14 @@
  * One run at a time: the GPU is shared. Needs the page's `window.__GAME__` and a browser with the developer extensions on.
  */
 import { fileURLToPath } from 'node:url';
-import { chromium } from 'playwright-core';
+import { launchChrome } from '../../scripts/chrome.mjs';
 
 const argv = process.argv.slice(2);
 const opt = { port: 5199, track: 'isvik', tod: 'golden', weather: 'clear', split: '0', w: 1920, h: 1080, variants: 'base,noTreeShadow,noShadows,noTerrain', cycles: 24, win: 900, warm: 14, q: 'high', car: 'vanta-gt', opp: 7 };
 for (let i = 0; i < argv.length; i += 2) opt[argv[i].slice(2)] = argv[i + 1];
 const variants = String(opt.variants).split(',');
 
-const browser = await chromium.launch({
+const browser = await launchChrome({
   channel: 'chrome',
   headless: true,
   args: ['--use-angle=d3d11', '--enable-gpu', '--ignore-gpu-blocklist', '--force_high_performance_gpu', '--enable-webgl-developer-extensions', '--autoplay-policy=no-user-gesture-required'],

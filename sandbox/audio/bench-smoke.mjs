@@ -4,9 +4,9 @@
  *
  *   node sandbox/audio/bench-smoke.mjs [http://127.0.0.1:5199/sandbox/audio.html]
  */
-import { chromium } from 'playwright-core';
+import { launchChrome } from '../../scripts/chrome.mjs';
 const url = process.argv[2] ?? 'http://127.0.0.1:5199/sandbox/audio.html';
-const browser = await chromium.launch({ channel: 'chrome', headless: true, args: ['--use-angle=d3d11', '--enable-gpu', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required'] });
+const browser = await launchChrome({ channel: 'chrome', headless: true, args: ['--use-angle=d3d11', '--enable-gpu', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required'] });
 const page = await browser.newPage({ viewport: { width: 1500, height: 1000 } });
 const errors = [];
 page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));

@@ -10,13 +10,13 @@
  * and prints median / p95 / max plus the frame-interval stats of the game loop (frameMax = worst hitch).
  * One combination at a time: the GPU is shared, so parallel runs would distort the numbers.
  */
-import { chromium } from 'playwright-core';
+import { launchChrome } from '../../scripts/chrome.mjs';
 
 const argv = process.argv.slice(2);
 const opt = { q: 'high', weather: 'clear,rain,storm', tod: 'noon', track: 'aurelia', opp: 7, w: 1600, h: 900, warm: 26, secs: 20, cam: 'chase', port: 5199, car: 'vanta-gt' };
 for (let i = 0; i < argv.length; i += 2) opt[argv[i].slice(2)] = argv[i + 1];
 
-const browser = await chromium.launch({
+const browser = await launchChrome({
   channel: 'chrome',
   headless: true,
   args: ['--use-angle=d3d11', '--enable-gpu', '--ignore-gpu-blocklist', '--force_high_performance_gpu', '--enable-webgl-developer-extensions', '--autoplay-policy=no-user-gesture-required'],

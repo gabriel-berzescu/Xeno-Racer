@@ -8,7 +8,7 @@
  *
  * Point --port at a `vite preview` server to render from the production build instead.
  */
-import { chromium } from 'playwright-core';
+import { launchChrome } from '../../scripts/chrome.mjs';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -22,7 +22,7 @@ const outDir = resolve(opt('out', 'previews/audio'));
 const only = opt('only', '');
 mkdirSync(outDir, { recursive: true });
 
-const browser = await chromium.launch({
+const browser = await launchChrome({
   channel: 'chrome',
   headless: true,
   args: ['--use-angle=d3d11', '--enable-gpu', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required'],
