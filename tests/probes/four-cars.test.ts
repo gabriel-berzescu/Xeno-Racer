@@ -13,6 +13,11 @@
  * (`record` writes the file, `compare` reads it, runs everything again and fails at the first number that differs, saying where.
  * Without FOURCARS the probe is skipped: it takes about a minute and it is a guard for a change, not a property of the game.)
  *
+ * The LMP-X is on racing slicks since tests/slicks.test.ts: a file recorded before them differs from now in the LMP-X's runs that leave
+ * the paved ground (12 of the open-loop drives, on grass, dirt, gravel and sand; its AI laps and the packs it is in that touch the grass)
+ * and in nothing else: Vanta, Kestrel and Ronin, and the LMP-X on asphalt, kerb, concrete, snow, ice and deep snow, are bit for bit
+ * what they were. Record a new file on the commit before the next change.
+ *
  * Scenarios:
  *   - open-loop drives (fixed stick, throttle, brake and handbrake against time, no feedback) on a flat plane of each surface the
  *     game has, dry and wet, with the default aids and with none: the whole tyre, surface, drivetrain and aid code;

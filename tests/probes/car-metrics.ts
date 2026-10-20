@@ -361,3 +361,67 @@ export function laneChange(def: CarDefinition, kmh: number, stick: number, throt
   }
   return { slipDeg: maxBeta, yaw: maxYaw, minLoadShare: minShare, escShare: esc / frames, endKmh: car.state.speed * 3.6 };
 }
+
+export interface SpeedGrip {
+  /** The best lateral acceleration (g, filtered over about a third of a second) the car held while the steering was wound on. */
+  latG: number;
+  /** The road-wheel angle (deg) it was reached at. */
+  steerDeg: number;
+  /** The speed (km/h) at that moment: within a tenth of `kmh`, or the figure is 0 (a car on sand or gravel cannot always hold the speed: the ground takes more than the engine gives). */
+  speedKmh: number;
+}
+
+/**
+ * What a car holds sideways at a steady speed on `ground`: the pedals hold `kmh` while the road wheels are wound on slowly (a ramp over
+ * `seconds` up to `maxDeg`), and the best lateral acceleration on the way is its grip at that speed, downforce included. A skidpad finds the
+ * grip at whatever speed its radius and the creeping target meet; this one asks for the speed, so that a car with downforce and one without
+ * can be set side by side at 60 and at 120 km/h. The aids are all off (the stability control would hold the car back, the traction control
+ * would take the throttle the speed needs).
+ */
+export function gripAtSpeed(def: CarDefinition, kmh: number, ground: Ground = {}, seconds = 18, maxDeg = 20): SpeedGrip {
+  const surface = ground.surface ?? 'asphalt';
+  const winter = ground.winter ?? WINTER_SURFACES.includes(surface);
+  const world = new PhysicsWorld(createFlatTrack({ surface, winter, wall: 6000, halfWidth: 6000 }));
+  world.wetness = ground.wetness ?? 0;
+  const car = world.addVehicle(def);
+  car.assists = { ...NO_AIDS };
+  const v0 = kmh / 3.6;
+  car.placeOnGround(new Vector3(0, 0, 0), new Quaternion(), v0);
+  car.setTemperatures(1);
+  const lock = Math.min(def.physics.chassis.maxSteer, (maxDeg * Math.PI) / 180);
+  let integral = 0.2;
+  let filt = 0;
+  const r: SpeedGrip = { latG: 0, steerDeg: 0, speedKmh: 0 };
+  const frames = Math.round(seconds * 60);
+  for (let i = 0; i < frames; i++) {
+    const s = car.state;
+    const err = v0 - s.forwardSpeed;
+    integral = Math.min(1, Math.max(0, integral + err * 0.15 * DT));
+    car.controls.throttle = Math.min(1, Math.max(0, integral + 0.25 * err));
+    car.controls.brake = err < -2 ? Math.min(0.5, (-err - 2) * 0.1) : 0;
+    const ramp = Math.min(1, (i / frames) * 1.15);
+    car.controls.steer = -(ramp * lock) / def.physics.chassis.maxSteer;
+    world.step(DT);
+    filt += (Math.abs(s.localAccel.x) / G - filt) * (1 - Math.exp(-DT / 0.3));
+    // (only while it holds the speed asked for: a car that has slowed to a crawl in sand is not cornering at 120 km/h)
+    if (i > 60 && filt > r.latG && Math.abs(s.forwardSpeed - v0) < 0.1 * v0) {
+      r.latG = filt;
+      r.steerDeg = (ramp * lock * 180) / Math.PI;
+      r.speedKmh = s.forwardSpeed * 3.6;
+    }
+    if (!finite(car)) throw new Error('NaN during grip at speed');
+  }
+  return r;
+}
+
+/**
+ * Speed (km/h) after `seconds` of rolling from `kmh` with the clutch pedal in and no other pedal on `ground`: with the engine out of it, only
+ * what the ground and the air take is left (rolling resistance, ploughing, drag), where `coast` also has the engine braking, which a tyre with
+ * little grip cannot pass on to the road.
+ */
+export function freeRoll(def: CarDefinition, ground: Ground, kmh = 100, seconds = 3): number {
+  const { world, car } = setup(def, ground, kmh / 3.6, { ...NO_AIDS, autoClutch: false });
+  car.controls.clutch = 1;
+  world.simulate(seconds);
+  return car.state.forwardSpeed * 3.6;
+}
