@@ -20,6 +20,9 @@
  * thermal size (`heatScale`) and the all-terrain trait (`offroad`). The last one is deliberate: a big block tyre with studs still floats on
  * deep snow, so the Mammoth keeps its edge on the powder beside the road; on packed snow and ice (the road, the lake) the trait does nothing
  * and every car is on the same footing.
+ * What it does not keep is the slick trait (`slick`): a racing slick has no tread, and the studded tyre that takes its place has a tread
+ * and studs. The slick's rule for loose ground (src/physics/surfaces.ts) is for the dry circuits, so the LMP-X at Isvik meets the deep
+ * snow beside the road as any road car on studs does.
  */
 import type { CarDefinition, TrackRuntime } from '../core/contracts';
 import type { TireSpec } from './spec';
@@ -35,8 +38,10 @@ const clamp = (x: number, lo: number, hi: number) => (x < lo ? lo : x > hi ? hi 
 export function winterTire(t: TireSpec): TireSpec {
   // (a narrower tyre bites deeper in snow: ±7 % around a 235 mm tyre)
   const narrow = clamp(Math.pow(0.235 / t.width, 0.25), 0.93, 1.07);
+  // (a slick's smooth face is not kept: the studded tyre is a tyre with a tread of its own, and the ground beside the road is deep snow)
+  const { slick: _slick, ...kept } = t;
   return {
-    ...t,
+    ...kept,
     mu: WINTER_MU * narrow,
     loadSensitivity: 0.06,
     peakSlipAngle: 10 * DEG,
