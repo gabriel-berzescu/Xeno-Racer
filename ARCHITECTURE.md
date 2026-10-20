@@ -119,7 +119,7 @@ purpose. Nothing else changes for the other four circuits: a road circuit gets t
 - **Tyres** (`src/physics/compound.ts`): `fitCar(def, track)` returns the car itself on a road circuit and a copy on studded winter tyres on
   a winter one; `PhysicsWorld.addVehicle`, `AIDriver` and the steering filter all read the fitted car, so physics, AI and aids agree. A studded
   tyre peaks later (10 degrees, slip ratio 0.16), falls off gently (`slideRatio` 0.9) and hardly minds load: the car slides without letting go.
-  The thermal model runs in air at -6 degrees (`WINTER_AMBIENT_C`). The stick is scaled to the grip of the snow or the ice under the front
+  The studded tyre keeps the all-terrain trait of the tyre it replaces (the Mammoth's) and drops the slick one (the LMP-X's), see below. The thermal model runs in air at -6 degrees (`WINTER_AMBIENT_C`). The stick is scaled to the grip of the snow or the ice under the front
   wheels (`SteeringFilter`): full stick asks for what the tyres can use there, not what they could on asphalt.
 - **Soft barriers:** `BarrierKind` `snowbank` sets `TrackPoint.softLeft/softRight`. `Vehicle.resolveBank` is a spring and a damper that
   stiffens with depth, gives back a fifth of what it took and drags the flank along it, with a hard stop at 3.5 m (the frozen ground under
@@ -168,7 +168,7 @@ it is held to are in `tests/mammoth.test.ts` (the table in `tests/probes/mammoth
   ratio that makes them equal when the car rolls (`centerRatioF/R`: the tyre radii; both exactly 1 for equal tyres), so unequal tyres do not wind a locked centre up. The handbrake lets the centre go
   (it acts on the rear wheels only). The front axle has its own differential (`frontDiff`, open) and the rear one `diff`. Traction control watches every driven wheel.
 - **The all-terrain tyre** (`TireSpec.offroad`, `src/physics/surfaces.ts`): each wheel holds the table of surfaces its tyre meets (`tireSurfaces`): `SURFACES` itself, the same object, for a road
-  or race tyre, and for an all-terrain one a table in which grass, dirt, gravel, sand and deep snow give back a share of the grip a road tyre loses (`grip + (1 - grip) K`, `OFFROAD_GAIN`), grass
+  tyre, and for an all-terrain one a table in which grass, dirt, gravel, sand and deep snow give back a share of the grip a road tyre loses (`grip + (1 - grip) K`, `OFFROAD_GAIN`), grass
   and dirt are less treacherous wet, and gravel, sand and deep snow cost a third less rolling and ploughing drag (it floats). Asphalt, kerb, concrete, packed snow and ice are the same for every tyre,
   so its price on the road is its lower `mu`. On a winter circuit the studded tyre keeps the trait (`compound.ts`): it acts on the deep snow beside the road and nowhere else.
 - **Heat** (`TireSpec.heatScale`): the tread warms by the work of the tyre divided by its thermal size; the Mammoth's tyres, twice the rubber under twice the force, run at 70 C like a sports car's.
@@ -177,6 +177,28 @@ it is held to are in `tests/mammoth.test.ts` (the table in `tests/probes/mammoth
   the speed profile and the driver read the grip of the ground from the car's own table (`carSurfaces`, `carLineGrip`), the per-track caches (`lineSurfaces`, the edge hazards) staying the track's.
 - **Rolling over**: a wall, a snowbank and loose ground do not tip it in this model (the tyres hold 1.05 g, a rollover takes 1.2; `tests/probes/rollover-probe.test.ts`), and a hard flick lifts an inner wheel
   for a moment (the suspension leans 5 degrees at the limit). No automatic reset is needed.
+
+## The racing slick: the LMP-X on loose ground
+
+The LMP-X is the one car on racing slicks (`TireSpec.slick`): smooth, soft rubber with no tread, the stickiest tyre in the game on asphalt, kerb and concrete and the weakest on anything else. It is the other end of
+the scale from the Mammoth's all-terrain tyre, and the numbers it is held to are in `tests/slicks.test.ts` (the tables in `tests/probes/slick-probe.test.ts`).
+
+- **One scale** (`treadOf`, `src/physics/surfaces.ts`): a tyre's place between the slick (-1) and the all-terrain tyre (+1) is `offroad` - `slick`; a road tyre is 0, and so is a tyre with both traits. `tireSurfaces`
+  works one table out per value (`SURFACES` itself at 0, so every road tyre is untouched to the bit), `carSurfaces` gives a car the table of its worse axle, and everything that reads the grip of the ground per
+  car reads that table: the wheels (so the ESC's yaw limit too), the AI's speed profile (`ProfileJob`) and its driver (`carLineGrip`, `surfGrip`), the driving line and the braking assist (`DrivingGuide`). The per-track
+  caches keep their meaning: the edge hazards ask which ground beside the road is slippery in the wet (kerb, grass, gravel, sand: yes; tarmac and concrete: no), and a slick answers as a road tyre does.
+- **The table** (`SLICK_LOSS`): a slick grips by adhesion on a clean, hard road, and that is all of its lead (a peak mu of 1.6-1.9 on dry asphalt against a road tyre's 1.0-1.1). Loose ground has nothing for that
+  to work on and the slick no tread to key into it: the real peak figures, a road tyre against a slick, are 0.45 / 0.30 on dry grass, 0.25 / 0.10 on wet grass, 0.60 / 0.40 on dry dirt, 0.50 / 0.30 on gravel and
+  0.40 / 0.30 on dry sand, 0.6-0.75 of a road tyre's where it has 1.5 times on asphalt. The model's shares are of the tyre's own asphalt grip and the LMP-X's mu is 1.4-1.6 times a road tyre's, which is 0.45 of the
+  table's grip, and the downforce that presses a slick into soft ground gives less back than the model credits it, so grass, dirt and gravel keep **0.40**, sand 0.42, deep snow 0.45. Wet turf and wet dirt keep 0.7
+  of their wet factor (a smooth tyre aquaplanes on turf), gravel and sand drain and keep theirs, and a wide smooth tyre digs in: rolling x1.2 and ploughing x1.3 in gravel, x1.15 and x1.25 in sand, x1.1 in turf and dirt.
+  Asphalt, kerb, concrete, packed snow and ice are the very same objects in every table, so on a road the LMP-X is bit for bit what it was.
+- **Winter**: `winterTire` drops the trait (the studded tyre has a tread of its own; the Mammoth's all-terrain trait is kept), so Isvik is unchanged for every car.
+- **What it comes to** on a flat plane (lateral g held at 60 / 120 km/h; the stop from 60 / 120 km/h with ABS; the LMP-X before the rule in brackets): dry grass 0.40 / 0.43 g (0.92 / 1.17) against the road cars' 0.55-0.63 and the
+  Mammoth's 0.71-0.74, and 31 / 106 m (13 / 46) against 20-22 / 76-86; wet grass 0.18 / 0.15 g (0.55 / 0.65) against 0.36-0.38, and 63 / 204 m against 33 / 124-128; gravel 0.29 / 0.25 g (0.95 / 1.17) against 0.52-0.62.
+  The order Mammoth > road cars > LMP-X holds on every loose surface, dry and wet, in lateral g and in the stop. It is beached, not stuck, on turf, dirt and gravel (20 km/h from a standstill in 2-8 s), and bogged down in sand, where a
+  road car is nearly too. The AI keeps its racecraft: in a pack at Brennwald the LMP-X has a wheel on loose ground for a fifth of the lap, yet its solo laps change by under half a percent (no reset, no hit), and in 48 races
+  of twelve on Aurelia, Kuroyama and Brennwald, dry and wet, no car hit a wall or needed a reset, with the slicks as without them.
 
 ## Driving aids: the driving line and the braking assist
 
