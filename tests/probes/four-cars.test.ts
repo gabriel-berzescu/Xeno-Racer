@@ -13,6 +13,10 @@
  * (`record` writes the file, `compare` reads it, runs everything again and fails at the first number that differs, saying where.
  * Without FOURCARS the probe is skipped: it takes about a minute and it is a guard for a change, not a property of the game.)
  *
+ * The same guard works for any other car or cars: FOURCARS_IDS=mammoth (a comma-separated list of car ids) drives those instead, in the
+ * same scenarios (the pack is then eight of them, or of the list in turn). It is what proves that a change to code every car shares,
+ * the mechanical damage for one, leaves an undamaged car exactly as it was; the file of the four is the file of the four.
+ *
  * Scenarios:
  *   - open-loop drives (fixed stick, throttle, brake and handbrake against time, no feedback) on a flat plane of each surface the
  *     game has, dry and wet, with the default aids and with none: the whole tyre, surface, drivetrain and aid code;
@@ -32,7 +36,7 @@ import { loadTrackRuntime } from '../../src/track';
 const MODE = process.env.FOURCARS ?? '';
 const FILE = process.env.FOURCARS_FILE ?? '.cache/four-cars.json';
 const DT = 1 / 60;
-const IDS = ['vanta-gt', 'kestrel-r', 'ronin-86', 'lmp-x'];
+const IDS = (process.env.FOURCARS_IDS ?? 'vanta-gt,kestrel-r,ronin-86,lmp-x').split(',');
 const NONE: Assists = { abs: false, tcs: 'off', esc: false, autoShift: true, steeringAssist: 0, autoClutch: true };
 const AI_ASSISTS: Assists = { abs: true, tcs: 'low', esc: false, autoShift: true, steeringAssist: 0, autoClutch: true };
 const SURFACES_TESTED: SurfaceType[] = ['asphalt', 'curb', 'concrete', 'grass', 'dirt', 'gravel', 'sand', 'snow', 'ice', 'deepsnow'];
@@ -109,7 +113,7 @@ function pack(trackId: string, wetness: number, seconds: number): Run {
   world.wetness = wetness;
   const cars: { v: Vehicle; ai: AIDriver }[] = [];
   for (let i = 0; i < 8; i++) {
-    const def = getCar(IDS[i % 4]);
+    const def = getCar(IDS[i % IDS.length]);
     const v = world.addVehicle(def);
     v.assists = { ...AI_ASSISTS };
     const g = track.grid[i];
