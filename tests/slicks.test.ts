@@ -115,6 +115,14 @@ describe('the racing slick is a trait of the tyre', () => {
     expect(tireSurfaces({ slick: -3 })).toBe(SURFACES);
   });
 
+  it('is what every wheel of the LMP-X holds (the ESC reads the ground from it too), and the plain table at Isvik', () => {
+    const slick = tireSurfaces({ slick: 1 });
+    for (const w of new PhysicsWorld(createFlatTrack()).addVehicle(lmp).wheels) expect(w.surfaces).toBe(slick);
+    for (const w of new PhysicsWorld(createFlatTrack({ winter: true })).addVehicle(lmp).wheels) expect(w.surfaces).toBe(SURFACES);
+    for (const c of roadCars) for (const w of new PhysicsWorld(createFlatTrack()).addVehicle(c).wheels) expect(w.surfaces, c.id).toBe(SURFACES);
+    for (const w of new PhysicsWorld(createFlatTrack()).addVehicle(mammoth).wheels) expect(w.surfaces).toBe(tireSurfaces({ offroad: 1 }));
+  });
+
   it('gives a car the table of the worse of its two axles', () => {
     const slick = tireSurfaces({ slick: 1 });
     expect(carSurfaces(lmp.physics)).toBe(slick);
