@@ -168,15 +168,17 @@ and the picture is the old one to the pixel. Physics wins: no circuit's sun dire
   (`SkyModel.fogTableSun`, 60 to 94 % of the horizon's luminance; `EnvSolution.fogTableSun` goes through the same desaturation, scaling and deck flattening, clamped below the total).
   The sunlit share of the view ray (`xrSunHaze`: five taps of the coarse grid, at equal fog factor, placed by the closed form of `F = 1 - exp(-d^2 z^2 - rain z)`) is worked out at the vertices
   (`fog_pars_vertex`/`fog_vertex`, varying `vFogSun`: it varies over kilometres of air, and five reads per fragment made the programs a second slower to build and the frame slower to draw), and
-  `xrFogColorLit` scales the sun part of the colour by it, keeping `SHADE_HAZE_GLOW` (a quarter) of it: the air in the shade of a hill is lit from the side by the bright sky above the ridge, so a hidden
-  sun leaves a hazy silhouette with a glow above it, not a dead teal. The sky itself keeps its glow; a ray in the sun gets the old colour bit for bit (`sunlitHaze` and `hazeSunShare` are the CPU twins, tested for it).
+  `xrFogColorLit` scales the sun part of the colour by it and keeps none of it in the shade (`SHADE_HAZE_GLOW` is 0, and a dial): the view ray to a ridge that hides the sun runs inside that ridge's shadow,
+  so the air in front of it is lit by the sky alone, the table's sky part (the model's multiple scattering: one dim grey, the same toward the sun and away from it, 6 to 15 % of the glow's luminance at dawn, golden hour,
+  dusk and morning, `render-sunvis-haze.test.ts` checks it). The hills in front of a hidden sun are silhouettes, darker and cooler than the glow of the sky above the ridge, the farther ridges paler from the air between.
+  (A quarter of the sun's part was kept at first, as the glow of the sky above the ridge, and the hills were a bright warm tan: the quarter was the glow, the sky's part never was.) The sky itself keeps its glow; a ray
+  in the sun gets the old colour bit for bit (`sunlitHaze` and `hazeSunShare` are the CPU twins, tested for it).
 - **The shade fill** (`src/render/shadeFill.ts`): the light of a circuit with the sun behind a ridge is the sky's alone, dimmer and bluer than the look was set for, and the shade read dark, flat
   and teal. `shadeFill` is a diffuse-only `HemisphereLight` (no glints; always in the scene, at intensity 0 while no map is on, so that the programs of a race do not depend on what the map makes of it) whose
-  axis points at the sun, a little up; its sky side is the colour of the horizon's glow there (35 % toward the sun's own, 25 % toward grey), its ground side the same hue, a quarter as strong. It gives back `fillGain` (1.1) of the sun
+  axis points at the sun, a little up; its sky side is the colour of the horizon's glow there (35 % toward the sun's own, 25 % toward grey), its ground side the same hue, a quarter as strong. It gives back `fillGain` (0.5) of the sun
   a surface at a typical slant loses (`sunSlant(sin elevation)`: the ground catches sin(elevation) of the sun, what stands on it a quarter, so a sun 3 degrees up has hardly anything to give back and one at
-  8 degrees a little). Its intensity per view is the shade the view's car is in (`1 - visibilityAt(focus)`, smoothed over half a second so that a long penumbra shows no step) times how much the camera looks toward
-  the sun (`fillViewScale`: all of it facing the glow, where the road, the trees and the car are backlit and the picture needs it, 0.45 of it looking away, where the same surfaces face the glow
-  and with all of it the grass of a shaded straight would be brighter than the sun ever made it). `render.fillGain` and `render.sunVis.hazeGlow` are the dials.
+  8 degrees a little), which keeps a shaded surface dimmer than the sun made it. Its intensity per view is the shade the view's car is in (`1 - visibilityAt(focus)`, smoothed over half a second so that a long penumbra
+  shows no step) and nothing else: the ground is as dark looking toward the sun as looking away from it. `render.fillGain` and `render.sunVis.hazeGlow` are the dials.
 - **Cost** (high, 1600 x 900, vsync off; GPU ms per frame): on a spot in the sun while a map is on (Aurelia, golden hour) the map costs +0.2 (4.7 with the strength at 0, 4.9 at 1, in alternating blocks of one session:
   most of it is the haze at the vertices, +0.15); at noon, where no map is put to use, nothing measurable; in the shade less than before, because the cascades are not drawn (Aurelia 4.6 against 3.7, Kuroyama 7.5 against
   4.8, against the commit this branch started from). The map takes 0.1 to 0.6 s of CPU in slices (3 to 9 MB), hidden in the compile; a race loads in the time it did (8.5 s against 8.2 on Aurelia, within the noise).
@@ -186,7 +188,7 @@ and the picture is the old one to the pixel. Physics wins: no circuit's sun dire
   0.05 levels of the mean (leaves). Without the rounding the pictures differ by up to 0.17 levels at the edges of thin things, as much as two runs of one build do.
 - **Probes and tests:** `tests/render-sunvis.test.ts` (a synthetic ridge: behind it dark, above its shadow line lit, a penumbra that grows with distance and rises monotonically, the sun overhead lights everything,
   two occluders against a march), `render-sunvis-gpu.test.ts` (the GLSL emulated in TS against the CPU twin and against a fresh independent field), `render-sunvis-haze.test.ts` (the sun's part never above the total, a fully
-  shadowed ray keeps only the sky's and the glow, a fully lit one is the old colour, the shape of the patches), `render-sunvismap.test.ts` (the map of a race: caching, overtaking, a failing terrain, the weather, half floats),
+  shadowed ray keeps only the sky's part, which is dim, cool and the same in every direction, a fully lit one is the old colour, the shape of the patches), `render-sunvismap.test.ts` (the map of a race: caching, overtaking, a failing terrain, the weather, half floats),
   `render-shadows-dark.test.ts`, `render-shadefill.test.ts`, `track-drawn-height.test.ts`; `tests/probes/sunvis-probe.test.ts` (`SUNVIS_PROBE=1`) prints the map's verdict along every circuit's centreline against a march of the same ground.
 
 ## Winter circuits
