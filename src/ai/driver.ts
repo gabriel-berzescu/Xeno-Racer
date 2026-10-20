@@ -143,6 +143,9 @@ const hazardCache = new Map<string, Uint8Array>();
 /**
  * For every point of the racing line: is the ground just beyond the asphalt edge slippery in the wet (kerb, grass, gravel,
  * sand: bit 0 = left, bit 1 = right)? Tarmac run-offs and concrete are not, so a car may use the whole width there.
+ * (It is the track's, for a road tyre, and every car shares it. A racing slick would answer the same, ground by ground: loose ground
+ * is slippery for it, and more so, and paved ground is the same for every tyre. The grip a car has on the ground under its own line
+ * is its own: `surfGrip`, from `carLineGrip`.)
  */
 function edgeHazards(track: TrackRuntime, line: RacingLine): Uint8Array {
   const road = SURFACES[track.info.winter ? 'snow' : 'asphalt'];
@@ -290,8 +293,8 @@ export class AIDriver {
     this.tireWet = Math.min(def.physics.tireFront.wetGrip ?? 0.72, def.physics.tireRear.wetGrip ?? 0.72);
     this.lineCur = this.racingLine(wet > 0);
     this.surfaces = lineSurfaces(track, this.lineCur);
-    // (a car on all-terrain tyres has more grip than the track's table says on loose ground; the line seldom crosses any, but a grass
-    // or gravel verge it may touch is not the same verge to a Mammoth as to a Vanta)
+    // (a car on all-terrain tyres has more grip than the track's table says on loose ground, a car on slicks a good deal less; the line seldom
+    // crosses any, but a grass or gravel verge it may touch is not the same verge to a Mammoth, a Vanta and an LMP-X)
     this.surfGripAt = carLineGrip(this.surfaces, def.physics);
     this.lineLam = this.lineLamTo = wet > 0 ? 1 : 0;
     this.profCur = this.profileFor(this.lineCur, wet);

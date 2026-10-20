@@ -334,7 +334,7 @@ const lmp: CarDefinition = {
   name: 'LMP-X',
   maker: 'Xeno Racing',
   description:
-    'A 950 kg prototype with a screaming 4.5 L V10 and more downforce than weight at 250 km/h. Slicks need heat. Respect it.',
+    'A 950 kg prototype with a screaming 4.5 L V10 and more downforce than weight at 250 km/h. Slicks need heat and hate grass and gravel. Respect it.',
   class: 'Prototype',
   drivetrain: 'RWD',
   stats: { powerHp: 690, torqueNm: 590, massKg: 950, topSpeedKmh: 318, zeroTo100: 2.6 },
@@ -396,6 +396,8 @@ const lmp: CarDefinition = {
       coldGrip: 0.74,
       // (wet-weather compound fitted when it rains: slicks would keep barely half)
       wetGrip: 0.6,
+      // (smooth rubber: the king of the asphalt, and on grass, dirt and gravel a good deal worse than a road tyre, src/physics/surfaces.ts)
+      slick: 1,
     },
     tireRear: {
       ...roadTire(340, 30, 18, 1.62),
@@ -413,6 +415,7 @@ const lmp: CarDefinition = {
       coldGrip: 0.74,
       // (wet-weather compound fitted when it rains: slicks would keep barely half)
       wetGrip: 0.6,
+      slick: 1,
     },
     suspFront: { travel: 0.07, spring: 110000, bump: 4200, rebound: 7000, antiRoll: 60000, camber: -2.8 * DEG },
     suspRear: { travel: 0.07, spring: 125000, bump: 4600, rebound: 7600, antiRoll: 42000, camber: -1.8 * DEG },

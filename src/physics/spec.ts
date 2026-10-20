@@ -36,6 +36,15 @@ export interface TireSpec {
    */
   offroad?: number;
   /**
+   * 0..1 how much of a racing slick it is (absent: 0, a road or an all-terrain tyre): a smooth face of soft rubber with no tread at all.
+   * It is the other end of the scale from `offroad` (a tyre with both nets them off against each other), and its price is the ground
+   * that is not a road: on grass, dirt, gravel, sand and deep snow there is nothing for the rubber's adhesion to work on and no tread to
+   * key into the ground, so it keeps a good deal less of its grip than a road tyre does, far less on wet turf and dirt, and a wide smooth
+   * tyre digs into gravel and sand. Paved ground (asphalt, kerb, concrete), packed snow and ice are the same for every tyre. A winter
+   * circuit's studded tyre (src/physics/compound.ts) replaces it entirely. See `SLICK_LOSS`, src/physics/surfaces.ts.
+   */
+  slick?: number;
+  /**
    * How many times the thermal size of a standard road tyre this one is (absent: 1). The tread's temperature is fed by the work of the
    * tyre, per newton and per metre of slide, and the rubber and the surface it has to carry that heat are what a tyre of the common
    * 235-305 mm width has. A tall 315 mm tyre under a 2.4 t car works with more than twice the force and has about twice the rubber and

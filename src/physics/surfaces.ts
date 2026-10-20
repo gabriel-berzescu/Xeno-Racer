@@ -69,34 +69,114 @@ const OFFROAD_GAIN: Partial<Record<SurfaceType, OffroadGain>> = {
   deepsnow: { grip: 0.2, rolling: 0.35, plough: 0.35 },
 };
 
-const tireTables = new Map<number, Record<SurfaceType, SurfaceProps>>();
+/**
+ * What a racing slick (`TireSpec.slick`, 1 = a full one) keeps of loose ground, per surface: the other end of the scale from the
+ * all-terrain tyre above, and a table of the same kind. A slick is a smooth face of soft rubber that grips by adhesion and by hysteresis
+ * on the micro-texture of a clean, hard road, and that is its whole advantage (a peak μ of 1.6-1.9 on dry asphalt against a road tyre's
+ * 1.0-1.1). Loose ground gives that nothing to work on, and the slick has no tread to work with: a road tyre's grooves and sipes take in
+ * blades of grass, grit and clods and key into them, where a slick sits on the blades, on the film of moisture over them, and rolls the
+ * stones out from under its face. What real tyres do (a peak μ, a road tyre against a slick):
+ *
+ *                   road   slick
+ *     dry grass     0.45   0.30
+ *     wet grass     0.25   0.10   (rain, dew, the juice of the crushed blades: a smooth face aquaplanes on turf)
+ *     dry dirt      0.60   0.40   (a packed dirt road; the dust lying on it is a layer of ball bearings)
+ *     wet dirt      0.35   0.12   (mud)
+ *     gravel        0.50   0.30   (wet gravel drains: the same)
+ *     dry sand      0.40   0.30
+ *
+ * so on loose ground a slick holds 0.6-0.75 of what a road tyre does, where on asphalt it holds 1.5 times as much. The model works in
+ * shares of the tyre's own asphalt grip, and a slick's `mu` is 1.4-1.6 times a road tyre's, so the same absolute figures are a smaller
+ * share of it: 0.67 (the slick against the road tyre) x 0.68 (a road tyre's `mu` of 1.1 over the LMP-X's 1.62) is 0.45 of the table's grip on
+ * grass, and the downforce of a prototype, which presses a slick into soft ground and gets less back for the load than a road tyre does
+ * on asphalt (the strength of a soil is not proportional to the weight on it), takes it a little further: that is `grip` below, 0.4. It makes
+ * the LMP-X clearly worse than the weakest road car on every loose surface at 60 and at 120 km/h, where its downforce is worth a quarter
+ * of its weight (tests/slicks.test.ts, tests/probes/slick-probe.test.ts). Only loose ground: paved ground (asphalt, kerb, concrete), packed
+ * snow and ice are the same for every tyre.
+ *   - `grip`: the share of the table's grip for the surface that a slick keeps.
+ *   - `wet`: the share it keeps of the surface's wet factor (`SurfaceProps.wet`): wet turf and wet dirt are the worst ground there is for a
+ *     smooth tyre. Gravel and sand drain, so nothing changes there (the tyre's own wet grip still applies).
+ *   - `rolling`, `plough`: the drag of a wide smooth tyre, with a floor six centimetres off the ground behind it, digging in, as a multiple
+ *     of the surface's: it has nothing to shed what it picks up, and gravel and sand pile up in front of it. It is gravel and sand, where the
+ *     drag is heavy, that it shows in; turf and dirt just a little. (A prototype in a gravel trap is beached: it stops short, and has no
+ *     grip to leave with.)
+ */
+interface SlickLoss {
+  grip: number;
+  wet?: number;
+  rolling: number;
+  plough: number;
+}
+
+const SLICK_LOSS: Partial<Record<SurfaceType, SlickLoss>> = {
+  grass: { grip: 0.4, wet: 0.7, rolling: 1.1, plough: 1.1 },
+  dirt: { grip: 0.4, wet: 0.7, rolling: 1.1, plough: 1.15 },
+  gravel: { grip: 0.4, rolling: 1.2, plough: 1.3 },
+  sand: { grip: 0.42, rolling: 1.15, plough: 1.25 },
+  deepsnow: { grip: 0.45, rolling: 1.15, plough: 1.25 },
+};
+
+/** The trait of a tyre that decides its table of surfaces: `offroad` and `slick`, each 0..1 or absent. */
+interface Tread {
+  readonly offroad?: number;
+  readonly slick?: number;
+}
+
+/** A share of a trait: 0 when it is absent (or not a number), at most 1. */
+const share = (x: number | undefined): number => (x !== undefined && x > 0 ? (x > 1 ? 1 : x) : 0);
 
 /**
- * The table of surfaces as a tyre meets them: `SURFACES` itself (the very same object, so nothing about a road or race tyre changes by
- * a bit) unless the tyre is an all-terrain one (`TireSpec.offroad` above 0), which gets a table of its own with loose ground softened as
- * `OFFROAD_GAIN` says, scaled by how much of an all-terrain tyre it is. Worked out once per value and shared: the physics keeps one per
- * wheel and the AI one per car, so nothing is allocated in the substep or the frame.
+ * Where a tyre stands between the racing slick (-1) and the all-terrain tyre (+1) on the one scale its tread is on: 0 for a road tyre (and
+ * for the two traits on one tyre, which cancel). It decides the table of surfaces the tyre meets, `tireSurfaces`.
  */
-export function tireSurfaces(tire: { readonly offroad?: number }): Record<SurfaceType, SurfaceProps> {
-  const k = tire.offroad === undefined ? 0 : Math.min(1, Math.max(0, tire.offroad));
-  if (!(k > 0)) return SURFACES;
+export function treadOf(tire: Tread): number {
+  return share(tire.offroad) - share(tire.slick);
+}
+
+const tireTables = new Map<number, Record<SurfaceType, SurfaceProps>>();
+
+/** The table for a place `k` on the scale of `treadOf`: the road tyre's at 0, an all-terrain tyre's above it, a slick's below. Worked out once per value. */
+function treadSurfaces(k: number): Record<SurfaceType, SurfaceProps> {
+  if (k === 0) return SURFACES;
   let t = tireTables.get(k);
   if (t) return t;
   t = {} as Record<SurfaceType, SurfaceProps>;
   for (const name of Object.keys(SURFACES) as SurfaceType[]) {
     const s = SURFACES[name];
-    const g = OFFROAD_GAIN[name];
-    t[name] = g
-      ? { ...s, grip: s.grip + (1 - s.grip) * g.grip * k, wet: s.wet + (g.wet !== undefined ? (1 - s.wet) * g.wet * k : 0), rolling: s.rolling * (1 - g.rolling * k), plough: s.plough * (1 - g.plough * k) }
-      : s;
+    if (k > 0) {
+      const g = OFFROAD_GAIN[name];
+      t[name] = g
+        ? { ...s, grip: s.grip + (1 - s.grip) * g.grip * k, wet: s.wet + (g.wet !== undefined ? (1 - s.wet) * g.wet * k : 0), rolling: s.rolling * (1 - g.rolling * k), plough: s.plough * (1 - g.plough * k) }
+        : s;
+    } else {
+      const l = SLICK_LOSS[name];
+      const m = -k;
+      t[name] = l
+        ? { ...s, grip: s.grip * (1 - (1 - l.grip) * m), wet: s.wet * (1 - (1 - (l.wet ?? 1)) * m), rolling: s.rolling * (1 + (l.rolling - 1) * m), plough: s.plough * (1 + (l.plough - 1) * m) }
+        : s;
+    }
   }
   tireTables.set(k, t);
   return t;
 }
 
-/** The table of a car on its two axles: the one of the less all-terrain tyre (the axle that has less of it limits what the AI may ask of the ground). */
-export function carSurfaces(ph: { readonly tireFront: { readonly offroad?: number }; readonly tireRear: { readonly offroad?: number } }): Record<SurfaceType, SurfaceProps> {
-  return tireSurfaces({ offroad: Math.min(ph.tireFront.offroad ?? 0, ph.tireRear.offroad ?? 0) });
+/**
+ * The table of surfaces as a tyre meets it: `SURFACES` itself (the very same object, so nothing about a road tyre changes by a bit)
+ * unless the tyre is an all-terrain one (`TireSpec.offroad` above 0), which gets a table of its own with loose ground softened as
+ * `OFFROAD_GAIN` says, or a racing slick (`TireSpec.slick`), which gets one with loose ground made worse as `SLICK_LOSS` says, each
+ * scaled by how much of that kind of tyre it is. The ground that is not loose is the very same object in every table. Worked out once
+ * per value and shared: the physics keeps one per wheel and the AI one per car, so nothing is allocated in the substep or the frame.
+ */
+export function tireSurfaces(tire: Tread): Record<SurfaceType, SurfaceProps> {
+  return treadSurfaces(treadOf(tire));
+}
+
+/**
+ * The table of a car on its two axles: the one of the axle that has less of a tread for loose ground, the less all-terrain or the more
+ * slick of the two (the axle that gives less grip limits what the AI may ask of the ground).
+ */
+export function carSurfaces(ph: { readonly tireFront: Tread; readonly tireRear: Tread }): Record<SurfaceType, SurfaceProps> {
+  return treadSurfaces(Math.min(treadOf(ph.tireFront), treadOf(ph.tireRear)));
 }
 
 /**

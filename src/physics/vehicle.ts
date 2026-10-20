@@ -108,7 +108,7 @@ class WheelSim {
   readonly lat = new Vector3(1, 0, 0);
   readonly shape: TireShape;
   readonly tanPeakAlpha: number;
-  /** The ground as this tyre meets it (src/physics/surfaces.ts: SURFACES itself for a road tyre, softened loose ground for an all-terrain one). */
+  /** The ground as this tyre meets it (src/physics/surfaces.ts: SURFACES itself for a road tyre, softened loose ground for an all-terrain one, worsened for a racing slick). */
   readonly surfaces: Record<SurfaceType, SurfaceProps>;
   /** The thermal size of the tyre (TireSpec.heatScale): the tread warms by the work of the tyre divided by it. */
   readonly heatScale: number;

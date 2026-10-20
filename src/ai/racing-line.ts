@@ -151,8 +151,8 @@ function curvature3(ax: number, az: number, bx: number, bz: number, cx: number, 
  * The surface under the racing line at each of its points (0 = the road's own: asphalt, or on a winter circuit packed snow and ice),
  * and what the table of surfaces says about each: the profile of a circuit whose road is not all one surface (the ice of a frozen
  * lake) works with the grip under each point. A circuit of plain asphalt costs nothing: one entry, every point on it.
- * (It is the track's, shared by every car, and it holds the plain table's numbers: a car on all-terrain tyres reads the surface names
- * and works its own grip out of them, `carSurfaces`; see ProfileJob and the driver.)
+ * (It is the track's, shared by every car, and it holds the plain table's numbers: a car on all-terrain tyres or on racing slicks reads
+ * the surface names and works its own grip out of them, `carSurfaces`; see ProfileJob and the driver.)
  */
 export interface LineSurfaces {
   /** Index into `props` per line point. */
@@ -193,9 +193,9 @@ export function lineSurfaces(track: TrackRuntime, line: RacingLine): LineSurface
 
 /**
  * The grip of the surface under each point of the line for one car's tyres, relative to asphalt (`LineSurfaces.grip` is the track's, for
- * a road tyre): that very array for a car on road or race tyres, a table of its own for a car on all-terrain tyres, which keep more of
- * their grip on loose ground (src/physics/surfaces.ts, `carSurfaces`). The line stays on the road, so the two differ only where a circuit
- * puts gravel or grass under it.
+ * a road tyre): that very array for a car on road tyres, a table of its own for a car on all-terrain tyres, which keep more of their
+ * grip on loose ground, or on racing slicks, which keep less (src/physics/surfaces.ts, `carSurfaces`). The line stays on the road, so the
+ * two differ only where a circuit puts gravel or grass under it.
  */
 export function carLineGrip(surf: LineSurfaces, ph: Pick<VehicleSpec, 'tireFront' | 'tireRear'>): Float32Array {
   const own = carSurfaces(ph);
@@ -365,7 +365,7 @@ export class ProfileJob {
     const tireWet = Math.min(ph.tireFront.wetGrip ?? 0.72, ph.tireRear.wetGrip ?? 0.72);
     const wet = this.wet;
     const wetRoad = wetGripFactor(wet, tireWet, road, 0);
-    // (a car on all-terrain tyres meets loose ground as its tyres do, `carSurfaces`; a car on road tyres gets the track's own table, to the bit)
+    // (a car on all-terrain tyres or on slicks meets loose ground as its tyres do, `carSurfaces`; a car on road tyres gets the track's own table, to the bit)
     const own = carSurfaces(ph);
     const props = own === SURFACES ? surf.props : surf.names.map((n) => own[n]);
     const wet0s = props.map((sp) => wetGripFactor(wet, tireWet, sp, 0));
