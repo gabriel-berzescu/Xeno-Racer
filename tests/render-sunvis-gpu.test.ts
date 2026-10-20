@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import type { TerrainSource } from '../src/core/systems';
 import { installShaderPatches, SUNVIS_PARS, sunVisTexture, xrSunVisUniform } from '../src/render/shaderPatches';
 import { SunVisMap } from '../src/render/sunVisMap';
-import { computeSunVisibility, sampleSunVisibility, sunFrame } from '../src/render/sunVisibility';
+import { computeSunVisibility, sampleSunVisibility, sampleSunVisibilityCoarse, sunFrame } from '../src/render/sunVisibility';
 
 const DEG = Math.PI / 180;
 const R = 0.0135;
@@ -44,7 +44,9 @@ function texel(data: Float32Array, w: number, h: number, u: number, v: number): 
   return out;
 }
 
-/** xrSunVisAt, line by line. */
+const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
+
+/** xrSunVisAt, line by line: both grids are read (the one the point is not in at the edge of its block, clamped), weighted, and masked by "is any of it drawn". */
 function glslSunVisAt(x: number, y: number, z: number): number {
   const U = xrSunVisUniform.value;
   const tex = sunVisTexture.image as { data: Float32Array; width: number; height: number };
@@ -54,35 +56,53 @@ function glslSunVisAt(x: number, y: number, z: number): number {
   if (vec(5)[3] > 0.5) return 1 - s0[3];
   const u = x * s0[0] + z * s0[1];
   const v = x * -s0[1] + z * s0[0];
+  const inv = vec(5);
+  // the coarse grid
+  const b = vec(3);
+  const c4 = vec(4);
+  const fcx = u * b[0] + b[1];
+  const fcy = v * b[0] + b[2];
+  const ceMin = Math.min(Math.min(fcx, c4[0] - fcx), Math.min(fcy, c4[1] - fcy));
+  let n: number[] = texel(tex.data, tex.width, tex.height, (clamp(fcx, 0, c4[0]) + c4[2]) * inv[0], (clamp(fcy, 0, c4[1]) + c4[3]) * inv[1]);
+  // the fine grid
   const a = vec(1);
+  const f2 = vec(2);
   const ffx = u * a[0] + a[1];
   const ffy = v * a[0] + a[2];
-  const f2 = vec(2);
   const e = Math.min(Math.min(ffx, f2[0] - ffx), Math.min(ffy, f2[1] - ffy));
-  const inv = vec(5);
-  let n: number[];
-  if (a[0] > 0 && e >= 0) {
-    n = texel(tex.data, tex.width, tex.height, (ffx + f2[2]) * inv[0], (ffy + f2[3]) * inv[1]);
-    const wf = Math.min(1, Math.max(0, e * a[3]));
-    if (wf < 1) {
-      const c3 = vec(3);
-      const c4 = vec(4);
-      const nc = texel(tex.data, tex.width, tex.height, (u * c3[0] + c3[1] + c4[2]) * inv[0], (v * c3[0] + c3[2] + c4[3]) * inv[1]);
-      const s = wf * wf * (3 - 2 * wf);
-      n = n.map((q, i) => nc[i] + (q - nc[i]) * s);
-    }
-  } else {
-    const b = vec(3);
-    const c4 = vec(4);
-    const fcx = u * b[0] + b[1];
-    const fcy = v * b[0] + b[2];
-    if (Math.min(Math.min(fcx, c4[0] - fcx), Math.min(fcy, c4[1] - fcy)) < 0) return 1;
-    n = texel(tex.data, tex.width, tex.height, (fcx + c4[2]) * inv[0], (fcy + c4[3]) * inv[1]);
-  }
+  const nf = texel(tex.data, tex.width, tex.height, (clamp(ffx, 0, f2[0]) + f2[2]) * inv[0], (clamp(ffy, 0, f2[1]) + f2[3]) * inv[1]);
+  const wf = a[0] > 0 && e >= 0 ? clamp(e * a[3], 0, 1) : 0;
+  const s = wf * wf * (3 - 2 * wf);
+  n = n.map((q, i) => q + (nf[i] - q) * s);
+  const drawn = ceMin >= 0 || wf > 0 ? 1 : 0;
   const yy = y + inv[2] - s0[2];
   const q = Math.max((n[0] - yy) * n[2], 1 + (n[1] - yy) * n[3]);
-  const c = 1 - Math.min(1, Math.max(0, q));
-  return 1 + (c * c * (3 - 2 * c) - 1) * s0[3];
+  const c = 1 - clamp(q, 0, 1);
+  return 1 + (c * c * (3 - 2 * c) - 1) * s0[3] * drawn;
+}
+
+/** xrSunVisCoarse, line by line. */
+function glslSunVisCoarse(x: number, y: number, z: number): number {
+  const U = xrSunVisUniform.value;
+  const tex = sunVisTexture.image as { data: Float32Array; width: number; height: number };
+  const vec = (i: number): number[] => [U[i * 4], U[i * 4 + 1], U[i * 4 + 2], U[i * 4 + 3]];
+  const s0 = vec(0);
+  if (s0[3] <= 0) return 1;
+  if (vec(5)[3] > 0.5) return 1 - s0[3];
+  const u = x * s0[0] + z * s0[1];
+  const v = x * -s0[1] + z * s0[0];
+  const inv = vec(5);
+  const b = vec(3);
+  const c4 = vec(4);
+  const fcx = u * b[0] + b[1];
+  const fcy = v * b[0] + b[2];
+  const ceMin = Math.min(Math.min(fcx, c4[0] - fcx), Math.min(fcy, c4[1] - fcy));
+  const n = texel(tex.data, tex.width, tex.height, (clamp(fcx, 0, c4[0]) + c4[2]) * inv[0], (clamp(fcy, 0, c4[1]) + c4[3]) * inv[1]);
+  const drawn = ceMin >= 0 ? 1 : 0;
+  const yy = y + inv[2] - s0[2];
+  const q = Math.max((n[0] - yy) * n[2], 1 + (n[1] - yy) * n[3]);
+  const c = 1 - clamp(q, 0, 1);
+  return 1 + (c * c * (3 - 2 * c) - 1) * s0[3] * drawn;
 }
 
 describe('the sun visibility atlas and uniforms', () => {
@@ -120,6 +140,51 @@ describe('the sun visibility atlas and uniforms', () => {
       expect(lit).toBeGreaterThan(n * 0.05);
       if (el < 10) expect(dark).toBeGreaterThan(n * 0.02);
     }
+  });
+
+  it('give the haze its taps from the coarse grid alone, as the CPU twin does', async () => {
+    const map = new SunVisMap(fakeRenderer);
+    for (const [el, az] of [[3.5, 80], [8.5, 262], [3, 37]] as const) {
+      await map.update(hills(), sun(el, az), R);
+      map.setWeather(1);
+      const f = map.field!;
+      let worst = 0;
+      let dark = 0;
+      let lit = 0;
+      let n = 0;
+      // over the whole drawn terrain and a little past its edge (where there is nothing to hide the sun)
+      for (let i = 0; i < 3000; i++) {
+        const x = Math.sin(i * 12.9898) * 5600;
+        const z = Math.cos(i * 78.233) * 5600;
+        for (const y of [0, 30, 120, 400]) {
+          const gpu = glslSunVisCoarse(x, y, z);
+          const cpu = sampleSunVisibilityCoarse(f, x, y, z);
+          worst = Math.max(worst, Math.abs(gpu - cpu));
+          if (cpu < 0.01) dark++;
+          if (cpu > 0.99) lit++;
+          n++;
+        }
+      }
+      expect(worst, `${el}/${az}`).toBeLessThan(5e-4);
+      expect(lit, `${el}/${az}`).toBeGreaterThan(n * 0.05);
+      if (el < 10) expect(dark, `${el}/${az}`).toBeGreaterThan(n * 0.02);
+    }
+    // the coarse grid is the whole terrain, so where the fine grid is not what decides it the two lookups agree
+    await map.update(hills(), sun(8.5, 262), R);
+    const f = map.field!;
+    let agree = 0;
+    let n = 0;
+    for (let i = 0; i < 500; i++) {
+      const x = Math.sin(i * 3.1) * 3000;
+      const z = Math.cos(i * 1.7) * 3000;
+      if (Math.abs(x) < 600 && Math.abs(z) < 600) continue;
+      n++;
+      if (Math.abs(sampleSunVisibility(f, x, 60, z) - sampleSunVisibilityCoarse(f, x, 60, z)) < 1e-6) agree++;
+    }
+    expect(agree).toBeGreaterThan(n * 0.95);
+    // a dark sun is dark everywhere, a sun that is not there is no shade at all
+    expect(sampleSunVisibilityCoarse({ ...f, sunUp: false }, 0, 10, 0)).toBe(0);
+    expect(sampleSunVisibilityCoarse({ ...f, coarse: null }, 0, 10, 0)).toBe(1);
   });
 
   it('are the CPU sampler too: the share the shader reads is the one sampleSunVisibility computes before the weather', async () => {

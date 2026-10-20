@@ -125,7 +125,7 @@ void main() {
     #ifdef FOG_EXP2
       float fogFactor = 1.0 - exp( - fogDensity * fogDensity * vFogDepth * vFogDepth - xrFog[ 0 ].z * vFogDepth );
       // (the haze in front of a hill that hides the sun has no sun in it: the line fades into that, as the scenery does)
-      gl_FragColor.rgb = mix( gl_FragColor.rgb, xrFogColorLit( normalize( vFogDir ), vFogDepth, length( vFogDir ), fogFactor ), fogFactor * uFog );
+      gl_FragColor.rgb = mix( gl_FragColor.rgb, xrFogColorLit( normalize( vFogDir ) ), fogFactor * uFog );
     #else
       float fogFactor = smoothstep( fogNear, fogFar, vFogDepth );
       gl_FragColor.rgb = mix( gl_FragColor.rgb, xrFogColor( normalize( vFogDir ) ), fogFactor * uFog );

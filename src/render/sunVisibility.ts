@@ -87,7 +87,7 @@ export const SUNVIS_DEFAULTS = {
   fineMargin: 140,
   maxCoarse: [1024, 384, 120000] as [number, number, number],
   maxFine: [1024, 640, 330000] as [number, number, number],
-  sliceMs: 10,
+  sliceMs: 25,
 };
 
 /** Height of "no ground here": far below anything, so that a sample of it never hides the sun. */
@@ -450,6 +450,19 @@ export function sampleSunVisibility(f: SunVisField, x: number, y: number, z: num
   return discShare(q);
 }
 
+/**
+ * The same share from the coarse grid alone: what the haze's taps read. They are hundreds of metres from the camera at the nearest (the
+ * haze is nothing nearer), where the fine grid has nothing to add. The CPU twin of xrSunVisCoarse in shaderPatches.ts.
+ */
+export function sampleSunVisibilityCoarse(f: SunVisField, x: number, y: number, z: number): number {
+  if (!f.sunUp) return 0;
+  if (!f.coarse) return 1;
+  const r = _g;
+  if (!readGrid(f.coarse, x * f.ax + z * f.az, -x * f.az + z * f.ax, r)) return 1;
+  const yy = y + HEIGHT_BIAS - f.yRef;
+  return discShare(Math.max((r.a - yy) * r.c, 1 + (r.b - yy) * r.d));
+}
+
 /** Samples along a view ray for the sunlit share of the haze (the GLSL uses the same number). */
 export const HAZE_TAPS = 5;
 /** Below this fog factor the haze is too thin to be worth looking at. */
@@ -461,8 +474,9 @@ export const HAZE_MIN_FOG = 0.012;
  * F = 1 - exp(-density^2 z^2 - rain z) over the planar depth z, so the in-scattered light of the ray is spread over z as dF/dz:
  * equal steps of F are equal shares of it). 1 when the whole ray is in the sun, 0 when none of it is.
  *
- * `depth` is the fragment's depth along the view axis (what the fog uses), `dist` its distance from the eye, `dir` the unit vector
- * toward it. The CPU twin of xrSunHaze in shaderPatches.ts.
+ * `depth` is the depth of the end of the ray along the view axis (what the fog uses), `dist` its distance from the eye, `dir` the unit
+ * vector toward it. The CPU twin of xrSunHaze in shaderPatches.ts, which works it out at the vertices (the share varies slowly, and the
+ * fragment shaders, which are what the shader compiler takes its time over, do not carry the five reads).
  */
 export function hazeSunShare(f: SunVisField, cx: number, cy: number, cz: number, dx: number, dy: number, dz: number, depth: number, dist: number, density: number, rain: number): number {
   const d2 = density * density;
@@ -476,7 +490,7 @@ export function hazeSunShare(f: SunVisField, cx: number, cy: number, cz: number,
     // d2 z^2 + rain z = l
     const z = d2 > 1e-12 ? (-rain + Math.sqrt(rain * rain + 4 * d2 * l)) / (2 * d2) : l / Math.max(rain, 1e-6);
     const r = z * stretch;
-    sum += sampleSunVisibility(f, cx + dx * r, cy + dy * r, cz + dz * r);
+    sum += sampleSunVisibilityCoarse(f, cx + dx * r, cy + dy * r, cz + dz * r);
   }
   return sum / HAZE_TAPS;
 }

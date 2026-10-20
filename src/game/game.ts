@@ -469,13 +469,10 @@ export class Game {
       scene.dispose();
       return false;
     }
-    // where the hills hide the sun from this circuit (a few hundred ms of work in slices, behind the loading screen)
+    // where the hills hide the sun from this circuit: a few hundred ms of work in slices behind the loading screen, made while the cars
+    // are and the shaders are compiled (precompile waits for it)
     this.ui.setLoading(0.76, 'Sun and shade');
-    await xr.setTerrain(scene.terrain ?? null);
-    if (token !== this.loadToken) {
-      scene.dispose();
-      return false;
-    }
+    void xr.setTerrain(scene.terrain ?? null);
     this.track = rt;
     this.trackScene = scene;
     this.trackBuilt = built;

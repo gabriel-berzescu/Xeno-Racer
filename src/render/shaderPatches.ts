@@ -27,9 +27,10 @@
  *    ridge two kilometres away would still light the road. So the sun (light 0) is multiplied, in every lit material, by the share
  *    of its disc that the terrain leaves visible at the fragment's world position (`xrSunVisAt`: one lookup in the sun
  *    visibility map, render/sunVisibility.ts, shared by all materials and the particles), and the haze is split into its sun
- *    in-scatter and its sky part, of which only the sunlit share of the view ray keeps the sun's (`xrFogColorLit`): a hill in
- *    front of a hidden sun is a dark hazy silhouette with the glow above it, not an orange wall. Off (one uniform test, the
- *    old code bit for bit) while xrSunVis[0].w is 0: no map, a sun that is seen from everywhere (noon), or no sun to speak of.
+ *    in-scatter and its sky part, of which only the sunlit share of the view ray keeps the sun's (`xrFogColorLit`; the share is
+ *    worked out at the vertices, `xrSunHaze`, and interpolated: a hill in front of a hidden sun is a dark hazy silhouette with the
+ *    glow above it, not an orange wall). Off (one uniform test, the old light and colour bit for bit) while xrSunVis[0].w is 0: no
+ *    map, a sun that is seen from everywhere (noon), or no sun to speak of.
  *
  * All degrade to stock behaviour when their uniforms are never set (e.g. a custom ShaderMaterial).
  */
@@ -129,10 +130,13 @@ const LAMP_LIGHTS = /* glsl */ `
 `;
 
 /**
- * GLSL for the sun visibility map (see sunVisibility.ts for what the numbers are), included once per program by whichever chunk comes
- * first (lights_pars_begin, fog_pars_fragment) and by the particle shaders (their vertex stage). `xrSunVisAt(p)` is the share (0..1)
- * of the sun's disc that a point at world position p sees past the terrain: 1 in the open, 0 behind a hill. Its twin on the CPU is
- * sampleSunVisibility; the two must agree.
+ * GLSL for the sun visibility map (see sunVisibility.ts for what the numbers are), included once per program and stage by whichever
+ * chunk comes first (lights_pars_begin, fog_pars_fragment, fog_pars_vertex) and by the particle shaders (their vertex stage).
+ * `xrSunVisAt(p)` is the share (0..1) of the sun's disc that a point at world position p sees past the terrain: 1 in the open, 0 behind
+ * a hill. Its twin on the CPU is sampleSunVisibility; the two must agree. It has no branch that depends on the point (both grids are
+ * read, the one the point is not in clamped to its edge and weighted 0): the shader compiler builds it into every lit program, and a
+ * version with three paths through it made the programs of a race take a second longer to build between them. `xrSunVisCoarse` is
+ * the same from the coarse grid alone (twin: sampleSunVisibilityCoarse), for the haze.
  */
 export const SUNVIS_PARS = /* glsl */ `
 #ifndef XR_SUNVIS_PARS
@@ -147,45 +151,57 @@ float xrSunVG = 1.0;
 float xrSunVisAt( vec3 p ) {
 
 	vec4 s0 = xrSunVis[ 0 ];
+	// (the two uniform exits: no map in use, and the whole disc below the horizon, no sun anywhere)
 	if ( s0.w <= 0.0 ) return 1.0;
-	// the whole disc is below the horizon: no sun anywhere
 	if ( xrSunVis[ 5 ].w > 0.5 ) return 1.0 - s0.w;
 
+	// The rest has no branch that depends on the fragment: both grids are read (the nodes the fragment is not in are clamped to the grid's
+	// edge and weighted 0), so the shader compiler has one straight line of work to build into every lit program, not three paths.
 	// the sun's frame: u toward the sun, v across; the grids are laid out in it
 	vec2 uv = vec2( dot( p.xz, s0.xy ), dot( p.xz, vec2( - s0.y, s0.x ) ) );
+	vec2 inv = xrSunVis[ 5 ].xy;
+	// the coarse grid: all the terrain that is drawn
+	vec4 b = xrSunVis[ 3 ];
+	vec2 fc = uv * b.x + b.yz;
+	vec2 ce = min( fc, xrSunVis[ 4 ].xy - fc );
+	vec4 n = textureLod( xrSunVisTex, ( clamp( fc, vec2( 0.0 ), xrSunVis[ 4 ].xy ) + xrSunVis[ 4 ].zw ) * inv, 0.0 );
+	// the fine grid (around the circuit), which takes over from the coarse one across its last nodes
 	vec4 a = xrSunVis[ 1 ];
 	vec2 ff = uv * a.x + a.yz;
 	vec2 fe = min( ff, xrSunVis[ 2 ].xy - ff );
 	float e = min( fe.x, fe.y );
-	vec4 n;
-
-	if ( a.x > 0.0 && e >= 0.0 ) {
-
-		// inside the fine grid (around the circuit), fading to the coarse one over its last nodes
-		n = textureLod( xrSunVisTex, ( ff + xrSunVis[ 2 ].zw ) * xrSunVis[ 5 ].xy, 0.0 );
-		float wf = clamp( e * a.w, 0.0, 1.0 );
-		if ( wf < 1.0 ) {
-			vec2 fc = uv * xrSunVis[ 3 ].x + xrSunVis[ 3 ].yz;
-			vec4 nc = textureLod( xrSunVisTex, ( fc + xrSunVis[ 4 ].zw ) * xrSunVis[ 5 ].xy, 0.0 );
-			n = mix( nc, n, wf * wf * ( 3.0 - 2.0 * wf ) );
-		}
-
-	} else {
-
-		vec4 b = xrSunVis[ 3 ];
-		vec2 fc = uv * b.x + b.yz;
-		vec2 ce = min( fc, xrSunVis[ 4 ].xy - fc );
-		// beyond the terrain that is drawn there is nothing to hide the sun
-		if ( min( ce.x, ce.y ) < 0.0 ) return 1.0;
-		n = textureLod( xrSunVisTex, ( fc + xrSunVis[ 4 ].zw ) * xrSunVis[ 5 ].xy, 0.0 );
-
-	}
+	vec4 nf = textureLod( xrSunVisTex, ( clamp( ff, vec2( 0.0 ), xrSunVis[ 2 ].xy ) + xrSunVis[ 2 ].zw ) * inv, 0.0 );
+	float wf = a.x > 0.0 && e >= 0.0 ? clamp( e * a.w, 0.0, 1.0 ) : 0.0;
+	n = mix( n, nf, wf * wf * ( 3.0 - 2.0 * wf ) );
+	// beyond the terrain that is drawn (and the fine grid) there is nothing to hide the sun
+	float drawn = min( ce.x, ce.y ) >= 0.0 || wf > 0.0 ? 1.0 : 0.0;
 
 	// n = ( H_lo - yRef, H_hi - yRef, 1 / ( u_lo dt ), 1 / ( u_hi dt ) ): the two horizon lines the disc's lower and upper limb are cut by
 	float y = p.y + xrSunVis[ 5 ].z - s0.z;
 	float q = max( ( n.x - y ) * n.z, 1.0 + ( n.y - y ) * n.w );
 	float c = 1.0 - clamp( q, 0.0, 1.0 );
-	return mix( 1.0, c * c * ( 3.0 - 2.0 * c ), s0.w );
+	return mix( 1.0, c * c * ( 3.0 - 2.0 * c ), s0.w * drawn );
+
+}
+
+// The same share from the coarse grid alone, for the haze's taps: they are hundreds of metres from the camera (the haze is nothing nearer),
+// where the fine grid has nothing to add, and the one read and the straight line of work are what the shader compiler can build into every fogged program cheaply.
+float xrSunVisCoarse( vec3 p ) {
+
+	vec4 s0 = xrSunVis[ 0 ];
+	if ( s0.w <= 0.0 ) return 1.0;
+	if ( xrSunVis[ 5 ].w > 0.5 ) return 1.0 - s0.w;
+
+	vec2 uv = vec2( dot( p.xz, s0.xy ), dot( p.xz, vec2( - s0.y, s0.x ) ) );
+	vec4 b = xrSunVis[ 3 ];
+	vec2 fc = uv * b.x + b.yz;
+	vec2 ce = min( fc, xrSunVis[ 4 ].xy - fc );
+	vec4 n = textureLod( xrSunVisTex, ( clamp( fc, vec2( 0.0 ), xrSunVis[ 4 ].xy ) + xrSunVis[ 4 ].zw ) * xrSunVis[ 5 ].xy, 0.0 );
+	float drawn = min( ce.x, ce.y ) >= 0.0 ? 1.0 : 0.0;
+	float y = p.y + xrSunVis[ 5 ].z - s0.z;
+	float q = max( ( n.x - y ) * n.z, 1.0 + ( n.y - y ) * n.w );
+	float c = 1.0 - clamp( q, 0.0, 1.0 );
+	return mix( 1.0, c * c * ( 3.0 - 2.0 * c ), s0.w * drawn );
 
 }
 
@@ -200,6 +216,45 @@ const FOG_PARS_VERTEX = /* glsl */ `
 	varying float vFogDepth;
 	varying vec3 vFogDir;
 
+	#ifdef FOG_EXP2
+
+		// The sunlit share (0..1) of the haze along the view ray to the vertex, for the fragments between the vertices (1 where no map is in use).
+		varying float vFogSun;
+		uniform float fogDensity;
+		uniform vec4 xrFog[ 10 ];
+
+		${SUNVIS_PARS}
+
+		// The share of the sun's in-scatter along the view ray that is sunlit, from the sun visibility map: five taps along the ray, placed so
+		// that each carries the same share of the fog (equal steps of the fog factor F(z) = 1 - exp(-d^2 z^2 - rain z) over the planar depth z
+		// are equal shares of the light the ray scatters toward the eye). The CPU twin is hazeSunShare. The share varies slowly (the haze is
+		// hundreds of metres to kilometres of air), so it is worked out at the vertices: the fragments pay nothing for it, and the program of
+		// a fragment shader, which is the one the compiler takes its time over, is spared the five reads.
+		float xrSunHazeTap( vec3 dirN, float stretch, float d2, float rain, float q ) {
+
+			float l = - log( 1.0 - min( 0.999, q ) );
+			float z = d2 > 1e-12 ? ( - rain + sqrt( rain * rain + 4.0 * d2 * l ) ) / ( 2.0 * d2 ) : l / max( rain, 1e-6 );
+			return xrSunVisCoarse( cameraPosition + dirN * ( z * stretch ) );
+
+		}
+
+		float xrSunHaze( vec3 toVertex, float depth ) {
+
+			if ( xrSunVis[ 0 ].w <= 0.0 ) return 1.0;
+			float d2 = fogDensity * fogDensity;
+			float rain = xrFog[ 0 ].z;
+			float F = 1.0 - exp( - d2 * depth * depth - rain * depth );
+			if ( F <= 0.012 ) return 1.0;
+			float dist = length( toVertex );
+			vec3 dirN = toVertex / max( dist, 1e-4 );
+			float stretch = dist / max( depth, 1e-4 );
+			float f5 = 0.2 * F;
+			return 0.2 * ( xrSunHazeTap( dirN, stretch, d2, rain, 0.5 * f5 ) + xrSunHazeTap( dirN, stretch, d2, rain, 1.5 * f5 ) + xrSunHazeTap( dirN, stretch, d2, rain, 2.5 * f5 ) + xrSunHazeTap( dirN, stretch, d2, rain, 3.5 * f5 ) + xrSunHazeTap( dirN, stretch, d2, rain, 4.5 * f5 ) );
+
+		}
+
+	#endif
+
 #endif
 `;
 
@@ -208,6 +263,9 @@ const FOG_VERTEX = /* glsl */ `
 
 	vFogDepth = - mvPosition.z;
 	vFogDir = ( vec4( mvPosition.xyz, 0.0 ) * viewMatrix ).xyz;
+	#ifdef FOG_EXP2
+		vFogSun = xrSunHaze( vFogDir, vFogDepth );
+	#endif
 
 #endif
 `;
@@ -232,6 +290,9 @@ const FOG_PARS_FRAGMENT = /* glsl */ `
 
 	uniform vec4 xrFog[ 10 ];
 	uniform vec4 xrFogSun[ 8 ];
+	#ifdef FOG_EXP2
+		varying float vFogSun;
+	#endif
 
 	${SUNVIS_PARS}
 
@@ -295,31 +356,13 @@ const FOG_PARS_FRAGMENT = /* glsl */ `
 
 	#ifdef FOG_EXP2
 
-		// The share (0..1) of the sun's in-scatter along the view ray that is sunlit, from the sun visibility map: HAZE taps along the
-		// ray, placed so that each carries the same share of the fog (equal steps of the fog factor F(z) = 1 - exp(-d^2 z^2 - rain z)
-		// over the planar depth z are equal shares of the light the ray scatters toward the eye). The CPU twin is hazeSunShare.
-		float xrSunHaze( vec3 dirN, float depth, float dist, float F ) {
-
-			float d2 = fogDensity * fogDensity;
-			float rain = xrFog[ 0 ].z;
-			float stretch = dist / max( depth, 1e-4 );
-			float sum = 0.0;
-			for ( int k = 0; k < 5; k ++ ) {
-				float q = min( 0.999, ( float( k ) + 0.5 ) * 0.2 * F );
-				float l = - log( 1.0 - q );
-				float z = d2 > 1e-12 ? ( - rain + sqrt( rain * rain + 4.0 * d2 * l ) ) / ( 2.0 * d2 ) : l / max( rain, 1e-6 );
-				sum += xrSunVisAt( cameraPosition + dirN * ( z * stretch ) );
-			}
-			return sum * 0.2;
-
-		}
-
-		// xrFogColor with the sun's part of it scaled by the sunlit share of the ray: the old colour exactly where the ray is in the sun
-		vec3 xrFogColorLit( vec3 dirN, float depth, float dist, float F ) {
+		// xrFogColor with the sun's part of it scaled by the sunlit share of the ray (vFogSun, from the vertices): the old colour exactly where
+		// the ray is in the sun
+		vec3 xrFogColorLit( vec3 dirN ) {
 
 			vec3 c = xrFogColor( dirN );
 			// (the air in a hill's shade keeps xrSunVis[ 6 ].x of the sun's part: the glow of the sky above the ridge lights it from the side)
-			if ( xrSunVis[ 0 ].w > 0.0 && F > 0.012 ) c = max( c - xrFogSunPart( dirN ) * ( ( 1.0 - xrSunHaze( dirN, depth, dist, F ) ) * ( 1.0 - xrSunVis[ 6 ].x ) ), vec3( 0.0 ) );
+			if ( xrSunVis[ 0 ].w > 0.0 && vFogSun < 1.0 ) c = max( c - xrFogSunPart( dirN ) * ( ( 1.0 - vFogSun ) * ( 1.0 - xrSunVis[ 6 ].x ) ), vec3( 0.0 ) );
 			return c;
 
 		}
@@ -337,7 +380,7 @@ const FOG_FRAGMENT = /* glsl */ `
 		// exp2 haze plus the Beer-Lambert rain haze xrFog[0].z (0 when dry: identical to stock)
 		float fogFactor = 1.0 - exp( - fogDensity * fogDensity * vFogDepth * vFogDepth - xrFog[ 0 ].z * vFogDepth );
 
-		gl_FragColor.rgb = mix( gl_FragColor.rgb, xrFogColorLit( normalize( vFogDir ), vFogDepth, length( vFogDir ), fogFactor ), fogFactor );
+		gl_FragColor.rgb = mix( gl_FragColor.rgb, xrFogColorLit( normalize( vFogDir ) ), fogFactor );
 
 	#else
 
@@ -420,10 +463,6 @@ const CSM_FUNCTIONS = /* glsl */ `
 		vec3 s3 = c3.xyz / c3.w;
 		vec2 g3 = xrPlaneGradient( dFdx( s3 ), dFdy( s3 ), xrCsm[ 3 ].x );
 		#endif
-
-		// the terrain hides the sun here (xrSunVG, from the sun visibility map): nothing for the cascades to shade, and the taps are the
-		// expensive part. (After the derivatives above: they need every fragment of the quad.)
-		if ( xrSunVG < 0.002 ) return 1.0;
 
 		float result = 0.0;
 		float remaining = 1.0;

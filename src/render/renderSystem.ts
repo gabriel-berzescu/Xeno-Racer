@@ -129,9 +129,11 @@ export interface XenoRenderSystem extends RenderSystem {
   setEnvironment(e: EnvironmentSettings, forecastTo?: Weather | null): Promise<void>;
   /**
    * The ground of the circuit that is loaded (TrackScene.terrain), or null when none is: where the hills hide the sun from the
-   * track (the sun visibility map, sunVisibility.ts). The map is made here, in slices between the frames of the loading screen
+   * track (the sun visibility map, sunVisibility.ts). The map is made at once, in slices between the frames of the loading screen
    * (a few hundred ms of work on the biggest circuit), and again by setEnvironment() when the sun changes under a circuit that is
-   * kept. Call it once the track scene is built, before precompile().
+   * kept. Nothing needs to wait for it but the first frame: precompile() does, in the time the shader compiler takes, so call this
+   * once the track scene is built, before precompile(). (The promise is the map being on the GPU; it never rejects: a map that
+   * cannot be made leaves the picture without terrain shade.)
    */
   setTerrain(t: TerrainSource | null): Promise<void>;
   /** The sun visibility map in use (read-only for the probes: `visibilityAt` is what the shaders compute). */
@@ -330,7 +332,10 @@ class RenderSystemImpl implements XenoRenderSystem {
   private fillShare = 1.1;
   /** The map's verdict at a point, for the CPU's questions (the cascades' skip). */
   private readonly visFn = (x: number, y: number, z: number): number => this.sunVis.visibilityAt(x, y, z);
-  /** The fill light (see fillGain). In the scene only while a sun visibility map is on for this race, so a sunny race's programs are the old ones. */
+  /**
+   * The fill light (see fillGain). Always in the scene, at intensity 0 while no map is in use: the lights, and with them the programs of
+   * every lit material, must not depend on what the map makes of this circuit and hour, for the programs are built while the map is.
+   */
   private readonly shadeFill = new HemisphereLight(0xffffff, 0xffffff, 0);
   /** The ground the sun visibility map is made from. */
   private terrainSrc: TerrainSource | null = null;
@@ -475,8 +480,6 @@ class RenderSystemImpl implements XenoRenderSystem {
     this.sun = new SunShadows(patches.csm);
     this.scene.add(this.sun.group);
     this.scene.add(this.hemi);
-    // (not visible until a map is on for the race: see syncSunVis)
-    this.shadeFill.visible = false;
     this.shadeFill.name = 'xr.shadeFill';
     this.scene.add(this.shadeFill);
     this.particleScene.name = 'xr.particles';
@@ -528,8 +531,7 @@ class RenderSystemImpl implements XenoRenderSystem {
     if (other && (other.deck > 0) !== (sol.deck > 0)) this.applyForecast(sol, other);
     else this.applySolution(sol);
     // (the sun may be somewhere else than the map in use was made for: a race on the same circuit at another hour)
-    await this.syncSunVis();
-    if (token !== this.envToken || this.disposed) return;
+    void this.syncSunVis();
     // Dry <-> wet swaps the shadow programs of everything that receives shadows. With a track already in the scene
     // that is a multi-second compile: take it now, under the caller's loading screen, not in the first frame.
     if (this.shadowProgramsChanged) {
@@ -538,18 +540,31 @@ class RenderSystemImpl implements XenoRenderSystem {
     }
   }
 
-  async setTerrain(t: TerrainSource | null): Promise<void> {
+  setTerrain(t: TerrainSource | null): Promise<void> {
     this.terrainSrc = t;
-    await this.syncSunVis();
+    return this.syncSunVis();
   }
 
-  /** Make the sun visibility map for the terrain and the sun in use, if it is not the one on the GPU already. */
-  private async syncSunVis(): Promise<void> {
+  /** The map that is being made, if one is (precompile() waits for it). */
+  private sunMap: Promise<void> | null = null;
+
+  /**
+   * Make the sun visibility map for the terrain and the sun in use, if it is not the one on the GPU already. It starts now and goes on
+   * in slices between the frames of the loading screen; nothing waits for it here, precompile() does, while the shader compiler works
+   * (a few seconds in which the page has nothing else to do). A failure leaves no map (the picture is the old one): it is a refinement,
+   * and no reason for a race not to start.
+   */
+  private syncSunVis(): Promise<void> {
     const sol = this.solution;
-    if (!sol) return;
-    await this.sunVis.update(this.terrainSrc, sol.sunDir, SUN_ANGULAR_RADIUS, yieldToBrowser);
-    // the shade fill is part of the lights (and so of every lit program) only in a race that has a map on: decided here, behind the loading screen
-    this.shadeFill.visible = this.sunVis.field?.active === true;
+    if (!sol) return Promise.resolve();
+    const run = this.sunVis.update(this.terrainSrc, sol.sunDir, SUN_ANGULAR_RADIUS, yieldToBrowser).catch((e: unknown) => {
+      console.warn('The sun visibility map could not be made; the picture has no terrain shade.', e);
+    });
+    this.sunMap = run;
+    void run.then(() => {
+      if (this.sunMap === run) this.sunMap = null;
+    });
+    return run;
   }
 
   async precompile(): Promise<void> {
@@ -569,7 +584,8 @@ class RenderSystemImpl implements XenoRenderSystem {
       const hud = this.mirrors.compileScene;
       pending.push(r.compileAsync(hud.scene, hud.camera));
       r.setRenderTarget(prev);
-      await Promise.all(pending);
+      // (the terrain's shade is made in the time the shader compiler takes, which is time the page spends waiting: see syncSunVis)
+      await Promise.all([Promise.all(pending), this.sunMap]);
       // A program looks up its uniform and attribute locations the first time something is drawn with it: one synchronous
       // call per uniform, tens of ms for the big lit shaders. The warm-up frame only reaches what it sees, so smoke, skid
       // marks or a car coming into view would pay in the race: do it for every program now, behind the loading screen.
@@ -928,10 +944,13 @@ class RenderSystemImpl implements XenoRenderSystem {
     const mapsReady = this.sun.mapsReady;
     if (!mapsReady) this.sun.markDirty();
     // (a map that is missing is drawn whatever the sky: see above)
-    const sunny = this.warming || !mapsReady || ((!this.fc || (this.solution?.shadowIntensity ?? 1) >= 0.004) && !this.terrainDark(focus));
+    const dark = !this.warming && mapsReady && this.terrainDark(focus);
+    const sunny = this.warming || !mapsReady || ((!this.fc || (this.solution?.shadowIntensity ?? 1) >= 0.004) && !dark);
     const view = this.sun.selected;
     if (sunny && !this.shadowsLive[view]) this.sun.markSelectedDirty();
     this.shadowsLive[view] = sunny;
+    // (where the terrain hides the sun from all the cascades cover, their intensity is 0 and no fragment takes the taps)
+    this.sun.setDark(view, dark);
     return this.sun.update(focus, this.frameIndex) && sunny;
   }
 
