@@ -12,7 +12,7 @@
  * (0..255) and the share of pixels that differ by more than 2 levels (dither noise is 1 level, so a clean
  * match shows ~0.00% above 2). Exit code 1 if any combination differs by more than the thresholds.
  */
-import { chromium } from 'playwright-core';
+import { launchChrome } from '../../scripts/chrome.mjs';
 
 const argv = process.argv.slice(2);
 const opt = { a: 'http://127.0.0.1:5199', b: 'http://127.0.0.1:5198', base: 'track=aurelia&cam=chase&t=3&s=40&freeze=1&quality=high&v=40', w: 800, h: 450, page: 'sandbox/render.html', meanMax: 0.25, shareMax: 0.05 };
@@ -26,7 +26,7 @@ for (let i = 0; i < argv.length; i++) {
 let combos = [[]];
 for (const [k, vals] of vary) combos = combos.flatMap((c) => vals.map((v) => [...c, [k, v]]));
 
-const browser = await chromium.launch({
+const browser = await launchChrome({
   channel: 'chrome',
   headless: true,
   args: ['--use-angle=d3d11', '--enable-gpu', '--ignore-gpu-blocklist', '--force_high_performance_gpu'],

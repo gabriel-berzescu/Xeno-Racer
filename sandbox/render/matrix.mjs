@@ -11,7 +11,7 @@
  * Files are named from the varied values (noon_rain.png). The sheet is <out>/sheet.png. Rows follow the
  * LAST --vary list varying fastest. Needs the dev server (port 5199).
  */
-import { chromium } from 'playwright-core';
+import { launchChrome } from '../../scripts/chrome.mjs';
 import { mkdirSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
@@ -39,7 +39,7 @@ for (const [k, vals] of vary) combos = combos.flatMap((c) => vals.map((v) => [..
 if (!vary.length) combos = [[]];
 opt.cols = +opt.cols || (vary.length ? vary[vary.length - 1][1].length : 1);
 
-const browser = await chromium.launch({
+const browser = await launchChrome({
   channel: 'chrome',
   headless: true,
   args: ['--use-angle=d3d11', '--enable-gpu', '--ignore-gpu-blocklist', '--force_high_performance_gpu', '--enable-webgl-developer-extensions'],

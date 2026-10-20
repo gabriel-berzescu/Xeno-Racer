@@ -13,7 +13,7 @@
  * render-target + shadow-map memory. Headless Chrome is vsync-capped, so frame interval is not the
  * metric: the unthrottled numbers are.
  */
-import { chromium } from 'playwright-core';
+import { launchChrome } from '../../scripts/chrome.mjs';
 
 const argv = process.argv.slice(2);
 const opt = { w: 1920, h: 1080, scene: 'drift', tod: 'golden', q: 'low,medium,high,ultra', port: 5199, extra: '' };
@@ -21,7 +21,7 @@ for (let i = 0; i < argv.length; i += 2) opt[argv[i].slice(2)] = argv[i + 1];
 opt.w = +opt.w;
 opt.h = +opt.h;
 
-const browser = await chromium.launch({
+const browser = await launchChrome({
   channel: 'chrome',
   headless: true,
   args: ['--use-angle=d3d11', '--enable-gpu', '--ignore-gpu-blocklist', '--force_high_performance_gpu', '--enable-webgl-developer-extensions'],

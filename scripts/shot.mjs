@@ -11,7 +11,7 @@
  *
  * Prints page console errors/warnings. Exit code 1 if the page threw an uncaught error.
  */
-import { chromium } from 'playwright-core';
+import { launchChrome } from './chrome.mjs';
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 
@@ -39,7 +39,7 @@ const w = +(opts.w ?? 1600);
 const h = +(opts.h ?? 900);
 const wait = +(opts.wait ?? 3000);
 
-const browser = await chromium.launch({
+const browser = await launchChrome({
   channel: 'chrome',
   headless: true,
   args: ['--use-angle=d3d11', '--enable-gpu', '--ignore-gpu-blocklist', '--force_high_performance_gpu', '--autoplay-policy=no-user-gesture-required'],
