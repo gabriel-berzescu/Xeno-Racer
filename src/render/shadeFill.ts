@@ -6,8 +6,7 @@
  *    sky above the ridge and by the sunlit slopes around, in warm colours toward the sun and the sky's blue elsewhere. So a hemisphere light
  *    (diffuse only: no glints) gives back a share of the sun that the terrain takes: its axis points at the sun, a little up; the side that
  *    faces the glow is the colour of the horizon's glow there (a little toward the sun's own), the side that turns from it the same hue,
- *    fainter. `shadeFillLook` makes its colours for a look; the render system scales it by the shade the car is in and by how much the camera
- *    looks toward the sun (`fillViewScale`).
+ *    fainter. `shadeFillLook` makes its colours for a look; the render system scales it by the shade the car is in.
  * 2. The cascades are not drawn while everything they cover is in the terrain's shade (`coveredByShade`).
  */
 
@@ -45,32 +44,6 @@ export function sunSlant(sinElevation: number): number {
 /** How the fill is spread over the hemisphere's two sides: their mean over the sphere is the whole of it. */
 export const FILL_SUN_SIDE = 1.6;
 export const FILL_AWAY_SIDE = 0.4;
-
-/**
- * The share of the fill that a camera looking away from the sun gets (the whole of it for one looking at the sun).
- *
- * Looking toward the hidden sun a driver sees the glow above the ridge and, against it, everything that turns its back on the sun: the
- * road, the trees, the car, in the sky's light alone, dark and cold beside a sky that blazes (it is what makes the shade "murky"): that
- * is where the picture needs the fill, as a photographer needs one for a backlit subject. Looking the other way, the same surfaces face
- * the glow, the sun side of the fill lights them, and the picture needs a good deal less: with all of the fill there the grass of a
- * shaded straight is brighter than the sun ever made it (a surface cannot be brighter in the shade than in the sun) and the shade
- * stops reading as shade.
- */
-export const FILL_AWAY_VIEW = 0.45;
-
-/**
- * How much of the fill the camera needs: 1 looking at the sun, FILL_AWAY_VIEW looking away from it, smooth in between (by the cosine of
- * the angle between the two horizontal directions, from -0.5 to 0.5). A camera pointing straight up or down has no side to look to: the
- * middle.
- */
-export function fillViewScale(forwardX: number, forwardZ: number, sunX: number, sunZ: number): number {
-  const fl = Math.hypot(forwardX, forwardZ);
-  const sl = Math.hypot(sunX, sunZ);
-  if (fl < 1e-3 || sl < 1e-3) return (1 + FILL_AWAY_VIEW) / 2;
-  const c = (forwardX * sunX + forwardZ * sunZ) / (fl * sl);
-  const t = Math.min(1, Math.max(0, c + 0.5));
-  return FILL_AWAY_VIEW + (1 - FILL_AWAY_VIEW) * (t * t * (3 - 2 * t));
-}
 /** How far the glow's colour is taken toward the sun's own, and how far toward grey. */
 const SUN_TINT = 0.35;
 const GREY_TINT = 0.25;

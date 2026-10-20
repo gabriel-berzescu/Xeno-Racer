@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { TimeOfDay, Weather } from '../src/core/contracts';
 import { solveEnvironment } from '../src/render/environment';
-import { coveredByShade, FILL_AWAY_SIDE, FILL_AWAY_VIEW, FILL_SUN_SIDE, fillViewScale, shadeFillLook, sunSlant } from '../src/render/shadeFill';
+import { coveredByShade, FILL_AWAY_SIDE, FILL_SUN_SIDE, shadeFillLook, sunSlant } from '../src/render/shadeFill';
 import { computeSunVisibility, sampleSunVisibility, type SunTerrain } from '../src/render/sunVisibility';
 
 const TODS: TimeOfDay[] = ['dawn', 'morning', 'noon', 'golden', 'dusk', 'night'];
@@ -89,29 +89,6 @@ describe('the shade fill: what the terrain takes of the sun, given back as soft 
       }
     }
   }, 120000);
-});
-
-describe('the fill follows where the camera looks', () => {
-  it('is whole looking at the sun, FILL_AWAY_VIEW of it looking away, and monotonic in between', () => {
-    // the sun toward +X: a camera looking along +X looks at it, along -X away from it
-    expect(fillViewScale(1, 0, 1, 0)).toBeCloseTo(1, 9);
-    expect(fillViewScale(-1, 0, 1, 0)).toBeCloseTo(FILL_AWAY_VIEW, 9);
-    expect(fillViewScale(0, 1, 1, 0)).toBeGreaterThan(FILL_AWAY_VIEW);
-    expect(fillViewScale(0, 1, 1, 0)).toBeLessThan(1);
-    let prev = 0;
-    for (let a = 180; a >= 0; a -= 5) {
-      const r = (a * Math.PI) / 180;
-      const s = fillViewScale(Math.cos(r), Math.sin(r), 1, 0);
-      expect(s, `${a} degrees from the sun`).toBeGreaterThanOrEqual(prev - 1e-12);
-      prev = s;
-    }
-    // symmetric: left or right of the sun is the same, and a longer vector means nothing
-    expect(fillViewScale(0.3, 0.4, 1, 0)).toBeCloseTo(fillViewScale(0.3, -0.4, 1, 0), 12);
-    expect(fillViewScale(3, 4, 2, 0)).toBeCloseTo(fillViewScale(0.6, 0.8, 1, 0), 12);
-    // the pitch does not count (only the two horizontal components do), and a camera pointing straight up has no side: the middle
-    expect(fillViewScale(0, 0, 1, 0)).toBeCloseTo((1 + FILL_AWAY_VIEW) / 2, 9);
-    expect(fillViewScale(1, 0, 0, 0)).toBeCloseTo((1 + FILL_AWAY_VIEW) / 2, 9);
-  });
 });
 
 describe('the cascades while the terrain hides the sun', () => {

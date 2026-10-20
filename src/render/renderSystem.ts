@@ -61,7 +61,7 @@ import { MirrorSystem, type MirrorFrame } from './mirrors';
 import { DropletPass, makeWiperFeed, makeWiperState, wiperStateInto, type WiperFeed } from './wet/droplets';
 import { SSRPass } from './wet/ssr';
 import { installShaderPatches, XR_LAMPS, xrFogUniform, xrLampColUniform, xrLampUniform, xrLampUpUniform } from './shaderPatches';
-import { coveredByShade, fillViewScale, shadeFillLook } from './shadeFill';
+import { coveredByShade, shadeFillLook } from './shadeFill';
 import { SHADOW_OFF, shadowConfigFor, SunShadows } from './shadows';
 import { SkyDome, SUN_ANGULAR_RADIUS } from './sky';
 import { SunVisMap } from './sunVisMap';
@@ -279,8 +279,6 @@ class ViewState {
   readonly pan = new Vector2();
   /** How much of the sun the terrain takes from the car this view films (0..1, smoothed): the skylight fill follows it (see updateFill). */
   shade = 0;
-  /** How much of the fill the camera of this view needs (fillViewScale, smoothed): all of it looking toward the sun. */
-  fillView = 1;
   haveShade = false;
 }
 
@@ -311,14 +309,12 @@ class RenderSystemImpl implements XenoRenderSystem {
   /** Where the terrain hides the sun (see setTerrain). */
   readonly sunVis: SunVisMap;
   /**
-   * The light a surface gets in the terrain's shade in place of part of the sun it lost, as a share of that sun (0 = none). With the
-   * sun behind a ridge the light of a circuit is the sky's alone, and that is dimmer, and bluer, than the sky and the sun together that
-   * the exposure and the grade were set for: a real eye would open up, and the shade is lit by the glow of the sky above the ridge and by
-   * the sunlit slopes around as well. It is a hemisphere light of its own (`shadeFill`: diffuse only, no glints) whose axis points at the
-   * sun, tilted up a little: warm on the surfaces that face the glow, cooler on the ones that turn from it, so that the shade has form
-   * and is the sky's colours, not one blue. Its strength follows how much of the sun the terrain takes from the car, and how much the
-   * camera looks toward the sun (`fillViewScale`: the pictures that need it are the backlit ones), and it is nothing (the light is as the
-   * look has it, and the light's program too, for it is not in the scene) wherever the map is off.
+   * The light a surface gets in the terrain's shade in place of part of the sun it lost, as a share of that sun (0 = none; 0.5, the
+   * default, keeps a shaded surface dimmer than the sun made it). With the sun behind a ridge the light of a circuit is the sky's alone,
+   * dimmer and bluer than the sky and the sun together that the exposure and the grade were set for, and the shade read dark, flat and
+   * cold. The fill is a hemisphere light of its own (`shadeFill`: diffuse only, no glints) whose axis points at the sun, tilted up a
+   * little: warm on the surfaces that face the glow, cooler on the ones that turn from it. Its strength follows how much of the sun the
+   * terrain takes from the car (and nothing else: it is the same whichever way the camera looks), and it is nothing wherever no map is on.
    */
   get fillGain(): number {
     return this.fillShare;
@@ -329,7 +325,7 @@ class RenderSystemImpl implements XenoRenderSystem {
     if (this.solution) this.lightShadeFill(this.solution);
   }
 
-  private fillShare = 1.1;
+  private fillShare = 0.5;
   /** The map's verdict at a point, for the CPU's questions (the cascades' skip). */
   private readonly visFn = (x: number, y: number, z: number): number => this.sunVis.visibilityAt(x, y, z);
   /**
@@ -814,7 +810,7 @@ class RenderSystemImpl implements XenoRenderSystem {
     if (!Number.isFinite(speed)) speed = 0;
     this.frameIndex++;
     this.prepareView(this.views[0], camera, this.focus, this.cockpitView, speed, dt, dt);
-    this.updateFill(this.views[0], camera, this.focus, dt);
+    this.updateFill(this.views[0], this.focus, dt);
 
     this.renderer.info.reset();
     this.beginGpu();
@@ -872,7 +868,7 @@ class RenderSystemImpl implements XenoRenderSystem {
         this.updateSpeedEffects(v, spec.camera, dt, speed);
         this.updateShafts(spec.camera);
         if (this.finalEffect) this.finalEffect.seed = (this.frameIndex % 64) / 64;
-        this.updateFill(v, spec.camera, spec.focus, dt);
+        this.updateFill(v, spec.focus, dt);
         this.aimView(geo.views[i]);
         this.scene.matrixWorldAutoUpdate = i === 0;
         this.composer.render(dt);
@@ -1665,26 +1661,14 @@ class RenderSystemImpl implements XenoRenderSystem {
    * The shade fill of the view about to be drawn (see fillGain): how much of the sun the terrain takes from the car it films (the CPU twin of
    * what the shaders do, smoothed over half a second so that a car crossing a long penumbra sees no step).
    */
-  private updateFill(v: ViewState, camera: PerspectiveCamera, focus: Vector3, dt: number): void {
+  private updateFill(v: ViewState, focus: Vector3, dt: number): void {
     const m = this.sunVis;
     const target = m.on ? 1 - m.visibilityAt(focus.x, focus.y + 1, focus.z) : 0;
-    // (what the camera looks at: the picture needs the most of the fill where it looks toward the sun, see fillViewScale)
-    let view = 1;
-    const sol = this.solution;
-    if (sol && target > 0) {
-      camera.getWorldDirection(this._camFwd);
-      view = fillViewScale(this._camFwd.x, this._camFwd.z, sol.sunDir[0], sol.sunDir[2]);
-    }
     if (!v.haveShade) {
       v.shade = target;
-      v.fillView = view;
       v.haveShade = true;
-    } else {
-      const k = 1 - Math.exp(-dt / 0.5);
-      v.shade += (target - v.shade) * k;
-      if (target > 0 || v.shade > 1e-4) v.fillView += (view - v.fillView) * k;
-    }
-    this.shadeFill.intensity = v.shade > 1e-4 ? v.shade * v.fillView : 0;
+    } else v.shade += (target - v.shade) * (1 - Math.exp(-dt / 0.5));
+    this.shadeFill.intensity = v.shade > 1e-4 ? v.shade : 0;
   }
 
   private updateSpeedEffects(v: ViewState, camera: PerspectiveCamera, dt: number, speed: number): void {
