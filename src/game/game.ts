@@ -1678,6 +1678,7 @@ export class Game {
     if (!m || mechanicalWorst(m) < DAMAGE_SHOWN) return null;
     const out = this.dmgHud[seat];
     mechanicalReport(m, out);
+    out.style = p.def.visual.style;
     return out;
   }
 

@@ -43,7 +43,7 @@ import {
   TrailBuf,
   type MapFit,
 } from '../src/ui/hudlogic';
-import { DamageShow, damageWord } from '../src/ui/hud/damage';
+import { DamageShow, SHAPES, SHAPE_OF, damageWord, type Shape } from '../src/ui/hud/damage';
 import { FocusList, snap, stepIndex, type FocusRow, type Nav } from '../src/ui/nav';
 import { buildChampionshipSetup, CHAMP_DEFAULTS, CHAMP_OPPONENTS_MIN, championshipHint, modeLabel, OPPONENTS_MAX } from '../src/ui/model';
 import { formatConditions, formatPointsGap, lapsLabel, leadText, seasonTitle, trackCode } from '../src/ui/format';
@@ -411,6 +411,44 @@ describe('settings schema', () => {
     const d = (worst: number) => ({ front: worst, rear: 0, left: 0, right: 0, wheels: [0, 0, 0, 0] as [number, number, number, number] });
     expect([0.05, 0.3, 0.6, 0.95].map((w) => damageWord(d(w)))).toEqual(['Light', 'Moderate', 'Heavy', 'Severe']);
     expect(damageWord({ ...d(0.1), wheels: [0, 0, 0.8, 0] })).toBe('Severe');
+  });
+
+  it('draws each car in the outline of its body: the prototype and the 4x4 have shapes of their own, and every shape sits in its box', () => {
+    // (the three road cars share the grand tourer's: a teardrop fits them; a brick and a prototype are not one)
+    expect(CARS.map((c) => SHAPE_OF[c.visual.style])).toEqual(['gt', 'gt', 'gt', 'prototype', 'suv']);
+    const numbers = (d: string): number[] => (d.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number);
+    for (const [id, shape] of Object.entries(SHAPES) as [string, Shape][]) {
+      // the outline and the cabin are x, y pairs inside the 80 x 142 box, and symmetric about the middle (the car is)
+      for (const d of [shape.body, shape.cabin]) {
+        expect(d, id).toMatch(/^M[-\d.\sLC]+Z$/);
+        const n = numbers(d);
+        expect(n.length % 2, id).toBe(0);
+        const pts = Array.from({ length: n.length / 2 }, (_, i) => [n[2 * i], n[2 * i + 1]] as const);
+        for (const [x, y] of pts) {
+          expect(x, id).toBeGreaterThanOrEqual(0);
+          expect(x, id).toBeLessThanOrEqual(80);
+          expect(y, id).toBeGreaterThanOrEqual(0);
+          expect(y, id).toBeLessThanOrEqual(142);
+        }
+        const key = (x: number, y: number): string => `${+x.toFixed(2)},${+y.toFixed(2)}`;
+        // (as sets: a closed path ends on the point it began at)
+        expect([...new Set(pts.map(([x, y]) => key(80 - x, y)))].sort(), id).toEqual([...new Set(pts.map(([x, y]) => key(x, y)))].sort());
+      }
+      // the wheels are inside the box, the left ones mirror the right ones, the zones are in order and the flank strips do not meet
+      for (const [x, y, w, h] of shape.wheels) {
+        expect(x, id).toBeGreaterThanOrEqual(0);
+        expect(x + w, id).toBeLessThanOrEqual(80);
+        expect(y, id).toBeGreaterThanOrEqual(0);
+        expect(y + h, id).toBeLessThanOrEqual(142);
+      }
+      for (const [l, r] of [[0, 1], [2, 3]]) {
+        const [lx, ly, lw, lh] = shape.wheels[l];
+        expect(shape.wheels[r], id).toEqual([80 - lx - lw, ly, lw, lh]);
+      }
+      expect(shape.wheels[0][1] + shape.wheels[0][3], id).toBeLessThan(shape.wheels[2][1]);
+      expect(shape.front, id).toBeLessThan(shape.rear);
+      expect(2 * shape.side, id).toBeLessThan(80);
+    }
   });
 
   it('puts the word the car has earned: a wrecked tail is Severe on a car with a wing, and Light on one without', () => {

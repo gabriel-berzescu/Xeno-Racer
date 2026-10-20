@@ -80,6 +80,8 @@ the hit changed how that car drives. `Vehicle.setDamage` also refuses to scale a
 
 The wheels are every car's (toe and camber, from the hits along the flank). The indicator shows a nose by its downforce where the car has any and by its
 engine where not (so a Mammoth's stays dark until a hit reaches the radiator), and a tail by its downforce or by the trace of toe (never worse than Light).
+It draws the car in the outline of its body style (`HudDamage.style`, from `CarVisualSpec.style`): a teardrop for the road cars, a brick with flared arches
+for the Mammoth, a prototype with its front and rear wings for the LMP-X, each with its own wheels and zone splits (`SHAPES` in `src/ui/hud/damage.ts`).
 
 Track: `loadTrackRuntime(id)` is headless (physics/AI/tests use it); `buildTrackScene()` makes the
 visible world. Physics asks the track `groundAt()` for every wheel every substep and `project()`

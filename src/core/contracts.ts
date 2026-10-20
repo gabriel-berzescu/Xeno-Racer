@@ -952,6 +952,8 @@ export interface HudDamage {
   right: number;
   /** The alignment of each wheel: FL FR RL RR. */
   wheels: [number, number, number, number];
+  /** The car's body style, for the outline the indicator draws it in (a brick is not a prototype). Absent: a grand tourer's. */
+  style?: BodyStyle;
 }
 
 /** The conditions chip of a race whose weather changes, and the broadcast notice that something is about to happen to it. */
