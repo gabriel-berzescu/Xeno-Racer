@@ -396,7 +396,8 @@ const lmp: CarDefinition = {
       coldGrip: 0.74,
       // (wet-weather compound fitted when it rains: slicks would keep barely half)
       wetGrip: 0.6,
-      // (smooth rubber: the king of the asphalt, and on grass, dirt and gravel a good deal worse than a road tyre, src/physics/surfaces.ts)
+      // (a racing tyre, dry slick or wet: the king of the asphalt, and on grass, dirt and gravel a good deal worse than a road tyre, wet
+      // or dry — a racing wet's shallow grooves clear water from asphalt, not mud from turf; src/physics/surfaces.ts)
       slick: 1,
     },
     tireRear: {
