@@ -609,8 +609,8 @@ export function installShaderPatches(): PatchResult {
   }
 
   // ---- the terrain's shade -------------------------------------------------------------------
-  // (the lights block, the cascade early-out and the fog already carry it; this is the part every lit program needs: the uniform
-  // and the function, before the first of them is used, and a lit program that has no fog or no lamps still has it)
+  // (the lights block and the fog already carry it; this is the part every lit program needs: the uniform and the function, before
+  // the first of them is used, and a lit program that has no fog or no lamps still has it)
   let sunVis = false;
   if (csm && typeof chunks.lights_pars_begin === 'string' && fog) {
     chunks.lights_pars_begin = chunks.lights_pars_begin + '\n' + SUNVIS_PARS;

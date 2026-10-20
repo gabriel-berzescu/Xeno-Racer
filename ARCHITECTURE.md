@@ -124,6 +124,71 @@ is everything that belongs to a view.
 - **Session:** `Entrant.seat` marks the humans. Each has their own lap reference, stored best and results row, and `RaceResults.duel`
   says who beat whom.
 
+## Terrain shade: where the hills hide the sun
+
+The sun's cascades (`shadows.ts`) reach a few hundred metres and carry what casts into them; the terrain casts into nothing. A low sun that had
+set behind a ridge two kilometres away still glinted on the cars, lit the grass, threw long shadows of the trees and coloured the haze in front of
+the hill. The **sun visibility map** answers the question the cascades cannot, for the whole height field, with one texture lookup per fragment.
+Where the hills leave a circuit in the sun (every circuit at its morning and its noon) no map is put to use, every lit program takes the old branch
+and the picture is the old one to the pixel. Physics wins: no circuit's sun direction or time of day was moved to make a place look right.
+
+- **What is stored** (`src/render/sunVisibility.ts`, pure maths): the horizon height `H(x, z) = max over u > 0 of T(p + u a) - u tan E`, a running
+  maximum along the sun's azimuth `a`, so a point is lit when `y >= H`. One 2D texture holds the answer for every height (a road, a car roof, a hilltop,
+  the air along a view ray). The grid is laid out in the sun's frame (u toward the sun, v across) so the sweep is a plain scan of rows with no interpolation
+  between them. The sun is a disc: the sweeps run once for the lower limb and once for the upper one (the drawn disc's radius, `SUN_ANGULAR_RADIUS`) and also
+  keep the *distance* to the ground that sets each horizon, which is the slope of the horizon line in height. Four floats per node, `[H_lo - yRef, H_hi - yRef,
+  1/(u_lo dt), 1/(u_hi dt)]`, give `q = max((H_lo - y)/(u_lo dt), 1 + (H_hi - y)/(u_hi dt))` and the visible share of the disc is `smoothstep(1 - clamp(q))`:
+  the penumbra comes out of the geometry (27 m of height behind a ridge a kilometre away, half a metre behind an embankment at 20 m), and a near bank
+  with a far mountain behind it is two lines, not one blur (a plain "between two heights" model got that badly wrong).
+- **Two grids in one atlas** (`src/render/sunVisMap.ts`): a coarse grid (40 m) over all the terrain that is drawn (nothing beyond it hides the sun) and a fine
+  one (4 m, grown to fit: 5 m on the largest circuit) around the circuit and 140 m of margin, whose rows start where the coarse map left off. One RGBA32F
+  `DataTexture` (3 to 9 MB; half floats where the GPU cannot filter 32-bit ones), fine block above coarse. three clones the textures in `ShaderLib` uniforms
+  for every material, so the texture is a `SharedDataTexture` (`clone()` returns itself): one object, one upload, whatever the number of programs. The CPU's grids
+  read the atlas in place (`readGrid` with `base` and `rowStride`), so `SunVisMap.visibilityAt` is the GLSL's twin on the same bytes.
+- **Made** while the track loads, in slices of 25 ms with a yield to the browser between them: `Game.ensureTrack` hands the scene's `TrackScene.terrain`
+  (a `TerrainSource`: the drawn height, the drawn extent, the circuit's bounds) to `RenderSystem.setTerrain`, which starts the map and does not wait for it;
+  `precompile()` does, in the seconds the shader compiler takes and the page spends waiting (so the map costs the load nothing). Deterministic, keyed by
+  (circuit, sun): the same pair is not made twice, another hour on a kept scene is made again, a newer call overtakes an older one, and a map that cannot be made is
+  logged and leaves the picture as it was (a refinement is no reason for a race not to start). `TrackRuntimeImpl.drawnHeight` is the height as it is drawn: the road's carve
+  inside its corridor (a cheap test of the spatial grid's cells), the baked terrain field everywhere else (the field alone is wrong inside the corridor, where a cut looked like a wall).
+- **Active** only where the sun does not reach at least `ACTIVE_SHADE` (0.5 %) of the circuit's surroundings (the fine grid's nodes inside its bounds), or when the
+  sun is altogether below the horizon (the shader answers "dark" without a lookup): the far side of some mountain is no reason to touch a noon. Inactive: `xrSunVis[0].w`
+  (the strength) is 0, the shaders return 1 at the first line, nothing else of the picture changes. The strength is the weather's own `shadowIntensity`: a rain deck casts no shade for a hill to take away.
+  At night the light-casting body is the moon (42 degrees up): the same map is made for its direction at no cost, and no hill is high enough to hide it, so it is idle.
+- **Where it is applied** (`src/render/shaderPatches.ts`, GLSL `SUNVIS_PARS`: `xrSunVisAt(world position)`): the lights block scales light 0 (the sun) by the share the fragment sees,
+  diffuse *and* specular, outside the `receiveShadow` test (so the grass, the trees, the cars, the barriers, the buildings, the water and the snow's sparkle all agree; `xrSunVG` is the
+  per-fragment value the rest read). Also the particles' vertex stage (`fx/particleShaders.ts`: puffs, mist, chips and the snowfall), the trees'
+  translucency (`track/scene/trees.ts`), the snow's glitter (`track/scene/snow.ts`) and the driving line's fog (`drivingLine.ts`). The lookup has no branch that depends on the fragment (both grids are read,
+  the one the point is not in clamped to its block's edge and weighted 0): a version with three paths through it made the shader compiler take 0.7 s longer over the programs of a race.
+  The cascades themselves stay as they are, but where the terrain hides the sun from everything a view's cascades cover (`coveredByShade`: the focus and a ring of 8 points at 0.8 of the far cascade's radius,
+  all at the height of the tallest caster, nothing above a hundredth of the disc) `RenderSystem.fitSun` stops drawing them (`shadowsLive`, per view) and sets their shadow intensity to 0
+  (`SunShadows.setDark`), which every shadow-receiving program already answers with a uniform early-out, before the taps: in the shade the frame is shorter than it was (Aurelia at golden hour
+  4.5 ms of GPU against 3.6, Kuroyama 7.6 against 5.1).
+- **Haze** (`atmosphere.ts`, `environment.ts`, the fog chunks): the atmosphere model keeps the sun's single-scattering part of every fog-table entry apart from the sky's
+  (`SkyModel.fogTableSun`, 60 to 94 % of the horizon's luminance; `EnvSolution.fogTableSun` goes through the same desaturation, scaling and deck flattening, clamped below the total).
+  The sunlit share of the view ray (`xrSunHaze`: five taps of the coarse grid, at equal fog factor, placed by the closed form of `F = 1 - exp(-d^2 z^2 - rain z)`) is worked out at the vertices
+  (`fog_pars_vertex`/`fog_vertex`, varying `vFogSun`: it varies over kilometres of air, and five reads per fragment made the programs a second slower to build and the frame slower to draw), and
+  `xrFogColorLit` scales the sun part of the colour by it, keeping `SHADE_HAZE_GLOW` (a quarter) of it: the air in the shade of a hill is lit from the side by the bright sky above the ridge, so a hidden
+  sun leaves a hazy silhouette with a glow above it, not a dead teal. The sky itself keeps its glow; a ray in the sun gets the old colour bit for bit (`sunlitHaze` and `hazeSunShare` are the CPU twins, tested for it).
+- **The shade fill** (`src/render/shadeFill.ts`): the light of a circuit with the sun behind a ridge is the sky's alone, dimmer and bluer than the look was set for, and the shade read dark, flat
+  and teal. `shadeFill` is a diffuse-only `HemisphereLight` (no glints; always in the scene, at intensity 0 while no map is on, so that the programs of a race do not depend on what the map makes of it) whose
+  axis points at the sun, a little up; its sky side is the colour of the horizon's glow there (35 % toward the sun's own, 25 % toward grey), its ground side the same hue, a quarter as strong. It gives back `fillGain` (1.1) of the sun
+  a surface at a typical slant loses (`sunSlant(sin elevation)`: the ground catches sin(elevation) of the sun, what stands on it a quarter, so a sun 3 degrees up has hardly anything to give back and one at
+  8 degrees a little). Its intensity per view is the shade the view's car is in (`1 - visibilityAt(focus)`, smoothed over half a second so that a long penumbra shows no step) times how much the camera looks toward
+  the sun (`fillViewScale`: all of it facing the glow, where the road, the trees and the car are backlit and the picture needs it, 0.45 of it looking away, where the same surfaces face the glow
+  and with all of it the grass of a shaded straight would be brighter than the sun ever made it). `render.fillGain` and `render.sunVis.hazeGlow` are the dials.
+- **Cost** (high, 1600 x 900, vsync off; GPU ms per frame): on a spot in the sun while a map is on (Aurelia, golden hour) the map costs +0.2 (4.7 with the strength at 0, 4.9 at 1, in alternating blocks of one session:
+  most of it is the haze at the vertices, +0.15); at noon, where no map is put to use, nothing measurable; in the shade less than before, because the cascades are not drawn (Aurelia 4.6 against 3.7, Kuroyama 7.5 against
+  4.8, against the commit this branch started from). The map takes 0.1 to 0.6 s of CPU in slices (3 to 9 MB), hidden in the compile; a race loads in the time it did (8.5 s against 8.2 on Aurelia, within the noise).
+  A lit program has one more sampler (14 of the 16 units on the terrain's on High, 15 on Ultra).
+- **Parity.** A branch against the commit it started from, five circuits at morning and noon, three spots a lap, chase and cockpit, 1280x720 with SMAA, the car and the camera posed by hand (its state rounded, so
+  that two builds pose it by the same numbers) and the frame counter that seeds the film grain pinned: 57 of the 60 pictures identical to the bit but for a few speckles on the car's silhouette, the other 3 within
+  0.05 levels of the mean (leaves). Without the rounding the pictures differ by up to 0.17 levels at the edges of thin things, as much as two runs of one build do.
+- **Probes and tests:** `tests/render-sunvis.test.ts` (a synthetic ridge: behind it dark, above its shadow line lit, a penumbra that grows with distance and rises monotonically, the sun overhead lights everything,
+  two occluders against a march), `render-sunvis-gpu.test.ts` (the GLSL emulated in TS against the CPU twin and against a fresh independent field), `render-sunvis-haze.test.ts` (the sun's part never above the total, a fully
+  shadowed ray keeps only the sky's and the glow, a fully lit one is the old colour, the shape of the patches), `render-sunvismap.test.ts` (the map of a race: caching, overtaking, a failing terrain, the weather, half floats),
+  `render-shadows-dark.test.ts`, `render-shadefill.test.ts`, `track-drawn-height.test.ts`; `tests/probes/sunvis-probe.test.ts` (`SUNVIS_PROBE=1`) prints the map's verdict along every circuit's centreline against a march of the same ground.
+
 ## Winter circuits
 
 A circuit with `TrackInfo.winter` (Isvik: packed snow, a frozen lake, snowbanks for walls) is one flag that every system reads for its own
