@@ -28,6 +28,7 @@ import {
   type V3,
 } from '../src/core/damage';
 import type { VehicleState } from '../src/core/contracts';
+import { FULL_CAR, mechanicalEffects, mechanicalProfile } from '../src/core/mechanical';
 import { DEFAULT_SETTINGS, loadSettings } from '../src/core/settings';
 
 const hull: Hull = hullOf(getCar('vanta-gt').visual);
@@ -403,6 +404,45 @@ describe('reset and replay', () => {
     const fresh = new CarDamage(hull, geom);
     for (const s of b) if (s.f <= 60) fresh.apply(s.e);
     expect(snap(d)).toBe(snap(fresh));
+  });
+
+  it('looks the same on every car, and only what the hits cost it differs: the fold is the car-less one, the profile says what it means', () => {
+    const list = stamp(events(40));
+    const everything = new CarDamage(hull, geom);
+    const cars = CARS.map((def) => ({ def, d: new CarDamage(hull, geom, mechanicalProfile(def)) }));
+    for (const s of list) {
+      everything.apply(s.e);
+      for (const c of cars) c.d.apply(s.e);
+    }
+    const energies = (d: CarDamage): number[] => [d.mech.front, d.mech.rear, ...d.mech.wheel];
+    for (const { def, d } of cars) {
+      // dents, marks, lamps, glass and the severity of the zones are the same for every car; so is the energy each part took
+      expect(snap(d), def.id).toBe(snap(everything));
+      expect(energies(d), def.id).toEqual(energies(everything));
+      // what it comes to is not: the aero of a car that has none stays a one, however much the nose and the tail took
+      const e = mechanicalEffects(d.mech);
+      const P = mechanicalProfile(def);
+      expect(e.aeroFront === 1, def.id).toBe(!P.frontAero);
+      expect(e.aeroRear === 1, def.id).toBe(!P.rearAero);
+      expect(e.toe, def.id).toEqual(mechanicalEffects(everything.mech).toe);
+    }
+    expect(mechanicalEffects(everything.mech).aeroFront).toBeLessThan(0.7);
+  });
+
+  it('keeps what the car can lose through a reset, a replay and the next crash', () => {
+    const profile = mechanicalProfile(getCar('mammoth'));
+    const d = new CarDamage(hull, geom, profile);
+    expect(d.mech.profile).toBe(profile);
+    for (const e of events(20)) d.apply(e);
+    d.reset();
+    expect(d.mech.profile).toBe(profile);
+    d.syncTo(stamp(events(20)), 100);
+    expect(d.mech.profile).toBe(profile);
+    d.syncTo(stamp(events(5)), 0);
+    expect(d.mech.profile).toBe(profile);
+    expect(mechanicalEffects(d.mech).aeroFront).toBe(1);
+    // and a car given none is a car that has everything
+    expect(new CarDamage(hull, geom).mech.profile).toBe(FULL_CAR);
   });
 });
 

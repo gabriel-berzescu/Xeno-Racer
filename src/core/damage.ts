@@ -9,15 +9,15 @@
  * events it recorded (CarDamage.syncTo). Body frame = the car visual's frame: origin on the ground between the axles,
  * +Z forward, +X left, +Y up.
  *
- * The same hits also feed the mechanical damage (src/core/mechanical.ts: bent suspension, lost downforce, a tired engine): each
- * CarDamage keeps it next to the dents, and the game puts it on the physics only in Settings: Damage, Full.
+ * The same hits also feed the mechanical damage (src/core/mechanical.ts: bent suspension, lost downforce and a tired engine on the cars that
+ * have them to lose): each CarDamage keeps it next to the dents, and the game puts it on the physics only in Settings: Damage, Full.
  *
  * Calibration (tests/damage-probe.test.ts measures it): `strength` is the closing speed along the contact normal in
  * m/s. A 4 degree graze of a barrier at 200 km/h reads 3 m/s, a 25 degree one 23 m/s, head on at 60 km/h 14 m/s and at
  * 200 km/h 56 m/s. The hits between AI cars in a pack race read 1.3 to 3.2 m/s.
  */
 import { bodyCgZ, type CarVisualSpec, type DamageMode, type VehicleState } from './contracts';
-import { MechState, axleShare, hitEnergy } from './mechanical';
+import { FULL_CAR, MechState, axleShare, hitEnergy, type MechProfile } from './mechanical';
 
 export type V3 = [number, number, number];
 
@@ -340,10 +340,11 @@ export class CarDamage {
   readonly cracks: GlassCrack[] = [];
   readonly zones: ZoneDamageMap = freshZones();
   /**
-   * What the hits did to the mechanics: bent suspension, lost downforce, a tired engine (src/core/mechanical.ts). Kept in every
-   * mode that records damage; only Settings: Damage, Full puts it on the physics. `mech.version` moves when it changes.
+   * What the hits did to the mechanics: bent suspension, and lost downforce and a tired engine where the car has them to lose
+   * (src/core/mechanical.ts). Kept in every mode that records damage; only Settings: Damage, Full puts it on the physics.
+   * `mech.version` moves when it changes.
    */
-  readonly mech = new MechState();
+  readonly mech: MechState;
   /** increments on every change: the renderer refreshes its uniforms when it moves */
   version = 0;
   /** The newest hit: where it landed on the body and what it broke, for the debris thrown off around the car. */
@@ -353,10 +354,14 @@ export class CarDamage {
   private replayList: readonly StampedEvent[] | null = null;
   private replayCursor = 0;
 
+  /** `mech`: what this car can lose (mechanicalProfile of its definition); without one it is a car that has everything. The look of the damage is the same for every car. */
   constructor(
     readonly hull: Hull,
     readonly geom: DamageGeometry,
-  ) {}
+    mech: MechProfile = FULL_CAR,
+  ) {
+    this.mech = new MechState(mech);
+  }
 
   /** Back to a pristine car. */
   reset(): void {

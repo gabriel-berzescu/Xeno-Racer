@@ -8,7 +8,7 @@ import { CARS, getCar } from '../../src/cars';
 import { DEFAULT_SETTINGS } from '../../src/core/settings';
 import type { Difficulty, TrackFrame, TrackPoint } from '../../src/core/contracts';
 import { CarDamage, ImpactObserver, hullOf } from '../../src/core/damage';
-import { mechanicalWorst, type MechState } from '../../src/core/mechanical';
+import { mechanicalProfile, mechanicalWorst, type MechState } from '../../src/core/mechanical';
 import { NitroTank } from '../../src/core/nitro';
 import { MechLink } from '../../src/game/mechsync';
 import { PhysicsWorld, type Vehicle } from '../../src/physics';
@@ -86,7 +86,7 @@ export function runPack(trackId: string, carSpec: string, diff: Difficulty, n: n
   const records = opts.full || opts.initial
     ? cars.map((c, i) => {
         const def = c.v.def;
-        const dmg = new CarDamage(hullOf(def.visual), { surfacePoint: (p) => [p[0], 0.5, p[2]], lamps: [] });
+        const dmg = new CarDamage(hullOf(def.visual), { surfacePoint: (p) => [p[0], 0.5, p[2]], lamps: [] }, mechanicalProfile(def));
         const obs = new ImpactObserver(dmg.hull);
         obs.otherAt = (x, y, z) => {
           let best = 16;

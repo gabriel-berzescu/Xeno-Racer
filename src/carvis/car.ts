@@ -39,7 +39,7 @@ import {
 } from 'three';
 import { bodyCgZ, type CarDefinition, type DamageMode, type EnvironmentState, type Livery, type QualityLevel, type VehicleState } from '../core/contracts';
 import { CarDamage, ImpactObserver, MAX_DENTS, hullOf, type CarDamageControl, type DamageEvent } from '../core/damage';
-import { mechanicalEffects, neutralEffects } from '../core/mechanical';
+import { mechanicalEffects, mechanicalProfile, neutralEffects } from '../core/mechanical';
 import type { CarVisual } from '../core/systems';
 import { VERTEX_STRIDE, type BodyData, type PartData } from './build';
 import { makeDamageGeometry, partBounds } from './damageGeometry';
@@ -453,7 +453,8 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
   // The model (src/core/damage.ts) is a fold over the car's hit events; here it is fed from the VehicleState, drawn
   // through the body shader's uniform tables (damageShader.ts) and, for the lamps, through the lights themselves.
   const hull = hullOf(spec);
-  const dmg = new CarDamage(hull, makeDamageGeometry(data.lod0, spec));
+  // (what a hit can take from this car, from its own numbers: a lift is not downforce, a mid-engined car does not cool through its nose)
+  const dmg = new CarDamage(hull, makeDamageGeometry(data.lod0, spec), mechanicalProfile(def));
   const observer = new ImpactObserver(hull);
   let dmgMode: DamageMode = 'visual';
   /** Damage: Full: the toe and camber the bent wheels stand at (src/core/mechanical.ts), made when the record changes, and how much bigger than true they are drawn. */

@@ -5,13 +5,14 @@
 import { describe, expect, it } from 'vitest';
 import { AIDriver, damageFactors, profileLapTime } from '../src/ai';
 import { getCar } from '../src/cars';
-import { MechState, mechanicalEffects, neutralEffects } from '../src/core/mechanical';
+import { MechState, mechanicalEffects, mechanicalProfile, neutralEffects } from '../src/core/mechanical';
 import { loadTrackRuntime } from '../src/track';
 import { damagedLaps } from './probes/damage-lap';
 import { runPack } from './probes/pack-race';
 
-const wreck = (parts: { front?: number; rear?: number; wheels?: [number, number, number, number] }) => {
-  const m = new MechState();
+/** The damage of a car that has everything to lose, or (with `car`) of the car it is: its record knows what it can lose. */
+const wreck = (parts: { front?: number; rear?: number; wheels?: [number, number, number, number] }, car?: string) => {
+  const m = new MechState(car ? mechanicalProfile(getCar(car)) : undefined);
   const e = (w: number): number => -Math.log(1 - Math.min(w, 0.999999));
   m.front = e(parts.front ?? 0);
   m.rear = e(parts.rear ?? 0);
@@ -71,6 +72,29 @@ describe('a driver that learns of damage', () => {
     expect(lighter.aero).toBeGreaterThan(f.aero);
     expect(lighter.grip).toBeGreaterThanOrEqual(f.grip);
   });
+
+  it('does not slow a car for downforce it does not have, and does for the cars that have it', () => {
+    const track = loadTrackRuntime('aurelia');
+    // a nose and a tail in pieces, and the wheels sound: all that is left to tell is the air
+    for (const id of ['mammoth', 'kestrel-r', 'ronin-86']) {
+      const def = getCar(id);
+      const fx = wreck({ front: 1, rear: 1 }, id);
+      expect(damageFactors(fx), id).toEqual({ grip: 1, aero: 1 });
+      const driver = new AIDriver(track, def, { difficulty: 'pro', seed: 3 });
+      const before = Float32Array.from(driver.profile.v);
+      driver.setDamage(fx, 0);
+      expect(Float32Array.from(driver.profile.v), id).toEqual(before);
+    }
+    for (const id of ['vanta-gt', 'lmp-x']) {
+      const driver = new AIDriver(track, getCar(id), { difficulty: 'pro', seed: 3 });
+      const before = Float32Array.from(driver.profile.v);
+      driver.setDamage(wreck({ front: 1, rear: 1 }, id), 0);
+      expect(damageFactors(wreck({ front: 1, rear: 1 }, id)).aero, id).toBeLessThan(0.95);
+      expect(Float32Array.from(driver.profile.v), id).not.toEqual(before);
+    }
+    // what is left of the Mammoth's lift, told as the car that has downforce, is what used to make a bent Mammoth's driver corner a little faster
+    expect(damageFactors(wreck({ front: 1, rear: 1 })).aero).toBeLessThan(0.95);
+  });
 });
 
 describe('a damaged AI car on the circuits', () => {
@@ -79,12 +103,15 @@ describe('a damaged AI car on the circuits', () => {
   const cases: [string, string][] = [
     ['aurelia', 'lmp-x'],
     ['portovela', 'vanta-gt'],
+    ['aurelia', 'mammoth'],
   ];
   for (const [trackId, carId] of cases)
     it(`laps ${trackId} cleanly in the ${carId} with everything bent`, () => {
+      // (everything the car can lose: the Mammoth has no downforce to lose, the LMP-X keeps its engine)
+      const everything = wreck({ front: 1, rear: 1, wheels: [1, 1, 1, 1] }, carId);
       const sound = damagedLaps(trackId, carId, null, { laps: 2 });
-      const knows = damagedLaps(trackId, carId, EVERYTHING, { laps: 2 });
-      const blind = damagedLaps(trackId, carId, EVERYTHING, { laps: 2, adapt: false });
+      const knows = damagedLaps(trackId, carId, everything, { laps: 2 });
+      const blind = damagedLaps(trackId, carId, everything, { laps: 2, adapt: false });
       for (const r of [sound, knows, blind]) {
         expect(r.lapTimes.length).toBe(2);
         expect(r.resets).toBe(0);

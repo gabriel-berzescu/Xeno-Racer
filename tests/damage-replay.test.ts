@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { makeVehicleState } from '../sandbox/audio/drive-sim';
 import { getCar } from '../src/cars';
 import { CarDamage, hullOf, type DamageEvent, type DamageGeometry, type V3 } from '../src/core/damage';
+import { mechanicalEffects, mechanicalProfile, mechanicalReport } from '../src/core/mechanical';
 import { REPLAY_STRIDE, ReplayPlayer, ReplayRecorder } from '../src/game/replay';
 
 const hull = hullOf(getCar('kestrel-r').visual);
@@ -112,3 +113,61 @@ describe('replay frames', () => {
     expect(shown.pristine).toBe(true);
   });
 });
+
+describe('the mechanics of a replay', () => {
+  // The record of a replay moment is the live car's at that moment, and it means what it means for the car it belongs to: a Mammoth's
+  // replay shows no lost downforce at any moment (it has none), a Vanta GT's shows it as the tail is hit.
+  const rebuild = (id: string) => {
+    const def = getCar(id);
+    const h = hullOf(def.visual);
+    const profile = mechanicalProfile(def);
+    const events: DamageEvent[] = [hit(14, [0, 0.6, h.front], [0, 0, -1]), hit(9, [h.hw, 0.6, 0], [-1, 0, 0]), hit(20, [0, 0.6, h.rear], [0, 0, 1])];
+    const live = new CarDamage(h, geom, profile);
+    const liveAt: string[] = []; // the live car's mechanics after each frame: what the physics gets, and what the HUD draws
+    const read = (d: CarDamage): string => {
+      const out = { front: 0, rear: 0, left: 0, right: 0, wheels: [0, 0, 0, 0] as [number, number, number, number] };
+      mechanicalReport(d.mech, out);
+      return JSON.stringify([mechanicalEffects(d.mech), out]);
+    };
+    const { states, rec } = record(1, 60, (f, r) => {
+      const idx = [10, 25, 40].indexOf(f);
+      if (idx >= 0) {
+        live.apply(events[idx]);
+        r.addDamage(0, events[idx]);
+      }
+      liveAt.push(read(live));
+    });
+    const player = new ReplayPlayer(rec, states);
+    const shown = new CarDamage(h, geom, profile);
+    const at = (t: number): string => {
+      player.apply(t);
+      shown.syncTo(rec.damage[0], player.frame);
+      return read(shown);
+    };
+    return { at, liveAt, shown };
+  };
+
+  it('shows the mechanics of the moment, forward, back and after a seek, for the car it belongs to', () => {
+    for (const id of ['mammoth', 'vanta-gt', 'lmp-x']) {
+      const { at, liveAt } = rebuild(id);
+      for (const f of [0, 9, 11, 26, 41, 58, 30, 5, 41, 12, 59, 24, 0]) expect(at(f / 30), `${id} frame ${f}`).toBe(liveAt[f]);
+    }
+  });
+
+  it('keeps the Mammoth its lift and its engine apart: no lost downforce at any moment, a tired engine once the nose is hit hard', () => {
+    const { at } = rebuild('mammoth');
+    const effects = (f: number): { aeroFront: number; aeroRear: number; power: number } => JSON.parse(at(f / 30))[0];
+    for (let f = 0; f < 60; f += 3) {
+      const e = effects(f);
+      expect([e.aeroFront, e.aeroRear], `frame ${f}`).toEqual([1, 1]);
+    }
+    expect(effects(5).power).toBe(1);
+    expect(effects(11).power).toBeLessThan(1);
+    // the Vanta GT's wings do go, at the moment of the hit and not before
+    const gt = rebuild('vanta-gt');
+    expect(JSON.parse(gt.at(5 / 30))[0].aeroFront).toBe(1);
+    expect(JSON.parse(gt.at(11 / 30))[0].aeroFront).toBeLessThan(1);
+    expect(JSON.parse(gt.at(41 / 30))[0].aeroRear).toBeLessThan(1);
+  });
+});
+

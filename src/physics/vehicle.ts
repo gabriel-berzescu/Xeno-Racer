@@ -486,12 +486,17 @@ export class Vehicle {
    * Mechanical damage (src/core/mechanical.ts): bent suspension (toe and camber per wheel), lost downforce at either axle and a
    * tired engine. null, or effects that change nothing, repairs the car. The values are read into plain fields here, so the
    * substep stays free of allocations and costs nothing on a sound car; call it when the damage changes, not every frame.
+   *
+   * Damage only ever takes downforce away, and only from an axle that has some: a lift area of nothing or less (the Mammoth's is lift, a
+   * brick with a light bar) keeps its aero whatever it is handed, since a multiplier below one on a lift is less lift, a car that
+   * gets better in a crash. (mechanicalEffects already hands a car with no downforce a one; this keeps the physics right on its own.)
    */
   setDamage(e: MechEffects | null): void {
     const fx = e && !isNeutral(e) ? e : null;
     this.damage = fx && cloneEffects(fx);
-    this.aeroFrontMul = fx ? fx.aeroFront : 1;
-    this.aeroRearMul = fx ? fx.aeroRear : 1;
+    const aero = this.spec.aero;
+    this.aeroFrontMul = fx && aero.liftAreaFront > 0 ? clamp01(fx.aeroFront) : 1;
+    this.aeroRearMul = fx && aero.liftAreaRear > 0 ? clamp01(fx.aeroRear) : 1;
     this.powerMul = fx ? fx.power : 1;
     this.toeMean = fx ? 0.5 * (fx.toe[0] + fx.toe[1]) : 0;
     for (let i = 0; i < 4; i++) {

@@ -4,18 +4,19 @@
  *
  *   DMGCAL=pull npx vitest run tests/probes/damage-calib.test.ts       how far a damaged car wanders with the wheel centred, and the
  *                                                                      steering it takes to go straight (wheel angle, stick)
- *   DMGCAL=grip ...                                                    skidpad, top speed and 0-100 of the damaged car
+ *   DMGCAL=grip [DMGCARS=vanta-gt,mammoth] ...                         skidpad, top speed and 0-100 of the damaged car
  *   DMGCAL=lap  [DMGTRACK=aurelia] [DMGCARS=vanta-gt,lmp-x] ...        AI laps of a damaged car, lap time against the sound car
  *   DMGCAL=sweep                                                       every car on every circuit, badly bent: clean AI laps?
  *
- * Output goes to .cache/damage-calib-<what>.txt.
+ * Every scenario is made for the car it is run on, the way the game does (the car's record knows what it can lose: nothing is taken from
+ * the Mammoth's lift, and the LMP-X's nose does not tire its engine). Output goes to .cache/damage-calib-<what>.txt.
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { Quaternion, Vector3 } from 'three';
 import { describe, expect, it } from 'vitest';
 import { CARS, getCar } from '../../src/cars';
 import type { CarDefinition } from '../../src/core/contracts';
-import { MECH_TUNING, MechState, mechanicalEffects, type MechEffects } from '../../src/core/mechanical';
+import { MECH_TUNING, MechState, mechanicalEffects, mechanicalProfile, type MechEffects } from '../../src/core/mechanical';
 import { DEFAULT_SETTINGS } from '../../src/core/settings';
 import { PhysicsWorld, createFlatTrack, type Vehicle } from '../../src/physics';
 import { damagedLaps, fmtLap } from './damage-lap';
@@ -24,9 +25,13 @@ const DEG = Math.PI / 180;
 const G = 9.81;
 const what = process.env.DMGCAL ?? '';
 
-/** A damage state made the way a crash makes it: energy straight into the parts (wear 0..1 each, 1 = as bad as it gets). */
-export function state(parts: { front?: number; rear?: number; wheels?: [number, number, number, number] }): MechEffects {
-  const m = new MechState();
+/**
+ * A damage state made the way a crash makes it: energy straight into the parts (wear 0..1 each, 1 = as bad as it gets). Of the car it is
+ * given (its record knows what the car can lose: no downforce taken from the Mammoth, no engine from the LMP-X's nose); without one, of a
+ * car that has everything.
+ */
+export function state(parts: { front?: number; rear?: number; wheels?: [number, number, number, number] }, car?: CarDefinition): MechEffects {
+  const m = new MechState(car && mechanicalProfile(car));
   const e = (w: number): number => -Math.log(1 - Math.min(w, 0.999999));
   m.front = e(parts.front ?? 0);
   m.rear = e(parts.rear ?? 0);
@@ -36,33 +41,34 @@ export function state(parts: { front?: number; rear?: number; wheels?: [number, 
 }
 
 /** The state a real crash left (the hit energies of the record, see .cache/dmg/mech/table-*.json from the live crash table). */
-function crash(front: number, rear: number, wheel: [number, number, number, number]): MechEffects {
-  const m = new MechState();
+function crash(front: number, rear: number, wheel: [number, number, number, number], car?: CarDefinition): MechEffects {
+  const m = new MechState(car && mechanicalProfile(car));
   m.front = front;
   m.rear = rear;
   for (let i = 0; i < 4; i++) m.wheel[i] = wheel[i];
   return mechanicalEffects(m);
 }
 
-const SCENARIOS: [string, MechEffects][] = [
-  ['sound', state({})],
+/** The scenarios, as they come out for a car: what its record makes of them (without a car, of a car that has everything to lose). */
+const scenarios = (car?: CarDefinition): [string, MechEffects][] => [
+  ['sound', state({}, car)],
   // what real crashes of the Vanta GT into Aurelia's left barrier left in the record (closing speeds in m/s)
-  ['crash 25deg 60 km/h (5.8)', crash(0.036, 0.002, [0.036, 0, 0.002, 0])],
-  ['crash 25deg 100 km/h (11+13)', crash(0.253, 0.344, [0.253, 0, 0.344, 0])],
-  ['crash 25deg 150 km/h (17)', crash(0.747, 0, [0.747, 0, 0, 0])],
-  ['crash 25deg 200 km/h (23+28)', crash(3.699, 0, [3.699, 0, 0, 0])],
-  ['crash head-on 60 km/h (14)', crash(0.419, 0, [0.419, 0, 0, 0])],
-  ['crash head-on 100 km/h (26)', crash(1.919, 0, [1.919, 0, 0, 0])],
-  ['FL wheel 0.3', state({ wheels: [0.3, 0, 0, 0] })],
-  ['FL wheel 0.6', state({ wheels: [0.6, 0, 0, 0] })],
-  ['FL wheel 1.0', state({ wheels: [1, 0, 0, 0] })],
-  ['left flank 0.6 (FL+RL)', state({ wheels: [0.6, 0, 0.6, 0] })],
-  ['RL wheel 1.0', state({ wheels: [0, 0, 1, 0] })],
-  ['nose 0.6', state({ front: 0.6 })],
-  ['nose 1.0', state({ front: 1 })],
-  ['tail 1.0', state({ rear: 1 })],
-  ['everything 1.0', state({ front: 1, rear: 1, wheels: [1, 1, 1, 1] })],
-  ['FL corner crash', state({ front: 0.6, wheels: [0.6, 0, 0, 0] })],
+  ['crash 25deg 60 km/h (5.8)', crash(0.036, 0.002, [0.036, 0, 0.002, 0], car)],
+  ['crash 25deg 100 km/h (11+13)', crash(0.253, 0.344, [0.253, 0, 0.344, 0], car)],
+  ['crash 25deg 150 km/h (17)', crash(0.747, 0, [0.747, 0, 0, 0], car)],
+  ['crash 25deg 200 km/h (23+28)', crash(3.699, 0, [3.699, 0, 0, 0], car)],
+  ['crash head-on 60 km/h (14)', crash(0.419, 0, [0.419, 0, 0, 0], car)],
+  ['crash head-on 100 km/h (26)', crash(1.919, 0, [1.919, 0, 0, 0], car)],
+  ['FL wheel 0.3', state({ wheels: [0.3, 0, 0, 0] }, car)],
+  ['FL wheel 0.6', state({ wheels: [0.6, 0, 0, 0] }, car)],
+  ['FL wheel 1.0', state({ wheels: [1, 0, 0, 0] }, car)],
+  ['left flank 0.6 (FL+RL)', state({ wheels: [0.6, 0, 0.6, 0] }, car)],
+  ['RL wheel 1.0', state({ wheels: [0, 0, 1, 0] }, car)],
+  ['nose 0.6', state({ front: 0.6 }, car)],
+  ['nose 1.0', state({ front: 1 }, car)],
+  ['tail 1.0', state({ rear: 1 }, car)],
+  ['everything 1.0', state({ front: 1, rear: 1, wheels: [1, 1, 1, 1] }, car)],
+  ['FL corner crash', state({ front: 0.6, wheels: [0.6, 0, 0, 0] }, car)],
 ];
 
 function carAt(def: CarDefinition, kmh: number, fx: MechEffects | null) {
@@ -139,7 +145,7 @@ describe('damage calibration', () => {
       out.push(`== ${id}`);
       for (const kmh of [100, 200]) {
         out.push(`  at ${kmh} km/h: scenario | drift in 4 s with the wheel centred (m, heading deg) | steering to hold straight: road wheel deg, stick %`);
-        for (const [name, fx] of SCENARIOS) {
+        for (const [name, fx] of scenarios(def)) {
           const free = wander(def, kmh, fx, 0);
           const trim = trimSteer(def, kmh, fx);
           const wheelDeg = trim * def.physics.chassis.maxSteer / DEG;
@@ -162,7 +168,7 @@ describe('damage calibration', () => {
         const sound = damagedLaps(trackId, carId, null, { laps });
         const ref = sound.lapTimes.slice(1).reduce((a, b) => a + b, 0) / Math.max(1, sound.lapTimes.length - 1);
         out.push(`== ${trackId} ${carId}: sound laps ${sound.lapTimes.map(fmtLap).join(' ')}  (reference ${fmtLap(ref)})  walls ${sound.walls} off ${sound.off.toFixed(1)}s resets ${sound.resets}`);
-        for (const [name, fx] of SCENARIOS.slice(1)) {
+        for (const [name, fx] of scenarios(getCar(carId)).slice(1)) {
           if (process.env.DMGONLY && !process.env.DMGONLY.split(',').some((p) => name.startsWith(p))) continue;
           const row = [`  ${name.padEnd(26)}`];
           for (const adapt of [false, true]) {
@@ -182,16 +188,16 @@ describe('damage calibration', () => {
   it.skipIf(what !== 'sweep')('every car on every circuit, badly bent, stays clean (AI laps)', () => {
     const out: string[] = [];
     const fails: string[] = [];
-    const bent: [string, MechEffects][] = [
-      ['25deg 200 km/h', crash(3.699, 0, [3.699, 0, 0, 0])],
-      ['wrecked everywhere', state({ front: 1, rear: 1, wheels: [1, 1, 1, 1] })],
-      ['right flank and tail', state({ rear: 0.9, wheels: [0, 0.9, 0, 0.9] })],
+    const bentFor = (car: CarDefinition): [string, MechEffects][] => [
+      ['25deg 200 km/h', crash(3.699, 0, [3.699, 0, 0, 0], car)],
+      ['wrecked everywhere', state({ front: 1, rear: 1, wheels: [1, 1, 1, 1] }, car)],
+      ['right flank and tail', state({ rear: 0.9, wheels: [0, 0.9, 0, 0.9] }, car)],
     ];
     for (const trackId of ['aurelia', 'kuroyama', 'brennwald', 'portovela']) {
       for (const car of CARS) {
         const sound = damagedLaps(trackId, car.id, null, { laps: 2 });
         const ref = sound.lapTimes[1];
-        for (const [name, fx] of bent) {
+        for (const [name, fx] of bentFor(car)) {
           const r = damagedLaps(trackId, car.id, fx, { laps: 2 });
           const lap = r.lapTimes[1];
           const clean = r.resets === 0 && r.walls === 0 && r.off < 1 && r.lapTimes.length === 2;
@@ -209,10 +215,10 @@ describe('damage calibration', () => {
 
   it.skipIf(what !== 'grip')('grip, top speed and acceleration of a damaged car', () => {
     const out: string[] = [];
-    for (const id of ['vanta-gt', 'kestrel-r', 'ronin-86', 'lmp-x']) {
+    for (const id of (process.env.DMGCARS ?? 'vanta-gt,kestrel-r,ronin-86,lmp-x,mammoth').split(',')) {
       const def = getCar(id);
       out.push(`== ${id}`);
-      for (const [name, fx] of SCENARIOS) {
+      for (const [name, fx] of scenarios(def)) {
         const t = topSpeed(def, fx);
         const acc = zeroTo(def, fx, 100);
         const pad = skidpad(def, fx, 60);

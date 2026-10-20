@@ -1,13 +1,16 @@
 /**
  * Mechanical damage (Settings: Damage, Full): how a crash is turned into bent suspension, lost downforce and a tired engine
- * (src/core/mechanical.ts), what that does to the physics, and when it comes and goes.
+ * (src/core/mechanical.ts), what that does to the physics, and when it comes and goes. And what each car has to lose: the Mammoth's
+ * lift, the Kestrel's and the Ronin's lips, the LMP-X's radiators in its side pods.
  */
 import { Quaternion, Vector3 } from 'three';
 import { describe, expect, it } from 'vitest';
 import { CARS, getCar } from '../src/cars';
+import type { CarDefinition, HudDamage } from '../src/core/contracts';
 import { CarDamage, hash01, hullOf, type DamageEvent, type DamageGeometry, type HitEvent, type StampedEvent, type V3 } from '../src/core/damage';
 import {
   DAMAGE_SHOWN,
+  FULL_CAR,
   MECH_TUNING,
   MechState,
   axleShare,
@@ -15,11 +18,14 @@ import {
   hitWear,
   isNeutral,
   mechanicalEffects,
+  mechanicalProfile,
   mechanicalReport,
   mechanicalWorst,
   neutralEffects,
+  reportWorst,
   wear,
   type MechEffects,
+  type MechProfile,
 } from '../src/core/mechanical';
 import { MechLink } from '../src/game/mechsync';
 import { PhysicsWorld, createFlatTrack, type Vehicle } from '../src/physics';
@@ -33,9 +39,9 @@ const midZ = (hull.front + hull.rear) / 2;
 const wall = (strength: number, p: V3, n: V3 = [-1, 0, 0]): HitEvent => ({ type: 'hit', kind: 'wall', strength, p, n, slide: [0, 0, 20] });
 const carHit = (strength: number, p: V3, n: V3 = [0, 0, 1]): HitEvent => ({ type: 'hit', kind: 'car', strength, p, n, slide: [0, 0, 1] });
 
-/** A damage state made directly: the wear (0..1) of the nose, the tail and each wheel. */
-function state(parts: { front?: number; rear?: number; wheels?: [number, number, number, number] }): MechState {
-  const m = new MechState();
+/** A damage state made directly: the wear (0..1) of the nose, the tail and each wheel, on a car that has `profile` to lose (all of it, without). */
+function state(parts: { front?: number; rear?: number; wheels?: [number, number, number, number] }, profile?: MechProfile): MechState {
+  const m = new MechState(profile);
   const e = (w: number): number => -Math.log(1 - Math.min(w, 0.999999));
   m.front = e(parts.front ?? 0);
   m.rear = e(parts.rear ?? 0);
@@ -44,6 +50,13 @@ function state(parts: { front?: number; rear?: number; wheels?: [number, number,
   return m;
 }
 const fx = (parts: Parameters<typeof state>[0]): MechEffects => mechanicalEffects(state(parts));
+/** The same on a given car: its record knows what the car can lose. */
+const fxOf = (def: CarDefinition, parts: Parameters<typeof state>[0]): MechEffects => mechanicalEffects(state(parts, mechanicalProfile(def)));
+const hudOf = (def: CarDefinition, parts: Parameters<typeof state>[0]): HudDamage => {
+  const out: HudDamage = { front: 0, rear: 0, left: 0, right: 0, wheels: [0, 0, 0, 0] };
+  mechanicalReport(state(parts, mechanicalProfile(def)), out);
+  return out;
+};
 
 describe('what a hit counts for', () => {
   it('ignores everything up to the dent threshold, and rises smoothly above it', () => {
@@ -296,9 +309,165 @@ describe('what the damage does, as numbers', () => {
   });
 });
 
+// ── what each car has to lose ─────────────────────────────────────────────────────
+
+describe('what each car can lose', () => {
+  const byId = (id: string): MechProfile => mechanicalProfile(getCar(id));
+  const whole = { front: 1, rear: 1, wheels: [1, 1, 1, 1] as [number, number, number, number] };
+
+  it('is read off the car: the downforce it really has, the radiator in its nose', () => {
+    // the Vanta GT: real downforce and an engine in front; the Kestrel R and the Ronin 86: a lip and a ducktail, an engine in front; the LMP-X:
+    // wings, and the radiators of a mid-engined car in its side pods; the Mammoth: lift, and an engine in front
+    expect(byId('vanta-gt')).toEqual({ frontAero: true, rearAero: true, noseEngine: true });
+    expect(byId('kestrel-r')).toEqual({ frontAero: false, rearAero: false, noseEngine: true });
+    expect(byId('ronin-86')).toEqual({ frontAero: false, rearAero: false, noseEngine: true });
+    expect(byId('lmp-x')).toEqual({ frontAero: true, rearAero: true, noseEngine: false });
+    expect(byId('mammoth')).toEqual({ frontAero: false, rearAero: false, noseEngine: true });
+    // a record kept without a car is a car that has all of it, which is what the tests above are about
+    expect(FULL_CAR).toEqual({ frontAero: true, rearAero: true, noseEngine: true });
+    expect(new MechState().profile).toBe(FULL_CAR);
+  });
+
+  it('counts downforce by the lift area per tonne, never counts lift, and puts the radiator where the engine is', () => {
+    const made = (front: number, rear: number, mass: number, engine: 'front' | 'mid' | 'rear' = 'front') => ({
+      physics: { ...vanta.physics, chassis: { ...vanta.physics.chassis, mass }, aero: { ...vanta.physics.aero, liftAreaFront: front, liftAreaRear: rear } },
+      visual: { ...vanta.visual, engine },
+    });
+    const per = MECH_TUNING.aeroMin;
+    // a tonne: just under the line, and just over it
+    expect(mechanicalProfile(made(per * 0.99, per * 1.01, 1000))).toMatchObject({ frontAero: false, rearAero: true });
+    // twice the car for the same area: half of it is pressed down
+    expect(mechanicalProfile(made(per * 1.01, per * 2.01, 2000))).toMatchObject({ frontAero: false, rearAero: true });
+    // nothing, and lift, are not downforce, however light the car
+    expect(mechanicalProfile(made(0, -0.3, 400))).toMatchObject({ frontAero: false, rearAero: false });
+    // where the engine is
+    expect(mechanicalProfile(made(1, 1, 1000, 'front')).noseEngine).toBe(true);
+    expect(mechanicalProfile(made(1, 1, 1000, 'mid')).noseEngine).toBe(false);
+    expect(mechanicalProfile(made(1, 1, 1000, 'rear')).noseEngine).toBe(false);
+    // and the roster sits well clear of the line: nothing hangs on a third decimal
+    for (const def of CARS) {
+      const t = def.physics.chassis.mass / 1000;
+      for (const a of [def.physics.aero.liftAreaFront, def.physics.aero.liftAreaRear]) {
+        const perTonne = a / t;
+        expect(perTonne < 0.7 * per || perTonne > 1.4 * per, `${def.id} ${a}`).toBe(true);
+      }
+    }
+  });
+
+  it('takes downforce only from an axle that has some, and engine power only through a nose that cools it', () => {
+    const all = fx(whole);
+    for (const def of CARS) {
+      const P = mechanicalProfile(def);
+      const worst = fxOf(def, whole);
+      // exactly what a car with everything loses where this car has it, and nothing where it has not
+      expect(worst.aeroFront, def.id).toBe(P.frontAero ? all.aeroFront : 1);
+      expect(worst.aeroRear, def.id).toBe(P.rearAero ? all.aeroRear : 1);
+      expect(worst.power, def.id).toBe(P.noseEngine ? all.power : 1);
+      // the wheels are every car's
+      expect(worst.toe, def.id).toEqual(all.toe);
+      expect(worst.camber, def.id).toEqual(all.camber);
+      expect(worst.camberGrip, def.id).toEqual(all.camberGrip);
+      // a hit only ever takes: no multiplier rises above one
+      expect(Math.max(worst.aeroFront, worst.aeroRear, worst.power), def.id).toBeLessThanOrEqual(1);
+      // the engine is the nose's alone, and only on a car with its radiator there
+      expect(fxOf(def, { rear: 1 }).power, def.id).toBe(1);
+      expect(fxOf(def, { wheels: [1, 1, 1, 1] }).power, def.id).toBe(1);
+      expect(fxOf(def, { front: 1 }).power < 1, def.id).toBe(def.visual.engine === 'front');
+    }
+    // the LMP-X keeps its engine through everything; its wings are the nose's and the tail's
+    const lmp = getCar('lmp-x');
+    expect(fxOf(lmp, whole).power).toBe(1);
+    expect(fxOf(lmp, { front: 1 }).aeroFront).toBeCloseTo(1 - MECH_TUNING.aeroFront, 6);
+    expect(fxOf(lmp, { rear: 1 }).aeroRear).toBeCloseTo(1 - MECH_TUNING.aeroRear, 6);
+  });
+
+  it('leaves the Mammoth its lift whatever hits it, from a tap to a wreck', () => {
+    const mammoth = getCar('mammoth');
+    // (a lift: scaled by 0.6 it was less lift, a car that gets better in a crash)
+    expect(mammoth.physics.aero.liftAreaFront).toBeLessThan(0);
+    expect(mammoth.physics.aero.liftAreaRear).toBeLessThan(0);
+    for (let i = 0; i <= 100; i++) {
+      const w = i / 100;
+      const e = fxOf(mammoth, { front: w, rear: w, wheels: [w, w, w, w] });
+      expect(e.aeroFront).toBe(1);
+      expect(e.aeroRear).toBe(1);
+    }
+    // what it does keep: the engine behind a smashed grille, and its wheels
+    expect(fxOf(mammoth, { front: 1 }).power).toBeLessThan(0.91);
+    expect(fxOf(mammoth, { wheels: [1, 0, 0, 0] }).toe[0]).toBeGreaterThan(0);
+  });
+
+  it('lights the nose and the tail for what they cost the car, and for nothing else', () => {
+    // a car with downforce: the wear itself, as ever
+    for (const id of ['vanta-gt', 'lmp-x']) {
+      const h = hudOf(getCar(id), { front: 0.6, rear: 0.4 });
+      expect(h.front, id).toBeCloseTo(0.6, 12);
+      expect(h.rear, id).toBeCloseTo(0.4, 12);
+    }
+    // a car without: the nose is its engine (dark until the engine starts to tire, a third of the way to wrecked), the tail a trace of toe
+    for (const id of ['kestrel-r', 'ronin-86', 'mammoth']) {
+      const def = getCar(id);
+      expect(hudOf(def, { front: MECH_TUNING.powerFrom }).front, id).toBeLessThan(1e-6);
+      expect(hudOf(def, { front: 0.6 }).front, id).toBeCloseTo(0.3936, 3);
+      expect(hudOf(def, { front: 0.99 }).front, id).toBeGreaterThan(0.99);
+      const tail = hudOf(def, { rear: 0.999 }).rear;
+      expect(tail, id).toBeGreaterThan(0.12);
+      expect(tail, id).toBeLessThan(0.14); // (a seventh of a wheel bent as far as it goes: "Light" at the very most)
+      expect(hudOf(def, { rear: 0.2 }).rear, id).toBeLessThan(DAMAGE_SHOWN);
+      expect(reportWorst(hudOf(def, { rear: 0.999 })), id).toBeLessThan(0.2);
+    }
+    // the flanks and the wheels are as every car's
+    const lmp = hudOf(getCar('lmp-x'), { wheels: [0.5, 0, 0.5, 0] });
+    expect(lmp.left).toBeCloseTo(wear(2 * -Math.log(0.5)), 12);
+    expect(lmp.front + lmp.rear + lmp.right).toBe(0);
+  });
+
+  it('lights a part exactly when the car is changed by it: no zone shows a loss the car does not have', () => {
+    const levels = [0, 0.01, 0.1, 0.25, 0.3, 0.35, 0.5, 0.8, 0.99];
+    const parts: [string, (w: number) => Parameters<typeof state>[0]][] = [
+      ['nose', (w) => ({ front: w })],
+      ['tail', (w) => ({ rear: w })],
+      ['left flank', (w) => ({ wheels: [w, 0, w, 0] })],
+      ['right front wheel', (w) => ({ wheels: [0, w, 0, 0] })],
+    ];
+    for (const def of CARS) {
+      for (const [name, make] of parts) {
+        for (const w of levels) {
+          const record = state(make(w), mechanicalProfile(def));
+          const lit = mechanicalWorst(record) > 1e-9; // (not > 0: at a wear of exactly 0.3 the engine share is 1e-33, and the power still rounds to one)
+          const changes = !isNeutral(mechanicalEffects(record));
+          expect(lit, `${def.id} ${name} ${w}`).toBe(changes);
+        }
+      }
+    }
+  });
+
+  it("shows nothing and changes nothing when a hit costs the car nothing: the Mammoth's bumper dented, its radiator not reached", () => {
+    const mammoth = getCar('mammoth');
+    const h = hullOf(mammoth.visual);
+    const dented = new CarDamage(h, geom, mechanicalProfile(mammoth));
+    dented.apply(wall(8, [0, 0.6, h.front], [0, 0, -1])); // 29 km/h of closing speed straight into a wall
+    expect(dented.mech.pristine).toBe(false); // (the hit is on the record, and the body shows it)
+    expect(mechanicalWorst(dented.mech)).toBeLessThan(DAMAGE_SHOWN);
+    expect(isNeutral(mechanicalEffects(dented.mech))).toBe(true);
+    // the same hit on a Vanta GT costs it some of the downforce at its nose: it shows, and the car drives a little differently
+    const gt = new CarDamage(hull, geom, mechanicalProfile(vanta));
+    gt.apply(wall(8, [0, 0.6, hull.front], [0, 0, -1]));
+    expect(mechanicalWorst(gt.mech)).toBeGreaterThan(DAMAGE_SHOWN);
+    expect(isNeutral(mechanicalEffects(gt.mech))).toBe(false);
+    // a real crash does reach the Mammoth's engine (a head-on hit at 60 km/h: 4 % of its power), and not its lift
+    const crashed = new CarDamage(h, geom, mechanicalProfile(mammoth));
+    crashed.apply(wall(14, [0, 0.6, h.front], [0, 0, -1]));
+    const e = mechanicalEffects(crashed.mech);
+    expect(e.power).toBeLessThan(0.97);
+    expect(e.power).toBeGreaterThan(0.95);
+    expect([e.aeroFront, e.aeroRear]).toEqual([1, 1]);
+  });
+});
+
 // ── the physics ───────────────────────────────────────────────────────────────
 
-const ASSISTS = { abs: true, tcs: 'low', esc: false, autoShift: true, steeringAssist: 0, autoClutch: true } as const;
+const ASSISTS ={ abs: true, tcs: 'low', esc: false, autoShift: true, steeringAssist: 0, autoClutch: true } as const;
 
 function car(def = vanta, kmh = 150, damage: MechEffects | null = null) {
   const world = new PhysicsWorld(createFlatTrack());
@@ -510,7 +679,7 @@ describe('what the damage does to the car', () => {
 
   it('never makes a car undrivable: every car, wrecked everywhere, holds a line at speed and still gets going', () => {
     for (const def of CARS) {
-      const wreck = fx({ front: 1, rear: 1, wheels: [1, 1, 1, 1] });
+      const wreck = fxOf(def, { front: 1, rear: 1, wheels: [1, 1, 1, 1] });
       const { world, v } = car(def, 0, wreck);
       v.controls.throttle = 1;
       let worstOff = 0;
@@ -526,7 +695,7 @@ describe('what the damage does to the car', () => {
       expect(worstOff, def.id).toBeLessThan(2);
       expect(vmax * 3.6, def.id).toBeGreaterThan(0.6 * def.stats.topSpeedKmh * 0.85);
       // lopsided, too: the worst corner on its own
-      const lop = car(def, 130, fx({ front: 1, wheels: [1, 0, 1, 0] }));
+      const lop = car(def, 130, fxOf(def, { front: 1, wheels: [1, 0, 1, 0] }));
       for (let i = 0; i < 60 * 15; i++) {
         lop.v.controls.steer = holdLine(lop.v);
         lop.v.controls.throttle = lop.v.state.forwardSpeed > 36 ? 0.4 : 0.8;
@@ -535,6 +704,96 @@ describe('what the damage does to the car', () => {
       // (a driver that has nothing to hold the wheel against a steady pull but a push proportional to the error settles off the line)
       expect(Math.abs(lop.v.state.position.x), def.id).toBeLessThan(4);
     }
+  });
+});
+
+// ── the air under damage ─────────────────────────────────────────────────────────
+
+/** The four wheel loads added up (N), the mean of a second at a speed the car holds: its weight, and what the air adds to it or takes from it. */
+function loadAt(def: CarDefinition, kmh: number, damage: MechEffects | null): number {
+  const { world, v } = car(def, kmh, damage);
+  let sum = 0;
+  let n = 0;
+  for (let i = 0; i < 180; i++) {
+    v.controls.steer = holdLine(v);
+    v.controls.throttle = Math.min(1, Math.max(0, 0.3 + (kmh / 3.6 - v.state.forwardSpeed) * 0.3));
+    world.step(1 / 60);
+    if (i >= 120) {
+      sum += v.wheels.reduce((a, w) => a + w.load, 0);
+      n++;
+    }
+  }
+  return sum / n;
+}
+
+describe('the air under damage', () => {
+  const q250 = 0.5 * 1.225 * (250 / 3.6) ** 2;
+  const aeroOnly = (front: number, rear: number): MechEffects => ({ ...neutralEffects(), aeroFront: front, aeroRear: rear });
+
+  it('leaves the lift of the Mammoth alone, however much downforce damage is told to take', () => {
+    const mammoth = getCar('mammoth');
+    const sound = loadAt(mammoth, 250, null);
+    // it is lift: the wheels carry less than the weight of the car, by what the air takes (0.16 m^2 of it, 470 N at 250 km/h)
+    const weight = mammoth.physics.chassis.mass * 9.81;
+    expect(weight - sound).toBeGreaterThan(400);
+    expect(weight - sound).toBeLessThan(550);
+    // handed damage that scales the front and the rear aero to a half, or to nothing, it drives as the sound car: the very same loads
+    expect(loadAt(mammoth, 250, aeroOnly(0.5, 0.5))).toBe(sound);
+    expect(loadAt(mammoth, 250, aeroOnly(0, 0))).toBe(sound);
+    // and with the damage a crash really leaves on it (the nose and the tail wrecked, all that the record says of the air is a one)
+    const wrecked = loadAt(mammoth, 250, fxOf(mammoth, { front: 1, rear: 1 }));
+    expect(Math.abs(wrecked - sound)).toBeLessThan(20); // (it used to be 180 N lighter on the wheels, a car that gets lighter for being hit)
+  });
+
+  it('only ever lowers the downforce a car really has: no car carries more of itself when damaged, and a car with none carries what it did', () => {
+    for (const def of CARS) {
+      const sound = loadAt(def, 250, null);
+      const a = def.physics.aero;
+      const cases: [string, number, number][] = [
+        ['front to 30 %', 0.3, 1],
+        ['rear to 30 %', 1, 0.3],
+        ['both to nothing', 0, 0],
+        ['both "improved" to 160 %', 1.6, 1.6],
+      ];
+      for (const [name, f, r] of cases) {
+        const hurt = loadAt(def, 250, aeroOnly(f, r));
+        expect(hurt, `${def.id} ${name}`).toBeLessThanOrEqual(sound);
+        // what it takes is the downforce the car has, at the multiplier asked for (an improvement is no change), and nothing where there is none
+        const expected = q250 * ((a.liftAreaFront > 0 ? (1 - Math.min(1, f)) * a.liftAreaFront : 0) + (a.liftAreaRear > 0 ? (1 - Math.min(1, r)) * a.liftAreaRear : 0));
+        expect(sound - hurt, `${def.id} ${name}`).toBeGreaterThanOrEqual(expected * 0.9 - 0.5);
+        expect(sound - hurt, `${def.id} ${name}`).toBeLessThanOrEqual(expected * 1.1 + 0.5);
+      }
+    }
+  });
+
+  it('keeps a prototype its wings and takes them from nobody else: a crash through the whole pipeline, for the cars that differ', () => {
+    // a head-on hit at 108 km/h and a hit on the tail at the same speed: the same crash for each car, made by its own record
+    const crash = (def: CarDefinition) => {
+      const h = hullOf(def.visual);
+      const record = new CarDamage(h, geom, mechanicalProfile(def));
+      const { v } = car(def, 100);
+      const link = new MechLink([v]);
+      record.apply(wall(30, [0, 0.6, h.front], [0, 0, -1]));
+      record.apply(wall(30, [0, 0.6, h.rear], [0, 0, 1]));
+      link.update(record.mech, true);
+      const hud: HudDamage = { front: 0, rear: 0, left: 0, right: 0, wheels: [0, 0, 0, 0] };
+      mechanicalReport(record.mech, hud);
+      return { fx: v.mechanical!, hud };
+    };
+    const mammoth = crash(getCar('mammoth'));
+    expect([mammoth.fx.aeroFront, mammoth.fx.aeroRear]).toEqual([1, 1]);
+    expect(mammoth.fx.power).toBeLessThan(0.91); // the grille, and the radiator behind it
+    expect(mammoth.hud.front).toBeGreaterThan(0.9);
+    expect(mammoth.hud.rear).toBeLessThan(0.14); // (the tail of a car without a wing: its rear wheels pushed a fifth of a degree out of line)
+    const lmp = crash(getCar('lmp-x'));
+    expect(lmp.fx.aeroFront).toBeLessThan(0.65); // the wings go...
+    expect(lmp.fx.aeroRear).toBeLessThan(0.65);
+    expect(lmp.fx.power).toBe(1); // ...the engine, which sits behind the cabin and cools through the sides, does not
+    expect(lmp.hud.front).toBeGreaterThan(0.9);
+    expect(lmp.hud.rear).toBeGreaterThan(0.9);
+    const gt = crash(vanta);
+    expect(gt.fx.aeroFront).toBeLessThan(0.65);
+    expect(gt.fx.power).toBeLessThan(0.91);
   });
 });
 
