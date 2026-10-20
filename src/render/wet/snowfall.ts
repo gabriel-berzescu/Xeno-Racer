@@ -12,6 +12,7 @@
 import { CustomBlending, DoubleSide, DynamicDrawUsage, InstancedBufferAttribute, InstancedBufferGeometry, Mesh, OneFactor, OneMinusSrcAlphaFactor, AddEquation, PlaneGeometry, ShaderMaterial, Vector3 } from 'three';
 import { particleCommon } from '../fx/particleShaders';
 import { particleUniforms } from '../post';
+import { SUNVIS_PARS, sunVisUniforms } from '../shaderPatches';
 import { LIGHTS_GLSL, lightUniforms } from './lights';
 
 const snowVertex = /* glsl */ `
@@ -34,6 +35,7 @@ uniform float uFogDensity;
 uniform float uFogLin;
 uniform vec2 uResolution;
 ${LIGHTS_GLSL}
+${SUNVIS_PARS}
 varying vec2 vLoc;
 varying float vHalf;
 varying vec3 vCol;
@@ -101,7 +103,8 @@ void main() {
   vA = uAlpha * thin * smear * fadeFar * fadeNear * boxFade * (1.0 - 0.18 * skyK);
 
   vec3 mid = 0.5 * (wp + pTail);
-  vec3 col = (uSkyAmb * 1.6 + uGroundAmb * 1.1 + uSunLight * 0.22) * 1.6 + xrLights(mid) * (uLightGain / (1.0 + lenPx * 0.02));
+  // (the sun lights the flakes where the terrain leaves it visible)
+  vec3 col = (uSkyAmb * 1.6 + uGroundAmb * 1.1 + uSunLight * (0.22 * xrSunVisAt(mid))) * 1.6 + xrLights(mid) * (uLightGain / (1.0 + lenPx * 0.02));
   vCol = snowFog(col, depthV);
   vDepth = depthV;
 }
@@ -188,6 +191,7 @@ export class SnowField {
         uAlpha: { value: 0.5 },
         uFar: { value: 64 },
         uLightGain: { value: 1 },
+        ...sunVisUniforms,
       },
       vertexShader: snowVertex,
       fragmentShader: particleCommon + snowFragment,

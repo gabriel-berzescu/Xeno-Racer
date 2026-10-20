@@ -36,6 +36,8 @@ export interface EnvSolution {
   fogDensity: number;
   /** Horizon table scaled to scene radiance, already overcast-desaturated. */
   fogTable: Float32Array;
+  /** The part of `fogTable` that is the sun's own in-scatter (same scaling): the fog keeps it by the sunlit share of the view ray. */
+  fogTableSun: Float32Array;
   fogColor: RGB;
   exposure: number;
   darkness: number;
@@ -173,6 +175,7 @@ export async function solveEnvironment(settings: EnvironmentSettings, yieldFn?: 
   const deck = weather.deck;
   const lowSun = tod.moon ? 0 : 1 - smoothstep(0.02, 0.22, el);
   const fogTable = new Float32Array(FOG_TABLE_SIZE * 3);
+  const fogTableSun = new Float32Array(FOG_TABLE_SIZE * 3);
   for (let k = 0; k < FOG_TABLE_SIZE; k++) {
     const phi = Math.PI * Math.pow(k / (FOG_TABLE_SIZE - 1), 2);
     const toSun = Math.cos(phi / 2) ** 2;
@@ -181,6 +184,11 @@ export async function solveEnvironment(settings: EnvironmentSettings, yieldFn?: 
     fogTable[k * 3] = c[0] * skyScale;
     fogTable[k * 3 + 1] = c[1] * skyScale;
     fogTable[k * 3 + 2] = c[2] * skyScale;
+    // (the sun's share of it goes through the very same steps, so that fogTable - fogTableSun is the sky's: never below 0)
+    const cs = desat([model.fogTableSun[k * 3], model.fogTableSun[k * 3 + 1], model.fogTableSun[k * 3 + 2]], od * (1 - keep));
+    fogTableSun[k * 3] = Math.min(fogTable[k * 3], cs[0] * skyScale);
+    fogTableSun[k * 3 + 1] = Math.min(fogTable[k * 3 + 1], cs[1] * skyScale);
+    fogTableSun[k * 3 + 2] = Math.min(fogTable[k * 3 + 2], cs[2] * skyScale);
   }
   // Under a deck the haze has no sun-side glare: flatten the luminance of the horizon table (the colour toward a
   // low sun survives, its blinding brightness does not).
@@ -198,7 +206,10 @@ export async function solveEnvironment(settings: EnvironmentSettings, yieldFn?: 
     for (let k = 0; k < FOG_TABLE_SIZE; k++) {
       const l = lum([fogTable[k * 3], fogTable[k * 3 + 1], fogTable[k * 3 + 2]]);
       const f = l > 1e-7 ? 1 + (mean / l - 1) * flat : 1;
-      for (let c = 0; c < 3; c++) fogTable[k * 3 + c] *= f;
+      for (let c = 0; c < 3; c++) {
+        fogTable[k * 3 + c] *= f;
+        fogTableSun[k * 3 + c] *= f;
+      }
     }
     for (let k = 2; k < FOG_TABLE_SIZE; k++) for (let c = 0; c < 3; c++) avg[c] += fogTable[k * 3 + c] / (FOG_TABLE_SIZE - 2);
     deckLo = avg;
@@ -240,6 +251,7 @@ export async function solveEnvironment(settings: EnvironmentSettings, yieldFn?: 
     hemiGround,
     fogDensity,
     fogTable,
+    fogTableSun,
     fogColor,
     // the exposure compensation of a dim rainy day does not apply once the lights are on
     exposure: tod.exposure * (weather.deck > 0 ? (1 + (weather.exposure - 1) * (1 - tod.darkness)) * (1 - 0.22 * lowSun * (1 - tod.darkness)) : weather.exposure),
@@ -331,6 +343,7 @@ export function cloneSolution(a: EnvSolution): EnvSolution {
     hemiSky: rgb(a.hemiSky),
     hemiGround: rgb(a.hemiGround),
     fogTable: new Float32Array(a.fogTable),
+    fogTableSun: new Float32Array(a.fogTableSun),
     fogColor: rgb(a.fogColor),
     moonLight: rgb(a.moonLight),
     deckLo: rgb(a.deckLo),
@@ -408,6 +421,8 @@ export function blendInto(out: EnvSolution, dry: EnvSolution, wet: EnvSolution, 
   o.fogDensity = mixLog(dry.fogDensity, wet.fogDensity, c.amb);
   const ft = o.fogTable;
   for (let i = 0; i < ft.length; i++) ft[i] = dry.fogTable[i] + (wet.fogTable[i] - dry.fogTable[i]) * c.amb;
+  const fs = o.fogTableSun;
+  for (let i = 0; i < fs.length; i++) fs[i] = dry.fogTableSun[i] + (wet.fogTableSun[i] - dry.fogTableSun[i]) * c.amb;
   const last = ft.length - 3;
   o.fogColor[0] = ft[last];
   o.fogColor[1] = ft[last + 1];

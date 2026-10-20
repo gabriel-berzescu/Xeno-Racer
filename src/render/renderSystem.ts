@@ -51,7 +51,7 @@ import type {
 } from '../core/contracts';
 import { WEATHER_WATER } from '../core/contracts';
 import { splitGeometry, splitGraphics, type Rect, type SplitGeometry } from '../core/split';
-import type { RenderSystem } from '../core/systems';
+import type { RenderSystem, TerrainSource } from '../core/systems';
 import { FOG_TABLE_SIZE } from './atmosphere';
 import { casterKinds } from './casters';
 import { blendInto, cloneSolution, solveEnvironment, type EnvSolution } from './environment';
@@ -61,8 +61,10 @@ import { MirrorSystem, type MirrorFrame } from './mirrors';
 import { DropletPass, makeWiperFeed, makeWiperState, wiperStateInto, type WiperFeed } from './wet/droplets';
 import { SSRPass } from './wet/ssr';
 import { installShaderPatches, XR_LAMPS, xrFogUniform, xrLampColUniform, xrLampUniform, xrLampUpUniform } from './shaderPatches';
+import { coveredByShade, fillViewScale, shadeFillLook } from './shadeFill';
 import { SHADOW_OFF, shadowConfigFor, SunShadows } from './shadows';
-import { SkyDome } from './sky';
+import { SkyDome, SUN_ANGULAR_RADIUS } from './sky';
+import { SunVisMap } from './sunVisMap';
 
 export interface RenderStats {
   fps: number;
@@ -125,6 +127,17 @@ export interface XenoRenderSystem extends RenderSystem {
    * change needs is built, switched or compiled once the race is on. Without it the weather is fixed.
    */
   setEnvironment(e: EnvironmentSettings, forecastTo?: Weather | null): Promise<void>;
+  /**
+   * The ground of the circuit that is loaded (TrackScene.terrain), or null when none is: where the hills hide the sun from the
+   * track (the sun visibility map, sunVisibility.ts). The map is made at once, in slices between the frames of the loading screen
+   * (a few hundred ms of work on the biggest circuit), and again by setEnvironment() when the sun changes under a circuit that is
+   * kept. Nothing needs to wait for it but the first frame: precompile() does, in the time the shader compiler takes, so call this
+   * once the track scene is built, before precompile(). (The promise is the map being on the GPU; it never rejects: a map that
+   * cannot be made leaves the picture without terrain shade.)
+   */
+  setTerrain(t: TerrainSource | null): Promise<void>;
+  /** The sun visibility map in use (read-only for the probes: `visibilityAt` is what the shaders compute). */
+  readonly sunVis: SunVisMap;
   /**
    * What the weather is doing this frame (see WeatherState). The rain and the water on the track are the renderer's `env.rain`
    * and `env.wetness` at once, for the effects, the track scene and the cars; in a race whose weather changes the sky, the light,
@@ -264,6 +277,11 @@ class ViewState {
   readonly prevQuat = new Quaternion();
   havePrevQuat = false;
   readonly pan = new Vector2();
+  /** How much of the sun the terrain takes from the car this view films (0..1, smoothed): the skylight fill follows it (see updateFill). */
+  shade = 0;
+  /** How much of the fill the camera of this view needs (fillViewScale, smoothed): all of it looking toward the sun. */
+  fillView = 1;
+  haveShade = false;
 }
 
 interface GpuTimer {
@@ -290,6 +308,37 @@ class RenderSystemImpl implements XenoRenderSystem {
   readonly stats: RenderStats = { fps: 0, frameMs: 16.7, drawCalls: 0, triangles: 0, cpuMs: 0, gpuMs: 0, gpuMsRaw: 0, width: 0, height: 0, cascades: 0, gpuMemMB: 0, passMs: {} };
   readonly sky: SkyDome;
   readonly sun: SunShadows;
+  /** Where the terrain hides the sun (see setTerrain). */
+  readonly sunVis: SunVisMap;
+  /**
+   * The light a surface gets in the terrain's shade in place of part of the sun it lost, as a share of that sun (0 = none). With the
+   * sun behind a ridge the light of a circuit is the sky's alone, and that is dimmer, and bluer, than the sky and the sun together that
+   * the exposure and the grade were set for: a real eye would open up, and the shade is lit by the glow of the sky above the ridge and by
+   * the sunlit slopes around as well. It is a hemisphere light of its own (`shadeFill`: diffuse only, no glints) whose axis points at the
+   * sun, tilted up a little: warm on the surfaces that face the glow, cooler on the ones that turn from it, so that the shade has form
+   * and is the sky's colours, not one blue. Its strength follows how much of the sun the terrain takes from the car, and how much the
+   * camera looks toward the sun (`fillViewScale`: the pictures that need it are the backlit ones), and it is nothing (the light is as the
+   * look has it, and the light's program too, for it is not in the scene) wherever the map is off.
+   */
+  get fillGain(): number {
+    return this.fillShare;
+  }
+
+  set fillGain(v: number) {
+    this.fillShare = Math.max(0, v);
+    if (this.solution) this.lightShadeFill(this.solution);
+  }
+
+  private fillShare = 1.1;
+  /** The map's verdict at a point, for the CPU's questions (the cascades' skip). */
+  private readonly visFn = (x: number, y: number, z: number): number => this.sunVis.visibilityAt(x, y, z);
+  /**
+   * The fill light (see fillGain). Always in the scene, at intensity 0 while no map is in use: the lights, and with them the programs of
+   * every lit material, must not depend on what the map makes of this circuit and hour, for the programs are built while the map is.
+   */
+  private readonly shadeFill = new HemisphereLight(0xffffff, 0xffffff, 0);
+  /** The ground the sun visibility map is made from. */
+  private terrainSrc: TerrainSource | null = null;
   camera: PerspectiveCamera = new PerspectiveCamera(60, 1, 0.1, 4000);
   solution: EnvSolution | null = null;
 
@@ -360,8 +409,11 @@ class RenderSystemImpl implements XenoRenderSystem {
   private clock = 0;
   /** Light of the environment map now over the light it was captured with: it carries the picture between two captures. */
   private envScale = 1;
-  /** Do the shadow maps matter (is there a sun)? When not, a race that keeps its cascades through the rain stops drawing them. */
-  private shadowsLive = true;
+  /**
+   * Do the shadow maps matter (is there a sun, and does it reach what the cascades cover)? When not, the maps are not drawn: a race that
+   * keeps its cascades through the rain, or a car in the shade of a ridge. One flag per view (a split screen's two views can differ).
+   */
+  private readonly shadowsLive = [true, true];
   private readonly wipeState = makeWiperState();
 
   private readonly hemi = new HemisphereLight(0xffffff, 0x444444, 1);
@@ -421,12 +473,15 @@ class RenderSystemImpl implements XenoRenderSystem {
 
     this.scene.name = 'xr.scene';
     this.scene.fog = this.fog;
+    this.sunVis = new SunVisMap(r);
     this.sky = new SkyDome();
     this.scene.add(this.sky.mesh);
     this.envScene.add(this.sky.envMesh);
     this.sun = new SunShadows(patches.csm);
     this.scene.add(this.sun.group);
     this.scene.add(this.hemi);
+    this.shadeFill.name = 'xr.shadeFill';
+    this.scene.add(this.shadeFill);
     this.particleScene.name = 'xr.particles';
     this.mirrors = new MirrorSystem(r, this.scene, this.particleScene, { setView: (cam) => this.setLampView(cam), time: (name) => this.timeBegin(name) });
 
@@ -475,12 +530,41 @@ class RenderSystemImpl implements XenoRenderSystem {
     // (a forecast has to join a dry weather and a wet one: anything else is just the start weather)
     if (other && (other.deck > 0) !== (sol.deck > 0)) this.applyForecast(sol, other);
     else this.applySolution(sol);
+    // (the sun may be somewhere else than the map in use was made for: a race on the same circuit at another hour)
+    void this.syncSunVis();
     // Dry <-> wet swaps the shadow programs of everything that receives shadows. With a track already in the scene
     // that is a multi-second compile: take it now, under the caller's loading screen, not in the first frame.
     if (this.shadowProgramsChanged) {
       this.shadowProgramsChanged = false;
       if (this.scene.children.length > 0) await this.precompile();
     }
+  }
+
+  setTerrain(t: TerrainSource | null): Promise<void> {
+    this.terrainSrc = t;
+    return this.syncSunVis();
+  }
+
+  /** The map that is being made, if one is (precompile() waits for it). */
+  private sunMap: Promise<void> | null = null;
+
+  /**
+   * Make the sun visibility map for the terrain and the sun in use, if it is not the one on the GPU already. It starts now and goes on
+   * in slices between the frames of the loading screen; nothing waits for it here, precompile() does, while the shader compiler works
+   * (a few seconds in which the page has nothing else to do). A failure leaves no map (the picture is the old one): it is a refinement,
+   * and no reason for a race not to start.
+   */
+  private syncSunVis(): Promise<void> {
+    const sol = this.solution;
+    if (!sol) return Promise.resolve();
+    const run = this.sunVis.update(this.terrainSrc, sol.sunDir, SUN_ANGULAR_RADIUS, yieldToBrowser).catch((e: unknown) => {
+      console.warn('The sun visibility map could not be made; the picture has no terrain shade.', e);
+    });
+    this.sunMap = run;
+    void run.then(() => {
+      if (this.sunMap === run) this.sunMap = null;
+    });
+    return run;
   }
 
   async precompile(): Promise<void> {
@@ -500,7 +584,8 @@ class RenderSystemImpl implements XenoRenderSystem {
       const hud = this.mirrors.compileScene;
       pending.push(r.compileAsync(hud.scene, hud.camera));
       r.setRenderTarget(prev);
-      await Promise.all(pending);
+      // (the terrain's shade is made in the time the shader compiler takes, which is time the page spends waiting: see syncSunVis)
+      await Promise.all([Promise.all(pending), this.sunMap]);
       // A program looks up its uniform and attribute locations the first time something is drawn with it: one synchronous
       // call per uniform, tens of ms for the big lit shaders. The warm-up frame only reaches what it sees, so smoke, skid
       // marks or a car coming into view would pay in the race: do it for every program now, behind the loading screen.
@@ -669,6 +754,7 @@ class RenderSystemImpl implements XenoRenderSystem {
     fa[dk] = sol.deckHi[0] * haze;
     fa[dk + 1] = sol.deckHi[1] * haze;
     fa[dk + 2] = sol.deckHi[2] * haze;
+    this.sunVis.setFogSun(sol.fogTableSun, haze);
     this.fog.color.setRGB(sol.fogColor[0] * haze, sol.fogColor[1] * haze, sol.fogColor[2] * haze);
     const pu = particleUniforms;
     const rainLift = 1 + f * (3 + 6 * dark);
@@ -728,6 +814,7 @@ class RenderSystemImpl implements XenoRenderSystem {
     if (!Number.isFinite(speed)) speed = 0;
     this.frameIndex++;
     this.prepareView(this.views[0], camera, this.focus, this.cockpitView, speed, dt, dt);
+    this.updateFill(this.views[0], camera, this.focus, dt);
 
     this.renderer.info.reset();
     this.beginGpu();
@@ -785,6 +872,7 @@ class RenderSystemImpl implements XenoRenderSystem {
         this.updateSpeedEffects(v, spec.camera, dt, speed);
         this.updateShafts(spec.camera);
         if (this.finalEffect) this.finalEffect.seed = (this.frameIndex % 64) / 64;
+        this.updateFill(v, spec.camera, spec.focus, dt);
         this.aimView(geo.views[i]);
         this.scene.matrixWorldAutoUpdate = i === 0;
         this.composer.render(dt);
@@ -855,10 +943,28 @@ class RenderSystemImpl implements XenoRenderSystem {
   private fitSun(focus: Vector3): boolean {
     const mapsReady = this.sun.mapsReady;
     if (!mapsReady) this.sun.markDirty();
-    const sunny = !this.fc || this.warming || !mapsReady || (this.solution?.shadowIntensity ?? 1) >= 0.004;
-    if (sunny && !this.shadowsLive) this.sun.markDirty();
-    this.shadowsLive = sunny;
+    // (a map that is missing is drawn whatever the sky: see above)
+    const dark = !this.warming && mapsReady && this.terrainDark(focus);
+    const sunny = this.warming || !mapsReady || ((!this.fc || (this.solution?.shadowIntensity ?? 1) >= 0.004) && !dark);
+    const view = this.sun.selected;
+    if (sunny && !this.shadowsLive[view]) this.sun.markSelectedDirty();
+    this.shadowsLive[view] = sunny;
+    // (where the terrain hides the sun from all the cascades cover, their intensity is 0 and no fragment takes the taps)
+    this.sun.setDark(view, dark);
     return this.sun.update(focus, this.frameIndex) && sunny;
+  }
+
+  /**
+   * Is everything the cascades cover (a ring around `focus`, up to the height of the tallest caster) out of the sun's reach because the
+   * terrain hides it? Then there is nothing for the cascades to shade (every lit shader scales the sun by the terrain's share and skips
+   * the cascade taps where it is nil), and they are not drawn: the shadow pass is a good part of the frame at dawn and dusk. The test
+   * is the CPU twin of the shader's, at the top of the tallest caster and in 8 directions, with room for the ground to be higher out there.
+   */
+  private terrainDark(focus: Vector3): boolean {
+    if (!this.sunVis.on) return false;
+    const cfg = this.sun.config;
+    if (cfg.count === 0) return false;
+    return coveredByShade(this.visFn, focus.x, focus.y + cfg.maxCasterHeight + 20, focus.z, cfg.radii[cfg.count - 1] * 0.8);
   }
 
   private endFrame(t0: number): void {
@@ -1473,6 +1579,9 @@ class RenderSystemImpl implements XenoRenderSystem {
     fa[dk + 1] = sol.deckHi[1];
     fa[dk + 2] = sol.deckHi[2];
     fa[dk + 3] = 0;
+    // (the sun's share of the haze, and how much of the terrain's shade a sky with this much sun shows)
+    this.sunVis.setFogSun(sol.fogTableSun);
+    this.sunVis.setWeather(sol.shadowIntensity);
 
     // lights
     this.sun.setLight(sol.lightColor, sol.lightIntensity);
@@ -1480,6 +1589,7 @@ class RenderSystemImpl implements XenoRenderSystem {
     this.hemi.color.setRGB(sol.hemiSky[0], sol.hemiSky[1], sol.hemiSky[2]);
     this.hemi.groundColor.setRGB(sol.hemiGround[0], sol.hemiGround[1], sol.hemiGround[2]);
     this.hemi.intensity = 1;
+    this.lightShadeFill(sol);
 
     // particles share the same lighting
     const pu = particleUniforms;
@@ -1538,6 +1648,43 @@ class RenderSystemImpl implements XenoRenderSystem {
     this.sky.setShowSun(true);
     this.scene.environment = this.envTarget.texture;
     this.scene.environmentIntensity = sol.envIntensity;
+  }
+
+  /**
+   * The colours of the shade fill for this look (see fillGain, shadeFill.ts): the share `fillGain` of the sun a racing picture's surfaces
+   * lose in the shade, warm toward the glow, fainter away from it. Scaled by the shade the view's car is in, when that view is drawn.
+   */
+  private lightShadeFill(sol: EnvSolution): void {
+    const look = shadeFillLook({ lightColor: sol.lightColor, lightIntensity: sol.lightIntensity, glow: [sol.fogTable[0], sol.fogTable[1], sol.fogTable[2]], sunDir: sol.sunDir, gain: this.fillShare });
+    this.shadeFill.color.setRGB(look.sky[0], look.sky[1], look.sky[2]);
+    this.shadeFill.groundColor.setRGB(look.ground[0], look.ground[1], look.ground[2]);
+    this.shadeFill.position.set(look.axis[0], look.axis[1], look.axis[2]);
+  }
+
+  /**
+   * The shade fill of the view about to be drawn (see fillGain): how much of the sun the terrain takes from the car it films (the CPU twin of
+   * what the shaders do, smoothed over half a second so that a car crossing a long penumbra sees no step).
+   */
+  private updateFill(v: ViewState, camera: PerspectiveCamera, focus: Vector3, dt: number): void {
+    const m = this.sunVis;
+    const target = m.on ? 1 - m.visibilityAt(focus.x, focus.y + 1, focus.z) : 0;
+    // (what the camera looks at: the picture needs the most of the fill where it looks toward the sun, see fillViewScale)
+    let view = 1;
+    const sol = this.solution;
+    if (sol && target > 0) {
+      camera.getWorldDirection(this._camFwd);
+      view = fillViewScale(this._camFwd.x, this._camFwd.z, sol.sunDir[0], sol.sunDir[2]);
+    }
+    if (!v.haveShade) {
+      v.shade = target;
+      v.fillView = view;
+      v.haveShade = true;
+    } else {
+      const k = 1 - Math.exp(-dt / 0.5);
+      v.shade += (target - v.shade) * k;
+      if (target > 0 || v.shade > 1e-4) v.fillView += (view - v.fillView) * k;
+    }
+    this.shadeFill.intensity = v.shade > 1e-4 ? v.shade * v.fillView : 0;
   }
 
   private updateSpeedEffects(v: ViewState, camera: PerspectiveCamera, dt: number, speed: number): void {

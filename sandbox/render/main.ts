@@ -110,6 +110,8 @@ async function main(): Promise<void> {
     const { loadTrackRuntime, buildTrackScene } = await import('../../src/track');
     track = loadTrackRuntime(trackId);
     trackScene = await buildTrackScene(track, { quality, vegetation: graphics.vegetation, env: render.env, renderer: render.renderer });
+    // where the hills hide the sun from the circuit (the game does the same once its track scene is built)
+    await render.setTerrain(trackScene.terrain ?? null);
     render.scene.add(trackScene.root);
     trackScene.setEnvironment(render.env);
     tvCameras = trackScene.tvCameras;

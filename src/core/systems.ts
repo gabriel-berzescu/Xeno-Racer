@@ -62,9 +62,26 @@ export interface TrackSceneOptions {
   onProgress?: (fraction: number, label: string) => void;
 }
 
+/**
+ * The ground a circuit stands on, for what the render system makes of it: where the terrain hides the sun (the sun visibility map,
+ * src/render/sunVisibility.ts). The track scene offers it; the game hands it to the render system.
+ */
+export interface TerrainSource {
+  /** The circuit: the same id is the same ground (a map made for it is kept for the next race on it). */
+  id: string;
+  /** Height (m) of the ground as it is drawn at a world position. Defined everywhere and cheap: it is asked a few hundred thousand times. */
+  height(x: number, z: number): number;
+  /** The ground that is drawn (the terrain meshes reach this far): the terrain hides the sun inside it and nothing beyond. */
+  extent: { minX: number; maxX: number; minZ: number; maxZ: number };
+  /** The circuit itself (the road and its barriers): the part of the world that is looked at closely. */
+  focus: { minX: number; maxX: number; minZ: number; maxZ: number };
+}
+
 export interface TrackScene {
   /** Everything visible: road, curbs, lines, terrain, barriers, scenery, start gantry… */
   root: THREE.Group;
+  /** The ground it stands on (hills hide the sun from the road: see TerrainSource). Absent for a scene that has no terrain to speak of. */
+  terrain?: TerrainSource;
   /** Called every frame (animated flags, start lights, crowd, water…). */
   update(dt: number, camera: THREE.Camera): void;
   /** Start-light gantry: 0..5 red lights lit, 6 = all off (GO), null = idle/off. */

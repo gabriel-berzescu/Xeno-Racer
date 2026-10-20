@@ -49,6 +49,9 @@ export class SunShadows {
   /** The cascade lights of each view's set: set 0 serves the one view (and the first of two), set 1 the second view of a split screen. */
   readonly sets: DirectionalLight[][] = [[], []];
   private active = 0;
+  /** The weather's shadow strength, and per set whether the terrain's shade has taken the sun from all it covers (see setDark). */
+  private intensity = 1;
+  private readonly dark: [boolean, boolean] = [false, false];
   private cfg: ShadowConfig = SHADOW_OFF;
   private readonly dir = new Vector3(0.3, 0.8, 0.5).normalize();
   private readonly ax = new Vector3(1, 0, 0);
@@ -157,7 +160,7 @@ export class SunShadows {
           }
           l.shadow.bias = -0.0004;
           l.shadow.normalBias = 0.03;
-          l.shadow.intensity = 1;
+          l.shadow.intensity = this.dark[k] ? 0 : this.intensity;
         } else if (l.shadow.map) {
           l.shadow.map.dispose();
           l.shadow.map = null;
@@ -177,8 +180,25 @@ export class SunShadows {
     }
   }
 
+  /** How strong the sun's shadows are (the weather's: a rain deck has none). */
   setShadowIntensity(v: number): void {
-    for (const set of this.sets) for (const l of set) l.shadow.intensity = v;
+    this.intensity = v;
+    this.applyIntensity();
+  }
+
+  /**
+   * The cascades of a set cover nothing the sun reaches (the terrain hides it from all of it: RenderSystem.terrainDark): their shadow
+   * intensity is 0, and every shadow-receiving fragment returns before the taps (the same early-out as under a rain deck, taken by the
+   * whole frame at once). Until `dark` is false again; the cascades are drawn again at once.
+   */
+  setDark(set: 0 | 1, dark: boolean): void {
+    if (this.dark[set] === dark) return;
+    this.dark[set] = dark;
+    this.applyIntensity();
+  }
+
+  private applyIntensity(): void {
+    for (let k = 0; k < 2; k++) for (const l of this.sets[k]) l.shadow.intensity = this.dark[k] ? 0 : this.intensity;
   }
 
   /** Unit vector pointing toward the sun/moon. */
@@ -193,6 +213,12 @@ export class SunShadows {
 
   markDirty(): void {
     for (const d of this.dirtySets) for (let i = 0; i < d.length; i++) d[i] = true;
+  }
+
+  /** The cascades of the set in use only: they were left alone for a while and must be drawn again (see RenderSystem.fitSun). */
+  markSelectedDirty(): void {
+    const d = this.dirty;
+    for (let i = 0; i < d.length; i++) d[i] = true;
   }
 
   /**

@@ -24,8 +24,12 @@ import type { EnvSolution } from './environment';
 import { makeCloudNoise } from './noise';
 import { skyFragmentShader, skyVertexShader } from './skyShader';
 
-/** Angular radius of the drawn sun disc (rad). The real sun is 0.0093; a little larger reads better on a monitor. */
-const SUN_ANGULAR_RADIUS = 0.0135;
+/**
+ * Angular radius of the drawn sun disc (rad). The real sun is 0.0047 (0.53 degrees across); a larger one reads better on a monitor.
+ * The sun visibility map (sunVisibility.ts) uses the same radius, so that the light on the ground fades as the disc one sees sinks
+ * behind a ridge: the sun that is half hidden in the sky is half a sun on the road.
+ */
+export const SUN_ANGULAR_RADIUS = 0.0135;
 
 export class SkyDome {
   readonly mesh: Mesh;

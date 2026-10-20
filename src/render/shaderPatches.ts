@@ -23,9 +23,19 @@
  *    cabin, which only gets what comes in through the glass (there are no lamp shadows). Off (one uniform test)
  *    while xrLampCol.w is 0.
  *
- * Both degrade to stock behaviour when their uniforms are never set (e.g. a custom ShaderMaterial).
+ * 4. Terrain shade. The cascades only carry what casts into them, and the terrain casts nothing: a sun that has set behind a
+ *    ridge two kilometres away would still light the road. So the sun (light 0) is multiplied, in every lit material, by the share
+ *    of its disc that the terrain leaves visible at the fragment's world position (`xrSunVisAt`: one lookup in the sun
+ *    visibility map, render/sunVisibility.ts, shared by all materials and the particles), and the haze is split into its sun
+ *    in-scatter and its sky part, of which only the sunlit share of the view ray keeps the sun's (`xrFogColorLit`; the share is
+ *    worked out at the vertices, `xrSunHaze`, and interpolated: a hill in front of a hidden sun is a dark hazy silhouette with the
+ *    glow above it, not an orange wall). Off (one uniform test, the old light and colour bit for bit) while xrSunVis[0].w is 0: no
+ *    map, a sun that is seen from everywhere (noon), or no sun to speak of.
+ *
+ * All degrade to stock behaviour when their uniforms are never set (e.g. a custom ShaderMaterial).
  */
-import { ShaderChunk, ShaderLib, UniformsLib } from 'three';
+import { ClampToEdgeWrapping, FloatType, NearestFilter, RGBAFormat, ShaderChunk, ShaderLib, UniformsLib } from 'three';
+import { SharedDataTexture } from './sharedTexture';
 
 /**
  * vec4 xrFog[10]: [0] = (sunAz.x, sunAz.z, rain-haze extinction 1/m, mode: 0 off / 1 horizon table / 1 + d table + rain
@@ -37,6 +47,43 @@ export const xrFogUniform = { value: new Float32Array(4 * 10) };
 export const xrCsmUniform = { value: new Float32Array(4 * 4) };
 
 export const MAX_CASCADES = 4;
+
+/**
+ * vec4 xrFogSun[8]: the part of the horizon table (xrFog[1..8]) that is the sun's own in-scatter (single scattering of the direct
+ * sun, with its phase function: the glow toward the sun), rgb in the same units; what is left of the table is the sky's (multiple
+ * scattering). The fog keeps the sky part whole and the sun part by the sunlit share of the view ray (SUNVIS_PARS).
+ */
+export const xrFogSunUniform = { value: new Float32Array(4 * 8) };
+
+/**
+ * vec4 xrSunVis[6]: the sun visibility map (sunVisMap.ts writes it, SUNVIS_PARS reads it).
+ *   [0] = (sun azimuth x, z, reference height yRef, strength 0..1; 0 = off)
+ *   [1] = fine grid:   (1/cell, -u0/cell, -v0/cell, 1/blend nodes; 1/cell = 0: no fine grid)
+ *   [2] = fine grid:   (w - 1, h - 1, atlas x + 0.5, atlas y + 0.5)
+ *   [3] = coarse grid: (1/cell, -u0/cell, -v0/cell, 0)
+ *   [4] = coarse grid: (w - 1, h - 1, atlas x + 0.5, atlas y + 0.5)
+ *   [5] = (1/atlas width, 1/atlas height, height bias, 1 = the whole disc is below the horizon)
+ *   [6] = (the share of the sun's in-scatter the air in a hill's shade keeps, 0, 0, 0)
+ */
+export const xrSunVisUniform = { value: new Float32Array(4 * 7) };
+
+/**
+ * The sun visibility atlas: RGBA32F (or RGBA16F where 32-bit floats do not filter) with the fine and the coarse grid one above the
+ * other. One object for every material (SharedDataTexture); sunVisMap.ts replaces its data and, when the size changes, disposes it
+ * (three makes the GPU texture again on the next use). Until a map is made it is one texel that says "no terrain": lit.
+ */
+export const sunVisTexture = new SharedDataTexture(new Float32Array([-1e4, -1e4, 1, 1]), 1, 1, RGBAFormat, FloatType);
+sunVisTexture.magFilter = NearestFilter;
+sunVisTexture.minFilter = NearestFilter;
+sunVisTexture.wrapS = ClampToEdgeWrapping;
+sunVisTexture.wrapT = ClampToEdgeWrapping;
+sunVisTexture.generateMipmaps = false;
+sunVisTexture.name = 'xr.sunVisibility';
+sunVisTexture.needsUpdate = true;
+export const xrSunVisTexUniform = { value: sunVisTexture as SharedDataTexture };
+
+/** The two uniforms of the sun visibility map, for a ShaderMaterial of its own (the particles) that includes SUNVIS_PARS. */
+export const sunVisUniforms = { xrSunVis: xrSunVisUniform, xrSunVisTex: xrSunVisTexUniform };
 
 /** Street lamps that light every lit material (see installShaderPatches, 3.). */
 export const XR_LAMPS = 8;
@@ -82,6 +129,85 @@ const LAMP_LIGHTS = /* glsl */ `
 #endif
 `;
 
+/**
+ * GLSL for the sun visibility map (see sunVisibility.ts for what the numbers are), included once per program and stage by whichever
+ * chunk comes first (lights_pars_begin, fog_pars_fragment, fog_pars_vertex) and by the particle shaders (their vertex stage).
+ * `xrSunVisAt(p)` is the share (0..1) of the sun's disc that a point at world position p sees past the terrain: 1 in the open, 0 behind
+ * a hill. Its twin on the CPU is sampleSunVisibility; the two must agree. It has no branch that depends on the point (both grids are
+ * read, the one the point is not in clamped to its edge and weighted 0): the shader compiler builds it into every lit program, and a
+ * version with three paths through it made the programs of a race take a second longer to build between them. `xrSunVisCoarse` is
+ * the same from the coarse grid alone (twin: sampleSunVisibilityCoarse), for the haze.
+ */
+export const SUNVIS_PARS = /* glsl */ `
+#ifndef XR_SUNVIS_PARS
+#define XR_SUNVIS_PARS
+
+uniform vec4 xrSunVis[ 7 ];
+uniform sampler2D xrSunVisTex;
+
+// the sun's share this fragment's light 0 keeps after the terrain (set by the lights block, read by whatever else needs the sun: the snow's glitter)
+float xrSunVG = 1.0;
+
+float xrSunVisAt( vec3 p ) {
+
+	vec4 s0 = xrSunVis[ 0 ];
+	// (the two uniform exits: no map in use, and the whole disc below the horizon, no sun anywhere)
+	if ( s0.w <= 0.0 ) return 1.0;
+	if ( xrSunVis[ 5 ].w > 0.5 ) return 1.0 - s0.w;
+
+	// The rest has no branch that depends on the fragment: both grids are read (the nodes the fragment is not in are clamped to the grid's
+	// edge and weighted 0), so the shader compiler has one straight line of work to build into every lit program, not three paths.
+	// the sun's frame: u toward the sun, v across; the grids are laid out in it
+	vec2 uv = vec2( dot( p.xz, s0.xy ), dot( p.xz, vec2( - s0.y, s0.x ) ) );
+	vec2 inv = xrSunVis[ 5 ].xy;
+	// the coarse grid: all the terrain that is drawn
+	vec4 b = xrSunVis[ 3 ];
+	vec2 fc = uv * b.x + b.yz;
+	vec2 ce = min( fc, xrSunVis[ 4 ].xy - fc );
+	vec4 n = textureLod( xrSunVisTex, ( clamp( fc, vec2( 0.0 ), xrSunVis[ 4 ].xy ) + xrSunVis[ 4 ].zw ) * inv, 0.0 );
+	// the fine grid (around the circuit), which takes over from the coarse one across its last nodes
+	vec4 a = xrSunVis[ 1 ];
+	vec2 ff = uv * a.x + a.yz;
+	vec2 fe = min( ff, xrSunVis[ 2 ].xy - ff );
+	float e = min( fe.x, fe.y );
+	vec4 nf = textureLod( xrSunVisTex, ( clamp( ff, vec2( 0.0 ), xrSunVis[ 2 ].xy ) + xrSunVis[ 2 ].zw ) * inv, 0.0 );
+	float wf = a.x > 0.0 && e >= 0.0 ? clamp( e * a.w, 0.0, 1.0 ) : 0.0;
+	n = mix( n, nf, wf * wf * ( 3.0 - 2.0 * wf ) );
+	// beyond the terrain that is drawn (and the fine grid) there is nothing to hide the sun
+	float drawn = min( ce.x, ce.y ) >= 0.0 || wf > 0.0 ? 1.0 : 0.0;
+
+	// n = ( H_lo - yRef, H_hi - yRef, 1 / ( u_lo dt ), 1 / ( u_hi dt ) ): the two horizon lines the disc's lower and upper limb are cut by
+	float y = p.y + xrSunVis[ 5 ].z - s0.z;
+	float q = max( ( n.x - y ) * n.z, 1.0 + ( n.y - y ) * n.w );
+	float c = 1.0 - clamp( q, 0.0, 1.0 );
+	return mix( 1.0, c * c * ( 3.0 - 2.0 * c ), s0.w * drawn );
+
+}
+
+// The same share from the coarse grid alone, for the haze's taps: they are hundreds of metres from the camera (the haze is nothing nearer),
+// where the fine grid has nothing to add, and the one read and the straight line of work are what the shader compiler can build into every fogged program cheaply.
+float xrSunVisCoarse( vec3 p ) {
+
+	vec4 s0 = xrSunVis[ 0 ];
+	if ( s0.w <= 0.0 ) return 1.0;
+	if ( xrSunVis[ 5 ].w > 0.5 ) return 1.0 - s0.w;
+
+	vec2 uv = vec2( dot( p.xz, s0.xy ), dot( p.xz, vec2( - s0.y, s0.x ) ) );
+	vec4 b = xrSunVis[ 3 ];
+	vec2 fc = uv * b.x + b.yz;
+	vec2 ce = min( fc, xrSunVis[ 4 ].xy - fc );
+	vec4 n = textureLod( xrSunVisTex, ( clamp( fc, vec2( 0.0 ), xrSunVis[ 4 ].xy ) + xrSunVis[ 4 ].zw ) * xrSunVis[ 5 ].xy, 0.0 );
+	float drawn = min( ce.x, ce.y ) >= 0.0 ? 1.0 : 0.0;
+	float y = p.y + xrSunVis[ 5 ].z - s0.z;
+	float q = max( ( n.x - y ) * n.z, 1.0 + ( n.y - y ) * n.w );
+	float c = 1.0 - clamp( q, 0.0, 1.0 );
+	return mix( 1.0, c * c * ( 3.0 - 2.0 * c ), s0.w * drawn );
+
+}
+
+#endif
+`;
+
 const MARK = '__xrPatched';
 
 const FOG_PARS_VERTEX = /* glsl */ `
@@ -89,6 +215,45 @@ const FOG_PARS_VERTEX = /* glsl */ `
 
 	varying float vFogDepth;
 	varying vec3 vFogDir;
+
+	#ifdef FOG_EXP2
+
+		// The sunlit share (0..1) of the haze along the view ray to the vertex, for the fragments between the vertices (1 where no map is in use).
+		varying float vFogSun;
+		uniform float fogDensity;
+		uniform vec4 xrFog[ 10 ];
+
+		${SUNVIS_PARS}
+
+		// The share of the sun's in-scatter along the view ray that is sunlit, from the sun visibility map: five taps along the ray, placed so
+		// that each carries the same share of the fog (equal steps of the fog factor F(z) = 1 - exp(-d^2 z^2 - rain z) over the planar depth z
+		// are equal shares of the light the ray scatters toward the eye). The CPU twin is hazeSunShare. The share varies slowly (the haze is
+		// hundreds of metres to kilometres of air), so it is worked out at the vertices: the fragments pay nothing for it, and the program of
+		// a fragment shader, which is the one the compiler takes its time over, is spared the five reads.
+		float xrSunHazeTap( vec3 dirN, float stretch, float d2, float rain, float q ) {
+
+			float l = - log( 1.0 - min( 0.999, q ) );
+			float z = d2 > 1e-12 ? ( - rain + sqrt( rain * rain + 4.0 * d2 * l ) ) / ( 2.0 * d2 ) : l / max( rain, 1e-6 );
+			return xrSunVisCoarse( cameraPosition + dirN * ( z * stretch ) );
+
+		}
+
+		float xrSunHaze( vec3 toVertex, float depth ) {
+
+			if ( xrSunVis[ 0 ].w <= 0.0 ) return 1.0;
+			float d2 = fogDensity * fogDensity;
+			float rain = xrFog[ 0 ].z;
+			float F = 1.0 - exp( - d2 * depth * depth - rain * depth );
+			if ( F <= 0.012 ) return 1.0;
+			float dist = length( toVertex );
+			vec3 dirN = toVertex / max( dist, 1e-4 );
+			float stretch = dist / max( depth, 1e-4 );
+			float f5 = 0.2 * F;
+			return 0.2 * ( xrSunHazeTap( dirN, stretch, d2, rain, 0.5 * f5 ) + xrSunHazeTap( dirN, stretch, d2, rain, 1.5 * f5 ) + xrSunHazeTap( dirN, stretch, d2, rain, 2.5 * f5 ) + xrSunHazeTap( dirN, stretch, d2, rain, 3.5 * f5 ) + xrSunHazeTap( dirN, stretch, d2, rain, 4.5 * f5 ) );
+
+		}
+
+	#endif
 
 #endif
 `;
@@ -98,6 +263,9 @@ const FOG_VERTEX = /* glsl */ `
 
 	vFogDepth = - mvPosition.z;
 	vFogDir = ( vec4( mvPosition.xyz, 0.0 ) * viewMatrix ).xyz;
+	#ifdef FOG_EXP2
+		vFogSun = xrSunHaze( vFogDir, vFogDepth );
+	#endif
 
 #endif
 `;
@@ -121,6 +289,12 @@ const FOG_PARS_FRAGMENT = /* glsl */ `
 	#endif
 
 	uniform vec4 xrFog[ 10 ];
+	uniform vec4 xrFogSun[ 8 ];
+	#ifdef FOG_EXP2
+		varying float vFogSun;
+	#endif
+
+	${SUNVIS_PARS}
 
 	vec3 xrFogColor( vec3 dirN ) {
 
@@ -153,6 +327,48 @@ const FOG_PARS_FRAGMENT = /* glsl */ `
 
 	}
 
+	// the sun's own in-scatter in that colour (xrFogSun is the same table, single scattering of the direct sun only); under the rain
+	// deck it fades with the deck's blend, as the rest of the colour is blended into the deck's
+	vec3 xrFogSunPart( vec3 dirN ) {
+
+		if ( xrFog[ 0 ].w < 0.5 ) return vec3( 0.0 );
+
+		float hl = length( dirN.xz );
+		vec2 hn = hl > 1e-4 ? dirN.xz / hl : vec2( 1.0, 0.0 );
+		float cr = abs( hn.x * xrFog[ 0 ].y - hn.y * xrFog[ 0 ].x );
+		float phi = atan( cr, dot( hn, xrFog[ 0 ].xy ) );
+		float t = sqrt( phi / 3.14159265 ) * 7.0;
+		int i = clamp( int( floor( t ) ), 0, 6 );
+		vec3 c = mix( xrFogSun[ i ].rgb, xrFogSun[ i + 1 ].rgb, clamp( t - float( i ), 0.0, 1.0 ) );
+
+		float deck = clamp( xrFog[ 0 ].w - 1.0, 0.0, 1.0 );
+
+		if ( deck > 0.001 ) {
+
+			float y = max( dirN.y, 0.0 );
+			c *= ( 1.0 - 0.8 * smoothstep( 0.02, 0.35, y ) * deck ) * ( 1.0 - smoothstep( 0.015, 0.8, y ) * deck );
+
+		}
+
+		return c;
+
+	}
+
+	#ifdef FOG_EXP2
+
+		// xrFogColor with the sun's part of it scaled by the sunlit share of the ray (vFogSun, from the vertices): the old colour exactly where
+		// the ray is in the sun
+		vec3 xrFogColorLit( vec3 dirN ) {
+
+			vec3 c = xrFogColor( dirN );
+			// (the air in a hill's shade keeps xrSunVis[ 6 ].x of the sun's part: the glow of the sky above the ridge lights it from the side)
+			if ( xrSunVis[ 0 ].w > 0.0 && vFogSun < 1.0 ) c = max( c - xrFogSunPart( dirN ) * ( ( 1.0 - vFogSun ) * ( 1.0 - xrSunVis[ 6 ].x ) ), vec3( 0.0 ) );
+			return c;
+
+		}
+
+	#endif
+
 #endif
 `;
 
@@ -164,13 +380,15 @@ const FOG_FRAGMENT = /* glsl */ `
 		// exp2 haze plus the Beer-Lambert rain haze xrFog[0].z (0 when dry: identical to stock)
 		float fogFactor = 1.0 - exp( - fogDensity * fogDensity * vFogDepth * vFogDepth - xrFog[ 0 ].z * vFogDepth );
 
+		gl_FragColor.rgb = mix( gl_FragColor.rgb, xrFogColorLit( normalize( vFogDir ) ), fogFactor );
+
 	#else
 
 		float fogFactor = smoothstep( fogNear, fogFar, vFogDepth );
 
-	#endif
+		gl_FragColor.rgb = mix( gl_FragColor.rgb, xrFogColor( normalize( vFogDir ) ), fogFactor );
 
-	gl_FragColor.rgb = mix( gl_FragColor.rgb, xrFogColor( normalize( vFogDir ) ), fogFactor );
+	#endif
 
 #endif
 `;
@@ -295,6 +513,9 @@ const DIR_LIGHT_BLOCK = /* glsl */ `#if ( NUM_DIR_LIGHTS > 0 ) && defined( RE_Di
 	DirectionalLightShadow directionalLightShadow;
 	#endif
 
+	// the share of the sun's disc the terrain leaves visible at this fragment (1 where no map is made: the old light exactly)
+	xrSunVG = xrSunVisAt( cameraPosition + ( vec4( geometryPosition, 0.0 ) * viewMatrix ).xyz );
+
 	#pragma unroll_loop_start
 	for ( int i = 0; i < NUM_DIR_LIGHTS; i ++ ) {
 
@@ -304,6 +525,10 @@ const DIR_LIGHT_BLOCK = /* glsl */ `#if ( NUM_DIR_LIGHTS > 0 ) && defined( RE_Di
 		directionalLight = directionalLights[ i ];
 
 		getDirectionalLightInfo( directionalLight, directLight );
+
+		#if UNROLLED_LOOP_INDEX == 0
+		directLight.color *= xrSunVG;
+		#endif
 
 		#if defined( USE_SHADOWMAP ) && ( UNROLLED_LOOP_INDEX < NUM_DIR_LIGHT_SHADOWS )
 		#if defined( XR_CSM )
@@ -326,6 +551,8 @@ const DIR_LIGHT_BLOCK = /* glsl */ `#if ( NUM_DIR_LIGHTS > 0 ) && defined( RE_Di
 export interface PatchResult {
   csm: boolean;
   fog: boolean;
+  /** The terrain's shade (the sun visibility map) is part of the lights and the fog. */
+  sunVis: boolean;
 }
 
 let result: PatchResult | null = null;
@@ -335,7 +562,7 @@ export function installShaderPatches(): PatchResult {
   if (result) return result;
   const chunks = ShaderChunk as unknown as Record<string, string>;
   if ((chunks as Record<string, unknown>)[MARK]) {
-    result = { csm: true, fog: true };
+    result = { csm: true, fog: true, sunVis: true };
     return result;
   }
 
@@ -381,12 +608,32 @@ export function installShaderPatches(): PatchResult {
     console.warn('[render] street-lamp patch skipped: unexpected light chunks');
   }
 
+  // ---- the terrain's shade -------------------------------------------------------------------
+  // (the lights block and the fog already carry it; this is the part every lit program needs: the uniform and the function, before
+  // the first of them is used, and a lit program that has no fog or no lamps still has it)
+  let sunVis = false;
+  if (csm && typeof chunks.lights_pars_begin === 'string' && fog) {
+    chunks.lights_pars_begin = chunks.lights_pars_begin + '\n' + SUNVIS_PARS;
+    sunVis = true;
+  } else {
+    console.warn('[render] terrain-shade patch skipped: the cascade or fog patch is missing');
+  }
+
   // ---- uniforms: make them part of every built-in material's uniform table -----------------
   const lib = ShaderLib as unknown as Record<string, { uniforms?: Record<string, unknown> }>;
   for (const key of Object.keys(lib)) {
     const u = lib[key].uniforms;
     if (!u) continue;
-    if (fog && 'fogColor' in u) u.xrFog = xrFogUniform;
+    if (fog && 'fogColor' in u) {
+      u.xrFog = xrFogUniform;
+      u.xrFogSun = xrFogSunUniform;
+      u.xrSunVis = xrSunVisUniform;
+      u.xrSunVisTex = xrSunVisTexUniform;
+    }
+    if (sunVis && 'directionalLights' in u) {
+      u.xrSunVis = xrSunVisUniform;
+      u.xrSunVisTex = xrSunVisTexUniform;
+    }
     if (csm && 'directionalShadowMatrix' in u) u.xrCsm = xrCsmUniform;
     if (lamps && 'directionalLights' in u) {
       u.xrLamp = xrLampUniform;
@@ -395,7 +642,16 @@ export function installShaderPatches(): PatchResult {
     }
   }
   const libU = UniformsLib as unknown as Record<string, Record<string, unknown>>;
-  if (fog && libU.fog) libU.fog.xrFog = xrFogUniform;
+  if (fog && libU.fog) {
+    libU.fog.xrFog = xrFogUniform;
+    libU.fog.xrFogSun = xrFogSunUniform;
+    libU.fog.xrSunVis = xrSunVisUniform;
+    libU.fog.xrSunVisTex = xrSunVisTexUniform;
+  }
+  if (sunVis && libU.lights) {
+    libU.lights.xrSunVis = xrSunVisUniform;
+    libU.lights.xrSunVisTex = xrSunVisTexUniform;
+  }
   if (csm && libU.lights) libU.lights.xrCsm = xrCsmUniform;
   if (lamps && libU.lights) {
     libU.lights.xrLamp = xrLampUniform;
@@ -404,6 +660,6 @@ export function installShaderPatches(): PatchResult {
   }
 
   chunks[MARK] = '1';
-  result = { csm, fog };
+  result = { csm, fog, sunVis };
   return result;
 }

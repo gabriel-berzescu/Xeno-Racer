@@ -443,11 +443,15 @@ export class Game {
   private async ensureTrack(trackId: string, env: RaceConfig['environment'], token: number, forecastTo: Weather | null = null): Promise<boolean> {
     // (a winter circuit has its own light, its own ground and a snowfall for rain: the environment is told)
     const winter = TRACKS.find((t) => t.info.id === trackId)?.info.winter === true;
-    await (this.render as XenoRenderSystem).setEnvironment(winter ? { ...env, winter } : env, forecastTo);
-    if (token !== this.loadToken) return false;
+    const xr = this.render as XenoRenderSystem;
     // the scene is reused for the same track, unless the quality or vegetation it was built with has changed since
     const built = `${trackId}|${this.settings.graphics.quality}|${this.settings.graphics.vegetation}`;
-    if (this.track?.info.id === trackId && this.trackScene && this.trackBuilt === built) {
+    const kept = this.track?.info.id === trackId && this.trackScene !== null && this.trackBuilt === built;
+    // (a new circuit: the ground of the one before has nothing to say about this race's sun; a kept one has its map remade by setEnvironment if the sun moved)
+    if (!kept) await xr.setTerrain(null);
+    await xr.setEnvironment(winter ? { ...env, winter } : env, forecastTo);
+    if (token !== this.loadToken) return false;
+    if (kept && this.trackScene) {
       this.trackScene.setEnvironment(this.render.env);
       return true;
     }
@@ -465,6 +469,10 @@ export class Game {
       scene.dispose();
       return false;
     }
+    // where the hills hide the sun from this circuit: a few hundred ms of work in slices behind the loading screen, made while the cars
+    // are and the shaders are compiled (precompile waits for it)
+    this.ui.setLoading(0.76, 'Sun and shade');
+    void xr.setTerrain(scene.terrain ?? null);
     this.track = rt;
     this.trackScene = scene;
     this.trackBuilt = built;
@@ -480,6 +488,7 @@ export class Game {
   }
 
   private disposeTrack(): void {
+    void (this.render as XenoRenderSystem).setTerrain(null);
     this.clearCars();
     this.effects?.dispose();
     this.effects = null;

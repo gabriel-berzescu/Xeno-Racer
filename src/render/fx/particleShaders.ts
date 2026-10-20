@@ -1,3 +1,4 @@
+import { SUNVIS_PARS } from '../shaderPatches';
 import { LIGHTS_GLSL } from '../wet/lights';
 
 /**
@@ -50,15 +51,19 @@ varying vec3 vCol;
 varying float vSeed;
 varying vec3 vView;
 varying float vR;
+varying float vSun;
 #ifdef LIT
 ${LIGHTS_GLSL}
 varying vec3 vLit;
 #endif
+${SUNVIS_PARS}
 
 void main() {
   vec4 mv = viewMatrix * vec4(aA.xyz, 1.0);
   vView = mv.xyz;
   vR = aA.w;
+  // the share of the sun's disc the terrain leaves visible at the puff's centre (a car in a ridge's shade throws shaded smoke)
+  vSun = xrSunVisAt(aA.xyz);
   vP = position.xy * 2.0;
   vB = aB;
   vCol = aC.rgb;
@@ -80,6 +85,7 @@ varying vec3 vCol;
 varying float vSeed;
 varying vec3 vView;
 varying float vR;
+varying float vSun;
 #ifdef LIT
 varying vec3 vLit;
 #endif
@@ -125,8 +131,9 @@ void main() {
   float fwd = pow(max(dot(viewDirW, uSunDir), 0.0), 5.0);
   float core = smoothstep(0.15, 0.95, dens) * (1.0 - age * 0.5);
   float variation = 0.9 + 0.2 * n.b;
-  vec3 lit = vCol * variation * (uSunLight * (wrap / PI) * (1.0 - 0.3 * core) + amb * (1.0 - 0.18 * core));
-  lit += uSunLight * (fwd * 0.09 * (1.0 - core * 0.6)) * vCol;
+  vec3 sunL = uSunLight * vSun;
+  vec3 lit = vCol * variation * (sunL * (wrap / PI) * (1.0 - 0.3 * core) + amb * (1.0 - 0.18 * core));
+  lit += sunL * (fwd * 0.09 * (1.0 - core * 0.6)) * vCol;
 #ifdef LIT
   // water mist is brighter than smoke: its droplets scatter the whole sky toward the eye; headlights, brake
   // lights and lamps scatter in it too (softly, from every side)
@@ -151,6 +158,7 @@ varying vec3 vCol;
 varying float vSeed;
 varying vec3 vView;
 varying float vR;
+varying float vSun;
 varying vec3 vLit;
 
 void main() {
@@ -174,7 +182,7 @@ void main() {
   if (a < 0.002) discard;
 
   vec3 amb = mix(uGroundAmb, uSkyAmb, 0.7);
-  vec3 lit = vCol * (amb * 2.1 + uSunLight * (0.14 / PI)) + vCol * vLit * 0.7;
+  vec3 lit = vCol * (amb * 2.1 + uSunLight * (vSun * 0.14 / PI)) + vCol * vLit * 0.7;
   lit = applyFog(lit, depthV);
   gl_FragColor = vec4(lit * a, a);
 }
@@ -333,10 +341,13 @@ varying vec2 vP;
 varying vec4 vC;
 varying vec3 vView;
 varying vec2 vS;     // shape seed, facet shade
+varying float vSun;
+${SUNVIS_PARS}
 
 void main() {
   vec4 mv = viewMatrix * vec4(aA.xyz, 1.0);
   vView = mv.xyz;
+  vSun = xrSunVisAt(aA.xyz);
   float c = cos(aB.x), s = sin(aB.x);
   vec2 p = position.xy * 2.0;
   vP = p;
@@ -353,6 +364,7 @@ varying vec2 vP;
 varying vec4 vC;
 varying vec3 vView;
 varying vec2 vS;
+varying float vSun;
 
 void main() {
   // an irregular shard, not a square: one or two corners cut at a per-chip angle
@@ -362,7 +374,7 @@ void main() {
   if (k > 0.55 && -vP.x * 0.8 - vP.y * (1.4 - k) > 0.85) discard;
   float depthV = -vView.z;
   if (sceneViewDepth() < depthV - 0.03) discard;
-  vec3 lit = vC.rgb * (uSunLight * 0.22 + uSkyAmb * 0.9) * vS.y;
+  vec3 lit = vC.rgb * (uSunLight * (0.22 * vSun) + uSkyAmb * 0.9) * vS.y;
   lit = applyFog(lit, depthV);
   gl_FragColor = vec4(lit, vC.a);
 }

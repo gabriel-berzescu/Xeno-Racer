@@ -15,7 +15,8 @@ interface Tile {
 }
 
 const ROOT = 1024;
-const REACH = 5000;
+/** How far beyond the circuit's bounds (m) the terrain tiles reach: past it there is no ground to see, or to hide the sun. */
+export const REACH = 5000;
 
 function cellsFor(size: number, res: number): number {
   const base = size <= 128 ? 28 : size >= 1024 ? 24 : 26;
