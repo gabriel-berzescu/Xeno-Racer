@@ -305,7 +305,8 @@ export function makeInterior(spec: CarVisualSpec, quality: QualityLevel): Interi
   const dcell = quality === 'low' ? 0.05 : quality === 'medium' ? 0.036 : 0.03;
   const dashMid = dc;
   const cabinZones = (x: number, y: number, z: number, _nx: number, ny: number, _nz: number, out: Float32Array): void => {
-    out[1] = Math.max(Math.abs(x - sx) - 0.178, Math.abs(y - binY) - 0.048, z - (binZ - 0.081));
+    // cluster face: a thin slab at the binnacle's rear face (bounded behind too, or the seatback behind it gets the display)
+    out[1] = Math.max(Math.abs(x - sx) - 0.178, Math.abs(y - binY) - 0.048, z - (binZ - 0.081), binZ - 0.15 - z);
     if (!proto) {
       const up = ny > 0.35 && z > dRear - 0.02 ? -1 : 1;
       const ax = Math.abs(x);
