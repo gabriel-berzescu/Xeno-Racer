@@ -247,7 +247,9 @@ export class RaceSession {
         const ref = this.refs.get(p);
         if (p.entrant.isPlayer && ref) {
           const stored = this.storedBestFor(p.entrant.seat ?? 0);
-          personalBest = stored === null || lap < stored;
+          // the record to beat is the one the race began with, lowered by this human's own laps since: a lap slower than an
+          // earlier one of the race is no record, even with none stored (the first race of a car on a track)
+          personalBest = best && (stored === null || lap < stored);
           if (best) {
             ref.trace = ref.cur.slice();
             ref.sectors = p.sectorTimes.map((x) => x ?? 0);

@@ -25,12 +25,13 @@ function place(st: VehicleState, dist: number, speed = 50): void {
   st.quaternion.setFromUnitVectors(new Vector3(0, 0, 1), frame.tangent);
 }
 
-function setup(n: number, laps: number) {
+/** `stored`: the player's record for the track and car when the race begins. */
+function setup(n: number, laps: number, stored: number | null = null) {
   const entrants: Entrant[] = [];
   for (let i = 0; i < n; i++) entrants.push({ id: i, name: `car${i}`, color: '#fff', carId: 'vanta-gt', isPlayer: i === 0, state: fakeState(i) });
   entrants.forEach((e, i) => place(e.state, -10 - 8 * i));
   const cfg: RaceConfig = { mode: 'race', trackId: 'aurelia', carId: 'vanta-gt', laps, opponents: n - 1, difficulty: 'pro', environment: { timeOfDay: 'noon', weather: 'clear' }, startPosition: 'pole' };
-  const session = new RaceSession(track, cfg, entrants, null, 0);
+  const session = new RaceSession(track, cfg, entrants, stored, 0);
   return { entrants, session };
 }
 
@@ -89,6 +90,30 @@ describe('race session', () => {
     expect(p.lapTimes[1]).toBeGreaterThan(17 + L / 60 - 1);
     // (it ends 6 m past the line)
     expect(p.lapTimes[1]).toBeCloseTo(t - 6 / 60 - lapBegan, 1);
+  });
+
+  it('calls a lap a personal best only when it beats the record and every earlier lap of the race', () => {
+    // lap 1 at 60 m/s (from the grid, 10 m behind the line), lap 2 slower at 40 m/s, lap 3 faster than both at 80 m/s
+    const lap1 = (L + 10) / 60;
+    const lap2 = 30 / 60 + (L - 30) / 40;
+    const pbs = (stored: number | null): boolean[] => {
+      const { entrants, session } = setup(1, 5, stored);
+      session.startCountdown(0, false);
+      const dist = [-10];
+      let t = drive(session, entrants, dist, [60], 0, (L + 40) / 60);
+      t = drive(session, entrants, dist, [40], t, L / 40);
+      drive(session, entrants, dist, [80], t, L / 80);
+      const laps = session.drainEvents().flatMap((e) => (e.type === 'lap' ? [e] : []));
+      expect(laps).toHaveLength(3);
+      expect(laps[1].time).toBeCloseTo(lap2, 1);
+      return laps.map((e) => e.personalBest);
+    };
+    // the first race of the car on the track: no record stored, yet lap 2 is slower than lap 1
+    expect(pbs(null)).toEqual([true, false, true]);
+    // a record between laps 1 and 2: lap 2 beats it, but lap 1 already lowered it
+    expect(pbs((lap1 + lap2) / 2)).toEqual([true, false, true]);
+    // a record faster than laps 1 and 2: only lap 3 beats it
+    expect(pbs(lap1 - 1)).toEqual([false, false, true]);
   });
 
   it('warns of the wrong way when a car drives against the track, not when it reverses', () => {
