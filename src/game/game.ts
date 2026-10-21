@@ -1754,7 +1754,9 @@ export class Game {
             this.flashToast(d, `PERSONAL BEST  ${fmtTime(e.time)}`, now);
             this.audio.ui('bestLap');
           } else {
-            this.flashToast(d, `${e.best ? 'BEST LAP' : 'LAP'}  ${fmtTime(e.time)}`, now);
+            // the best lap of the race only once it has beaten an earlier one: the first lap is the best of one
+            const raceBest = e.best && (session.playerAt(d.seat)?.lapTimes.length ?? 0) > 1;
+            this.flashToast(d, `${raceBest ? 'BEST LAP' : 'LAP'}  ${fmtTime(e.time)}`, now);
             this.audio.ui('lap');
           }
           break;
