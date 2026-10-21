@@ -452,7 +452,9 @@ export function forecastOffered(s: SetupState, forecast: Forecast): boolean {
 }
 
 /** A seed for a race's forecast (it fixes when the weather changes and how hard, so a restart repeats it). */
-export const newForecastSeed = (): number => Math.floor(Math.random() * 2147483646) + 1;
+/** A seed for what a race draws at random, kept in its config so that a restart draws the same. */
+export const newSeed = (): number => Math.floor(Math.random() * 2147483646) + 1;
+export const newForecastSeed = newSeed;
 
 /**
  * The race the setup describes. With two players (a race or free roam, `players` 2) the config carries the second player's car and
@@ -480,6 +482,7 @@ export function buildRaceConfig(s: SetupState, tracks: readonly TrackInfo[], car
     startPosition: info.usesStart ? s.startPosition : 'pole',
     ...(two ? { player2: { carId: car2.id, livery: liveryFor(preset2, player2Name.trim() || 'Player 2') } } : {}),
     ...(forecast !== 'stable' ? { forecast, forecastSeed } : {}),
+    ...(info.usesOpponents ? { opponentSeed: newSeed() } : {}),
   };
 }
 

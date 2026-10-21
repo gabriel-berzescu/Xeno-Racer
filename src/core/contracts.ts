@@ -678,6 +678,11 @@ export interface RaceConfig {
   forecast?: Forecast;
   /** Decides when the change comes and how hard (so that a restart repeats it). Absent = 1. */
   forecastSeed?: number;
+  /**
+   * Decides who the opponents are (so that a restart races the same ones): see `fieldStart` in src/game/liveries.ts. Absent = the
+   * first drivers of the list. A championship round brings its own grid and does without.
+   */
+  opponentSeed?: number;
   /** Set for a round of a championship (mode is then always 'race'); `grid` overrides `startPosition`. */
   championship?: ChampionshipRoundInfo;
 }

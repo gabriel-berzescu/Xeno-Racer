@@ -61,7 +61,7 @@ import { createUI } from '../ui';
 import { GhostRecorder, ghostPose, loadBestLaps, loadGhost, recordKey, saveBestLap, saveGhost, type GhostLap } from './records';
 import { buildView, championshipDef, createChampionship, isPlayable, loadChampionship, nextRound, recordRound, roundConfig, saveChampionship, type ChampionshipState, type Finisher } from './championship';
 import { RaceSession, type Entrant } from './session';
-import { DRIVER_NAMES, opponentLivery } from './liveries';
+import { DRIVER_NAMES, fieldStart, opponentLivery } from './liveries';
 import type { ContactOther } from '../core/damage';
 import { DAMAGE_SHOWN, mechanicalReport, mechanicalWorst } from '../core/mechanical';
 import { DriverAids } from './driveraids';
@@ -759,6 +759,8 @@ export class Game {
     this.hudChampionship = champ ? { name: champ.name, round: champ.round, rounds: champ.rounds } : null;
     let slot = 0;
     let aiIndex = 0;
+    // who the opponents are: drawn when the race was set up (a restart races the same ones), not always A. Moreau first
+    const first = fieldStart(config.opponentSeed);
     let car2: RaceCar | null = null;
     for (let i = 0; i < total; i++) {
       if (token !== this.loadToken) return;
@@ -775,7 +777,7 @@ export class Game {
       } else {
         // (the humans' liveries are avoided, and so are their cars' by alternating)
         const aiDef = splitRace && aiIndex % 2 === 1 ? def2 : def;
-        const livery = opponentLivery(aiIndex, aiDef, splitRace ? [playerLivery, playerLivery2] : playerLivery);
+        const livery = opponentLivery(first + aiIndex, aiDef, splitRace ? [playerLivery, playerLivery2] : playerLivery);
         await this.spawnCar(aiDef, livery, { name: livery.driver, color: livery.primary, carId: aiDef.id, isPlayer: false }, slot++, true, config.difficulty);
         aiIndex++;
       }

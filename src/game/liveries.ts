@@ -35,6 +35,13 @@ const PALETTES: [string, string, string, Livery['pattern'], boolean][] = [
   ['#9b2226', '#e9d8a6', '#001219', 'solid', true],
 ];
 
+/**
+ * Where the field of a race that is not a championship round begins in the list of drivers: opponent i wears opponentLivery(first + i),
+ * so the names and colours of a field differ as they always have. From the race's seed (the same seed, the same field), the first
+ * driver of the list without one.
+ */
+export const fieldStart = (seed: number | undefined): number => (seed === undefined ? 0 : Math.abs(Math.floor(seed)) % DRIVER_NAMES.length);
+
 /** A distinct livery for opponent `i`; avoids the primary color of the player (or of each of the two players of a split screen). */
 export function opponentLivery(i: number, def: CarDefinition, avoid?: Livery | readonly Livery[]): Livery {
   let k = i % PALETTES.length;
