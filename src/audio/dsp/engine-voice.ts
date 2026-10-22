@@ -26,6 +26,8 @@
  *        fading with the rpm as the pulses crowd into the roar; an X-pipe throws that difference away, which is why a merged exhaust is smoother.
  *   `supercharger`  a positive-displacement blower: a whine locked to the crank (rpm/60 x pulley ratio x lobes) with its harmonics, the rotor's
  *        own turn and the hiss of the air, following the pedal through the bypass valve (a whirr off the throttle, a whine on it).
+ *   `electric`  an electric motor geared to the crankshaft (a 2026 MGU-K): a whine on the 14th order of the crank with its harmonics, a
+ *        murmur of its gears as it turns, faint while it harvests on a lift or under braking, strong while it deploys (a nitro shot burning).
  *
  * A cross-plane V8 (crankType 'crossplane') is also lumpier, strongest at idle: what each bank's pipe still holds of its last pulse, the cammed
  * idle's cycle-to-cycle spread and weak cylinders, a bank that runs richer for a while, and a burble of unburnt charge on a lift-off
@@ -115,6 +117,8 @@ export interface EngineDebug {
   turbo: Float32Array;
   whine: Float32Array;
   events: Float32Array;
+  /** The electric motor's whine (EngineSoundProfile.electric); optional, so the labs' and tests' own tap sets need not name it. */
+  electric?: Float32Array;
 }
 export function createEngineDebug(n: number): EngineDebug {
   return {
@@ -125,6 +129,7 @@ export function createEngineDebug(n: number): EngineDebug {
     turbo: new Float32Array(n),
     whine: new Float32Array(n),
     events: new Float32Array(n),
+    electric: new Float32Array(n),
   };
 }
 
@@ -192,6 +197,8 @@ export interface Voicing {
   /** Whole lobes: the rotor turns at fundamental / lobes. */
   blowerLobes: number;
   blowerLevel: number;
+  /** An electric motor geared to the crank (EngineSoundProfile.electric): how loud its whine is, 0 = none. */
+  electric: number;
   // the cross-plane V8's lumpiness (see EngineVoice.pulseFactor): all 0 for every other engine
   /** Depth of the back-pressure memory of a bank's pipe, 0 = none. */
   lope: number;
@@ -295,6 +302,7 @@ export function deriveVoicing(p: EngineSoundProfile, layout: EngineLayout): Voic
     blowerHzPerRpm: sc ? (sc.ratio * lobes) / 60 : 0,
     blowerLobes: lobes,
     blowerLevel: sc ? clamp01(sc.level ?? 1) : 0,
+    electric: p.electric !== undefined ? clamp01(p.electric) : 0,
     lope: cross ? 0.28 : 0,
     lopeTau: 0.018,
     lump: cross ? 0.3 : 0,
@@ -404,6 +412,13 @@ class TailChain {
 }
 
 const K_FINAL_DRIVE = 3.7;
+/**
+ * The order of the crank an electric motor geared to it whines at: the MGU-K turns 3.5 times for every crank turn (43,750 rpm at the
+ * Volta's 12,500; the 2026 rules allow it 50,000) and its four pole pairs pass each coil four times a turn, 14 times the crank's speed
+ * (2.9 kHz at 12,500 rpm, 930 Hz at 4000). Twice it is a whole number, so the whine and its harmonics sit on the engine-order grid
+ * (rpm/120) where the aliasing test looks for strays.
+ */
+const ELECTRIC_ORDER = 14;
 const PINION_TEETH = 11;
 const PAIR_TEETH = 22;
 const WIN_N = 1024;
@@ -558,6 +573,12 @@ export class EngineVoice {
   /** The slow unevenness of the whine (a few percent, a few times a second): the air is never quite steady. */
   private scDr = 0;
   private svfSc = new SVF();
+
+  // the electric motor: its phase (turns of the whine), smoothed strength and gain, and the nitro smoothed
+  private elPh = 0;
+  private elA = 0;
+  private gEl = 0;
+  private sNitro = 0;
 
   // the cross-plane V8's lumpiness (pulseFactor): what each bank's pipe still holds of the last pulses, when the bank last fired (in samples)
   private lopeH: Float64Array;
@@ -772,6 +793,7 @@ export class EngineVoice {
     this.lpMf.y = this.lpMb.y = this.lpCf.y = this.lpCb.y = this.lpQ.y = this.lpTf.y = this.lpEnd.y = 0;
     for (const t of this.tails) t.clear();
     this.scA = 0;
+    this.elA = 0;
     this.lopeH.fill(0);
     for (const r of this.blk) r.reset();
     this.clunkR1.reset();
@@ -1220,6 +1242,26 @@ export class EngineVoice {
     if (blowOn) this.svfSc.set(clamp(blowInc1 * sr * 3.3, 900, sr * 0.4), 2.5, sr);
     const svfSc = this.svfSc;
 
+    // electric motor block parameters. It is geared to the crank, so its whine follows the rpm at once, whatever it is doing; how loud
+    // it is depends on its work. Turning free, only its gears murmur; harvesting (a lift, the brakes: the throttle shut while the engine
+    // turns) it brakes the crank with its field and whines faintly; deploying (only while a nitro shot burns, and only as far as the
+    // throttle asks) it drives it with all of its field and whines loud and bright. All of it full quality only, as the blower.
+    const elOn = V.electric > 0 && full;
+    if (V.electric > 0) this.sNitro += smoothCoef(0.05, dt) * (I.nitro - this.sNitro);
+    const elInc0 = (ELECTRIC_ORDER / 60) * rpmPrev * tsPrev * invSr; // whine, cycles per sample, at the start and end of the block
+    const elInc1 = (ELECTRIC_ORDER / 60) * rpm * this.sTs * invSr;
+    const elDeploy = this.sNitro * Math.pow(thr, 1.2);
+    const elTarget = elOn && elInc1 < 0.42 ? 0.06 * (0.3 + 0.7 * rpmN) + 0.25 * ovr * (0.25 + 0.75 * rpmN) + elDeploy * (0.6 + 0.4 * rpmN) : 0;
+    const elW2 = elInc1 * 2 < 0.42 ? 0.22 + 0.33 * elDeploy : 0;
+    const elW3 = elInc1 * 3 < 0.42 ? 0.06 + 0.2 * elDeploy : 0;
+    const elKa = 1 - Math.exp(-invSr / 0.04);
+    const elKr = 1 - Math.exp(-invSr / 0.06);
+    const tEl = lerp(1.15, 2.1, sI) * V.electric;
+    if (firstBlock) this.gEl = tEl;
+    const dEl = (tEl - this.gEl) * (1 / len);
+    let cEl = this.gEl;
+    this.gEl = tEl;
+
     // event-sound decay constants (sample-rate independent)
     const popEnvK = Math.exp(-invSr / 0.017);
     const popToneK = Math.exp(-invSr / 0.045);
@@ -1333,6 +1375,8 @@ export class EngineVoice {
     let scPh = this.scPh;
     let scA = blowOn ? this.scA : 0; // a blower that was not rendered (lite) fades in again, it does not come back at its old level
     let scDr = this.scDr;
+    let elPh = this.elPh;
+    let elA = elOn ? this.elA : 0; // (as the blower: a motor that was not rendered fades in again)
     let bovEnv = this.bovEnv;
     let flutPh = this.flutPh;
     let popEnv = this.popEnv;
@@ -1647,6 +1691,7 @@ export class EngineVoice {
       let whine = 0;
       let turbo = 0;
       let bov = 0;
+      let elec = 0;
       if (full) {
         // engine block modes excited by combustion
         const bi = blkIn * 0.05;
@@ -1726,6 +1771,18 @@ export class EngineVoice {
             turbo += (tone + 0.5 * svfSc.bpn) * scA * 0.05 * (1 + 0.1 * sinCyc(wrap1(nN * cyc + 0.3)) + 6.5 * scDr);
           }
         }
+
+        // the electric motor's whine, the 14th order of the crank and its harmonics: the firing of the engine shakes the gears that drive
+        // it, so its speed wobbles a little at the firing frequency (sidebands one firing frequency either side, on the grid too)
+        if (elOn) {
+          elA += (elTarget > elA ? elKa : elKr) * (elTarget - elA);
+          if (elA > 1e-4) {
+            const eInc = elInc0 + (elInc1 - elInc0) * fr;
+            elPh += eInc * (1 + 0.015 * sinCyc(wrap1(nN * cyc)));
+            if (elPh >= 1) elPh -= 1;
+            elec = (sinCyc(elPh) + elW2 * sinCyc(wrap1(elPh * 2)) + elW3 * sinCyc(wrap1(elPh * 3))) * elA * 0.05;
+          }
+        }
       } else {
         // A lite voice renders neither the block nor the ticks, but what feeds them (every combustion, every valve tick) must not pile
         // up: a voice promoted to full (an opponent coming within 80 m, a TV camera cutting onto a pack) used to throw the whole heap
@@ -1772,6 +1829,10 @@ export class EngineVoice {
       cOut += dOut;
       const exI = cExI > 1e-4 || sIntNow > 0.002 ? lpInt2.step(lpInt.step(u)) : 0;
       let y = bov * lerp(0.7, 0.9, sIntNow) + exD * cExE + exI * cExI + crack * (cExE + 0.3 * cExI) + blkOut * cBlk + intake * cInt + mech * cMech + turbo * cTur + whine * cWh + ev * cEv;
+      if (elOn) {
+        cEl += dEl;
+        y += elec * cEl;
+      }
       if (sIntNow > 0.002) {
         const cb1 = cabin2.step(cabin.step(y));
         y += (cb1 - y) * sIntNow;
@@ -1786,6 +1847,7 @@ export class EngineVoice {
         dbg.turbo[k] = turbo * cTur;
         dbg.whine[k] = whine * cWh;
         dbg.events[k] = ev * cEv;
+        if (dbg.electric) dbg.electric[k] = elOn ? elec * cEl : 0;
       }
     }
 
@@ -1801,6 +1863,8 @@ export class EngineVoice {
     this.scPh = scPh;
     this.scA = scA;
     this.scDr = scDr;
+    this.elPh = elPh;
+    this.elA = elA;
     this.clock += len;
     this.bovEnv = bovEnv;
     this.flutPh = flutPh;

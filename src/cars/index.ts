@@ -604,7 +604,8 @@ const voltaSound: EngineSoundProfile = {
   // its loudness measured over its own revs, and the lift of its 3000 rpm idle gone by 4500 rpm (not 6600)
   limiterRpm: 12500,
   idleLiftTo: 1.5,
-  // (a first-pass strength, set by the voice)
+  // the MGU-K's whine on the 14th order of the crank (2.6 kHz at 11,000 rpm): 12 to 22 dB over the rest of the engine in its band while a
+  // nitro shot deploys it, 10 to 16 dB under that while it harvests on a lift (tests/audio-volta.test.ts)
   electric: 1,
 };
 
