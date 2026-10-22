@@ -187,13 +187,15 @@ else if (ip == 57) {
   int gd = uCluster.y < -0.5 ? 11 : g <= 0 ? 10 : min(g, 9);
   sc += vec3(1.0, 0.98, 0.92) * yokeDigit(q, vec2(-0.0115, -0.021), vec2(0.0115, 0.022), gd, 0.0048);
   int sv = int(max(uCluster.z, 0.0) + 0.5);
-  float sl = yokeDigit(q, vec2(-0.0245, 0.004), vec2(-0.0155, 0.021), sv % 10, 0.0019);
-  if (sv >= 10) sl += yokeDigit(q, vec2(-0.0355, 0.004), vec2(-0.0265, 0.021), (sv / 10) % 10, 0.0019);
-  if (sv >= 100) sl += yokeDigit(q, vec2(-0.0465, 0.004), vec2(-0.0375, 0.021), (sv / 100) % 10, 0.0019);
+  // (three digits as wide as the bar under them, the last 1.7 mm short of the divider)
+  float sl = yokeDigit(q, vec2(-0.026, 0.004), vec2(-0.0175, 0.021), sv % 10, 0.0019);
+  if (sv >= 10) sl += yokeDigit(q, vec2(-0.0362, 0.004), vec2(-0.0277, 0.021), (sv / 10) % 10, 0.0019);
+  if (sv >= 100) sl += yokeDigit(q, vec2(-0.0464, 0.004), vec2(-0.0379, 0.021), (sv / 100) % 10, 0.0019);
   sc += vec3(0.85, 0.9, 1.0) * sl;
-  // the electric deployment: a blue bar that fills while the boost burns
+  // the electric deployment: a blue bar that fills while the boost burns (dark while it does not: not even the bar's soft left edge lit)
   float erb = yokeBox(q, vec2(-0.0465, -0.02), vec2(-0.0185, -0.011));
-  sc += erb * (vec3(0.006, 0.014, 0.04) + vec3(0.15, 0.4, 1.0) * step(q.x, -0.0465 + 0.028 * clamp(uYoke.y, 0.0, 1.0)));
+  float dep = clamp(uYoke.y, 0.0, 1.0);
+  sc += erb * (vec3(0.006, 0.014, 0.04) + vec3(0.15, 0.4, 1.0) * step(q.x, -0.0465 + 0.028 * dep) * step(0.001, dep));
   // the active aero: a green box while the wings stand open, dark while they are in corner mode
   float aeb = yokeBox(q, vec2(0.0185, 0.006), vec2(0.0465, 0.021));
   sc += aeb * mix(vec3(0.01, 0.012, 0.014), vec3(0.15, 1.0, 0.3), smoothstep(0.4, 0.6, uYoke.x));
