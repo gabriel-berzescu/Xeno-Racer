@@ -6,16 +6,21 @@
  *     damage still takes its share of what is left, and a replay shows where the flaps stood. A car with fixed wings has no flaps at all;
  *   - the electric nitro (EngineSpec.electric): a shot deploys the MGU-K, whose power follows the 2026 rule (350 kW to 290 km/h, then
  *     1800 - 5 v kW, nothing from 345 km/h) through the gearbox, with no push from a bottle and no extra engine torque; the clutch holds it,
- *     the limiter cuts it. Every other car keeps the bottle's push and the engine's extra torque.
+ *     the limiter cuts it. Every other car keeps the bottle's push and the engine's extra torque;
+ *   - the AI knows the flaps: its speed profile accelerates the Volta in straight mode where they open (faster on the straights, the same
+ *     in the corners and the braking zones), an AI lap has them open on the straights and shut under braking and in the corners, and with
+ *     the nitro off the driver is the one it always was. No other car's profile has a straight mode.
  * Run: npx vitest run tests/volta.test.ts
  */
 import { Quaternion, Vector3 } from 'three';
 import { describe, expect, it } from 'vitest';
+import { AIDriver, computeRacingLine, computeSpeedProfile, gripModel, profileLapTime } from '../src/ai';
 import { CARS, getCar } from '../src/cars';
 import type { Assists, CarDefinition } from '../src/core/contracts';
 import { neutralEffects, type MechEffects } from '../src/core/mechanical';
 import { ReplayPlayer, ReplayRecorder } from '../src/game/replay';
 import { PhysicsWorld, createFlatTrack, electricPower } from '../src/physics';
+import { loadTrackRuntime } from '../src/track';
 import { DT, dragRun, setup } from './probes/car-metrics';
 
 const volta = getCar('volta');
@@ -336,5 +341,116 @@ describe('the electric nitro: a shot wakes the Volta\'s MGU-K', () => {
     expect(boosted.t200).toBeLessThan(plain.t200 - 1);
     expect(boosted.vmax).toBeGreaterThan(plain.vmax + 12);
     expect(boosted.vmax).toBeLessThan(345.5);
+  });
+});
+
+// ── the AI and the flaps ─────────────────────────────────────────────────────────
+
+describe('the AI knows the flaps', () => {
+  const aurelia = loadTrackRuntime('aurelia');
+  const line = computeRacingLine(aurelia, { edgeMargin: volta.visual.width / 2 - 0.25 });
+  const alien = { gripUse: 0.965, brakeUse: 0.94, wetness: 0 };
+
+  it('has a speed profile that accelerates in straight mode where the flaps open, and corners and brakes in corner mode', () => {
+    const active = computeSpeedProfile(aurelia, line, volta, alien).v;
+    const fixed = computeSpeedProfile(aurelia, line, fixedWings, alien).v;
+    let faster = 0;
+    let top = 0;
+    let topFixed = 0;
+    for (let i = 0; i < line.n; i++) {
+      // never slower, anywhere
+      expect(active[i], `point ${i}`).toBeGreaterThanOrEqual(fixed[i]);
+      if (active[i] > fixed[i] + 1) faster++;
+      top = Math.max(top, active[i]);
+      topFixed = Math.max(topFixed, fixed[i]);
+    }
+    // faster on the straights: a fifth of the lap 1 m/s or more, and more at the end of the longest
+    expect(faster).toBeGreaterThan(line.n * 0.2);
+    expect(top).toBeGreaterThan(topFixed + 2.5);
+    expect(profileLapTime(line, { v: active })).toBeLessThan(profileLapTime(line, { v: fixed }) - 0.5);
+    // the same in the slow corners: their speed is corner mode's
+    const slowest = (v: Float32Array) => v.reduce((a, b) => Math.min(a, b), Infinity);
+    expect(slowest(active)).toBe(slowest(fixed));
+    // on snow the tyres, not the engine, limit the car (the driver holds the throttle to what they take) and the flaps stay shut: the profile
+    // at Isvik is the fixed wings', point for point
+    const isvik = loadTrackRuntime('isvik');
+    const snowLine = computeRacingLine(isvik, { edgeMargin: volta.visual.width / 2 - 0.25 + 0.45 });
+    const onSnow = { ...alien, gripUse: alien.gripUse + 0.06 };
+    expect(Array.from(computeSpeedProfile(isvik, snowLine, volta, onSnow).v)).toEqual(Array.from(computeSpeedProfile(isvik, snowLine, fixedWings, onSnow).v));
+  });
+
+  it('gives no other car a straight mode, and a straight mode that is the corner mode changes the profile not by a bit', () => {
+    for (const def of others) expect(gripModel(def, alien).straight, def.id).toBeNull();
+    expect(gripModel(volta, alien).straight).not.toBeNull();
+    const same = structuredClone(volta);
+    same.physics.aero.straightMode = { dragArea: volta.physics.aero.dragArea, liftAreaFront: volta.physics.aero.liftAreaFront, liftAreaRear: volta.physics.aero.liftAreaRear };
+    expect(Array.from(computeSpeedProfile(aurelia, line, same, alien).v)).toEqual(Array.from(computeSpeedProfile(aurelia, line, fixedWings, alien).v));
+  });
+
+  it('laps with the flaps open on the straights and shut under braking and in the corners', () => {
+    const world = new PhysicsWorld(aurelia);
+    const car = world.addVehicle(volta);
+    car.assists = { ...AIDS };
+    const slot = aurelia.grid[0];
+    car.placeOnGround(slot.position, slot.quaternion, 0);
+    car.setTemperatures(1);
+    const ai = new AIDriver(aurelia, volta, { difficulty: 'alien', seed: 1 });
+    let open = 0;
+    let braking = 0;
+    let cornering = 0;
+    let shutAfter = 0;
+    let checked = 0;
+    let opened = 0;
+    let last = 0;
+    while (world.time < 90) {
+      ai.update(DT, car.state, world.states, car.controls, true);
+      world.step(DT);
+      const st = car.state;
+      const o = st.aeroOpen!;
+      if (o === 1) open += DT;
+      if (o > 0 && last === 0) opened++;
+      last = o;
+      braking = car.controls.brake > 0 ? braking + DT : 0;
+      cornering = Math.abs(st.localAccel.x) > 1.5 * G ? cornering + DT : 0;
+      // a quarter of a second into the brakes or into a corner of 1.5 g, they are shut
+      if (braking > 0.25 || cornering > 0.25) {
+        checked++;
+        if (o !== 0) shutAfter++;
+      }
+      expect(ai.needsReset).toBe(false);
+    }
+    expect(open).toBeGreaterThan(25);
+    expect(checked).toBeGreaterThan(600);
+    expect(shutAfter).toBe(0);
+    // (about once per straight: no fluttering)
+    expect(opened).toBeLessThan(25);
+  });
+
+  it('drives as it always did with the nitro off: a driver never handed a shot never asks for one, and one that is never given it drives the same', () => {
+    const drive = (ready: boolean) => {
+      const world = new PhysicsWorld(aurelia);
+      const car = world.addVehicle(volta);
+      car.assists = { ...AIDS };
+      const slot = aurelia.grid[0];
+      car.placeOnGround(slot.position, slot.quaternion, 0);
+      car.setTemperatures(1);
+      const ai = new AIDriver(aurelia, volta, { difficulty: 'alien', seed: 1 });
+      const controls: number[] = [];
+      let asked = 0;
+      while (world.time < 30) {
+        // (a shot ready but never fired: the game's tank refusing it)
+        ai.nitroReady = ready;
+        ai.update(DT, car.state, world.states, car.controls, true);
+        if (ai.wantNitro) asked++;
+        controls.push(car.controls.steer, car.controls.throttle, car.controls.brake);
+        world.step(DT);
+      }
+      return { controls, asked };
+    };
+    const off = drive(false);
+    const ready = drive(true);
+    expect(off.asked).toBe(0);
+    expect(ready.asked).toBeGreaterThan(0);
+    expect(ready.controls).toEqual(off.controls);
   });
 });

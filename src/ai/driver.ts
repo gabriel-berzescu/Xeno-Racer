@@ -16,6 +16,9 @@
  * - Weather: everything that depends on the water on the road (speed profile, racing line, grip estimates, the wet
  *   racecraft) is derived from one number, set at construction and changed with setWetness(), which moves the driver to
  *   the new conditions over a couple of seconds instead of jumping.
+ * - Active aero (a car with AeroSpec.straightMode, src/physics/aero.ts): the speed profile accelerates the car in straight mode where
+ *   its flaps open and corners and brakes it in corner mode, as the flaps close for both; the grip and the drag the driver works with
+ *   where the car is follow its flaps (VehicleState.aeroOpen), and everything it looks ahead at is in corner mode.
  * - Nitro: the game says whether a shot is ready (`nitroReady`) and burning (`nitroOn`); the driver asks for one (`wantNitro`)
  *   on a straight with no corner within reach of the boosted car, and while it burns (and until the car is back down to the
  *   profile) it drives to what the corners ahead and its brakes allow, not to the profile, which is capped by the car's own power.
@@ -272,6 +275,12 @@ export class AIDriver {
   private readonly drivenShare: number;
   /** Aerodynamic drag per kilogram and per (m/s)^2. */
   private readonly cDrag: number;
+  /**
+   * Active aero (AeroSpec.straightMode; null for a car with fixed wings): the downforce and the drag per kilogram and (m/s)^2 in straight
+   * mode (`cDown` and `cDrag` are the corner mode's), and where the car's flaps stood at the last update (0 corner mode .. 1 straight mode).
+   */
+  private readonly straight: { cDown: number; cDrag: number } | null;
+  private aeroOpen = 0;
 
   constructor(
     readonly track: TrackRuntime,
@@ -314,6 +323,8 @@ export class AIDriver {
     const cgA = ph.chassis.cgToFrontAxle;
     this.drivenShare = ph.drivetrain.layout === 'FWD' ? ((wb - cgA) / wb) * 0.92 : ph.drivetrain.layout === 'RWD' ? Math.min(1, (cgA / wb) * 1.1) : awdTractionShare(ph);
     this.cDrag = (0.5 * RHO * ph.aero.dragArea) / ph.chassis.mass;
+    const sm = ph.aero.straightMode;
+    this.straight = sm ? { cDown: (0.5 * RHO * (sm.liftAreaFront + sm.liftAreaRear)) / ph.chassis.mass, cDrag: (0.5 * RHO * sm.dragArea) / ph.chassis.mass } : null;
   }
 
   // ── weather ─────────────────────────────────────────────────────────────────
@@ -481,10 +492,15 @@ export class AIDriver {
     this.lineCur = m;
   }
 
-  /** What the tyres can give in any horizontal direction at speed v (m/s^2): wet grip, aquaplaning and downforce included. */
+  /**
+   * What the tyres can give in any horizontal direction at speed v (m/s^2): wet grip, aquaplaning and downforce included (the downforce of
+   * where the car's flaps stand, for a car with active aero).
+   */
   private gripAccel(v: number): number {
     const wetF = this.wetness > 0 ? wetGripFactor(this.wetness, this.tireWet, this.road, v) : 1;
-    return this.gripMu * this.dmgGrip * wetF * (G + this.cDown * this.dmgAero * v * v);
+    let cDown = this.cDown;
+    if (this.straight !== null && this.aeroOpen > 0) cDown += (this.straight.cDown - cDown) * this.aeroOpen;
+    return this.gripMu * this.dmgGrip * wetF * (G + cDown * this.dmgAero * v * v);
   }
 
   /** The grip of the surface under the racing line at track position s, relative to asphalt (1 on a road of asphalt). */
@@ -556,6 +572,7 @@ export class AIDriver {
     this.s = s;
     this.d = _tp.d;
     const v = Math.max(0, me.forwardSpeed);
+    if (this.straight !== null) this.aeroOpen = me.aeroOpen ?? 0;
     _f.set(0, 0, 1).applyQuaternion(me.quaternion);
     _l.set(1, 0, 0).applyQuaternion(me.quaternion);
     this.up.set(0, 1, 0).applyQuaternion(me.quaternion);
@@ -754,7 +771,10 @@ export class AIDriver {
       const r = Math.min(1, aLatNeed / Math.max(aGrip, 2));
       const axLeft = this.drivenShare * aGrip * Math.sqrt(1 - r * r) * WINTER_AX_USE;
       const thrust = Math.min(THRUST_MAX, this.powerPerKg / Math.max(v, 3));
-      thr = Math.min(thr, THR_NEUTRAL + (1 - THR_NEUTRAL) * Math.min(1, (axLeft + this.cDrag * v * v + 0.12) / thrust));
+      // (the drag of where the car's flaps stand, for a car with active aero)
+      let cDrag = this.cDrag;
+      if (this.straight !== null && this.aeroOpen > 0) cDrag += (this.straight.cDrag - cDrag) * this.aeroOpen;
+      thr = Math.min(thr, THR_NEUTRAL + (1 - THR_NEUTRAL) * Math.min(1, (axLeft + cDrag * v * v + 0.12) / thrust));
     }
     // governor: lift while an axle is sliding past its peak (front = understeer, driven rear = oversteer) or the driven
     // tyres use more than they have (wheelspin on top of the sideways slip)
