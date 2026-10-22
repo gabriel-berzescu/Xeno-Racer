@@ -802,12 +802,13 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
       U.uTail.value = 0.12 + 0.88 * head;
       U.uBrake.value = state.brake > 0.05 ? 1 : 0;
       if (rainLight) {
-        // (bright and steady once the road is wet or the night falls, off on a dry day; the endplate LEDs pulse three times a second
-        // while the electric boost deploys)
+        // (steady once the road is wet or the night falls, off on a dry day; about as bright as the other cars' rear lights, a little
+        // brighter by day, through the spray, than at night: driven harder, the tone mapping turns the red peach-white. The endplate
+        // LEDs pulse three times a second while the electric boost deploys, from a quarter of their brightest to all of it.)
         const on = Math.max(head, Math.min(1, Math.max(0, (wet - 0.08) / 0.22)));
-        U.uTail.value = 4 * on;
+        U.uTail.value = on * (1.1 - 0.4 * head);
         U.uBrake.value = 0;
-        U.uErs.value = electric && (state.nitro ?? 0) > 0.05 ? 0.5 + 0.5 * Math.sin(dmgClock * Math.PI * 6) : 0;
+        U.uErs.value = electric && (state.nitro ?? 0) > 0.05 ? (1.5 - 0.5 * head) * (0.25 + 0.75 * (0.5 + 0.5 * Math.sin(dmgClock * Math.PI * 6))) : 0;
       }
       U.uRev.value = state.gear === -1 ? 1 : 0;
       // (the spotlights are fitted for the darkest this race gets: switching one on changes what every lit material is built from)

@@ -52,7 +52,10 @@ export interface BodyUniforms {
   uHead: IUniform<number>;
   uDrl: IUniform<number>;
   uRev: IUniform<number>;
-  /** 0..1: the electric boost's light, pulsing while it deploys (the single-seater's endplate LEDs, PART.ledRed); 0 on every other car */
+  /**
+   * the electric boost's light, pulsing while it deploys and 0 while it rests (the single-seater's endplate LEDs, PART.ledRed, shine
+   * with it in place of the tail light); 0 on every other car
+   */
   uErs: IUniform<number>;
   /**
    * 1: the halo's central pillar (PART.halo, zone channel 14 < 0) is left out of the body, because a faint copy of it is drawn instead
