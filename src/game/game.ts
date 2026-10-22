@@ -2058,6 +2058,7 @@ export class Game {
       championship: this.hudChampionship,
       spotter: this.settings.hud.spotter ? d.spotOut : null,
       mirror: split ? false : (this.render as XenoRenderSystem).mirrorStrip,
+      openCockpitView: d.rig.mode === 'cockpit' && !!def.visual.openCockpit,
       weather: this.wx?.plan ? this.hudWeather(now) : null,
       damage: this.hudDamage(p, d.seat),
       brakeAssist: d.aids.added,
