@@ -170,7 +170,7 @@ function styleFor(style: BodyStyle): IStyle {
       // the single-seater: lying back in a narrow tub, the back 60 degrees from upright (the shoulders under the helmet, below the
       // cockpit's rim), no cage (the roll hoop and the halo are the body's), the yoke over the thighs; the cabin box reaches from behind
       // the headrest to the footwell (cowlZ: the front bulkhead)
-      return { twoSeats: false, rearBench: false, cage: false, doorCards: false, bucket: true, seatTilt: 1.05, cowlZ: 1.2, cowlY: 0.6, floorY: 0.08, ...LOW_CABIN, wheelUp: 0.33, wheelFwd: 0.05, wheelTilt: 0.4, halfW: 0.24, top: 0.82, floorHalfW: 0.17 };
+      return { twoSeats: false, rearBench: false, cage: false, doorCards: false, bucket: true, seatTilt: 1.05, cowlZ: 1.2, cowlY: 0.6, floorY: 0.08, ...LOW_CABIN, wheelUp: 0.33, wheelFwd: 0.05, wheelTilt: 0.4, halfW: 0.24, top: 0.82 };
     default:
       return { twoSeats: false, rearBench: false, cage: true, doorCards: false, bucket: true, seatTilt: 0.62, cowlZ: 0.9, cowlY: 0.64, floorY: 0.14, ...LOW_CABIN, wheelUp: 0.34, wheelFwd: 0.6, wheelTilt: 0.9 };
   }
@@ -180,7 +180,7 @@ export function makeInterior(spec: CarVisualSpec, quality: QualityLevel): Interi
   const st = styleFor(spec.style);
   const sx = spec.seat.x, sy = spec.seat.y, sz = spec.seat.z;
   const proto = spec.style === 'prototype';
-  // (an open cockpit: the body's tub is all there is round the driver, so the cabin is only the seat, the headrest and the footwell floor)
+  // (an open cockpit: the body's tub is all there is round the driver, so the cabin is only the seat and the headrest)
   const open = spec.style === 'formula';
   const tilt = st.seatTilt;
   const ct = Math.cos(tilt), sn = Math.sin(tilt);
@@ -237,16 +237,13 @@ export function makeInterior(spec: CarVisualSpec, quality: QualityLevel): Interi
   const cabin: FieldFn = (x, y, z) => {
     const ax = x < 0 ? -x : x;
     if (open) {
-      // the floor of the tub, from behind the seat to where the chassis's underside starts to rise towards the nose (beyond, it would
-      // show under the car)
-      const f0 = sz - 0.3, f1 = spec.wheelbase / 2 - 0.55;
-      const floor = sdRoundBox(ax, y - floorY, z - (f0 + f1) * 0.5, st.floorHalfW, 0.025, (f1 - f0) * 0.5, 0.015);
+      // (no floor: the opening is cut down to 34 cm off the ground in a solid tub, and the seat and the legs below that are inside it)
       // the headrest: a pad behind the helmet and one either side of it on the cockpit's rim, as one U (the rules' padding)
       const pads = Math.min(
         sdRoundBox(ax, y - (head[1] - 0.08), z - (head[2] - 0.185), 0.16, 0.06, 0.04, 0.03),
         sdRoundBox(ax - 0.165, y - (head[1] - 0.11), z - (head[2] - 0.025), 0.035, 0.045, 0.145, 0.025),
       );
-      return Math.min(floor, smin(seat(x, y, z, sx), pads, 0.05));
+      return smin(seat(x, y, z, sx), pads, 0.05);
     }
     // floor tub
     let d = sdRoundBox(ax, y - floorY, z - (sz - 0.1 + st.cowlZ * 0.5), proto ? 0.4 : st.floorHalfW, 0.025, (st.cowlZ - sz + 1.2) * 0.5 + 0.2, 0.015);
@@ -514,7 +511,7 @@ function buildYoke(pb: PartBuilder): void {
   // the grips: thick, rubber-covered, a little forward at their ends
   pb.setPart(IPART.wheelRim);
   for (const sg of [-1, 1]) {
-    pb.tube([[sg * (gx + 0.008), 0.07, -0.004], [sg * gx, 0.04, 0.002], [sg * gx, -0.02, 0.003], [sg * (gx - 0.004), -0.066, -0.002]], 0.019, 12, true);
+    pb.tube([[sg * (gx + 0.004), 0.07, -0.004], [sg * gx, 0.04, 0.002], [sg * gx, -0.02, 0.003], [sg * (gx - 0.004), -0.066, -0.002]], 0.019, 12, true);
   }
   // the display in a black bezel, and the shift lights in a strip over it
   pb.setPart(IPART.wheelRim);
