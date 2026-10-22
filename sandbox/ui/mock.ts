@@ -74,6 +74,8 @@ export function mockMinimap(id: string): MinimapTrack | null {
 
 const NAMES = ['AYALA', 'BRANDT', 'CHEN', 'DUFOUR', 'EZE', 'FONTAINE', 'GABRIEL', 'HART', 'IVANOV', 'JANSEN', 'KOVACS', 'LINDQVIST'];
 const COLORS = ['#ff6a1a', '#2bb3ff', '#ffd12b', '#c34bff', '#ff2e63', '#16e0bd', '#16e0bd', '#e8e8ee', '#7cff4b', '#ff8fb3', '#4b6bff', '#b0b6c4'];
+/** The humans' cars' paint (two cars' default liveries): their minimap markers, while their tower chips are the seats' colours. */
+const PLAYER_PAINT: readonly [string, string] = ['#1c2c5a', '#f2c200'];
 const GEARS = [3.13, 2.12, 1.63, 1.3, 1.07, 0.88, 0.71];
 const FINAL = 3.7;
 const WHEEL_R = 0.34;
@@ -227,7 +229,7 @@ export class MockRace {
       const std = standings[c];
       const offset = (myPos - std.position) * 11; // samples ahead (+) of the player
       const j = (((Math.floor(i + offset)) % this.n) + this.n) % this.n;
-      cars.push({ x: p[j].x, z: p[j].z, heading: this.heading[j], color: std.color, isPlayer: std.isPlayer });
+      cars.push({ x: p[j].x, z: p[j].z, heading: this.heading[j], color: std.isPlayer ? PLAYER_PAINT[0] : std.color, isPlayer: std.isPlayer });
     }
     void f;
 
@@ -347,7 +349,7 @@ export function splitState(base: HudState, seat: Seat, pos: readonly [number, nu
     const gap = p === 1 ? 'LEADER' : '+' + (p * 0.74 + (p % 3) * 0.21).toFixed(3);
     standings.push({ position: p, name, gap, isPlayer: hs >= 0, color, ...(hs >= 0 ? { seat: hs as Seat } : {}) });
     const c = base.cars[Math.min(base.cars.length - 1, p - 1)];
-    cars.push({ x: c.x, z: c.z, heading: c.heading, color, isPlayer: hs >= 0, ...(hs >= 0 ? { seat: hs as Seat } : {}) });
+    cars.push({ x: c.x, z: c.z, heading: c.heading, color: hs >= 0 ? PLAYER_PAINT[hs] : color, isPlayer: hs >= 0, ...(hs >= 0 ? { seat: hs as Seat } : {}) });
     void std;
   }
   let shown = standings;

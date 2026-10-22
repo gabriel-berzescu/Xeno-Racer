@@ -98,12 +98,12 @@ const PULSE_COLORS: string[][] = SEAT_COLOR.map((hex) => {
   for (let i = 0; i < 24; i++) out.push(`rgba(${r},${gr},${b},${(0.55 * (1 - i / 24)).toFixed(3)})`);
   return out;
 });
-/** The dark edge of a seat's marker. */
-const SEAT_EDGE: readonly string[] = ['#03211b', '#2a0610'];
+/** The dark edge of every car marker (a light car still reads on the light road). */
+const MARKER_EDGE = 'rgba(3,4,7,0.92)';
 
 /**
- * A car marker. heading = atan2(forward.x, forward.z) in world XZ. The player's own marker is a pulsing arrow in the seat's colour
- * (`seat` absent: one player, teal).
+ * A car marker in the car's paint (`color`: its livery's primary, the colour of its upper body). heading = atan2(forward.x, forward.z)
+ * in world XZ. The player's own marker is an arrow in a ring pulsing in the seat's colour (`seat` absent: one player, teal).
  */
 export function drawCarDot(g: CanvasRenderingContext2D, x: number, y: number, heading: number, color: string, player: boolean, nowMs: number, seat: Seat = 0): void {
   const fx = Math.sin(heading);
@@ -124,10 +124,10 @@ export function drawCarDot(g: CanvasRenderingContext2D, x: number, y: number, he
     g.lineTo(0, 4);
     g.lineTo(-7.5, 8);
     g.closePath();
-    g.fillStyle = SEAT_COLOR[seat];
+    g.fillStyle = color;
     g.fill();
     g.lineWidth = 2;
-    g.strokeStyle = SEAT_EDGE[seat];
+    g.strokeStyle = MARKER_EDGE;
     g.stroke();
     g.restore();
     return;
@@ -137,15 +137,15 @@ export function drawCarDot(g: CanvasRenderingContext2D, x: number, y: number, he
   g.fillStyle = color;
   g.fill();
   g.lineWidth = 1.6;
-  g.strokeStyle = 'rgba(3,4,7,0.92)';
+  g.strokeStyle = MARKER_EDGE;
   g.stroke();
 }
 
 /**
- * The other human on a split-screen map: a smaller arrow in their colour inside a light ring, so it is neither an opponent's dot nor
- * the viewer's own pulsing marker.
+ * The other human on a split-screen map: a smaller arrow in their car's paint inside a light ring, so it is neither an opponent's dot
+ * nor the viewer's own pulsing marker.
  */
-export function drawOtherHumanDot(g: CanvasRenderingContext2D, x: number, y: number, heading: number, seat: Seat): void {
+export function drawOtherHumanDot(g: CanvasRenderingContext2D, x: number, y: number, heading: number, color: string): void {
   const fx = Math.sin(heading);
   const fy = Math.cos(heading);
   g.beginPath();
@@ -162,10 +162,10 @@ export function drawOtherHumanDot(g: CanvasRenderingContext2D, x: number, y: num
   g.lineTo(0, 3);
   g.lineTo(-6, 6.5);
   g.closePath();
-  g.fillStyle = SEAT_COLOR[seat];
+  g.fillStyle = color;
   g.fill();
   g.lineWidth = 1.8;
-  g.strokeStyle = SEAT_EDGE[seat];
+  g.strokeStyle = MARKER_EDGE;
   g.stroke();
   g.restore();
 }

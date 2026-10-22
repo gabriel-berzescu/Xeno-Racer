@@ -2002,7 +2002,8 @@ export class Game {
         x: s.position.x,
         z: s.position.z,
         heading: Math.atan2(_v.x, _v.z),
-        color: c.entrant.color,
+        // the car's paint, the humans' too (their entrant colour is the seat's, for the tower)
+        color: c.livery.primary,
         // (both humans are on every map in a split screen, each view draws its own as the player's)
         isPlayer: split ? c.entrant.isPlayer : c === p,
         ...(split && c.entrant.seat !== undefined ? { seat: c.entrant.seat } : {}),

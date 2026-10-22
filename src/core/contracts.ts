@@ -897,7 +897,7 @@ export interface HudState {
   sector: number; // 0..2
   sectorDeltas: (number | null)[]; // per sector vs best, this lap
   standings: HudStanding[];
-  /** Car markers for the minimap (world XZ). */
+  /** Car markers for the minimap (world XZ). `color`: the car's livery primary, the colour of its upper body (the humans' too). */
   cars: { x: number; z: number; heading: number; color: string; isPlayer: boolean; seat?: Seat }[];
   // (`isPlayer` is true for a human's car; in split screen both humans are on the map and `seat` says which, and the HUD of seat s
   // draws its own car as the player's.)

@@ -55,7 +55,10 @@ export class HudMinimap {
     this.sync();
   }
 
-  /** Whose view the map is in: the viewer's own car is the pulsing arrow in their colour, the other human a ringed arrow in theirs. */
+  /**
+   * Whose view the map is in: the viewer's own car is the arrow in the ring pulsing in their seat's colour, the other human a ringed
+   * arrow (every marker in its car's paint).
+   */
   setSeat(seat: Seat | null): void {
     this.seat = seat;
   }
@@ -94,7 +97,7 @@ export class HudMinimap {
       const y = mapY(this.fit, c.z);
       if (!c.isPlayer) drawCarDot(g, x, y, c.heading, c.color, false, now);
       else if (isOwn(c, seat)) drawCarDot(g, x, y, c.heading, c.color, true, now, seat ?? 0);
-      else drawOtherHumanDot(g, x, y, c.heading, c.seat ?? 1);
+      else drawOtherHumanDot(g, x, y, c.heading, c.color);
     }
   }
 }
