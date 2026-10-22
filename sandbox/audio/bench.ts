@@ -120,7 +120,7 @@ export function startBench(): void {
   // ── state ────────────────────────────────────────────────────────────────────
   let car: CarDefinition = getCar('vanta-gt');
   let profile: EngineSoundProfile = { ...car.sound };
-  let player: CarSound = sys.createCarSound(profile, true);
+  let player: CarSound = sys.createCarSound(profile, true, 0, car.visual.openCockpit === true);
   let sim = new DriveSim(car, { gear: 1 });
   const manual = makeVehicleState(0);
   const opponents: Opponent[] = [];
@@ -143,7 +143,8 @@ export function startBench(): void {
 
   const rebuildPlayer = (): void => {
     player.dispose();
-    player = sys.createCarSound(profile, true);
+    // (an open cockpit, the Volta's, is heard through a helmet from the cockpit camera)
+    player = sys.createCarSound(profile, true, 0, car.visual.openCockpit === true);
   };
 
   // ── controls ─────────────────────────────────────────────────────────────────
@@ -170,10 +171,12 @@ export function startBench(): void {
   });
   const interiorChk = toggle('force interior mix (otherwise cockpit camera = interior)', false);
 
-  const rpm = slider('rpm', 600, 10000, 10, 3000);
+  // (to 13,000: the Volta's limiter is at 12,500)
+  const rpm = slider('rpm', 600, 13000, 10, 3000);
   const thr = slider('throttle (manual / pedal)', 0, 1, 0.01, 0);
   const boost = slider('boost', 0, 1, 0.01, 0);
   const limiter = toggle('rev limiter cutting', false);
+  const nitroS = slider('nitro burning (the MGU-K deploys: its whine)', 0, 1, 0.01, 0);
   const speedS = slider('speed', 0, 90, 1, 30, undefined, ' m/s');
   const shiftBtn = button('shift (clunk + dip)  [E]', () => (pendingShift = true));
   const popBtn = button('backfire pop  [B]', () => (pendingBackfire = true));
@@ -242,6 +245,10 @@ export function startBench(): void {
     if (profile.supercharger) profile.supercharger = { ...profile.supercharger, lobes: Math.round(v) };
     markCustom();
   });
+  const electricS = slider('electric motor on the crank (the MGU-K whine; 0 = none)', 0, 1, 0.01, profile.electric ?? 0, (v) => {
+    profile.electric = v > 0 ? v : undefined;
+    markCustom();
+  });
   let rebuildTimer = 0;
   function markCustom(): void {
     carSel.set('custom');
@@ -262,6 +269,7 @@ export function startBench(): void {
     blowerChk.set(profile.supercharger ? 1 : 0);
     blowRatioS.set(profile.supercharger?.ratio ?? 2.5);
     blowLobesS.set(profile.supercharger?.lobes ?? 4);
+    electricS.set(profile.electric ?? 0);
     rpm.set(Math.round(car.physics.engine.limiterRpm * 0.35));
   }
 
@@ -372,8 +380,8 @@ export function startBench(): void {
     h(
       'div',
       { class: 'grid' },
-      panel('Engine', carSel.el, modeSel.el, camSel.el, interiorChk.el, rpm.el, thr.el, boost.el, limiter.el, speedS.el, h('div', { class: 'btns' }, shiftBtn, popBtn), h('p', { class: 'hint' }, 'W / up = throttle, S / down = brake, E = shift, B = pop. Gamepad: RT throttle, LT brake, RB shift.')),
-      panel('Custom engine profile (live)', cylSel.el, layoutSel.el, crankSel.el, dispS.el, turboChk.el, openS.el, brightS.el, whineS.el, crackS.el, dualChk.el, blowerChk.el, blowRatioS.el, blowLobesS.el, h('p', { class: 'hint' }, 'Any change switches to "custom" and rebuilds the voice. Try V8 + crossplane + true dual exhaust for the burble (and merged for the same engine without it), 4 + flat + boxer for the rumble, a supercharger for the whine.')),
+      panel('Engine', carSel.el, modeSel.el, camSel.el, interiorChk.el, rpm.el, thr.el, boost.el, limiter.el, nitroS.el, speedS.el, h('div', { class: 'btns' }, shiftBtn, popBtn), h('p', { class: 'hint' }, 'W / up = throttle, S / down = brake, E = shift, B = pop. Gamepad: RT throttle, LT brake, RB shift.')),
+      panel('Custom engine profile (live)', cylSel.el, layoutSel.el, crankSel.el, dispS.el, turboChk.el, openS.el, brightS.el, whineS.el, crackS.el, dualChk.el, blowerChk.el, blowRatioS.el, blowLobesS.el, electricS.el, h('p', { class: 'hint' }, 'Any change switches to "custom" and rebuilds the voice. Try V8 + crossplane + true dual exhaust for the burble (and merged for the same engine without it), 4 + flat + boxer for the rumble, a supercharger for the whine.')),
       panel('Tires, road, chassis', surface.el, skidF.el, skidR.el, slip.el, spinS.el, scrape.el, curb.el, air.el, h('div', { class: 'btns' }, sweepBtn, thumpBtn)),
       panel(
         'Weather',
@@ -527,6 +535,7 @@ export function startBench(): void {
       st.backfireCount++;
       pendingBackfire = false;
     }
+    st.nitro = nitroS.get();
     applyChassis(st);
 
     // camera
