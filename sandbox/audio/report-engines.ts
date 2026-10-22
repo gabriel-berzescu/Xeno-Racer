@@ -36,7 +36,8 @@ export async function steadyTable(car: CarDefinition, interior = 0): Promise<Eng
     }
   }
   const scene = steppedCar(car, segs);
-  const r = await renderScene({ seconds: t, cars: [{ ...scene, interior }], raw: true });
+  // (the car as the game builds its sound: an open cockpit's interior is a helmet)
+  const r = await renderScene({ seconds: t, cars: [{ ...scene, interior, openCockpit: car.visual.openCockpit === true }], raw: true });
   const m = mono(r);
   const rows: EngineSteadyRow[] = [];
   for (const mt of meta) {
@@ -264,17 +265,19 @@ export async function engineReport(car: CarDefinition, checks: Checks): Promise<
     if (car.sound.blowOff !== false) checks.add(`${id}: blow-off / flutter burst after lift`, burst > after * 1.1, db(burst / Math.max(after, 1e-9)), '> +0.8 dB vs later overrun');
   }
 
-  // interior vs exterior: interior has more intake / mechanical (less harmonic exhaust purity)
+  // interior vs exterior: interior has more intake / mechanical (less harmonic exhaust purity). An open cockpit's interior is the helmet the
+  // game plays, not a closed cabin: the exhaust straight, only a little duller, and the wind louder
+  const open = car.visual.openCockpit === true;
   const rpmI = Math.round(e.limiterRpm * 0.7);
   const cmp: Segment[] = [{ t: 0, rpm: rpmI, throttle: 1, speed: 40 }];
-  const ext = await renderScene({ seconds: 2.2, cars: [{ ...steppedCar(car, cmp), interior: 0 }], raw: true });
-  const inn = await renderScene({ seconds: 2.2, cars: [{ ...steppedCar(car, cmp), interior: 1 }], raw: true });
+  const ext = await renderScene({ seconds: 2.2, cars: [{ ...steppedCar(car, cmp), interior: 0, openCockpit: open }], raw: true });
+  const inn = await renderScene({ seconds: 2.2, cars: [{ ...steppedCar(car, cmp), interior: 1, openCockpit: open }], raw: true });
   const sx = analyseSegment(mono(ext), ext.sr, 1.0, 2.2);
   const si = analyseSegment(mono(inn), inn.sr, 1.0, 2.2);
   const fire = (car.sound.cylinders / 2) * (rpmI / 60);
   const hx = harmonicShare(sx.psd, ext.sr, fire, Math.max(1.5, fire * 0.012), 40, 5000);
   const hi2 = harmonicShare(si.psd, inn.sr, fire, Math.max(1.5, fire * 0.012), 40, 5000);
-  checks.add(`${id}: interior is darker than exterior (muffled exhaust path)`, si.centroid < sx.centroid, `${sx.centroid.toFixed(0)} -> ${si.centroid.toFixed(0)} Hz`, 'interior centroid < exterior');
+  checks.add(`${id}: interior is darker than exterior (${open ? 'the helmet' : 'muffled exhaust path'})`, si.centroid < sx.centroid, `${sx.centroid.toFixed(0)} -> ${si.centroid.toFixed(0)} Hz`, 'interior centroid < exterior');
   checks.add(`${id}: interior level comparable`, Math.abs(si.rmsDb - sx.rmsDb) < 8, si.rmsDb - sx.rmsDb, '|diff| < 8 dB');
 
   return {
