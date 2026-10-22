@@ -37,6 +37,8 @@ export interface CarProcessorOptions {
   exGain?: number;
   /** Offline mode: control frames played back on the audio clock, `step` samples apart. */
   script?: { step: number; data: Float32Array };
+  /** An open cockpit (CarVisualSpec.openCockpit): the cockpit views hear the car through a helmet, not a closed cabin. */
+  openCockpit?: boolean;
 }
 
 class CarProcessor extends AudioWorkletProcessor {
@@ -55,6 +57,7 @@ class CarProcessor extends AudioWorkletProcessor {
     this.isPlayer = o.isPlayer;
     this.engine = new EngineVoice(sampleRate, o.profile, o.seed, o.exGain);
     this.chassis = new ChassisVoice(sampleRate, o.seed + 7);
+    this.engine.helmet = this.chassis.helmet = o.openCockpit === true;
     this.script = o.script ?? null;
     this.port.onmessage = (e: MessageEvent): void => {
       const d = e.data;

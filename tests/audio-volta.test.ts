@@ -7,13 +7,17 @@
  *    blow-off valve; a seamless shift; no clipping at the limiter.
  *  - the MGU-K's whine: locked to the crank on its 14th order, a murmur while it turns free, faint while it harvests (a lift, the brakes),
  *    strong while it deploys, which is only while a nitro shot burns; the nitro reaches it through the control vector (CTL.NITRO).
+ *  - the open cockpit (CarVisualSpec.openCockpit): its cockpit views hear the car through a helmet, not a closed cabin (no muffled exhaust
+ *    path, no cabin boom, the airbox and the wind louder), and the rain drums on no roof.
  *  - nothing of this touches an engine that does not ask for it.
  */
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { CARS } from '../src/cars';
 import type { EngineSoundProfile } from '../src/core/contracts';
 import { bandPower, chirpDeviation, hasNonFinite, offGridLines, orderFamilies, peakAbs, rms, spectralCentroid, strongestPeak, welch } from '../src/audio/analysis';
+import { CarSoundImpl, type CarHost } from '../src/audio/carsound';
 import { CTL, makeControlVector, readEngineInputs, writeEngineControls } from '../src/audio/controls';
+import { ChassisVoice } from '../src/audio/dsp/chassis-voice';
 import { bankFiringIntervals, buildLayout } from '../src/audio/dsp/engine-layout';
 import { EngineVoice, calibratedExhaustGain, createEngineDebug, deriveVoicing, exhaustTargetDb, measureExhaustSweepRms, type EngineDebug } from '../src/audio/dsp/engine-voice';
 import { makeLimiterCurve, volumeCurve } from '../src/audio/graph';
@@ -399,5 +403,156 @@ describe("the MGU-K's whine", () => {
       }
     }
     expect(worst).toBeLessThan(6);
+  });
+});
+
+describe('the open cockpit: the driver hears the car through a helmet, not a closed cabin', () => {
+  it('the Volta has an open cockpit, and no other car of the roster does', () => {
+    for (const c of CARS) expect(c.visual.openCockpit === true, c.id).toBe(c.id === 'volta');
+  });
+
+  /** The engine at `rpm` flat out from outside (interior 0), from a closed cabin and from the helmet (interior 1). */
+  function views(rpm: number): Record<'outside' | 'cabin' | 'helmet', { out: Float32Array; dbg: EngineDebug }> {
+    const at = (interior: number, helmet: boolean): { out: Float32Array; dbg: EngineDebug } => {
+      const v = voice();
+      v.helmet = helmet;
+      v.inp.interior = interior;
+      return steady(v, rpm, 1, 1, 2.4);
+    };
+    return { outside: at(0, false), cabin: at(1, false), helmet: at(1, true) };
+  }
+  /** The share of the voice in 80..110 Hz, where a closed cabin booms (its resonance at 95 Hz). */
+  const boomShare = (x: Float32Array): number => {
+    const psd = welch(x, 16384, SR, x.length);
+    return bandPower(psd, SR, 80, 110) / bandPower(psd, SR, 40, 12000);
+  };
+
+  it('hears the exhaust straight: within 4 dB of outside where the cabin takes 5.5 dB and more off it, and the airbox above the helmet louder than in a cabin', () => {
+    for (const rpm of [6250, 10625]) {
+      const w = views(rpm);
+      const ex = (k: keyof typeof w): number => db(rms(w[k].dbg.exhaust, SR));
+      expect(ex('outside') - ex('helmet'), `@${rpm}`).toBeLessThan(4);
+      expect(ex('outside') - ex('cabin'), `@${rpm}`).toBeGreaterThan(5.5);
+      expect(db(rms(w.helmet.dbg.intake, SR)) - db(rms(w.cabin.dbg.intake, SR)), `@${rpm}`).toBeGreaterThan(1.5);
+    }
+  });
+
+  it("has no cabin to boom: the share of the voice about 95 Hz is two thirds of the closed cabin's or less", () => {
+    for (const rpm of [6250, 10625]) {
+      const w = views(rpm);
+      expect(boomShare(w.helmet.out), `@${rpm}`).toBeLessThan((2 / 3) * boomShare(w.cabin.out));
+    }
+  });
+
+  it("is the exterior to the bit when the camera is outside, and a closed car's voice is a cabin's unless it is told otherwise", () => {
+    expect(new EngineVoice(SR, P, 1).helmet).toBe(false);
+    expect(new ChassisVoice(SR, 1).helmet).toBe(false);
+    const run = (helmet: boolean): Float32Array => {
+      const v = voice();
+      v.helmet = helmet;
+      return steady(v, 9000, 1, 1, 1).out;
+    };
+    const a = run(false);
+    const b = run(true);
+    let diff = 0;
+    for (let i = 0; i < a.length; i++) diff += Math.abs(a[i] - b[i]);
+    expect(diff).toBe(0);
+  });
+
+  /** The chassis at `kmh` on a dry road, as heard from `interior`, through a helmet or not: its left channel. */
+  function chassis(kmh: number, interior: number, helmet: boolean): Float32Array {
+    const c = new ChassisVoice(SR, 5);
+    c.helmet = helmet;
+    Object.assign(c.inp, { speed: kmh / 3.6, interior });
+    const n = 2 * SR;
+    const l = new Float32Array(n);
+    c.process(l, new Float32Array(n), n);
+    return l;
+  }
+
+  it('the wind is louder in the helmet than outside the car, not quieter as in a cabin, and only a little duller', () => {
+    const cen = (x: Float32Array): number => spectralCentroid(welch(x, 8192, SR, x.length), SR, 40, 12000);
+    for (const kmh of [150, 300]) {
+      const out = chassis(kmh, 0, false);
+      const cab = chassis(kmh, 1, false);
+      const hel = chassis(kmh, 1, true);
+      expect(db(rms(hel, SR)) - db(rms(out, SR)), `${kmh} km/h`).toBeGreaterThan(0.5);
+      expect(db(rms(hel, SR)) - db(rms(cab, SR)), `${kmh} km/h`).toBeGreaterThan(3);
+      expect(cen(hel), `${kmh} km/h`).toBeGreaterThan(cen(cab) * 1.3);
+    }
+  });
+
+  it('the sound of an open car hears its cockpit views from the car, and the rain drums on no roof: interior 1, under a roof 0', () => {
+    const host = {
+      ctx: { sampleRate: SR },
+      workletReady: false,
+      paused: false,
+      wetness: 0,
+      secondListener: null,
+      nextSeed: () => 1,
+      onDispose: () => undefined,
+    } as unknown as CarHost;
+    const open = new CarSoundImpl(host, P, true, 0, true);
+    const closed = new CarSoundImpl(host, CARS[3].sound, true, 0);
+    for (const on of [true, false]) {
+      open.setInterior(on);
+      closed.setInterior(on);
+      expect(open.interior).toBe(on ? 1 : 0);
+      expect(open.cabin).toBe(0);
+      expect(closed.interior).toBe(on ? 1 : 0);
+      expect(closed.cabin).toBe(closed.interior);
+    }
+  });
+
+  describe('through the worklet', () => {
+    type Proc = { port: { onmessage: ((e: { data: unknown }) => void) | null }; process(inputs: Float32Array[][], outputs: Float32Array[][]): boolean };
+    const registered: Record<string, new (o: unknown) => Proc> = {};
+    beforeAll(async () => {
+      vi.stubGlobal('sampleRate', SR);
+      vi.stubGlobal('currentFrame', 0);
+      vi.stubGlobal('registerProcessor', (name: string, ctor: new (o: unknown) => Proc) => {
+        registered[name] = ctor;
+      });
+      vi.stubGlobal(
+        'AudioWorkletProcessor',
+        class {
+          port = { onmessage: null as ((e: { data: unknown }) => void) | null, postMessage(): void {}, close(): void {} };
+        },
+      );
+      await import('../src/audio/engine.worklet');
+    });
+    afterAll(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it('the processor options tell both voices: the cockpit view of an open car is a helmet, its exterior is what it was', () => {
+      const render = (openCockpit: boolean | undefined, interior: number): Float32Array => {
+        const p = new registered['xr-car']({ processorOptions: { profile: P, isPlayer: true, seed: 2, exGain: 20, openCockpit } });
+        const v = makeControlVector();
+        v[CTL.RPM] = 9000;
+        v[CTL.THROTTLE] = 1;
+        v[CTL.LOAD] = 1;
+        v[CTL.PEDAL] = 1;
+        v[CTL.IDLE_RPM] = E.idleRpm;
+        v[CTL.LIMITER_RPM] = E.limiterRpm;
+        v[CTL.REDLINE_RPM] = E.redlineRpm;
+        v[CTL.SPEED] = 70;
+        v[CTL.SURF_HARD] = 1;
+        v[CTL.INTERIOR] = interior;
+        v[CTL.CH_INTERIOR] = interior;
+        p.port.onmessage!({ data: v });
+        const out = [[new Float32Array(128)], [new Float32Array(128), new Float32Array(128)]];
+        const x = new Float32Array(SR);
+        for (let b = 0; b < x.length / 128; b++) {
+          p.process([], out);
+          for (let i = 0; i < 128; i++) x[b * 128 + i] = out[0][0][i] + out[1][0][i];
+        }
+        return x;
+      };
+      const same = (a: Float32Array, b: Float32Array): boolean => a.every((x, i) => x === b[i]);
+      expect(same(render(true, 0), render(undefined, 0))).toBe(true);
+      expect(same(render(false, 1), render(undefined, 1))).toBe(true);
+      expect(same(render(true, 1), render(undefined, 1))).toBe(false);
+    });
   });
 });

@@ -23,6 +23,8 @@ export interface SceneCar {
   lod?: Lod;
   interior?: number | ((t: number) => number);
   seed?: number;
+  /** An open cockpit (CarVisualSpec.openCockpit): the interior is a helmet's. */
+  openCockpit?: boolean;
 }
 
 /** Rain / storm ambience for an offline scene (the real worklet voice, driven by a recorded control script). */
@@ -133,6 +135,7 @@ export async function renderScene(o: SceneOptions): Promise<SceneResult> {
       isPlayer: r.car.isPlayer,
       seed: r.car.seed ?? seed++,
       script: { step, data: r.script },
+      openCockpit: r.car.openCockpit,
     });
     for (let k = 0; k < (o.staticSpatial ? 1 : frames); k++) {
       const b = k * 8;

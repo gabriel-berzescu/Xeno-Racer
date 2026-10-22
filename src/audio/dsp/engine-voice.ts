@@ -15,7 +15,7 @@
  *        ├─ intake window table ─► gated, resonated intake noise
  *        └─ valve ticks ─► mechanical clatter
  *   + turbo (spool whistle / flutter / blow-off), gear whine, shift clunk, backfire pops, rev limiter
- *   + interior / exterior mix (cabin resonance, muffled exhaust path)
+ *   + interior / exterior mix (cabin resonance, muffled exhaust path; or, in an open cockpit, the helmet)
  *
  * Two things a profile can ask for beyond that (both off, and costing nothing, for every other engine):
  *
@@ -445,6 +445,13 @@ export class EngineVoice {
   readonly V: Voicing;
   readonly inp: EngineInputs = defaultEngineInputs();
   debug: EngineDebug | null = null;
+  /**
+   * An open cockpit (CarVisualSpec.openCockpit): the interior input then puts the listener on the car in a helmet, not in a closed cabin.
+   * The exhaust is heard straight and only a little less than from behind the car, the airbox above the driver's head roars, there is no
+   * cabin to boom at 95 and 230 Hz, and the helmet's shell takes a little off the top. Set before the first render (the worklet sets it
+   * from its processor options).
+   */
+  helmet = false;
 
   private rng: Rng;
   private readonly G: number;
@@ -636,6 +643,8 @@ export class EngineVoice {
   private cabin = new Biquad();
   private cabin2 = new Biquad();
   private hpOut = new DcBlock();
+  /** The helmet's shell (open cockpit): what is above about 2.5 kHz is taken down a little. */
+  private lpHelmet = new OnePole();
 
   // idle wobble
   private wobble = 0;
@@ -1139,10 +1148,12 @@ export class EngineVoice {
     const thr = this.sThr;
     const intakeAmt =
       (0.1 + 0.9 * Math.pow(thr, 1.1)) * (0.15 + 0.85 * Math.pow(rpmN, 1.4)) + 0.75 * ovr * Math.pow(rpmN, 1.3);
-    const tExE = 1 - sI;
-    const tExI = 0.55 * sI;
+    // (in an open cockpit the exhaust is heard straight, not through a cabin: no muffled path, and the airbox above the helmet is louder)
+    const helmet = this.helmet;
+    const tExE = helmet ? 1 - 0.3 * sI : 1 - sI;
+    const tExI = helmet ? 0 : 0.55 * sI;
     const tBlk = lerp(0.5, 0.85, sI) * (0.15 + 0.85 * loadE) * (0.35 + 0.65 * rpmN) * (1 + 1.2 * smoothstep(idle * V.idleLiftTo, idle * 1.0, rpm));
-    const tInt = lerp(0.42, 1.05, sI) * V.intakeGain * intakeAmt;
+    const tInt = lerp(0.42, helmet ? 1.3 : 1.05, sI) * V.intakeGain * intakeAmt;
     const tMech = lerp(0.145, 0.36, sI) * (0.25 + 0.75 * Math.pow(rpmN, 1.6)) * (0.45 + 0.55 * loadE);
     const tTur = V.turbo ? lerp(0.165, 0.46, sI) : V.blower ? lerp(1.15, 2.1, sI) : 0;
     const tWh = lerp(0.14, 0.9, sI) * V.whine;
@@ -1208,6 +1219,8 @@ export class EngineVoice {
     const kLpTurb = 1 - Math.exp((-TAU * V.fcTurb) / sr);
     const kLpQ = 1 - Math.exp((-TAU * 2400) / sr);
     const kLpEnd = 1 - Math.exp((-TAU * (V.fcTail * 0.8)) / sr);
+    const kHelmet = 1 - Math.exp((-TAU * 2500) / sr);
+    const lpHelmet = this.lpHelmet;
 
     // turbo whistle block parameters
     const tSp = this.tSpeed;
@@ -1848,9 +1861,13 @@ export class EngineVoice {
         cEl += dEl;
         y += elec * cEl;
       }
-      if (sIntNow > 0.002) {
+      if (sIntNow > 0.002 && !helmet) {
         const cb1 = cabin2.step(cabin.step(y));
         y += (cb1 - y) * sIntNow;
+      } else if (helmet && sIntNow > 0.002) {
+        // the helmet: no cabin, a gentle shelf of 3.7 dB off the top
+        lpHelmet.y += kHelmet * (y - lpHelmet.y);
+        y -= 0.35 * sIntNow * (y - lpHelmet.y);
       }
       out[o + i] = hpOut.step(y) * cOut;
       if (dbg) {
