@@ -457,7 +457,7 @@ const ELECTRIC_TAPER_KW_PER_KMH = 5;
 /**
  * The longest an upshift's cut is bridged for, seconds (Voicing.bridgeCut). The gearbox shuts the throttle for the whole of its shift (the
  * Volta's: 20 ms), and the control frames show that for one frame or two (17 ms each at 60 Hz); held as it comes, with the smoothing of
- * the throttle and the load, it was a gap of 48 to 64 ms, 8 to 10 dB deep, in place of the shift dip. 40 ms covers two frames at 60 Hz and
+ * the throttle and the load, it was a gap of 40 to 64 ms, 8 to 10 dB deep, in place of the shift dip. 40 ms covers two frames at 60 Hz and
  * one at 30 Hz; a cut that lasts longer is not a shift (the traction control with the pedal down, a launch) and is heard after them.
  */
 const CUT_BRIDGE = 0.04;
