@@ -388,6 +388,7 @@ describe('the level of two human voices (real synthesis, full throttle from a st
   let vanta2: Voice;
   let kestrel: Voice;
   let lmp: Voice;
+  let volta: Voice;
   let one: ReturnType<typeof level>;
   const two = (other: Voice, trim: number) => level(mix([{ v: vanta1, pan: -pan, trim }, { v: other, pan, trim }]), from);
   beforeAll(() => {
@@ -395,8 +396,10 @@ describe('the level of two human voices (real synthesis, full throttle from a st
     vanta2 = renderPlayer('vanta-gt', 29, seconds);
     kestrel = renderPlayer('kestrel-r', 31, seconds);
     lmp = renderPlayer('lmp-x', 37, seconds);
+    // (the Volta: a high-revving V6 with a whine, the last car to join; the trim must hold for it too)
+    volta = renderPlayer('volta', 41, seconds);
     one = level(mix([{ v: vanta1, pan: 0, trim: 1 }]), from);
-    // four players' worth of real synthesis: a few seconds alone, far more while the machine is busy with something else
+    // five players' worth of real synthesis: a few seconds alone, far more while the machine is busy with something else
   }, 60_000);
 
   it('untrimmed, a second voice adds about 2 to 4 dB: the doubling the trim is there to take away', () => {
@@ -407,7 +410,7 @@ describe('the level of two human voices (real synthesis, full throttle from a st
 
   it('with SPLIT_PLAYER_TRIM two voices stay within 1.5 dB of one untrimmed voice, for equal and for unequal pairs', () => {
     const rows: string[] = [];
-    for (const [name, other] of [['vanta+vanta', vanta2], ['vanta+kestrel', kestrel], ['vanta+lmp-x', lmp]] as const) {
+    for (const [name, other] of [['vanta+vanta', vanta2], ['vanta+kestrel', kestrel], ['vanta+lmp-x', lmp], ['vanta+volta', volta]] as const) {
       const t = two(other, SPLIT_PLAYER_TRIM);
       rows.push(`${name}: rms ${(t.rmsDb - one.rmsDb).toFixed(2)} dB, loudest second ${(t.loudestDb - one.loudestDb).toFixed(2)} dB, peak ${(t.peakDb - one.peakDb).toFixed(2)} dB`);
       expect(Math.abs(t.rmsDb - one.rmsDb)).toBeLessThan(1.5);
