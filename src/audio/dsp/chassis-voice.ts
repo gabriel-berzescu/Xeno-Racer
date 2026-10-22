@@ -500,13 +500,13 @@ export class ChassisVoice {
     // category gains (ext, int: a closed cabin or, in an open cockpit, a helmet)
     const helmet = this.helmet;
     const gTire = lerp(0.85, helmet ? 1.1 : 1.0, sI);
-    const gRoad = lerp(0.6, 1.0, sI);
+    const gRoad = lerp(0.6, helmet ? 0.75 : 1.0, sI);
     const gWind = lerp(0.8, helmet ? 0.9 : 0.55, sI);
     const gHit = lerp(1.0, 1.15, sI);
     const roadAir = 1 - 0.9 * this.sAir;
 
     // filter updates (block rate)
-    const fcRoad = (180 + 950 * Math.min(sN, 1)) * lerp(1.0, helmet ? 1.0 : 0.72, sI);
+    const fcRoad = (180 + 950 * Math.min(sN, 1)) * lerp(1.0, helmet ? 0.85 : 0.72, sI);
     this.svfRoadL.set(fcRoad, 0.7, sr);
     this.svfRoadR.set(fcRoad, 0.7, sr);
     const fcWind = (320 + 1900 * Math.min(sN, 1.2)) * lerp(1, helmet ? 0.85 : 0.6, sI);

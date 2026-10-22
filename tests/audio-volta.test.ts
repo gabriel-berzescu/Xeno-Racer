@@ -459,26 +459,29 @@ describe('the open cockpit: the driver hears the car through a helmet, not a clo
     expect(diff).toBe(0);
   });
 
-  /** The chassis at `kmh` on a dry road, as heard from `interior`, through a helmet or not: its left channel. */
-  function chassis(kmh: number, interior: number, helmet: boolean): Float32Array {
+  /** The chassis at `kmh` on a dry road (or in the air: the wind alone), as heard from `interior`, through a helmet or not: its left channel. */
+  function chassis(kmh: number, interior: number, helmet: boolean, airborne = 0): Float32Array {
     const c = new ChassisVoice(SR, 5);
     c.helmet = helmet;
-    Object.assign(c.inp, { speed: kmh / 3.6, interior });
+    Object.assign(c.inp, { speed: kmh / 3.6, interior, airborne });
     const n = 2 * SR;
     const l = new Float32Array(n);
     c.process(l, new Float32Array(n), n);
     return l;
   }
 
-  it('the wind is louder in the helmet than outside the car, not quieter as in a cabin, and only a little duller', () => {
+  it('the wind is heard as outside the car, not muffled as in a cabin: as loud as outside, 4 dB and more louder than a cabin and a third brighter', () => {
     const cen = (x: Float32Array): number => spectralCentroid(welch(x, 8192, SR, x.length), SR, 40, 12000);
     for (const kmh of [150, 300]) {
-      const out = chassis(kmh, 0, false);
-      const cab = chassis(kmh, 1, false);
-      const hel = chassis(kmh, 1, true);
-      expect(db(rms(hel, SR)) - db(rms(out, SR)), `${kmh} km/h`).toBeGreaterThan(0.5);
-      expect(db(rms(hel, SR)) - db(rms(cab, SR)), `${kmh} km/h`).toBeGreaterThan(3);
+      // (in the air the road and the tyres are all but gone: what is left is the wind)
+      const out = chassis(kmh, 0, false, 1);
+      const cab = chassis(kmh, 1, false, 1);
+      const hel = chassis(kmh, 1, true, 1);
+      expect(Math.abs(db(rms(hel, SR)) - db(rms(out, SR))), `${kmh} km/h`).toBeLessThan(1.5);
+      expect(db(rms(hel, SR)) - db(rms(cab, SR)), `${kmh} km/h`).toBeGreaterThan(4);
       expect(cen(hel), `${kmh} km/h`).toBeGreaterThan(cen(cab) * 1.3);
+      // and on the road, the tyres beside the helmet and the road under it, no quieter than outside
+      expect(db(rms(chassis(kmh, 1, true), SR)) - db(rms(chassis(kmh, 0, false), SR)), `${kmh} km/h`).toBeGreaterThan(0);
     }
   });
 
