@@ -207,6 +207,8 @@ export interface Voicing {
    * 0.03 every engine has makes ~0.1 % of rpm, a pitch change nobody hears); a cammed V8 hunts a good percent or two: 0.4 makes 1.5 %.
    */
   idleWobble: number;
+  /** Where the lift of the idle has faded out, x the idle rpm (EngineSoundProfile.idleLiftTo: 2.2 for an engine that does not say). */
+  idleLiftTo: number;
   // exhaust: a true dual system, each bank to its own tailpipe (full quality)
   dual: boolean;
   /** Length of the left / right pipes (after the collector) relative to the nominal ones. */
@@ -297,6 +299,7 @@ export function deriveVoicing(p: EngineSoundProfile, layout: EngineLayout): Voic
     bankDrift: cross ? 0.16 : 0,
     burble: cross ? 1 : 0,
     idleWobble: cross ? 0.4 : 0.03,
+    idleLiftTo: p.idleLiftTo !== undefined ? clamp(p.idleLiftTo, 1.05, 4) : 2.2,
     dual,
     dualLen: [1, 1.004],
     dualMuff: [1, 0.97],
@@ -1023,8 +1026,8 @@ export class EngineVoice {
     const loadShape = 0.45 + 0.55 * Math.pow(loadE, 1.2);
     const rpmShape = 0.4 + 0.6 * rpmN;
     // idle presence: a real idle is far quieter than full throttle, but in a game the grid / pit wait must stay
-    // characterful, so lift the region around idle (fades out by ~2.2 x idle rpm)
-    const idlePresence = 1 + 1.9 * smoothstep(idle * 2.2, idle * 1.0, rpm);
+    // characterful, so lift the region around idle (faded out by idleLiftTo x the idle rpm: 2.2, less for an engine that idles high)
+    const idlePresence = 1 + 1.9 * smoothstep(idle * V.idleLiftTo, idle * 1.0, rpm);
     this.pArea = V.exGain * loadShape * rpmShape * idlePresence * (1 - 0.1 * ovr) * (1 + 0.25 * this.sBoost);
     this.pFast = clamp(V.fastFrac + 0.25 * loadE - 0.1 * ovr, 0.12, 0.85);
     // the valve-opening part of the blowdown is fixed in crank angle, so pulses are softer at low rpm and
@@ -1102,7 +1105,7 @@ export class EngineVoice {
       (0.1 + 0.9 * Math.pow(thr, 1.1)) * (0.15 + 0.85 * Math.pow(rpmN, 1.4)) + 0.75 * ovr * Math.pow(rpmN, 1.3);
     const tExE = 1 - sI;
     const tExI = 0.55 * sI;
-    const tBlk = lerp(0.5, 0.85, sI) * (0.15 + 0.85 * loadE) * (0.35 + 0.65 * rpmN) * (1 + 1.2 * smoothstep(idle * 2.2, idle * 1.0, rpm));
+    const tBlk = lerp(0.5, 0.85, sI) * (0.15 + 0.85 * loadE) * (0.35 + 0.65 * rpmN) * (1 + 1.2 * smoothstep(idle * V.idleLiftTo, idle * 1.0, rpm));
     const tInt = lerp(0.42, 1.05, sI) * V.intakeGain * intakeAmt;
     const tMech = lerp(0.145, 0.36, sI) * (0.25 + 0.75 * Math.pow(rpmN, 1.6)) * (0.45 + 0.55 * loadE);
     const tTur = V.turbo ? lerp(0.165, 0.46, sI) : V.blower ? lerp(1.15, 2.1, sI) : 0;
@@ -1876,9 +1879,11 @@ const CAL_LIMITER = 8000;
 /**
  * The nominal limiter of the loudness sweep. Small and medium engines are measured over 2800..8000 rpm; a big V8 (a 6.2 L turns to 6500, not 8000) over
  * its own range, since what is averaged is the exhaust's loudness at the rpm it actually runs at, and a pipe that rings at 7000 rpm
- * must not decide how loud the engine is at 4500. 5 L and below: 8000 as it always was; 6.5 L and up: 6200.
+ * must not decide how loud the engine is at 4500. 5 L and below: 8000 as it always was; 6.5 L and up: 6200. An engine that gives its own
+ * limiter (EngineSoundProfile.limiterRpm) is measured over its own range, whatever its size.
  */
 function calLimiter(profile: EngineSoundProfile): number {
+  if (profile.limiterRpm !== undefined) return clamp(profile.limiterRpm, 1000, 20000);
   return profile.displacement > 5 ? lerp(CAL_LIMITER, 6200, clamp01((profile.displacement - 5) / 1.5)) : CAL_LIMITER;
 }
 const calCache = new Map<string, number>();
@@ -1941,7 +1946,7 @@ export function measureExhaustSweepRms(profile: EngineSoundProfile, sr: number, 
  * muffler topology attenuates. Cached per profile; costs ~15 ms once.
  */
 export function calibratedExhaustGain(profile: EngineSoundProfile, sr: number): number {
-  const key = [sr, profile.cylinders, profile.layout, profile.crankType, profile.displacement, profile.turbo ? 1 : 0, profile.exhaustOpenness, profile.brightness, profile.exhaustSystem ?? 'merged'].join('|');
+  const key = [sr, profile.cylinders, profile.layout, profile.crankType, profile.displacement, profile.turbo ? 1 : 0, profile.exhaustOpenness, profile.brightness, profile.exhaustSystem ?? 'merged', profile.limiterRpm ?? ''].join('|');
   const hit = calCache.get(key);
   if (hit !== undefined) return hit;
   const rmsCrack = measureExhaustSweepRms(profile, sr, 0, true); // pulses off: crack only

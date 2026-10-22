@@ -601,6 +601,9 @@ const voltaVisual: CarVisualSpec = {
 const voltaSound: EngineSoundProfile = {
   cylinders: 6, layout: 'v', crankType: 'flat', displacement: 1.6, turbo: true, exhaustOpenness: 0.85, brightness: 0.8, gearWhine: 0.7, crackle: 0.15,
   exhaustSystem: 'merged',
+  // its loudness measured over its own revs, and the lift of its 3000 rpm idle gone by 4500 rpm (not 6600)
+  limiterRpm: 12500,
+  idleLiftTo: 1.5,
   // (a first-pass strength, set by the voice)
   electric: 1,
 };

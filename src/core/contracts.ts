@@ -433,6 +433,20 @@ export interface EngineSoundProfile {
    * locked to the engine speed, faint while it harvests under braking and strong while it deploys, which is only while a nitro shot burns.
    */
   electric?: number;
+  /**
+   * The engine's own rev limiter, rpm (absent: none given): its loudness is measured over 35 to 100 % of it, the revs it is driven at.
+   * Without it every engine is measured over a nominal 2800..8000 rpm (a big V8 over its own lower range), which is right for a road car
+   * but leaves one that revs far beyond 8000 louder than its target where its pipes ring brightest: the Volta's 12,500 rpm V6 by 2.3 dB,
+   * and at 0.97 of full scale at 0.95 x its redline. Keep it the physics' `limiterRpm`.
+   */
+  limiterRpm?: number;
+  /**
+   * How far above the idle the voice's lift of the idle reaches, as a multiple of the idle rpm (absent: 2.2). The level near the idle is
+   * lifted so that the wait on the grid has some character (a real idle is far quieter than full throttle); above a road car's 900 rpm
+   * idle the lift is gone by 2000 rpm, but above a racing engine's 3000 it would reach 6600, a third of the revs, and make it louder flat
+   * out at 4000 rpm than at 9000.
+   */
+  idleLiftTo?: number;
 }
 
 export interface CarDefinition {
