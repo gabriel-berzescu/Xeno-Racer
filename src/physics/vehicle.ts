@@ -23,8 +23,8 @@ import type {
 import { cloneEffects, isNeutral, type MechEffects } from '../core/mechanical';
 import { NITRO_POWER, NITRO_THRUST_G } from '../core/nitro';
 import { STRAIGHT_MODE_CLOSE_TIME, STRAIGHT_MODE_LAT, STRAIGHT_MODE_OPEN_TIME, STRAIGHT_MODE_SPEED, STRAIGHT_MODE_THROTTLE } from './aero';
-import { RADS_TO_RPM, RPM_TO_RADS, peakTorque, torqueAt } from './engine';
-import type { AeroSpec, DifferentialSpec, SuspensionSpec, TireSpec, VehicleSpec } from './spec';
+import { RADS_TO_RPM, RPM_TO_RADS, electricPower, peakTorque, torqueAt } from './engine';
+import type { AeroSpec, DifferentialSpec, EngineSpec, SuspensionSpec, TireSpec, VehicleSpec } from './spec';
 import { tireSurfaces, wetGripFactor, type SurfaceProps } from './surfaces';
 import { loadFactor, makeShape, shapeRatio, tempFactor, type TireShape } from './tire';
 
@@ -201,7 +201,10 @@ export class Vehicle {
   /** Set each frame by the world: slipstream / dirty air. */
   dragMul = 1;
   downforceMul = 1;
-  /** Nitro burning, 0..1 (set each frame by the game from the car's NitroTank, src/core/nitro.ts): more torque and a push forward. */
+  /**
+   * Nitro burning, 0..1 (set each frame by the game from the car's NitroTank, src/core/nitro.ts): more torque and a push forward, or on
+   * a car with an electric motor geared to the crankshaft (EngineSpec.electric) that motor's torque instead.
+   */
   nitro = 0;
   /** Mechanical damage (setDamage): the share of the front and rear downforce and of the engine's torque that is left. */
   private aeroFrontMul = 1;
@@ -218,6 +221,8 @@ export class Vehicle {
   private readonly straightMode: NonNullable<AeroSpec['straightMode']> | null;
   private aeroOpen = 0;
   private aeroTarget = 0;
+  /** The electric motor geared to the crankshaft (EngineSpec.electric; null for none): it deploys only while a nitro shot burns. */
+  private readonly electric: NonNullable<EngineSpec['electric']> | null;
 
   // rigid body
   readonly p = new Vector3();
@@ -303,6 +308,7 @@ export class Vehicle {
     this.winter = track.info.winter === true;
     this.ambient = this.winter ? WINTER_AMBIENT_C : AMBIENT_C;
     this.straightMode = s.aero.straightMode ?? null;
+    this.electric = s.engine.electric ?? null;
 
     const a = c.cgToFrontAxle;
     const b = c.wheelbase - a;
@@ -924,7 +930,7 @@ export class Vehicle {
     }
 
     // ── powertrain ──────────────────────────────────────────────────────────
-    this.solveDrivetrain(dt, throttle, brake, handbrake);
+    this.solveDrivetrain(dt, throttle, brake, handbrake, fwdSpeed);
 
     // brake & tire thermals
     for (const wh of wheels) {
@@ -961,8 +967,8 @@ export class Vehicle {
         T.add(_t.crossVectors(_r, _f));
       }
     }
-    // nitro: the bottle's push along the car, with the throttle, in a forward gear
-    if (this.nitro > 0 && this.gear >= 1) {
+    // nitro: the bottle's push along the car, with the throttle, in a forward gear (a car whose nitro is its electric motor has no bottle)
+    if (this.nitro > 0 && this.gear >= 1 && this.electric === null) {
       const push = this.nitro * NITRO_THRUST_G * GRAVITY * this.mass * clamp01(this.controls.throttle);
       if (push > 0) F.addScaledVector(az, push);
     }
@@ -1037,7 +1043,7 @@ export class Vehicle {
   }
 
   /** Engine, clutch, gearbox, differential(s), brakes and wheel spin — solved implicitly. */
-  private solveDrivetrain(dt: number, throttleIn: number, brakeIn: number, handbrake: number): void {
+  private solveDrivetrain(dt: number, throttleIn: number, brakeIn: number, handbrake: number, fwdSpeed: number): void {
     const s = this.spec;
     const e = s.engine;
     const d = s.drivetrain;
@@ -1092,13 +1098,22 @@ export class Vehicle {
       this.boost += (target - this.boost) * clamp01(rate * dt);
       boostFactor = tb.baseFraction + (1 - tb.baseFraction) * this.boost;
     }
-    const nitroMul = this.nitro > 0 && this.gear >= 1 ? 1 + NITRO_POWER * this.nitro : 1;
+    // nitro: more torque from the engine, or on a car with an electric motor geared to the crankshaft that motor instead (src/physics/engine.ts,
+    // electricPower): its torque, or what its power allows at this road speed and this engine speed if that is less. Either is scaled by
+    // the throttle with the engine's own, so the traction control, the launch control, a shift and the limiter cut it as they cut the engine.
+    const m = this.electric;
+    const nitroMul = this.nitro > 0 && this.gear >= 1 && m === null ? 1 + NITRO_POWER * this.nitro : 1;
     const full = torqueAt(e, rpm) * boostFactor * this.powerMul * nitroMul;
+    const motor = m !== null && this.nitro > 0 && this.gear >= 1 ? Math.min(m.torqueNm, electricPower(m, fwdSpeed * 3.6) / Math.max(this.omegaE, 1)) * this.nitro : 0;
     const braking = e.engineBraking * clamp01(rpm / e.limiterRpm) + 0.015 * this.torquePeak;
     let Te = th * full - (1 - th) * braking;
+    if (motor > 0) Te += th * motor;
     if (Te > 0) Te *= d.efficiency;
     this.appliedThrottle = th;
     this.engineLoad = full > 0 ? clamp01((th * full) / this.torquePeak) : 0;
+    // (the clutch holds the motor's torque with the same margin it has over the engine's; a slipping clutch still takes only what the
+    // driven tyres can, as at a launch)
+    const clutchMax = motor > 0 ? this.clutchMax + 1.7 * motor : this.clutchMax;
 
     // clutch engagement
     let engage: number;
@@ -1115,7 +1130,7 @@ export class Vehicle {
       if (this.clutchLocked) engage = 1;
       else {
         const tIn = clamp01(throttleIn);
-        const capFrac = (this.launchCapacity / Math.abs(G)) * (0.3 + 0.7 * tIn) / this.clutchMax;
+        const capFrac = (this.launchCapacity / Math.abs(G)) * (0.3 + 0.7 * tIn) / clutchMax;
         const launchRpm = Math.max(e.idleRpm + 900, this.launchRpm(tIn));
         engage = smoothstep(Math.max(launchRpm - 1300, e.idleRpm + 150), launchRpm - 150, rpm) * Math.min(1, capFrac);
         this.launching = tIn > 0.05;
@@ -1125,7 +1140,7 @@ export class Vehicle {
     if (this.holdOnGrid) engage = 0;
     engage *= shiftClutch;
     this.clutchEngage = engage;
-    const clutchCap = engage * this.clutchMax;
+    const clutchCap = engage * clutchMax;
 
     // brakes (+ ABS / ESC) and rolling resistance are friction torques
     for (const wh of wheels) {
