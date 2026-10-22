@@ -270,6 +270,11 @@ export interface VehicleState {
   backfireCount: number;
   /** Nitro burning now, 0..1 (src/core/nitro.ts): the exhaust flames and the camera's rush. Absent = 0. */
   nitro?: number;
+  /**
+   * Where the active aero stands (AeroSpec.straightMode), 0 corner mode .. 1 straight mode: the body opens its wing flaps by it.
+   * Absent or 0 for a car with fixed wings.
+   */
+  aeroOpen?: number;
   /** Increments on every distinct impact; read lastImpact when it changes. */
   impactCount: number;
   lastImpact: { strength: number; point: Vector3; normal: Vector3; kind: ImpactKind };
@@ -285,7 +290,8 @@ export interface VehicleState {
 // Cars (owner: game/physics — data lives in src/cars)
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type BodyStyle = 'gt' | 'hatch' | 'coupe' | 'prototype' | 'suv';
+/** The body a car is drawn with ('formula': an open-wheeled single-seater, the Volta). */
+export type BodyStyle = 'gt' | 'hatch' | 'coupe' | 'prototype' | 'suv' | 'formula';
 
 /** Everything the car-visual builder needs. Body geometry origin: on the ground, centered
  *  between the axles and between the wheels, +z forward. The center of mass sits at
@@ -315,6 +321,11 @@ export interface CarVisualSpec {
   exhaust: { count: 1 | 2 | 4; side: 'center' | 'split' | 'side' };
   /** Seat position relative to body origin, for cockpit camera / driver (left-hand drive). */
   seat: { x: number; y: number; z: number };
+  /**
+   * An open cockpit (absent: a closed cabin): no windscreen, no wiper and no roof, so no drops on the glass and no wiper sound, and
+   * the driver hears the car through a helmet instead of a cabin.
+   */
+  openCockpit?: boolean;
 }
 
 /**
@@ -417,6 +428,11 @@ export interface EngineSoundProfile {
    * a lite voice has the same lope as per-pulse strengths.
    */
   exhaustSystem?: 'merged' | 'dual';
+  /**
+   * 0..1 how loud the whine of an electric motor geared to the crankshaft is (absent: none), the Volta's MGU-K (EngineSpec.electric):
+   * locked to the engine speed, faint while it harvests under braking and strong while it deploys, which is only while a nitro shot burns.
+   */
+  electric?: number;
 }
 
 export interface CarDefinition {
@@ -424,7 +440,7 @@ export interface CarDefinition {
   name: string;
   maker: string; // fictional
   description: string;
-  class: 'Road' | 'Sport' | 'GT' | 'Prototype' | 'SUV';
+  class: 'Road' | 'Sport' | 'GT' | 'Prototype' | 'SUV' | 'Formula';
   drivetrain: 'FWD' | 'RWD' | 'AWD';
   /** Menu stats (computed/estimated). */
   stats: { powerHp: number; torqueNm: number; massKg: number; topSpeedKmh: number; zeroTo100: number };

@@ -1,7 +1,7 @@
 /**
  * The car roster. All makes and models are fictional.
  */
-import { bodyCgZ, type CarDefinition, type CarVisualSpec } from '../core/contracts';
+import { bodyCgZ, type CarDefinition, type CarVisualSpec, type EngineSoundProfile } from '../core/contracts';
 import type { TireSpec, VehicleSpec } from '../physics/spec';
 
 const DEG = Math.PI / 180;
@@ -567,8 +567,154 @@ const mammoth: CarDefinition = {
   },
 };
 
-// (the Mammoth last: tests take CARS[3] for the LMP-X)
-export const CARS: CarDefinition[] = [vanta, kestrel, ronin, lmp, mammoth];
+// ─────────────────────────────────────────────────────────────────────────────
+// Volta — a 2026-rules turbo-hybrid single-seater. Wings that open on the straights, and an electric motor only the nitro wakes.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// The Volta's body: 5.3 m long, 1.9 m wide over the tyres, 0.95 m to the top of the airbox, an open cockpit with the driver on the centre line.
+const voltaVisual: CarVisualSpec = {
+  style: 'formula',
+  length: 5.3,
+  width: 1.9,
+  height: 0.95,
+  wheelbase: 3.4,
+  trackFront: 1.56,
+  trackRear: 1.5,
+  frontOverhang: 1.05,
+  wheelRadiusFront: 0.352,
+  wheelRadiusRear: 0.356,
+  tireWidthFront: 0.28,
+  tireWidthRear: 0.375,
+  rimRadiusFront: 0.2286,
+  rimRadiusRear: 0.2286,
+  rideHeight: 0.05,
+  cgHeight: 0.28,
+  cgToFrontAxle: 1.87,
+  wing: 1,
+  engine: 'mid',
+  exhaust: { count: 1, side: 'center' },
+  seat: { x: 0, y: 0.22, z: 0.2 },
+  openCockpit: true,
+};
+
+// The Volta's voice: a 1.6 L 90-degree V6 with a flat crank (even firing, three pulses a turn), one turbo, one central tailpipe, and the MGU-K's whine.
+const voltaSound: EngineSoundProfile = {
+  cylinders: 6, layout: 'v', crankType: 'flat', displacement: 1.6, turbo: true, exhaustOpenness: 0.85, brightness: 0.8, gearWhine: 0.7, crackle: 0.15,
+  exhaustSystem: 'merged',
+  // (a first-pass strength, set by the voice)
+  electric: 1,
+};
+
+// The Volta itself: 800 kg with the driver and an average fuel load, 45 % of it on the front axle, on slicks.
+const volta: CarDefinition = {
+  id: 'volta',
+  name: 'Volta',
+  maker: 'Xeno Racing',
+  description:
+    'A 2026-rules single-seater: 800 kg, a 1.6 L turbo V6 and wings that open on the straights. Its 350 kW electric motor wakes only with the nitro — and without it, it is still the quickest thing here.',
+  class: 'Formula',
+  drivetrain: 'RWD',
+  // (a first pass, not yet measured: the curve gives 564.5 hp at 12,000 rpm and 380 Nm from 8000 to 10,500, the engine alone; the electric motor is the nitro)
+  stats: { powerHp: 565, torqueNm: 380, massKg: 800, topSpeedKmh: 330, zeroTo100: 2.7 },
+  visual: voltaVisual,
+  sound: voltaSound,
+  defaultLivery: { primary: '#e9edf2', secondary: '#1f6bff', accent: '#d7ff1e', pattern: 'stripes', number: 26, driver: 'You', finish: 0.5, metallic: false },
+  physics: {
+    chassis: {
+      mass: 800,
+      inertia: { x: 1700, y: 1600, z: 240 },
+      cgHeight: 0.28,
+      wheelbase: 3.4,
+      cgToFrontAxle: 1.87,
+      trackFront: 1.56,
+      trackRear: 1.5,
+      maxSteer: 24 * DEG,
+      ackermann: 0.15,
+      ...hullFromVisual(voltaVisual, 1.87),
+    },
+    engine: {
+      idleRpm: 3000,
+      redlineRpm: 12000,
+      limiterRpm: 12500,
+      // the 2026 engine alone, 421 kW: about 380 Nm from 7000 to 10,500 rpm (300 at 4000), then the same power on to 12,000 (the fuel flow is capped)
+      torqueCurve: [
+        [0, 150], [2000, 215], [3000, 255], [4000, 300], [5000, 335], [6000, 362], [7000, 377], [8000, 380], [10500, 380],
+        [11000, 363], [11500, 348], [12000, 335], [12500, 312], [13000, 270],
+      ],
+      engineBraking: 150,
+      inertia: 0.07,
+      // (no MGU-H in 2026 to spin the turbo up: a light one with a hint of lag)
+      turbo: { baseFraction: 0.9, spoolTime: 0.1, spoolRpm: 4000 },
+      // the MGU-K, deployed only as the nitro: 350 kW and 500 Nm at the crank, full to 290 km/h and nothing from 345
+      electric: { powerKw: 350, torqueNm: 500, fullToKmh: 290, zeroAtKmh: 345 },
+    },
+    drivetrain: {
+      layout: 'RWD',
+      // (12,000 rpm is 99 / 132 / 160 / 189 / 223 / 253 / 289 / 334 km/h)
+      gears: [4.51, 3.38, 2.79, 2.37, 2.01, 1.77, 1.55, 1.34],
+      reverse: 3.0,
+      finalDrive: 3.6,
+      efficiency: 0.94,
+      // (seamless shifts)
+      shiftTime: 0.02,
+      upshiftRpm: 11800,
+      downshiftRpm: 7000,
+      diff: { type: 'lsd', preload: 120, powerLock: 0.45, coastLock: 0.3 },
+      frontSplit: 0,
+    },
+    brakes: { frontTorque: 4800, rearTorque: 3800, handbrakeTorque: 1500, discHeatCapacity: 2600 },
+    // corner mode: 3.8 m^2 of downforce area, 43 % of it at the front, and a CdA of 1.0; straight mode, the wing flaps open: a fifth less drag and
+    // 28 % less downforce
+    aero: {
+      dragArea: 1.0,
+      liftAreaFront: 1.64,
+      liftAreaRear: 2.16,
+      straightMode: { dragArea: 0.8, liftAreaFront: 1.18, liftAreaRear: 1.56 },
+    },
+    tireFront: {
+      ...roadTire(280, 45, 18, 1.7),
+      radius: voltaVisual.wheelRadiusFront,
+      inertia: 1.2,
+      loadSensitivity: 0.2,
+      nominalLoad: 4500,
+      peakSlipAngle: 5.2 * DEG,
+      peakSlipRatio: 0.085,
+      slideRatio: 0.72,
+      relaxationLength: 0.3,
+      optimalTemp: 95,
+      tempWindow: 45,
+      coldGrip: 0.74,
+      // (thermally bigger than a road tyre, the rears the most: at 1 the rears cooked to 150 C on a lap of Aurelia)
+      heatScale: 1.15,
+      // (wet-weather compound fitted when it rains)
+      wetGrip: 0.6,
+      slick: 1,
+    },
+    tireRear: {
+      ...roadTire(375, 35, 18, 1.7),
+      radius: voltaVisual.wheelRadiusRear,
+      inertia: 1.35,
+      loadSensitivity: 0.2,
+      nominalLoad: 4500,
+      peakSlipAngle: 5.2 * DEG,
+      peakSlipRatio: 0.085,
+      slideRatio: 0.72,
+      relaxationLength: 0.3,
+      optimalTemp: 95,
+      tempWindow: 45,
+      coldGrip: 0.74,
+      heatScale: 1.5,
+      wetGrip: 0.6,
+      slick: 1,
+    },
+    // (6 cm of travel at 5 cm off the ground: with 5 cm at 4 cm the floor struck the road in Brennwald's compression at 308 km/h)
+    suspFront: { travel: 0.06, spring: 250000, bump: 5000, rebound: 8500, antiRoll: 90000, camber: -3 * DEG },
+    suspRear: { travel: 0.06, spring: 300000, bump: 5500, rebound: 9500, antiRoll: 50000, camber: -1.8 * DEG },
+  },
+};
+
+// (the newest cars last, the Mammoth and then the Volta: tests take CARS[3] for the LMP-X)
+export const CARS: CarDefinition[] = [vanta, kestrel, ronin, lmp, mammoth, volta];
 
 export function getCar(id: string): CarDefinition {
   const c = CARS.find((c) => c.id === id);

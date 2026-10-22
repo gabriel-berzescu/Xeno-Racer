@@ -85,6 +85,13 @@ export interface EngineSpec {
     /** Rpm below which the turbo barely builds boost. */
     spoolRpm: number;
   };
+  /**
+   * An electric motor geared to the crankshaft (absent: none), a 2026 MGU-K. It deploys only while a nitro shot burns, and on a car
+   * that has one it is the nitro: no push from a bottle and no extra engine torque. Up to `powerKw` and `torqueNm` at the crank, the power
+   * full up to `fullToKmh` and tapering above it to nothing at `zeroAtKmh` (the 2026 rule: 350 kW to 290 km/h, then 1800 - 5 v kW with v
+   * in km/h, cut at 345).
+   */
+  electric?: { powerKw: number; torqueNm: number; fullToKmh: number; zeroAtKmh: number };
 }
 
 export interface DifferentialSpec {
@@ -130,6 +137,13 @@ export interface AeroSpec {
   /** Downforce coefficient × area at the front / rear axle (m², + = downforce). */
   liftAreaFront: number;
   liftAreaRear: number;
+  /**
+   * An active aero's low-drag mode (absent: fixed wings): the same three areas with the front-wing flaps and the rear-wing flap laid
+   * flat for a straight (about a fifth less drag and a quarter less downforce on a 2026 single-seater). The areas above are the corner
+   * mode; the car moves between the two with `VehicleState.aeroOpen`, opening on a straight under full throttle and closing at once on
+   * a lift, the brakes or a turn of the wheel.
+   */
+  straightMode?: { dragArea: number; liftAreaFront: number; liftAreaRear: number };
 }
 
 export interface ChassisSpec {

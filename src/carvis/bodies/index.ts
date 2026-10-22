@@ -12,4 +12,6 @@ export const BLUEPRINTS: Record<BodyStyle, BlueprintFactory> = {
   coupe: makeCoupe,
   prototype: makePrototype,
   suv: makeSuv,
+  // (the Volta's own body is being sculpted: until then it borrows the prototype's)
+  formula: makePrototype,
 };

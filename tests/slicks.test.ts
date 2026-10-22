@@ -1,5 +1,5 @@
 /**
- * The racing slick (TireSpec.slick, the LMP-X's tyres), held to the promises made for it:
+ * The racing slick (TireSpec.slick, the tyres of the two racing cars, the LMP-X and the Volta), held to the promises made for it:
  *   - it is a trait of the tyre with a table of surfaces of its own (src/physics/surfaces.ts, SLICK_LOSS): on grass, dirt, gravel, sand and
  *     deep snow it keeps a good deal less grip than a road tyre, far less on wet turf and dirt, and digs into gravel and sand; paved ground,
  *     packed snow and ice are the same for every tyre. It is the other end of the scale from the all-terrain tyre (TireSpec.offroad);
@@ -22,6 +22,9 @@ import { aiLap, brakeRun, dragRun, freeRoll, gripAtSpeed, launch, skidpad } from
 const lmp = getCar('lmp-x');
 const mammoth = getCar('mammoth');
 const roadCars = ['vanta-gt', 'kestrel-r', 'ronin-86'].map(getCar);
+/** The two racing cars, on slicks, and every car that is not one. */
+const racingCars = ['lmp-x', 'volta'].map(getCar);
+const otherCars = CARS.filter((c) => !racingCars.includes(c));
 const LOOSE: SurfaceType[] = ['grass', 'dirt', 'gravel', 'sand', 'deepsnow'];
 const NOT_LOOSE: SurfaceType[] = ['asphalt', 'curb', 'concrete', 'snow', 'ice'];
 
@@ -34,17 +37,19 @@ const withoutSlick: CarDefinition = (() => {
 })();
 
 describe('the racing slick is a trait of the tyre', () => {
-  it('is on the LMP-X, front and rear, and on no other car', () => {
-    expect(lmp.physics.tireFront.slick).toBe(1);
-    expect(lmp.physics.tireRear.slick).toBe(1);
-    for (const c of CARS.filter((c) => c.id !== 'lmp-x')) {
+  it('is on the two racing cars, the LMP-X and the Volta, front and rear, and on no other car', () => {
+    for (const c of racingCars) {
+      expect(c.physics.tireFront.slick, c.id).toBe(1);
+      expect(c.physics.tireRear.slick, c.id).toBe(1);
+    }
+    for (const c of otherCars) {
       expect(c.physics.tireFront.slick, c.id).toBeUndefined();
       expect(c.physics.tireRear.slick, c.id).toBeUndefined();
     }
     // (and the all-terrain tyre is the Mammoth's alone: the two kinds are two cars)
     expect(CARS.filter((c) => c.physics.tireFront.offroad).map((c) => c.id)).toEqual(['mammoth']);
-    // the slick is still the stickiest tyre of the five
-    for (const c of CARS.filter((c) => c.id !== 'lmp-x')) expect(lmp.physics.tireFront.mu).toBeGreaterThan(c.physics.tireFront.mu * 1.4);
+    // the slick is still the stickiest tyre of the roster
+    for (const r of racingCars) for (const c of otherCars) expect(r.physics.tireFront.mu, `${r.id} against ${c.id}`).toBeGreaterThan(c.physics.tireFront.mu * 1.4);
   });
 
   it('is a table of surfaces of its own that makes loose ground worse and leaves the rest alone', () => {
@@ -149,11 +154,13 @@ describe('on asphalt, kerbs and concrete the LMP-X is what it was', () => {
     expect(dragRun(lmp, 20).t100).toBe(dragRun(withoutSlick, 20).t100);
   });
 
-  it('is still the king of the asphalt: far more grip than any other car at 60 and at 120 km/h, dry and wet', () => {
+  it('is still the king of the asphalt, with the Volta: the two racing cars have far more grip than any other car at 60 and at 120 km/h, dry and wet', () => {
     for (const wetness of [0, 0.75]) {
       for (const kmh of [60, 120]) {
-        const mine = gripAtSpeed(lmp, kmh, { wetness }).latG;
-        for (const c of CARS.filter((c) => c.id !== 'lmp-x')) expect(mine, `${c.id} at ${kmh} wet ${wetness}`).toBeGreaterThan(gripAtSpeed(c, kmh, { wetness }).latG * 1.35);
+        for (const r of racingCars) {
+          const mine = gripAtSpeed(r, kmh, { wetness }).latG;
+          for (const c of otherCars) expect(mine, `${r.id} against ${c.id} at ${kmh} wet ${wetness}`).toBeGreaterThan(gripAtSpeed(c, kmh, { wetness }).latG * 1.35);
+        }
       }
     }
   });

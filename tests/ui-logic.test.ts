@@ -415,7 +415,7 @@ describe('settings schema', () => {
 
   it('draws each car in the outline of its body: the prototype and the 4x4 have shapes of their own, and every shape sits in its box', () => {
     // (the three road cars share the grand tourer's: a teardrop fits them; a brick and a prototype are not one)
-    expect(CARS.map((c) => SHAPE_OF[c.visual.style])).toEqual(['gt', 'gt', 'gt', 'prototype', 'suv']);
+    expect(CARS.map((c) => SHAPE_OF[c.visual.style])).toEqual(['gt', 'gt', 'gt', 'prototype', 'suv', 'prototype']);
     const numbers = (d: string): number[] => (d.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number);
     for (const [id, shape] of Object.entries(SHAPES) as [string, Shape][]) {
       // the outline and the cabin are x, y pairs inside the 80 x 142 box, and symmetric about the middle (the car is)
