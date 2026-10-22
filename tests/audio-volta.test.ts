@@ -4,11 +4,13 @@
  *
  *  - the V6: three pulses a turn, every line of its exhaust on a multiple of 3 x rpm/60; louder and brighter with the revs, its loudness
  *    measured over its own revs on boost; no muffler and a wastegate wide open flat out (the harmonics past the turbine, the rasp); no
- *    blow-off valve; a seamless shift; no clipping at the limiter.
+ *    blow-off valve; a seamless shift, in the game too (driven through the physics, whose gearbox shuts the throttle for a frame or two);
+ *    no clipping at the limiter.
  *  - the MGU-K's whine: locked to the crank on its 14th order, a murmur while it turns free, faint while it harvests (a lift, the brakes),
- *    strong while it deploys, which is only while a nitro shot burns; the nitro reaches it through the control vector (CTL.NITRO).
+ *    strong while it deploys, which is only while a nitro shot burns in a forward gear, and only as much as the motor's power at the road
+ *    speed; the nitro reaches it through the control vector (CTL.NITRO).
  *  - the open cockpit (CarVisualSpec.openCockpit): its cockpit views hear the car through a helmet, not a closed cabin (no muffled exhaust
- *    path, no cabin boom, the airbox and the wind louder), and the rain drums on no roof.
+ *    path, no cabin boom, the airbox and the wind louder), and the rain drums on no roof (the audio system's side: tests/audio-split.test.ts).
  *  - nothing of this touches an engine that does not ask for it.
  */
 import { Quaternion, Vector3 } from 'three';
