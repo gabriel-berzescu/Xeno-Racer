@@ -75,10 +75,15 @@ function whineOverMix(out: Float32Array, whine: Float32Array, rpm: number, from 
 const db = (x: number): number => 20 * Math.log10(x + 1e-12);
 
 describe('what the profile asks for is all the shared voice does for the Volta', () => {
-  it('only the Volta has an electric motor; it has no blower, no dual exhaust and none of the cross-plane lumpiness', () => {
+  it('only the Volta has an electric motor and a racing engine\'s fields; it has no blower, no dual exhaust and none of the cross-plane lumpiness', () => {
     for (const c of CARS) {
       const V = deriveVoicing(c.sound, buildLayout(c.sound));
       expect(V.electric > 0, c.id).toBe(c.id === 'volta');
+      if (c.id === 'volta') continue;
+      // (the five other engines take the old path everywhere: none of the fields is there)
+      const s = c.sound;
+      expect([s.electric, s.limiterRpm, s.idleLiftTo, s.blowOff, s.shiftDip, s.wastegate], c.id).toEqual([undefined, undefined, undefined, undefined, undefined, undefined]);
+      expect([V.wastegate, V.blowOff, V.shiftDip, V.idleLiftTo], c.id).toEqual([0, true, 0.07, 2.2]);
     }
     const V = deriveVoicing(P, buildLayout(P));
     expect(V.blower).toBe(false);
