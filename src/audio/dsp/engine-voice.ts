@@ -17,7 +17,7 @@
  *   + turbo (spool whistle / flutter / blow-off), gear whine, shift clunk, backfire pops, rev limiter
  *   + interior / exterior mix (cabin resonance, muffled exhaust path; or, in an open cockpit, the helmet)
  *
- * Two things a profile can ask for beyond that (both off, and costing nothing, for every other engine):
+ * Three things a profile can ask for beyond that (all off, and costing nothing, for every other engine):
  *
  *   `exhaustSystem: 'dual'`  the secondaries do not meet: each bank goes on through a main pipe, muffler and tailpipe of its own (TailChain)
  *        and the listener hears the sum, a little nearer one tailpipe than the other. Through twin pipes the sum of a cross-plane V8's banks
@@ -32,6 +32,10 @@
  * A cross-plane V8 (crankType 'crossplane') is also lumpier, strongest at idle: what each bank's pipe still holds of its last pulse, the cammed
  * idle's cycle-to-cycle spread and weak cylinders, a bank that runs richer for a while, and a burble of unburnt charge on a lift-off
  * (see pulseFactor, burnFactor, and the burble in block()). These are events, so the lite voice has them too.
+ *
+ * A racing engine (the Volta's) can also give its own revs (limiterRpm: its loudness measured over them, on boost; idleLiftTo: the lift of a
+ * high idle kept near the idle), a turbo with no blow-off valve (blowOff) and a wastegate that lets part of every pulse past the turbine
+ * flat out (wastegate), a seamless shift (shiftDip); and a car with an open cockpit is heard from it through a helmet (EngineVoice.helmet).
  *
  * No allocation after construction; process() is safe to call from an AudioWorklet.
  */
@@ -812,6 +816,7 @@ export class EngineVoice {
     for (const t of this.tails) t.clear();
     this.scA = 0;
     this.elA = 0;
+    this.lpHelmet.y = 0;
     this.lopeH.fill(0);
     for (const r of this.blk) r.reset();
     this.clunkR1.reset();
@@ -1281,7 +1286,7 @@ export class EngineVoice {
     const elKr = 1 - Math.exp(-invSr / 0.06);
     const tEl = lerp(1.15, 2.1, sI) * V.electric;
     if (firstBlock) this.gEl = tEl;
-    const dEl = (tEl - this.gEl) * (1 / len);
+    const dEl = (tEl - this.gEl) * invLen;
     let cEl = this.gEl;
     this.gEl = tEl;
 
