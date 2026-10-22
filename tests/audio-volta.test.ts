@@ -11,17 +11,20 @@
  *    path, no cabin boom, the airbox and the wind louder), and the rain drums on no roof.
  *  - nothing of this touches an engine that does not ask for it.
  */
+import { Quaternion, Vector3 } from 'three';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { CARS } from '../src/cars';
 import type { EngineSoundProfile } from '../src/core/contracts';
 import { bandPower, chirpDeviation, hasNonFinite, offGridLines, orderFamilies, peakAbs, rms, spectralCentroid, strongestPeak, welch } from '../src/audio/analysis';
-import { CarSoundImpl, type CarHost } from '../src/audio/carsound';
+import { CarFrame, CarSoundImpl, type CarHost } from '../src/audio/carsound';
 import { CTL, makeControlVector, readEngineInputs, writeEngineControls } from '../src/audio/controls';
 import { ChassisVoice } from '../src/audio/dsp/chassis-voice';
 import { bankFiringIntervals, buildLayout } from '../src/audio/dsp/engine-layout';
 import { EngineVoice, calibratedExhaustGain, createEngineDebug, deriveVoicing, exhaustTargetDb, measureExhaustSweepRms, type EngineDebug } from '../src/audio/dsp/engine-voice';
 import { makeLimiterCurve, volumeCurve } from '../src/audio/graph';
+import { makeListener } from '../src/audio/spatial';
 import { DEFAULT_SETTINGS } from '../src/core/settings';
+import { PhysicsWorld, createFlatTrack } from '../src/physics';
 import { makeVehicleState } from '../sandbox/audio/drive-sim';
 
 const SR = 48000;
@@ -83,7 +86,7 @@ describe('what the profile asks for is all the shared voice does for the Volta',
       // (the five other engines take the old path everywhere: none of the fields is there)
       const s = c.sound;
       expect([s.electric, s.limiterRpm, s.idleLiftTo, s.blowOff, s.shiftDip, s.wastegate], c.id).toEqual([undefined, undefined, undefined, undefined, undefined, undefined]);
-      expect([V.wastegate, V.blowOff, V.shiftDip, V.idleLiftTo], c.id).toEqual([0, true, 0.07, 2.2]);
+      expect([V.wastegate, V.blowOff, V.shiftDip, V.bridgeCut, V.idleLiftTo], c.id).toEqual([0, true, 0.07, false, 2.2]);
     }
     const V = deriveVoicing(P, buildLayout(P));
     expect(V.blower).toBe(false);
@@ -254,6 +257,66 @@ describe('the 2026 V6', () => {
     for (const seed of [1, 2, 3]) {
       expect(dipMs(P, seed)).toBeLessThanOrEqual(15);
       expect(dipMs({ ...P, shiftDip: undefined }, seed)).toBeGreaterThan(50);
+    }
+  });
+
+  it('shifts seamlessly in the game too: through the real physics, whose gearbox shuts the throttle for a frame or two, an upshift is under -3 dB for 20 ms at most (held as the frames come: 32 ms and more)', () => {
+    // flat out from a standstill on a flat plane, the gearbox shifting itself, and the voice fed the control frames the game makes at `hz`
+    const drive = (hz: number): Float32Array[] => {
+      const world = new PhysicsWorld(createFlatTrack());
+      const car = world.addVehicle(volta);
+      car.placeOnGround(new Vector3(), new Quaternion(), 0);
+      car.setTemperatures(1);
+      const cf = new CarFrame(true);
+      const L = makeListener();
+      const frames: Float32Array[] = [];
+      for (let f = 0; f < 9.5 * hz; f++) {
+        car.controls.throttle = 1;
+        world.step(1 / hz);
+        const st = car.state;
+        L.px = st.position.x;
+        L.py = st.position.y + 1;
+        L.pz = st.position.z - 6;
+        cf.compute(st, 1 / hz, L, 0, 2, false);
+        frames.push(cf.vec.slice());
+      }
+      return frames;
+    };
+    // the ms under -3 dB of each upshift (4 ms windows of the voice, against the 60 ms before the cut), from 2nd gear on, where the
+    // traction control has nothing to cut after the shift
+    const dips = (frames: Float32Array[], hz: number, held = false): number[] => {
+      const v = voice(P, volta, 1);
+      // (the profile gives its shift dip: the cut is bridged, unless the test holds the frames as they come)
+      expect(v.V.bridgeCut).toBe(true);
+      if (held) v.V.bridgeCut = false;
+      const spf = Math.round(SR / hz);
+      const out = new Float32Array(frames.length * spf);
+      frames.forEach((vec, f) => {
+        readEngineInputs(vec, v.inp);
+        v.process(out.subarray(f * spf), spf);
+      });
+      const w = Math.floor(0.004 * SR);
+      const res: number[] = [];
+      for (let f = 1; f + 1 < frames.length; f++) {
+        if (frames[f][CTL.SHIFT_COUNT] <= frames[f - 1][CTL.SHIFT_COUNT] || frames[f][CTL.GEAR] < 3) continue;
+        // (the cut is before the counter steps: the shift's frames start up to three frames earlier)
+        const at = (f - 3) * spf;
+        const ref = rms(out, at - Math.floor(0.06 * SR), at);
+        let ms = 0;
+        for (let i = at; i < at + Math.floor(0.15 * SR); i += w) if (rms(out, i, i + w) < 0.708 * ref) ms += 4;
+        res.push(ms);
+      }
+      return res;
+    };
+    for (const hz of [60, 144]) {
+      const frames = drive(hz);
+      // the frames show the cut that is bridged: the throttle shut, the pedal down and the clutch out
+      const cuts = frames.filter((x) => x[CTL.THROTTLE] < 0.05 && x[CTL.PEDAL] > 0.95 && x[CTL.CLUTCH] > 0).length;
+      expect(cuts, `${hz} Hz`).toBeGreaterThanOrEqual(5);
+      const now = dips(frames, hz);
+      expect(now.length, `${hz} Hz`).toBeGreaterThanOrEqual(5);
+      for (const ms of now) expect(ms, `${hz} Hz: ${now.join(' ')}`).toBeLessThanOrEqual(20);
+      if (hz === 60) for (const ms of dips(frames, hz, true)) expect(ms, `${hz} Hz, held as the frames come`).toBeGreaterThanOrEqual(32);
     }
   });
 });

@@ -607,7 +607,8 @@ const voltaSound: EngineSoundProfile = {
   limiterRpm: 12500,
   idleLiftTo: 1.5,
   // no blow-off valve (the wastegate holds the boost on a lift: no 'pssh'), and a seamless-shift gearbox: an upshift is a 20 ms flick in
-  // the note, as the physics' shiftTime, not a road car's 70 ms gap
+  // the note, as the physics' shiftTime, not a road car's 70 ms gap. Driven flat out through the physics, at 60 and 144 frames a second,
+  // it is under -3 dB for 8 to 16 ms and 5 to 7 dB deep (held as the frames come, 48 to 64 ms and 8 to 10 dB; tests/audio-volta.test.ts)
   blowOff: false,
   shiftDip: 0.02,
   // the MGU-K's whine on the 14th order of the crank (2.6 kHz at 11,000 rpm): 12 to 23 dB over the rest of the engine in its band while a

@@ -454,7 +454,9 @@ export interface EngineSoundProfile {
   blowOff?: boolean;
   /**
    * How long an upshift cuts the engine's torque for, as heard, seconds (absent: 0.07, a road car's gearbox). A seamless-shift racing
-   * gearbox has the next gear in before the last one is out: about 0.02 s, a flick in the note instead of a gap.
+   * gearbox has the next gear in before the last one is out: about 0.02 s, a flick in the note instead of a gap. A profile that gives it
+   * is heard as that dip alone: the physics' gearbox shuts the throttle for the whole of a shift and a control frame shows that for all of
+   * its 17 ms (two frames at times), and the voice bridges it, 40 ms at most; without it the frames are played as they come.
    */
   shiftDip?: number;
   /**

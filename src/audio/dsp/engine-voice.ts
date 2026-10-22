@@ -200,6 +200,11 @@ export interface Voicing {
   liteGain: number;
   /** Seconds an upshift dips the load for (EngineSoundProfile.shiftDip: 0.07 unless the profile says). */
   shiftDip: number;
+  /**
+   * The profile gives its shift dip, so that dip alone is the shift: the throttle the gearbox shuts while it changes gear, which the control
+   * frames show for a whole frame or two, is bridged (EngineVoice.block, CUT_BRIDGE). false for an engine that does not say.
+   */
+  bridgeCut: boolean;
   // supercharger: a positive-displacement blower, its whine locked to the crank
   blower: boolean;
   /** Whine fundamental per rpm (Hz): pulley ratio x lobes / 60. */
@@ -311,6 +316,7 @@ export function deriveVoicing(p: EngineSoundProfile, layout: EngineLayout): Voic
     // the same pulses, the lite voice came out 5.6 dB under the full one at a gain of 1.35, and a little above it at 1.7, where the others' lite voices come out within 2 dB of theirs)
     liteGain: dual ? 1.35 * 1.7 : 1.35,
     shiftDip: p.shiftDip !== undefined ? clamp(p.shiftDip, 0.005, 0.2) : 0.07,
+    bridgeCut: p.shiftDip !== undefined,
     blower: sc !== undefined && sc.ratio > 0 && lobes > 0,
     blowerHzPerRpm: sc ? (sc.ratio * lobes) / 60 : 0,
     blowerLobes: lobes,
@@ -432,6 +438,13 @@ const K_FINAL_DRIVE = 3.7;
  * (rpm/120) where the aliasing test looks for strays.
  */
 const ELECTRIC_ORDER = 14;
+/**
+ * The longest an upshift's cut is bridged for, seconds (Voicing.bridgeCut). The gearbox shuts the throttle for the whole of its shift (the
+ * Volta's: 20 ms), and the control frames show that for one frame or two (17 ms each at 60 Hz); held as it comes, with the smoothing of
+ * the throttle and the load, it was a gap of 48 to 64 ms, 8 to 10 dB deep, in place of the shift dip. 40 ms covers two frames at 60 Hz and
+ * one at 30 Hz; a cut that lasts longer is not a shift (the traction control with the pedal down, a launch) and is heard after them.
+ */
+const CUT_BRIDGE = 0.04;
 const PINION_TEETH = 11;
 const PAIR_TEETH = 22;
 const WIN_N = 1024;
@@ -477,6 +490,10 @@ export class EngineVoice {
   private lastBackfire: number;
   private asleep = false;
   private needSnap = true;
+  // an upshift's cut bridged (Voicing.bridgeCut): the throttle and the load before it, and how long it has been held
+  private preCutThr = 0;
+  private preCutLoad = 0;
+  private cutHeld = 0;
 
   // crank clock
   private ph: number;
@@ -817,6 +834,8 @@ export class EngineVoice {
     this.scA = 0;
     this.elA = 0;
     this.lpHelmet.y = 0;
+    // (nothing held from before a sleep: a cut seen first after it is heard)
+    this.cutHeld = CUT_BRIDGE;
     this.lopeH.fill(0);
     for (const r of this.blk) r.reset();
     this.clunkR1.reset();
@@ -991,9 +1010,26 @@ export class EngineVoice {
     this.sinceRpmChange += dt;
     this.rpmRampT = Math.min(this.rpmRampT + dt, this.rpmRampLen);
     this.sRpm = this.rpmFrom + (this.rpmTo - this.rpmFrom) * (this.rpmRampT / this.rpmRampLen);
-    this.sThr += smoothCoef(0.03, dt) * (I.throttle - this.sThr);
+    // an upshift's cut (Voicing.bridgeCut): the throttle shut with the pedal down and the clutch out, and not by the limiter, is held at
+    // what it was before for CUT_BRIDGE at most; the shift counter that follows starts the dip that is the shift
+    let thrIn = I.throttle;
+    let loadIn = I.load;
+    if (V.bridgeCut) {
+      if (I.pedal >= 0.25 && I.throttle < 0.05 && I.clutch > 0 && I.limiter < 0.5) {
+        if (this.cutHeld < CUT_BRIDGE) {
+          this.cutHeld += dt;
+          thrIn = this.preCutThr;
+          loadIn = this.preCutLoad;
+        }
+      } else {
+        this.cutHeld = 0;
+        this.preCutThr = I.throttle;
+        this.preCutLoad = I.load;
+      }
+    }
+    this.sThr += smoothCoef(0.03, dt) * (thrIn - this.sThr);
     this.sPlate += smoothCoef(0.03, dt) * ((I.pedal >= 0 ? I.pedal : I.throttle) - this.sPlate);
-    this.sLoad += smoothCoef(0.035, dt) * (I.load - this.sLoad);
+    this.sLoad += smoothCoef(0.035, dt) * (loadIn - this.sLoad);
     this.sBoost += smoothCoef(0.04, dt) * (I.boost - this.sBoost);
     this.sInt += smoothCoef(0.06, dt) * (I.interior - this.sInt);
     this.sClutch += smoothCoef(0.02, dt) * (I.clutch - this.sClutch);
