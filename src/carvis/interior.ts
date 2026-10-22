@@ -151,6 +151,10 @@ function styleFor(style: BodyStyle): IStyle {
         doorBack: 1.95,
         rearDoor: true,
       };
+    case 'formula':
+      // the single-seater: lying back in a narrow tub, no cage (the roll hoop and the halo are the body's), the wheel over the thighs;
+      // the cabin box reaches from behind the headrest to the footwell (cowlZ: the front bulkhead)
+      return { twoSeats: false, rearBench: false, cage: false, doorCards: false, bucket: true, seatTilt: 0.9, cowlZ: 1.2, cowlY: 0.6, floorY: 0.08, ...LOW_CABIN, wheelUp: 0.33, wheelFwd: 0.05, wheelTilt: 0.4, halfW: 0.24, top: 0.82, floorHalfW: 0.17 };
     default:
       return { twoSeats: false, rearBench: false, cage: true, doorCards: false, bucket: true, seatTilt: 0.62, cowlZ: 0.9, cowlY: 0.64, floorY: 0.14, ...LOW_CABIN, wheelUp: 0.34, wheelFwd: 0.6, wheelTilt: 0.9 };
   }
@@ -160,6 +164,8 @@ export function makeInterior(spec: CarVisualSpec, quality: QualityLevel): Interi
   const st = styleFor(spec.style);
   const sx = spec.seat.x, sy = spec.seat.y, sz = spec.seat.z;
   const proto = spec.style === 'prototype';
+  // (an open cockpit: the body's tub is all there is round the driver, so the cabin is only the seat, the headrest and the footwell floor)
+  const open = spec.style === 'formula';
   const tilt = st.seatTilt;
   const ct = Math.cos(tilt), sn = Math.sin(tilt);
   const floorY = st.floorY;
@@ -214,6 +220,10 @@ export function makeInterior(spec: CarVisualSpec, quality: QualityLevel): Interi
 
   const cabin: FieldFn = (x, y, z) => {
     const ax = x < 0 ? -x : x;
+    if (open) {
+      const floor = sdRoundBox(ax, y - floorY, z - (sz + 0.25), st.floorHalfW, 0.025, 0.75, 0.015);
+      return Math.min(floor, smin(seat(x, y, z, sx), headrest(ax, y, z, sx), 0.05));
+    }
     // floor tub
     let d = sdRoundBox(ax, y - floorY, z - (sz - 0.1 + st.cowlZ * 0.5), proto ? 0.4 : st.floorHalfW, 0.025, (st.cowlZ - sz + 1.2) * 0.5 + 0.2, 0.015);
     d = Math.min(d, smin(seat(x, y, z, sx), headrest(ax, y, z, sx), 0.05));
@@ -290,6 +300,7 @@ export function makeInterior(spec: CarVisualSpec, quality: QualityLevel): Interi
 
   const cabinKind = (x: number, y: number, z: number, _nx: number, _ny: number, nz: number): number => {
     const ax = Math.abs(x);
+    if (open) return y < floorY + 0.045 ? IPART.floor : IPART.seat;
     if (y < floorY + 0.045 && !(Math.abs(x - sx) < 0.25 && z > sz - 0.35 && z < sz + 0.4)) return IPART.floor;
     if (st.doorCards && !proto && ax > st.doorCut && z > st.cowlZ - st.doorBack) return IPART.doorCard;
     if (!proto && z > wheelPos[2] - 0.05 && y > floorY + 0.2 && ax > 0.15) return IPART.dash;
@@ -305,6 +316,8 @@ export function makeInterior(spec: CarVisualSpec, quality: QualityLevel): Interi
   const dcell = quality === 'low' ? 0.05 : quality === 'medium' ? 0.036 : 0.03;
   const dashMid = dc;
   const cabinZones = (x: number, y: number, z: number, _nx: number, ny: number, _nz: number, out: Float32Array): void => {
+    // (no cluster in the open cockpit's cabin: its display is on the steering wheel)
+    if (open) return;
     // cluster face: a thin slab at the binnacle's rear face (bounded behind too, or the seatback behind it gets the display)
     out[1] = Math.max(Math.abs(x - sx) - 0.178, Math.abs(y - binY) - 0.048, z - (binZ - 0.081), binZ - 0.15 - z);
     if (!proto) {
@@ -323,7 +336,8 @@ export function makeInterior(spec: CarVisualSpec, quality: QualityLevel): Interi
     }
   };
   const cabinMesh = meshField(cabin, [-st.halfW, floorY - 0.05, sz - 1.25], [st.halfW, st.top, st.cowlZ + 0.3], cell, cabinKind, cabinZones);
-  const dMin: [number, number, number] = [sx - 0.5, floorY, sz - 0.3];
+  // (a driver lying back has the head well behind the hips: the box reaches back to the helmet)
+  const dMin: [number, number, number] = [sx - 0.5, floorY, Math.min(sz - 0.3, head[2] - 0.25)];
   const dMax: [number, number, number] = [sx + 0.5, head[1] + 0.25, sz + 1.05];
   const dk = (x: number, y: number, z: number, _nx: number, _ny: number, nz: number): number => driverKind(x, y, z, nz);
   const driverZones = (x: number, y: number, z: number, _nx: number, _ny: number, _nz: number, out: Float32Array): void => {
@@ -388,7 +402,7 @@ function meshField(
 
 /** Steering wheel around the origin, wheel plane XY, the driver sees the +Z side. */
 function buildSteeringWheel(pb: PartBuilder, style: BodyStyle): void {
-  if (style === 'prototype') {
+  if (style === 'prototype' || style === 'formula') {
     // formula-style wheel: rounded body with two grips and a screen
     pb.setPart(IPART.carbon);
     pb.box([0, 0.0, 0], 0.15, 0.085, 0.017);

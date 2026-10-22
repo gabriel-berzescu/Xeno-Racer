@@ -33,11 +33,12 @@ export const LOD2_CELL = 0.085;
 
 /**
  * A 4.9 x 2 x 1.8 m slab-sided box has half as much surface again as the 4.3 m coupes the budgets (110k triangles near, 10k far) were set
- * for, and nearly all of it is flat: its meshes are a little coarser so the same budgets hold. (1 for every other body: exact.) The
- * single-seater keeps 1: its sculpted surface is the smallest of all (its wings and its floor are parts), and its narrow nose needs every cell.
+ * for, and nearly all of it is flat: its meshes are a little coarser so the same budgets hold. The single-seater goes the other way: its
+ * sculpted surface is the smallest of all (its wings and its floor are parts), and its nose (12 cm across at the tip) and the blade of its
+ * airbox need finer cells. (1 for every other body: exact.)
  */
 export function cellScale(style: CarVisualSpec['style']): number {
-  return style === 'suv' ? 1.13 : 1;
+  return style === 'suv' ? 1.13 : style === 'formula' ? 0.85 : 1;
 }
 
 const AO_H = [0.035, 0.1, 0.2, 0.36];

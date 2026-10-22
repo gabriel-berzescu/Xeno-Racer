@@ -1,6 +1,7 @@
 import type { BodyStyle } from '../../core/contracts';
 import type { BlueprintFactory } from '../blueprint';
 import { makeCoupe } from './coupe';
+import { makeFormula } from './formula';
 import { makeGT } from './gt';
 import { makeHatch } from './hatch';
 import { makePrototype } from './prototype';
@@ -12,6 +13,5 @@ export const BLUEPRINTS: Record<BodyStyle, BlueprintFactory> = {
   coupe: makeCoupe,
   prototype: makePrototype,
   suv: makeSuv,
-  // (the Volta's own body is being sculpted: until then it borrows the prototype's)
-  formula: makePrototype,
+  formula: makeFormula,
 };

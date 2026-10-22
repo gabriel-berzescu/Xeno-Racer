@@ -1,7 +1,9 @@
 /**
- * Car showroom. Query: ?car=vanta-gt|kestrel-r|ronin-86|lmp-x|mammoth &view=front34|side|rear34|top|front|rear|chase|cockpit|low|lowrear|wheelF|wheelR|sheet
+ * Car showroom. Query: ?car=vanta-gt|kestrel-r|ronin-86|lmp-x|mammoth|volta &view=front34|side|rear34|top|front|rear|chase|cockpit|low|lowrear|wheelF|wheelR|sheet
  *   &anim=0|1 &night=0|1 &q=low|medium|high &primary=%23hex &pattern=… &number=7 &metallic=0|1 &finish=0..1 &player=0|1
  *   &wet=0..1 (wet paint, beading, glass drops: env.wetness)  &rain=0..1 (env.rain; > 0 also marks the weather as rain)
+ *   &aero=0..1 where the active aero stands (VehicleState.aeroOpen: the Volta's wing flaps open with it; with anim=1 it opens and
+ *        closes by itself)  &nitro=0..1 a nitro shot burning (state.nitro: the Volta's endplate lights pulse with it)
  *   &dmg=fl:14:wall:25,sl:5:car   crash damage, applied straight to the model: zone:closing speed (m/s):wall|car:angle (deg to the
  *        barrier). Zones: fl fr f (front corners / centre), bl br b (rear), sl sr (flanks). &rub=sl:3 adds a scrape along a flank.
  *        window.__CAR__.hit('fl:14:wall:25') does the same from a script.
@@ -173,6 +175,8 @@ function makeState(d: CarDefinition): VehicleState {
   } as VehicleState;
   const cgZ = bodyCgZ(v);
   st.position.set(0, v.cgHeight, cgZ);
+  st.aeroOpen = Math.min(1, Math.max(0, parseFloat(q.get('aero') ?? '0') || 0));
+  st.nitro = Math.min(1, Math.max(0, parseFloat(q.get('nitro') ?? '0') || 0));
   st.speed = 28;
   st.forwardSpeed = 28;
   st.rpm = 5200;
@@ -205,6 +209,8 @@ function animate(st: VehicleState, d: CarDefinition, t: number, dt: number): voi
   st.steer = Math.sin(t * 0.8);
   st.brake = Math.sin(t * 0.55) > 0.55 ? 1 : 0;
   st.gear = Math.sin(t * 0.2) > 0.9 ? -1 : 3;
+  // (the active aero opens on the straights, closes on the brakes)
+  st.aeroOpen = Math.min(1, Math.max(0, 0.5 + 1.5 * Math.sin(t * 0.7)));
   for (let i = 0; i < 4; i++) {
     const r = i < 2 ? v.wheelRadiusFront : v.wheelRadiusRear;
     const w = st.wheels[i];
@@ -237,7 +243,8 @@ function viewFor(name: string, d: CarDefinition): ViewDef {
   const L = v.length;
   // a tall body (the 4x4, 1.84 m) is framed higher and from a little further back, so its roof and the light bar stay in the picture
   const ky = v.height > 1.5 ? v.height / 1.3 : 1;
-  const s = (L / 4.6) * (v.style === 'prototype' ? 1.22 : 1) * (ky > 1 ? 1.12 : 1);
+  // (the single-seater's wings reach out over its tyres: it is framed as the prototype is)
+  const s = (L / 4.6) * (v.style === 'prototype' || v.style === 'formula' ? 1.22 : 1) * (ky > 1 ? 1.12 : 1);
   const table: Record<string, ViewDef> = {
     front34: { pos: [3.7 * s, 1.25 * ky, 5.1 * s], look: [0, 0.52 * ky, 0.15], fov: 26 },
     rear34: { pos: [-3.7 * s, 1.35 * ky, -5.1 * s], look: [0, 0.55 * ky, -0.15], fov: 26 },

@@ -33,11 +33,14 @@ export interface MirrorLayout {
   /** Door mirrors: glass poses by side (the left one is on the driver's side, +X). */
   left: MirrorPose;
   right: MirrorPose;
-  /** Door-mirror housing: how far it reaches forward of the glass (m) and which part it is made of (carbon, textured black plastic, or the body's paint). */
-  housing: { depth: number; carbon: boolean; black?: boolean };
-  /** The rear-view mirror in the cabin; null for the prototype, which has a screen instead. */
+  /**
+   * Door-mirror housing: how far it reaches forward of the glass (m) and which part it is made of (carbon, textured black plastic, or the
+   * body's paint), and where the left one's stalk stands on the body (absent: on the door, 15.5 cm inboard of the glass and 7.5 cm under it).
+   */
+  housing: { depth: number; carbon: boolean; black?: boolean; stalk?: V3 };
+  /** The rear-view mirror in the cabin; null for the prototype, which has a screen instead, and for the single-seater, which has neither. */
   interior: MirrorPose | null;
-  /** The prototype's dash display for the rear camera; null for road cars. */
+  /** The prototype's dash display for the rear camera; null for road cars and the single-seater. */
   screen: MirrorPose | null;
   /** The rear camera: position in the body frame, looking out of the tail, tipped down by `pitchDown` rad. */
   rear: { pos: V3; pitchDown: number };
@@ -77,7 +80,7 @@ export function setMirror(pos: V3, eye: V3, look: V3, halfW: number, halfH: numb
 interface Style {
   /** Left door mirror glass centre and half sizes. */
   door: { pos: V3; hw: number; hh: number; out: number };
-  housing: { depth: number; carbon: boolean; black?: boolean };
+  housing: { depth: number; carbon: boolean; black?: boolean; stalk?: V3 };
   /** Rear-view mirror centre and half sizes (null: none). */
   inside: { pos: V3; hw: number; hh: number } | null;
   /** Dash display centre and half sizes (null: none). */
@@ -124,6 +127,20 @@ function styleFor(style: BodyStyle, spec: CarVisualSpec): Style {
         screen: null,
         rear: { y: 1.97, fromTail: 0.45, pitch: 3 },
       };
+    case 'formula': {
+      // the single-seater's two mirrors on stalks from the chassis's shoulders, beside the front of the cockpit and out past the halo,
+      // 40 degrees off the driver's line of sight; the glass is 19 x 5 cm (the rules' is 20 x 5); nothing in the cockpit, the rear
+      // camera over the rear wing
+      const fk = spec.height / 0.95;
+      const sz = eyePoint(spec)[2] - 0.05;
+      return {
+        door: { pos: [0.5, 0.66 * fk, sz + 0.65], hw: 0.095, hh: 0.025, out: 10 },
+        housing: { depth: 0.075, carbon: false, stalk: [0.2, 0.6 * fk, sz + 0.6] },
+        inside: null,
+        screen: null,
+        rear: { y: 1.04 * fk, fromTail: 0.15, pitch: 2 },
+      };
+    }
     default:
       return {
         door: { pos: [0.745, 0.97 * hk, 0.66], hw: 0.058, hh: 0.04, out: 10 },
