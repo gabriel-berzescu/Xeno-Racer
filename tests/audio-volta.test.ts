@@ -85,7 +85,7 @@ describe('what the profile asks for is all the shared voice does for the Volta',
       if (c.id === 'volta') continue;
       // (the five other engines take the old path everywhere: none of the fields is there)
       const s = c.sound;
-      expect([s.electric, s.limiterRpm, s.idleLiftTo, s.blowOff, s.shiftDip, s.wastegate], c.id).toEqual([undefined, undefined, undefined, undefined, undefined, undefined]);
+      expect([s.electric, s.electricTaper, s.limiterRpm, s.idleLiftTo, s.blowOff, s.shiftDip, s.wastegate], c.id).toEqual([undefined, undefined, undefined, undefined, undefined, undefined, undefined]);
       expect([V.wastegate, V.blowOff, V.shiftDip, V.bridgeCut, V.idleLiftTo], c.id).toEqual([0, true, 0.07, false, 2.2]);
     }
     const V = deriveVoicing(P, buildLayout(P));
@@ -360,6 +360,33 @@ describe("the MGU-K's whine", () => {
     const shut = rms(steady(voice(), 8000, 0, 0, 3, 1).dbg.electric!, SR);
     const lift = rms(steady(voice(), 8000, 0, 0, 3, 0).dbg.electric!, SR);
     expect(Math.abs(db(shut) - db(lift))).toBeLessThan(0.5);
+  });
+
+  it("deploys only as much as the motor's power at the road speed, as the physics has it: 9 dB and more under at 340 km/h than to 290; from 345 km/h, or out of a forward gear, nothing", () => {
+    expect(P.electricTaper).toEqual({ powerKw: E.electric!.powerKw, fullToKmh: E.electric!.fullToKmh, zeroAtKmh: E.electric!.zeroAtKmh });
+    // flat out at 11,000 rpm with the shot burning, at `kmh` in `gear`
+    const at = (kmh: number, gear = 7, nitro = 1): Float32Array => {
+      const v = voice();
+      v.inp.speed = kmh / 3.6;
+      v.inp.gear = gear;
+      return steady(v, 11000, 1, 1, 3, nitro).dbg.electric!;
+    };
+    const level = (x: Float32Array): number => db(rms(x, SR));
+    const full = at(250);
+    // (all of its power to 290 km/h: the same to the bit)
+    expect(at(290)).toEqual(full);
+    expect(level(full) - level(at(320))).toBeGreaterThan(3);
+    expect(level(full) - level(at(340))).toBeGreaterThan(9);
+    // none of it from 345 km/h, in neutral or in reverse: the whine of the throttle without a shot
+    const none = level(at(250, 7, 0));
+    for (const [kmh, gear] of [
+      [345, 8],
+      [360, 8],
+      [100, 0],
+      [20, -1],
+    ]) {
+      expect(Math.abs(level(at(kmh, gear)) - none), `${kmh} km/h in ${gear}`).toBeLessThan(0.3);
+    }
   });
 
   it('hears the nitro from the vehicle state, through the control vector', () => {

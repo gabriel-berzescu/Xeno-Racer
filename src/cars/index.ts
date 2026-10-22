@@ -614,6 +614,9 @@ const voltaSound: EngineSoundProfile = {
   // the MGU-K's whine on the 14th order of the crank (2.6 kHz at 11,000 rpm): 12 to 23 dB over the rest of the engine in its band while a
   // nitro shot deploys it, 14 to 18 dB under that while it harvests on a lift (tests/audio-volta.test.ts)
   electric: 1,
+  // and only as much of it as the motor's power at the road speed, as the physics' `electric` below: all of it to 290 km/h, 5 dB under that
+  // at 320 and 11 dB at 340 (200 and 100 of its 350 kW), and from 345 none, the murmur it has on the throttle without a shot
+  electricTaper: { powerKw: 350, fullToKmh: 290, zeroAtKmh: 345 },
 };
 
 // The Volta itself: 800 kg with the driver and an average fuel load, 45 % of it on the front axle, on slicks.

@@ -430,9 +430,16 @@ export interface EngineSoundProfile {
   exhaustSystem?: 'merged' | 'dual';
   /**
    * 0..1 how loud the whine of an electric motor geared to the crankshaft is (absent: none), the Volta's MGU-K (EngineSpec.electric):
-   * locked to the engine speed, faint while it harvests under braking and strong while it deploys, which is only while a nitro shot burns.
+   * locked to the engine speed, faint while it harvests under braking and strong while it deploys, which is only while a nitro shot burns,
+   * in a forward gear.
    */
   electric?: number;
+  /**
+   * How the power that electric motor may deploy falls with the road speed (absent: all of it at any speed), as the physics' EngineSpec.electric
+   * has it (keep them the same): all of its `powerKw` up to `fullToKmh`, 5 kW less for every km/h above it and nothing from `zeroAtKmh`
+   * (the 2026 rule). Its deploying whine follows that share of its power: at 340 km/h the Volta's motor gives 100 of its 350 kW.
+   */
+  electricTaper?: { powerKw: number; fullToKmh: number; zeroAtKmh: number };
   /**
    * The engine's own rev limiter, rpm (absent: none given): its loudness is measured as it is driven, flat out over 35 to 100 % of it and a
    * turbo on boost. Without it every engine is measured over a nominal 2800..8000 rpm (a big V8 over its own lower range) and off boost,

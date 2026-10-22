@@ -27,7 +27,8 @@
  *   `supercharger`  a positive-displacement blower: a whine locked to the crank (rpm/60 x pulley ratio x lobes) with its harmonics, the rotor's
  *        own turn and the hiss of the air, following the pedal through the bypass valve (a whirr off the throttle, a whine on it).
  *   `electric`  an electric motor geared to the crankshaft (a 2026 MGU-K): a whine on the 14th order of the crank with its harmonics, a
- *        murmur of its gears as it turns, faint while it harvests on a lift or under braking, strong while it deploys (a nitro shot burning).
+ *        murmur of its gears as it turns, faint while it harvests on a lift or under braking, strong while it deploys (a nitro shot burning,
+ *        in a forward gear), as strong as the share of its power the road speed leaves it (`electricTaper`).
  *
  * A cross-plane V8 (crankType 'crossplane') is also lumpier, strongest at idle: what each bank's pipe still holds of its last pulse, the cammed
  * idle's cycle-to-cycle spread and weak cylinders, a bank that runs richer for a while, and a burble of unburnt charge on a lift-off
@@ -214,6 +215,14 @@ export interface Voicing {
   blowerLevel: number;
   /** An electric motor geared to the crank (EngineSoundProfile.electric): how loud its whine is, 0 = none. */
   electric: number;
+  /**
+   * Its power falls with the road speed (EngineSoundProfile.electricTaper): all of it to `elFullKmh`, none from `elZeroKmh`, and between them
+   * 5 kW less per km/h, which would take all of it in `elFallKmh`. false: all of it at any speed.
+   */
+  elTaper: boolean;
+  elFullKmh: number;
+  elZeroKmh: number;
+  elFallKmh: number;
   // the cross-plane V8's lumpiness (see EngineVoice.pulseFactor): all 0 for every other engine
   /** Depth of the back-pressure memory of a bank's pipe, 0 = none. */
   lope: number;
@@ -260,6 +269,7 @@ export function deriveVoicing(p: EngineSoundProfile, layout: EngineLayout): Voic
   const dual = p.exhaustSystem === 'dual' && layout.banks === 2;
   const sc = p.supercharger;
   const lobes = sc ? Math.max(1, Math.round(sc.lobes)) : 0;
+  const et = p.electricTaper;
   return {
     Ls: lerp(0.62, 0.4, o),
     Lm: lerp(1.0, 0.55, o),
@@ -322,6 +332,10 @@ export function deriveVoicing(p: EngineSoundProfile, layout: EngineLayout): Voic
     blowerLobes: lobes,
     blowerLevel: sc ? clamp01(sc.level ?? 1) : 0,
     electric: p.electric !== undefined ? clamp01(p.electric) : 0,
+    elTaper: et !== undefined,
+    elFullKmh: et ? et.fullToKmh : 0,
+    elZeroKmh: et ? et.zeroAtKmh : 0,
+    elFallKmh: et ? Math.max(et.powerKw, 1) / ELECTRIC_TAPER_KW_PER_KMH : 1,
     lope: cross ? 0.28 : 0,
     lopeTau: 0.018,
     lump: cross ? 0.3 : 0,
@@ -438,6 +452,8 @@ const K_FINAL_DRIVE = 3.7;
  * (rpm/120) where the aliasing test looks for strays.
  */
 const ELECTRIC_ORDER = 14;
+/** How fast the power of that motor falls above its `fullToKmh` (kW per km/h; EngineSoundProfile.electricTaper): the 2026 rule's rate, as the physics' electricPower. */
+const ELECTRIC_TAPER_KW_PER_KMH = 5;
 /**
  * The longest an upshift's cut is bridged for, seconds (Voicing.bridgeCut). The gearbox shuts the throttle for the whole of its shift (the
  * Volta's: 20 ms), and the control frames show that for one frame or two (17 ms each at 60 Hz); held as it comes, with the smoothing of
@@ -611,7 +627,8 @@ export class EngineVoice {
   private scDr = 0;
   private svfSc = new SVF();
 
-  // the electric motor: its phase (turns of the whine), smoothed strength and gain, and the nitro smoothed
+  // the electric motor: its phase (turns of the whine), smoothed strength and gain, and the share of its power it deploys (the nitro, in a
+  // forward gear, as much as the road speed leaves it) smoothed
   private elPh = 0;
   private elA = 0;
   private gEl = 0;
@@ -1308,10 +1325,15 @@ export class EngineVoice {
 
     // electric motor block parameters. It is geared to the crank, so its whine follows the rpm at once, whatever it is doing; how loud
     // it is depends on its work. Turning free, only its gears murmur; harvesting (a lift, the brakes: the throttle shut while the engine
-    // turns) it brakes the crank with its field and whines faintly; deploying (only while a nitro shot burns, and only as far as the
-    // throttle asks) it drives it with all of its field and whines loud and bright. All of it full quality only, as the blower.
+    // turns) it brakes the crank with its field and whines faintly; deploying (only while a nitro shot burns, only in a forward gear, as
+    // far as the throttle asks and as much of its power as the road speed leaves it: Voicing.elTaper) it drives it with its field and whines
+    // loud and bright. All of it full quality only, as the blower.
     const elOn = V.electric > 0 && full;
-    if (V.electric > 0) this.sNitro += smoothCoef(0.05, dt) * (I.nitro - this.sNitro);
+    if (V.electric > 0) {
+      const kmh = sane(I.speed, 0, 300, 0) * 3.6;
+      const share = !(I.gear >= 1) ? 0 : !V.elTaper ? 1 : kmh >= V.elZeroKmh ? 0 : clamp01(1 - (kmh - V.elFullKmh) / V.elFallKmh);
+      this.sNitro += smoothCoef(0.05, dt) * (I.nitro * share - this.sNitro);
+    }
     const elInc0 = (ELECTRIC_ORDER / 60) * rpmPrev * tsPrev * invSr; // whine, cycles per sample, at the start and end of the block
     const elInc1 = (ELECTRIC_ORDER / 60) * rpm * this.sTs * invSr;
     const elDeploy = this.sNitro * Math.pow(thr, 1.2);
