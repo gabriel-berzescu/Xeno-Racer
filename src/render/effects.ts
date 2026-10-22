@@ -1125,7 +1125,8 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
         if (beams && rainK > 0.02) beams.add(ox + _v2.x, oy + _v2.y, oz + _v2.z, fx, fy - 0.05, fz, 30, head * headOut * (0.006 + 0.02 * rainK) * hazeIn);
       }
       if (formula) {
-        // the rain light: steady once the road is wet or the night falls, never a brake light (carvis/car.ts lights its lens alike)
+        // the rain light: steady once the road is wet or the night falls, never a brake light, dimmed by each broken tail lamp (the
+        // endplate LEDs either side of it; carvis/car.ts and the PART.rainLight shader light its lens alike)
         const rain = Math.max(head, clamp((Math.max(wetNow, 0.85 * rainK) - 0.08) / 0.22, 0, 1)) * 0.3 * tailOut;
         _v2.set(0, 0.31 * hk, zTail).applyQuaternion(q);
         if (rain > 0.01) lights.add(ox + _v2.x, oy + _v2.y, oz + _v2.z, 10, rain, rain * 0.06, rain * 0.04, -fx, -fy, -fz, 0.25, 0.4);

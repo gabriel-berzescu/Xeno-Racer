@@ -44,7 +44,8 @@ export function eyePoint(s: CarVisualSpec): V3 {
  *   - noseLed: the left of the two LED headlamps, in the face of the step of its two-stage nose (the right one is mirrored);
  *   - beam: where the left lamp's beam starts, at the tip of the nose, 40 cm ahead of the lamp and as high (the spots cast no shadow:
  *     from the lamp itself they lit the top of the nose's lower stage, right in front of them, as bright as the road);
- *   - rainLight: the centre of the rain light on the tip of the crash structure (300 mm up, as the rules have it);
+ *   - rainLight: the centre of the rain light on the tip of the crash structure (300 mm up, as the rules have it), its block 1 cm
+ *     deep standing on the tip's rounded face (so a dent moves the two alike);
  *   - wingLed: the centre of the left rear-wing endplate's LED strip, on its trailing edge;
  *   - exhaust: the end of the one tailpipe, over the crash structure and under the rear wing (src/render/effects.ts buildTips blows
  *     the flames there: keep the two the same).
@@ -57,7 +58,7 @@ export function formulaPoints(s: CarVisualSpec): { noseLed: V3; beam: V3; rainLi
   return {
     noseLed: [0.072, 0.405 * hk, zF + 0.6],
     beam: [0.072, 0.405 * hk, zF + s.frontOverhang + 0.02],
-    rainLight: [0, 0.31 * hk, zTail - 0.006],
+    rainLight: [0, 0.31 * hk, zTail - 0.002],
     wingLed: [0.522, 0.785 * hk, zTail - 0.1],
     exhaust: [0, s.rideHeight + 0.41, zR - 0.5],
   };

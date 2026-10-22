@@ -348,8 +348,16 @@ float zPx = length(fwidth(vObjPos));
       zCC = 1.0;
       zFlake = 0.0;
       zEmis = vec3(1.0, 0.04, 0.02) * (uTail * 1.2 + uErs * 9.0) * ledOut;
+    } else if (zPart == 18) {    // the single-seater's rain light: a red lamp block, steady in the wet and in the dark, never a brake light
+      zCol = vec3(0.3, 0.0, 0.0);
+      zRough = 0.1;
+      zMetal = 0.0;
+      zCC = 1.0;
+      zFlake = 0.0;
+      // (it dims with each broken tail lamp, the endplate LEDs either side of it, as its light on the road does: render/effects.ts)
+      zEmis = vec3(1.0, 0.04, 0.02) * uTail * 1.4 * 0.5 * (uLampOut.z + uLampOut.w);
     }
-    if (zPart == 1 || zPart == 2 || zPart == 3 || zPart == 4 || zPart == 6 || zPart == 7 || zPart == 8 || zPart == 9 || zPart == 11 || zPart == 12 || zPart == 13 || zPart == 14 || zPart == 15 || zPart == 17) zIsPaint = 0.0;
+    if (zPart == 1 || zPart == 2 || zPart == 3 || zPart == 4 || zPart == 6 || zPart == 7 || zPart == 8 || zPart == 9 || zPart == 11 || zPart == 12 || zPart == 13 || zPart == 14 || zPart == 15 || zPart == 17 || zPart == 18) zIsPaint = 0.0;
   } else {
     // ---------- sculpted-body zones ----------
     float mTrim = zmask(vZ0.y);

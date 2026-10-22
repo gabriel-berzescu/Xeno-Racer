@@ -42,9 +42,14 @@ export const PART = {
   halo: 16,
   /**
    * a red LED lens (the single-seater's rear-wing endplate lights): lit as a rear light with the tail lamps, pulsing while the electric
-   * boost deploys, dark when the tail lamp of its side is broken
+   * boost deploys, dark when the tail lamp of its side is broken; it crumples with the endplate it is on
    */
   ledRed: 17,
+  /**
+   * the single-seater's rain light, a red lamp block on the tip of its crash structure: steady in the wet and in the dark, never a brake
+   * light, dimmed by each broken tail lamp; it crumples with the crash structure (the other cars' lamp blocks, PART.lampRed, are rigid)
+   */
+  rainLight: 18,
   // wheel parts (wheel shader)
   tire: 20,
   rimFace: 22,

@@ -314,8 +314,8 @@ export function addFormulaParts(b: PartBuilder, s: CarVisualSpec): void {
   addDoorMirrors(b, s);
 
   // the rain light on the crash structure's tip
-  b.setPart(PART.lampRed);
-  b.box(pts.rainLight, 0.032, 0.018, 0.006);
+  b.setPart(PART.rainLight);
+  b.box(pts.rainLight, 0.032, 0.018, 0.005);
 
   // the tailpipe over the crash structure
   {

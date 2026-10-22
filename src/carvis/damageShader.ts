@@ -13,6 +13,14 @@
  * Everything is a function of the material position (`vObjPos`, the undeformed mesh), so patterns move with the sheet.
  */
 import { MAX_CRACKS, MAX_DENTS, MAX_MARKS } from '../core/damage';
+import { PART } from './blueprint';
+
+/**
+ * The static parts a dent moves with the sculpted body (PART.body): the carbon, the accent and second accent paint, and the
+ * single-seater's lamps (the LED strips on its rear-wing endplates, the rain light on its crash structure), which no other car carries,
+ * so a hit never leaves them hanging in the air. Everything else stays rigid.
+ */
+export const DENT_PARTS: readonly number[] = [PART.carbon, PART.accent, PART.paintDark, PART.ledRed, PART.rainLight];
 
 /** Noise, shared by both stages. */
 const NOISE = /* glsl */ `
@@ -136,10 +144,10 @@ vec3 dmgNormalAt(vec3 p, vec3 n, vec3 x0) {
   float l = length(nn);
   return l > 1e-12 ? nn * (sign(dot(nn, n)) / l) : n;
 }
-// Body panels and the splitter crumple; mirror glass, exhaust tips and lamp blocks do not.
+// Body panels and the splitter crumple, and the single-seater's lamps with them; mirror glass, exhaust tips and the other lamp blocks do not.
 float dmgPartWeight(float part) {
   float pr = floor(part + 0.5);
-  return (pr < 0.5 || pr == 1.0 || pr == 5.0 || pr == 10.0) ? 1.0 : 0.0;
+  return (pr < 0.5${DENT_PARTS.map((p) => ` || pr == ${p}.0`).join('')}) ? 1.0 : 0.0;
 }
 // Thin plates (the splitter) are pushed back but never billow: only the sculpted body gets folds and crinkles.
 float dmgBumpWeight(float part) {

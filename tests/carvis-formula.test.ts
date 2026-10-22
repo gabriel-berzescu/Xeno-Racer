@@ -9,11 +9,13 @@ import { sideX, topY } from '../src/carvis/bodies/probe';
 import { buildCarData, VERTEX_STRIDE, type CarData } from '../src/carvis/build';
 import { poseMoving, steeringLock } from '../src/carvis/car';
 import { makeDamageGeometry } from '../src/carvis/damageGeometry';
+import { DENT_PARTS, DMG_VERT_PARS } from '../src/carvis/damageShader';
 import { IPART, makeInterior, YOKE } from '../src/carvis/interior';
 import { computeLayout, eyePoint, formulaPoints, wheelLook } from '../src/carvis/layouts';
 import { createBodyUniforms, createPillarMaterial } from '../src/carvis/materials';
 import { mirrorLayout } from '../src/carvis/mirrorLayout';
 import { PartBuilder } from '../src/carvis/parts';
+import { BODY_FRAG_ZONES } from '../src/carvis/shaders';
 import { buildCaliper, buildWheel, styleForBody, type WheelParams } from '../src/carvis/wheels';
 
 /** The Volta's own look: a 2026 single-seater with its wings, halo, floor and suspension as parts, flaps that open, closed wheels, its lamps. */
@@ -249,11 +251,34 @@ describe('Volta body', () => {
     expect(bp.body(...pts.exhaust)).toBeGreaterThan(0);
     expect(bp.body(0, pts.exhaust[1], pts.exhaust[2] + 0.2)).toBeLessThan(0);
     // the rain light: a red lamp block on the tip of the crash structure, about 300 mm up
-    const rain = (byPart.get(PART.lampRed) ?? []).filter((v) => dist(v, pts.rainLight) < 0.05);
+    const rain = (byPart.get(PART.rainLight) ?? []).filter((v) => dist(v, pts.rainLight) < 0.05);
     expect(rain.length).toBeGreaterThan(8);
     expect(pts.rainLight[1]).toBeGreaterThan(0.25);
     expect(pts.rainLight[1]).toBeLessThan(0.35);
     expect(bp.body(0, pts.rainLight[1], zTail + 0.02)).toBeLessThan(0);
+  });
+
+  it('crumples its lamps with what carries them: the rain light with the crash structure, the LED strips with the endplates', () => {
+    // the dents move both lamps with the sheet; no other car carries either, and the other cars' lamp blocks stay rigid
+    expect(DENT_PARTS).toContain(PART.rainLight);
+    expect(DENT_PARTS).toContain(PART.ledRed);
+    expect(DENT_PARTS).not.toContain(PART.lampRed);
+    for (const id of DENT_PARTS) expect(DMG_VERT_PARS).toContain(`pr == ${id}.0`);
+    for (const c of CARS.filter((c) => c.visual.style !== 'formula')) {
+      const { byPart } = partsOf((b) => BLUEPRINTS[c.visual.style](c.visual).parts?.(b));
+      expect(byPart.has(PART.rainLight) || byPart.has(PART.ledRed), c.id).toBe(false);
+    }
+    // the rain light lies on the crash structure's tip, no vertex of it more than 1.2 cm out: a dent pushes the sheet 0.85 cm less for
+    // every centimetre further in (dentPush), so the two move within a centimetre of each other and the lamp never hangs behind the tail
+    const { byPart } = partsOf((b) => bp.parts!(b));
+    const rain = byPart.get(PART.rainLight) ?? [];
+    expect(rain.length).toBeGreaterThan(8);
+    for (const v of rain) expect(bp.body(...v)).toBeLessThan(0.012);
+    // its lens dims with the two tail lamps (the endplate LEDs), as its light on the road does (render/effects.ts)
+    const branch = BODY_FRAG_ZONES.match(/zPart == 18\) \{[\s\S]*?\n {4}\}/)?.[0] ?? '';
+    expect(branch).toContain('uLampOut.z + uLampOut.w');
+    const notPaint = BODY_FRAG_ZONES.match(/if \(zPart == 1 \|\| [^\n]*\) zIsPaint = 0\.0;/)?.[0] ?? '';
+    expect(notPaint).toContain('zPart == 18');
   });
 
   it('keeps its wings, floor and suspension clear of the tyres, the front ones steered to the lock and beyond', () => {
