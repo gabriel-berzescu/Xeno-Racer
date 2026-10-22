@@ -379,7 +379,7 @@ export function formulaMoving(s: CarVisualSpec): MovingPart[] {
 
 // ── the far LOD ────────────────────────────────────────────────────────────
 
-/** What a far Volta keeps: both wings as slabs, the halo, the helmet and the floor (they make its outline and its shadow). */
+/** What a far Volta keeps: both wings as slabs (the rear one on a pylon), the halo, the helmet and the floor (they make its outline and its shadow). */
 export function addFormulaFarParts(b: PartBuilder, s: CarVisualSpec): void {
   const { zF, zR, zNose, zTail, hk } = frame(s);
   b.setPart(PART.carbon);
@@ -388,6 +388,8 @@ export function addFormulaFarParts(b: PartBuilder, s: CarVisualSpec): void {
   for (const sg of [1, -1]) b.box([sg * 0.871, 0.17, zNose - 0.3], 0.006, 0.13, 0.26);
   b.box([0, 0.78 * hk, zTail + 0.28], 0.51, 0.025, 0.12);
   b.box([0, 0.9 * hk, zTail + 0.07], 0.51, 0.03, 0.08);
+  // one pylon down to the gearbox where the near car has two, or the wing hangs in the air side-on
+  b.box([0, 0.55 * hk, zTail + 0.32], 0.015, 0.21 * hk, 0.1);
   b.extrude([zF - 0.4, 0.2, zF - 0.85, 0.62, zR + 0.8, 0.68, zR + 0.25, 0.5, zR + 0.25, -0.5, zR + 0.8, -0.68, zF - 0.85, -0.62, zF - 0.4, -0.2], { o: [0, s.rideHeight + 0.002, 0], u: [0, 0, 1], v: [1, 0, 0] }, 0.014);
   for (const sg of [1, -1]) b.box([sg * 0.521, 0.8 * hk, zTail + 0.12], 0.007, 0.18 * hk, 0.25);
   addHalo(b, s, 6, 3);

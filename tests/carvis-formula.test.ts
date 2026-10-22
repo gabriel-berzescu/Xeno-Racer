@@ -174,7 +174,7 @@ describe('Volta body', () => {
     const nb = far.stats.bodyVertices;
     const n = far.vertices.length / VERTEX_STRIDE;
     expect(n - nb).toBeGreaterThan(200);
-    let frontWing = 0, rearWing = 0, halo = 0, helmet = 0;
+    let frontWing = 0, rearWing = 0, halo = 0, helmet = 0, pylon = 0, pylonFoot = 1;
     const eye = eyePoint(spec);
     for (let i = nb; i < n; i++) {
       const o = i * VERTEX_STRIDE;
@@ -182,6 +182,11 @@ describe('Volta body', () => {
       const part = Math.round(far.vertices[o + 6 + 13]);
       if (z > zF + 0.4 && y < 0.35 && Math.abs(x) > 0.7) frontWing++;
       if (z < zTail + 0.45 && y > 0.7 && Math.abs(x) > 0.45) rearWing++;
+      // the pylon that holds the rear wing up off the gearbox
+      if (part === PART.carbon && Math.abs(x) < 0.02 && z > zTail + 0.2 && z < zTail + 0.45 && y < 0.7) {
+        pylon++;
+        pylonFoot = Math.min(pylonFoot, y);
+      }
       if (part === PART.halo) halo++;
       if (part === PART.body && dist([x, y, z], [eye[0], eye[1] - 0.03, eye[2] - 0.07]) < 0.2) helmet++;
       // the baked colour: the livery for the paint (the halo, the helmet), dark for carbon
@@ -189,6 +194,9 @@ describe('Volta body', () => {
     }
     expect(frontWing).toBeGreaterThan(8);
     expect(rearWing).toBeGreaterThan(8);
+    // its foot inside the gearbox: side-on, no gap under the wing
+    expect(pylon).toBeGreaterThan(4);
+    expect(bp.body(0, pylonFoot + 0.01, zTail + 0.32)).toBeLessThan(0);
     expect(halo).toBeGreaterThan(20);
     expect(helmet).toBeGreaterThan(20);
     // the other cars' far LODs have no parts at all
