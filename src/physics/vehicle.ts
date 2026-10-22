@@ -22,8 +22,9 @@ import type {
 } from '../core/contracts';
 import { cloneEffects, isNeutral, type MechEffects } from '../core/mechanical';
 import { NITRO_POWER, NITRO_THRUST_G } from '../core/nitro';
+import { STRAIGHT_MODE_CLOSE_TIME, STRAIGHT_MODE_LAT, STRAIGHT_MODE_OPEN_TIME, STRAIGHT_MODE_SPEED, STRAIGHT_MODE_THROTTLE } from './aero';
 import { RADS_TO_RPM, RPM_TO_RADS, peakTorque, torqueAt } from './engine';
-import type { DifferentialSpec, SuspensionSpec, TireSpec, VehicleSpec } from './spec';
+import type { AeroSpec, DifferentialSpec, SuspensionSpec, TireSpec, VehicleSpec } from './spec';
 import { tireSurfaces, wetGripFactor, type SurfaceProps } from './surfaces';
 import { loadFactor, makeShape, shapeRatio, tempFactor, type TireShape } from './tire';
 
@@ -210,6 +211,13 @@ export class Vehicle {
   private toeMean = 0;
   /** The mechanical damage the car carries now, or null when it is sound. */
   private damage: MechEffects | null = null;
+  /**
+   * Active aero (AeroSpec.straightMode; null for a car with fixed wings): where the flaps stand, 0 corner mode .. 1 straight mode, and
+   * where they are going (src/physics/aero.ts has the rule). The way is decided each frame (beginFrame), the flaps move each substep.
+   */
+  private readonly straightMode: NonNullable<AeroSpec['straightMode']> | null;
+  private aeroOpen = 0;
+  private aeroTarget = 0;
 
   // rigid body
   readonly p = new Vector3();
@@ -294,6 +302,7 @@ export class Vehicle {
     this.rand = rng(0x9e3779b9 ^ (id * 7919));
     this.winter = track.info.winter === true;
     this.ambient = this.winter ? WINTER_AMBIENT_C : AMBIENT_C;
+    this.straightMode = s.aero.straightMode ?? null;
 
     const a = c.cgToFrontAxle;
     const b = c.wheelbase - a;
@@ -421,6 +430,8 @@ export class Vehicle {
       wheels: [ws(), ws(), ws(), ws()],
       airborne: false,
     };
+    // (a car with fixed wings has no aeroOpen at all)
+    if (this.straightMode) this.state.aeroOpen = 0;
     for (let i = 0; i < 4; i++) {
       this.state.wheels[i].radius = this.wheels[i].tire.radius;
       this.state.wheels[i].width = this.wheels[i].tire.width;
@@ -467,6 +478,9 @@ export class Vehicle {
     this.hullHint = -1;
     this.comHint = -1;
     this.scrapeAcc = 0;
+    // (active aero starts in corner mode)
+    this.aeroOpen = 0;
+    this.aeroTarget = 0;
     if (this.gear === 0 || this.gear === -1) this.gear = 1;
     this.publish(1, 1 / 60);
   }
@@ -606,6 +620,17 @@ export class Vehicle {
     } else if (thrIn > 0.3) this.popBudget = 0;
     if (this.limiterCut && thrIn > 0.5 && this.rand() < crackle * dt * 6) this.state.backfireCount++;
     this.prevThrottleIn = thrIn;
+
+    // active aero: the flaps open for a straight taken flat out and close for anything else (src/physics/aero.ts)
+    if (this.straightMode) {
+      const st = this.state;
+      const v = st.forwardSpeed;
+      // (the lateral acceleration the steering asks for: the road-wheel angle of a car that follows its front wheels)
+      const asked = (v * v * Math.abs(this.steerAngle)) / this.spec.chassis.wheelbase;
+      const flatOut = c.throttle >= STRAIGHT_MODE_THROTTLE && !(c.brake > 0) && !this.holdOnGrid && this.gear >= 1;
+      const straight = v >= STRAIGHT_MODE_SPEED && !st.airborne && Math.abs(st.localAccel.x) < STRAIGHT_MODE_LAT && asked < STRAIGHT_MODE_LAT;
+      this.aeroTarget = flatOut && straight ? 1 : 0;
+    }
   }
 
   // ───────────────────────────────────────────────────────────────────────────
@@ -941,19 +966,32 @@ export class Vehicle {
       const push = this.nitro * NITRO_THRUST_G * GRAVITY * this.mass * clamp01(this.controls.throttle);
       if (push > 0) F.addScaledVector(az, push);
     }
-    // aerodynamics
+    // aerodynamics (a car with active aero has the areas of where its flaps stand, between its corner mode and its straight mode)
+    let dragArea = s.aero.dragArea;
+    let liftFront = s.aero.liftAreaFront;
+    let liftRear = s.aero.liftAreaRear;
+    const sm = this.straightMode;
+    if (sm !== null) {
+      const to = this.aeroTarget;
+      const open = this.aeroOpen;
+      this.aeroOpen = to > open ? Math.min(to, open + dt / STRAIGHT_MODE_OPEN_TIME) : Math.max(to, open - dt / STRAIGHT_MODE_CLOSE_TIME);
+      const k = this.aeroOpen;
+      dragArea += (sm.dragArea - dragArea) * k;
+      liftFront += (sm.liftAreaFront - liftFront) * k;
+      liftRear += (sm.liftAreaRear - liftRear) * k;
+    }
     const speed2 = v.lengthSq();
     if (speed2 > 0.01) {
       const sp = Math.sqrt(speed2);
-      _f.copy(v).multiplyScalar(-0.5 * AIR_DENSITY * s.aero.dragArea * this.dragMul * sp);
+      _f.copy(v).multiplyScalar(-0.5 * AIR_DENSITY * dragArea * this.dragMul * sp);
       _r.copy(this.hullCenterLocal).applyQuaternion(this.q);
       F.add(_f);
       T.add(_t.crossVectors(_r, _f));
       const vf = fwdSpeed > 0 ? fwdSpeed : 0;
       const qd = 0.5 * AIR_DENSITY * vf * vf * this.downforceMul;
       if (qd > 0) {
-        const dfF = qd * s.aero.liftAreaFront * this.aeroFrontMul;
-        const dfR = qd * s.aero.liftAreaRear * this.aeroRearMul;
+        const dfF = qd * liftFront * this.aeroFrontMul;
+        const dfR = qd * liftRear * this.aeroRearMul;
         _f.copy(ay).multiplyScalar(-dfF);
         _r.copy(az).multiplyScalar(ch.cgToFrontAxle);
         F.add(_f);
@@ -1438,6 +1476,7 @@ export class Vehicle {
     st.engineLoad = this.engineLoad;
     st.boost = this.boost;
     st.nitro = this.nitro;
+    if (this.straightMode !== null) st.aeroOpen = this.aeroOpen;
     st.revLimiter = this.limiterCut;
     st.absActive = this.absActive;
     st.tcsActive = this.tcsActive;
