@@ -571,12 +571,12 @@ const mammoth: CarDefinition = {
 // Volta — a 2026-rules turbo-hybrid single-seater. Wings that open on the straights, and an electric motor only the nitro wakes.
 // ─────────────────────────────────────────────────────────────────────────────
 // What it does on a flat plane (tests/probes/mammoth-probe.test.ts with CAR=volta prints the table, tests/volta.test.ts holds the bounds): 0-100 km/h
-// in 2.4 s with the traction control on, the tyres' limit with the nitro or without, 200 in 5.6 s and 330 km/h flat out in eighth with the wings
-// open (303 with them shut); a nitro shot, the 350 kW motor, takes 200 to 4.3 s and the top speed to the cut at 345. It stops from 100 in 18.5 m
-// with ABS (2.1 g) and from 200 in 58 m, at up to 5.0 g from 300 km/h, and holds 2.40 g on the skidpad, 2.5 g at 150 km/h, 3.1 at 200 and 3.6 at
-// 235 (where the drag of the wings and of the loaded tyres takes all the engine has). In the wet it keeps 64 % of that (54 % in standing water)
-// and stops from 100 in 26 m (30). On a lap the AI drivers are 2-5 % quicker in it than in the LMP-X, dry and in a storm (tests/ai.test.ts), and
-// on the studded tyres of Isvik level with it.
+// in 2.65 s with the traction control on, the slicks' limit with the nitro or without, 200 in 5.8 s and 330 km/h flat out in eighth with the wings
+// open (303 with them shut); a nitro shot, the 350 kW motor, takes 200 to 4.5 s and the top speed to the cut at 345. It stops from 100 in 19.2 m
+// with ABS (2.0 g) and from 200 in 58 m, at up to 4.4 g from 300 km/h, and holds 2.38 g on the skidpad, 2.5 g at 150 km/h, 3.2 at 200 and 3.8 at
+// 240 (where the drag of the wings and of the loaded tyres takes all the engine has). In the wet it keeps 63 % of that (54 % in standing water)
+// and stops from 100 in 27 m (31). On a lap the AI drivers are 1.4-5 % quicker in it than in the LMP-X dry and 5-6.5 % in a storm
+// (tests/ai.test.ts), and on the studded tyres of Isvik level with it: the engine alone has the LMP-X's power for its weight.
 
 // The Volta's body: 5.3 m long, 1.9 m wide over the tyres, 0.95 m to the top of the airbox, an open cockpit with the driver on the centre line.
 const voltaVisual: CarVisualSpec = {
@@ -621,9 +621,9 @@ const volta: CarDefinition = {
     'A 2026-rules single-seater: 800 kg, a 1.6 L turbo V6 and wings that open on the straights. Its 350 kW electric motor wakes only with the nitro — and without it, it is still the quickest thing here.',
   class: 'Formula',
   drivetrain: 'RWD',
-  // (measured: 0-100 in 2.43 s with the traction control on, 329.9 km/h flat out with the wings open; the curve gives 564.5 hp at 12,000 rpm and
+  // (measured: 0-100 in 2.65 s with the traction control on, 329.9 km/h flat out with the wings open; the curve gives 564.5 hp at 12,000 rpm and
   // 380 Nm from 8000 to 10,500, the engine alone: the electric motor is the nitro)
-  stats: { powerHp: 565, torqueNm: 380, massKg: 800, topSpeedKmh: 330, zeroTo100: 2.4 },
+  stats: { powerHp: 565, torqueNm: 380, massKg: 800, topSpeedKmh: 330, zeroTo100: 2.7 },
   visual: voltaVisual,
   sound: voltaSound,
   defaultLivery: { primary: '#e9edf2', secondary: '#1f6bff', accent: '#d7ff1e', pattern: 'stripes', number: 26, driver: 'You', finish: 0.5, metallic: false },
@@ -670,22 +670,26 @@ const volta: CarDefinition = {
       diff: { type: 'lsd', preload: 120, powerLock: 0.45, coastLock: 0.3 },
       frontSplit: 0,
     },
-    // (a full pedal asks for 5.3 g, 60 % of it at the front, and the tyres take less than that below about 280 km/h, so ABS has the last word; above
-    // it the rear discs are the limit, and a stop from 300 km/h peaks at 5.0 g where with 4800 / 3800 Nm it reached 5.2)
-    brakes: { frontTorque: 4400, rearTorque: 2900, handbrakeTorque: 1500, discHeatCapacity: 2600 },
-    // corner mode: 3.95 m^2 of downforce area, 43 % of it at the front, and a CdA of 1.0 (the car pulls 3.6 g at 250 km/h); straight mode, the wing
+    // (a full pedal asks for 4.0 g, 61 % of it at the front: below about 200 km/h the tyres take less than that and ABS has the last word, above it
+    // the brakes are the limit, so a stop from 300 km/h peaks at 4.4 g over a tenth of a second, drag included, where with 4400 / 2900 Nm it reached
+    // 5.0; 2026's cars brake at 3.3-3.8 g, and the AI drivers lap no slower for it)
+    brakes: { frontTorque: 3350, rearTorque: 2200, handbrakeTorque: 1500, discHeatCapacity: 2600 },
+    // corner mode: 4.0 m^2 of downforce area, 43 % of it at the front, and a CdA of 1.0 (the car pulls 3.8 g at 240 km/h); straight mode, the wing
     // flaps open: 22 % less drag and 28 % less downforce (329.9 km/h flat out where corner mode gives 303)
     aero: {
       dragArea: 1.0,
-      liftAreaFront: 1.7,
-      liftAreaRear: 2.25,
-      straightMode: { dragArea: 0.78, liftAreaFront: 1.22, liftAreaRear: 1.62 },
+      liftAreaFront: 1.72,
+      liftAreaRear: 2.28,
+      straightMode: { dragArea: 0.78, liftAreaFront: 1.24, liftAreaRear: 1.64 },
     },
     tireFront: {
-      ...roadTire(280, 45, 18, 1.7),
+      ...roadTire(280, 45, 18, 1.75),
       radius: voltaVisual.wheelRadiusFront,
       inertia: 1.2,
-      loadSensitivity: 0.2,
+      // (a racing slick's friction falls little with its load: 1.04 times mu on the 2 kN a wheel carries at rest, 0.96 on the 7 kN of a fast
+      // corner, where at 0.2 it was 1.11 and 0.89. The car leaves the line on what its slicks really have, 0-100 in 2.65 s (2.43), and keeps
+      // more of the downforce it is given. Still more than the studded winter tyre's 0.06: tests/winter-handling.test.ts)
+      loadSensitivity: 0.07,
       nominalLoad: 4500,
       peakSlipAngle: 5.2 * DEG,
       peakSlipRatio: 0.085,
@@ -694,18 +698,19 @@ const volta: CarDefinition = {
       optimalTemp: 90,
       tempWindow: 45,
       coldGrip: 0.74,
-      // (a soft racing compound turns more of its work into heat than a road tyre of its size, the narrow front the more: an AI lap runs the fronts
-      // at 67-87 C and the rears at 79-96, where at 1.15 and 1.5 they ran at 60-78 and 67-78 and gave up a tenth of their grip to the cold)
-      heatScale: 0.9,
+      // (a soft racing compound turns more of its work into heat than a road tyre of its size, the narrow front the more: a dry AI lap runs the
+      // fronts at 76-98 C and the rears at 81-92, about the optimum, where at 1.15 and 1.5 they ran at 60-78 and 67-78 and gave up a tenth of their
+      // grip to the cold)
+      heatScale: 0.75,
       // (wet-weather compound fitted when it rains)
       wetGrip: 0.6,
       slick: 1,
     },
     tireRear: {
-      ...roadTire(375, 35, 18, 1.7),
+      ...roadTire(375, 35, 18, 1.75),
       radius: voltaVisual.wheelRadiusRear,
       inertia: 1.35,
-      loadSensitivity: 0.2,
+      loadSensitivity: 0.07,
       nominalLoad: 4500,
       peakSlipAngle: 5.2 * DEG,
       peakSlipRatio: 0.085,
@@ -714,7 +719,7 @@ const volta: CarDefinition = {
       optimalTemp: 90,
       tempWindow: 45,
       coldGrip: 0.74,
-      heatScale: 1.05,
+      heatScale: 1.0,
       wetGrip: 0.6,
       slick: 1,
     },
