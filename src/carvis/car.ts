@@ -372,6 +372,7 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
   const driverLiteMesh = mkStatic(gs.driverLite, interiorMat.material, false);
   const steerMesh = new Mesh(gs.steer, interiorMat.material);
   const steerGroup = new Group();
+  steerGroup.name = 'steer';
   steerGroup.position.set(...data.interior.wheelPos);
   const wn = data.interior.wheelNormal;
   const tiltAng = Math.atan2(wn[1], -wn[2]);
@@ -716,6 +717,8 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
         const cl = IU.uCluster.value;
         const span = state.limiterRpm > 0 ? state.limiterRpm : 8000;
         cl.set(Math.min(1, Math.max(0, state.rpm / span)), state.gear, state.speed * 3.6, state.revLimiter ? 1 : 0);
+        // (the single-seater's yoke also shows where its active aero stands and its electric boost deploying)
+        IU.uYoke.value.set(Math.min(1, Math.max(0, state.aeroOpen ?? 0)), electric ? Math.min(1, Math.max(0, state.nitro ?? 0)) : 0, 0, 0);
       }
 
       // the light through the glass: the sun rarely reaches the dash and wheel under the roof, and with the black trim
