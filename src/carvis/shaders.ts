@@ -75,6 +75,7 @@ uniform float uTail;
 uniform float uHead;
 uniform float uDrl;
 uniform float uRev;
+uniform float uErs;       // the electric boost deploying: the single-seater's endplate LEDs pulse with it
 uniform float uInterior;
 uniform float uInteriorCarbon;
 uniform float uGlassAlpha;
@@ -337,8 +338,16 @@ float zPx = length(fwidth(vObjPos));
       zMetal = 0.0;
       zCC = 0.0;
       zFlake = 0.0;
+    } else if (zPart == 17) {    // red LED strip (the single-seater's rear-wing endplates): a rear light, pulsing while the electric boost deploys
+      float ledOut = vObjPos.x >= 0.0 ? uLampOut.z : uLampOut.w;
+      zCol = vec3(0.3, 0.0, 0.0);
+      zRough = 0.08;
+      zMetal = 0.0;
+      zCC = 1.0;
+      zFlake = 0.0;
+      zEmis = vec3(1.0, 0.04, 0.02) * (uTail * 1.2 + uErs * 9.0) * ledOut;
     }
-    if (zPart == 1 || zPart == 2 || zPart == 3 || zPart == 4 || zPart == 6 || zPart == 7 || zPart == 8 || zPart == 9 || zPart == 11 || zPart == 12 || zPart == 13 || zPart == 14 || zPart == 15) zIsPaint = 0.0;
+    if (zPart == 1 || zPart == 2 || zPart == 3 || zPart == 4 || zPart == 6 || zPart == 7 || zPart == 8 || zPart == 9 || zPart == 11 || zPart == 12 || zPart == 13 || zPart == 14 || zPart == 15 || zPart == 17) zIsPaint = 0.0;
   } else {
     // ---------- sculpted-body zones ----------
     float mTrim = zmask(vZ0.y);

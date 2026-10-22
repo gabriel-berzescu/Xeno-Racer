@@ -42,18 +42,21 @@ export function eyePoint(s: CarVisualSpec): V3 {
  * Where the single-seater ('formula') carries its lights and its tailpipe (body frame, +x the left), for its body (bodies/formula.ts),
  * its headlamp spots and the lamps the damage model knows:
  *   - noseLed: the left of the two LED headlamps, in the face of the step of its two-stage nose (the right one is mirrored);
+ *   - beam: where the left lamp's beam starts, at the tip of the nose, 40 cm ahead of the lamp and as high (the spots cast no shadow:
+ *     from the lamp itself they lit the top of the nose's lower stage, right in front of them, as bright as the road);
  *   - rainLight: the centre of the rain light on the tip of the crash structure (300 mm up, as the rules have it);
  *   - wingLed: the centre of the left rear-wing endplate's LED strip, on its trailing edge;
  *   - exhaust: the end of the one tailpipe, over the crash structure and under the rear wing (src/render/effects.ts buildTips blows
  *     the flames there: keep the two the same).
  */
-export function formulaPoints(s: CarVisualSpec): { noseLed: V3; rainLight: V3; wingLed: V3; exhaust: V3 } {
+export function formulaPoints(s: CarVisualSpec): { noseLed: V3; beam: V3; rainLight: V3; wingLed: V3; exhaust: V3 } {
   const zF = s.wheelbase / 2;
   const zR = -s.wheelbase / 2;
   const zTail = -(s.wheelbase / 2 + (s.length - s.wheelbase - s.frontOverhang));
   const hk = s.height / 0.95;
   return {
     noseLed: [0.072, 0.405 * hk, zF + 0.6],
+    beam: [0.072, 0.405 * hk, zF + s.frontOverhang + 0.02],
     rainLight: [0, 0.31 * hk, zTail - 0.006],
     wingLed: [0.522, 0.785 * hk, zTail - 0.1],
     exhaust: [0, s.rideHeight + 0.41, zR - 0.5],
@@ -116,7 +119,7 @@ export function computeLayout(s: CarVisualSpec): CarLayout {
   if (style === 'formula') {
     // the single-seater: the roundel on the sidepod's flank, the number on the nose behind its step, a split at its sidepods' height;
     // the hood camera is the T-camera over the airbox, the bumper camera a nose camera ahead of the front axle, the headlamp spots are
-    // its two LED lamps in the nose (formulaPoints)
+    // its two LED lamps in the nose, starting at the nose's tip (formulaPoints)
     const p = formulaPoints(s);
     lay.door = { z: eye[2] - 0.6, y: 0.37 * (s.height / 0.95), r: 0.11 };
     lay.hood = { z: zF + 0.3, r: 0.072 };
@@ -124,7 +127,7 @@ export function computeLayout(s: CarVisualSpec): CarLayout {
     lay.trueRound = true;
     layout.hood = [0, s.height + 0.08, eye[2] - 0.5];
     layout.bumper = [0, 0.42, zF + 0.45];
-    layout.headlight = [p.noseLed[0], p.noseLed[1], p.noseLed[2]];
+    layout.headlight = [p.beam[0], p.beam[1], p.beam[2]];
     layout.taillight = [p.rainLight[0], p.rainLight[1], p.rainLight[2]];
   }
   return layout;

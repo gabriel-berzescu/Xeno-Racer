@@ -52,6 +52,8 @@ export interface BodyUniforms {
   uHead: IUniform<number>;
   uDrl: IUniform<number>;
   uRev: IUniform<number>;
+  /** 0..1: the electric boost's light, pulsing while it deploys (the single-seater's endplate LEDs, PART.ledRed); 0 on every other car */
+  uErs: IUniform<number>;
   uInterior: IUniform<number>;
   uInteriorCarbon: IUniform<number>;
   uGlassAlpha: IUniform<number>;
@@ -92,6 +94,7 @@ export function createBodyUniforms(): BodyUniforms {
     uHead: { value: 0 },
     uDrl: { value: 1 },
     uRev: { value: 0 },
+    uErs: { value: 0 },
     uInterior: { value: 0.35 },
     uInteriorCarbon: { value: 0 },
     uGlassAlpha: { value: 0.88 },
