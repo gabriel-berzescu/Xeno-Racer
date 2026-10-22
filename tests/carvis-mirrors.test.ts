@@ -68,15 +68,21 @@ describe.each(CARS.map((c) => [c.id, c.visual] as const))('mirror layout: %s', (
     }
   });
 
-  it('puts the driver-side mirror and the rear-view mirror (or the display) inside the default cockpit view', () => {
+  it('puts the driver-side mirror and the rear-view mirror (or the display, or for a single-seater the other mirror) inside the default cockpit view', () => {
     // vertical field 62 + 10 degrees on a 16:9 screen: +-52 degrees across, +-36 up
     const az = (m: MirrorPose): number => (Math.atan2(m.pos[0] - eye[0], m.pos[2] - eye[2]) * 180) / Math.PI;
     const el = (m: MirrorPose): number => (Math.atan2(m.pos[1] - eye[1], Math.hypot(m.pos[0] - eye[0], m.pos[2] - eye[2])) * 180) / Math.PI;
     expect(Math.abs(az(L.left))).toBeLessThan(52);
     expect(Math.abs(el(L.left))).toBeLessThan(36);
-    const centre = L.interior ?? L.screen!;
-    expect(Math.abs(az(centre))).toBeLessThan(40);
-    expect(Math.abs(el(centre))).toBeLessThan(30);
+    const centre = L.interior ?? L.screen;
+    if (centre) {
+      expect(Math.abs(az(centre))).toBeLessThan(40);
+      expect(Math.abs(el(centre))).toBeLessThan(30);
+    } else {
+      // (the driver sits on the centre line: both mirrors are on screen)
+      expect(Math.abs(az(L.right))).toBeLessThan(52);
+      expect(Math.abs(el(L.right))).toBeLessThan(36);
+    }
     // and the passenger-side mirror is on the other side of the car
     expect(L.right.pos[0]).toBeLessThan(0);
     expect(L.left.pos[0]).toBeGreaterThan(0);
@@ -105,8 +111,8 @@ describe.each(CARS.map((c) => [c.id, c.visual] as const))('mirror layout: %s', (
     expect(L.rear.pitchDown).toBeLessThan(0.1);
   });
 
-  it('has a prototype display and no rear-view mirror, road cars the other way round', () => {
-    expect(!!L.interior).toBe(spec.style !== 'prototype');
+  it('has a prototype display and no rear-view mirror, road cars the other way round, and a single-seater neither', () => {
+    expect(!!L.interior).toBe(spec.style !== 'prototype' && spec.style !== 'formula');
     expect(!!L.screen).toBe(spec.style === 'prototype');
   });
 });
@@ -187,11 +193,12 @@ describe('glass outline', () => {
 });
 
 describe('mirror rig', () => {
-  it('gives road cars a left, a right and a rear-view mirror, the prototype two mirrors and a display', () => {
+  it('gives road cars a left, a right and a rear-view mirror, the prototype two mirrors and a display, a single-seater its two mirrors', () => {
     for (const c of CARS) {
       const rig = createMirrorRig(c.visual);
       const kinds = rig.api.glass.map((g) => g.kind + ':' + g.mesh.name.replace('mirror.', ''));
       if (c.visual.style === 'prototype') expect(kinds, c.id).toEqual(['reflect:left', 'reflect:right', 'camera:screen']);
+      else if (c.visual.style === 'formula') expect(kinds, c.id).toEqual(['reflect:left', 'reflect:right']);
       else expect(kinds, c.id).toEqual(['reflect:left', 'reflect:right', 'reflect:interior']);
       expect(rig.api.rearCamera).toBeTruthy();
       expect(rig.api.live).toBe(false);
