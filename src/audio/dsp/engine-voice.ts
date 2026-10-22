@@ -2052,7 +2052,8 @@ export function measureExhaustSweepRms(profile: EngineSoundProfile, sr: number, 
  * muffler topology attenuates. Cached per profile; costs ~15 ms once.
  */
 export function calibratedExhaustGain(profile: EngineSoundProfile, sr: number): number {
-  const key = [sr, profile.cylinders, profile.layout, profile.crankType, profile.displacement, profile.turbo ? 1 : 0, profile.exhaustOpenness, profile.brightness, profile.exhaustSystem ?? 'merged', profile.limiterRpm ?? ''].join('|');
+  // (everything the sweep hears: a wastegate opens on its boost, and a wide lift of the idle can reach into its lower end)
+  const key = [sr, profile.cylinders, profile.layout, profile.crankType, profile.displacement, profile.turbo ? 1 : 0, profile.exhaustOpenness, profile.brightness, profile.exhaustSystem ?? 'merged', profile.limiterRpm ?? '', profile.wastegate ?? '', profile.idleLiftTo ?? ''].join('|');
   const hit = calCache.get(key);
   if (hit !== undefined) return hit;
   const rmsCrack = measureExhaustSweepRms(profile, sr, 0, true); // pulses off: crack only

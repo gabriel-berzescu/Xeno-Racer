@@ -178,6 +178,11 @@ describe('the 2026 V6', () => {
     const g = calibratedExhaustGain(P, SR);
     expect(Math.abs(db(measureExhaustSweepRms(P, SR, g)) - exhaustTargetDb(P.exhaustOpenness, P.displacement))).toBeLessThan(0.6);
     expect(db(g) - db(calibratedExhaustGain({ ...P, limiterRpm: undefined }, SR))).toBeLessThan(-3);
+    // (the gains are cached by what the sweep hears: the same engine without its wastegate is measured on its own, and lands on its target too)
+    const shut = { ...P, wastegate: undefined };
+    const gs = calibratedExhaustGain(shut, SR);
+    expect(gs).not.toBe(g);
+    expect(Math.abs(db(measureExhaustSweepRms(shut, SR, gs)) - exhaustTargetDb(P.exhaustOpenness, P.displacement))).toBeLessThan(0.6);
   });
 
   /** Flat out at the limiter, its cut chopping, as the game drives it: the load of 312 Nm of 380 and full boost (the controls.ts mapping). */
