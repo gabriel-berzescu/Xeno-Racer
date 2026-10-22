@@ -156,6 +156,8 @@ export interface Voicing {
   fcTail: number;
   fcTurb: number;
   turbineGain: number;
+  /** How much of the exhaust the wastegate lets past the turbine, wide open (EngineSoundProfile.wastegate; 0 = all of it through the turbine). */
+  wastegate: number;
   // radiation
   tilt: number;
   kd: number;
@@ -187,9 +189,13 @@ export interface Voicing {
   whistleF0: number;
   whistleF1: number;
   whistleLevel: number;
+  /** A blow-off valve that vents the boost on a lift (EngineSoundProfile.blowOff; true unless the profile says false). */
+  blowOff: boolean;
   whine: number;
   crackle: number;
   liteGain: number;
+  /** Seconds an upshift dips the load for (EngineSoundProfile.shiftDip: 0.07 unless the profile says). */
+  shiftDip: number;
   // supercharger: a positive-displacement blower, its whine locked to the crank
   blower: boolean;
   /** Whine fundamental per rpm (Hz): pulley ratio x lobes / 60. */
@@ -268,6 +274,7 @@ export function deriveVoicing(p: EngineSoundProfile, layout: EngineLayout): Voic
     fcTail: lerp(3200, 9500, o),
     fcTurb: 3400,
     turbineGain: p.turbo ? 0.78 : 1,
+    wastegate: p.turbo && p.wastegate !== undefined ? clamp01(p.wastegate) : 0,
     tilt: 0.25 + 0.5 * b,
     kd: 7,
     exGain: 1,
@@ -293,11 +300,13 @@ export function deriveVoicing(p: EngineSoundProfile, layout: EngineLayout): Voic
     whistleF0: smallTurbo ? 2400 : 1800,
     whistleF1: smallTurbo ? 6400 : 4800,
     whistleLevel: 0.09,
+    blowOff: p.blowOff !== false,
     whine: p.gearWhine,
     crackle: p.crackle,
     // (the dual exhaust is louder through its two separate chains than the one shared chain of lite: averaged over the rev range, with
     // the same pulses, the lite voice came out 5.6 dB under the full one at a gain of 1.35, and a little above it at 1.7, where the others' lite voices come out within 2 dB of theirs)
     liteGain: dual ? 1.35 * 1.7 : 1.35,
+    shiftDip: p.shiftDip !== undefined ? clamp(p.shiftDip, 0.005, 0.2) : 0.07,
     blower: sc !== undefined && sc.ratio > 0 && lobes > 0,
     blowerHzPerRpm: sc ? (sc.ratio * lobes) / 60 : 0,
     blowerLobes: lobes,
@@ -987,7 +996,7 @@ export class EngineVoice {
       const fresh = I.shiftCount > this.lastShift;
       this.lastShift = I.shiftCount;
       if (fresh) {
-        this.dipT = 0.07;
+        this.dipT = V.shiftDip;
         this.clunkIn += 0.5 + 0.5 * this.sLoad;
         this.clunkNoise = 1;
         if (V.crackle > 0.3 && this.ovr > 0.2) this.burstLeft += 1;
@@ -1112,11 +1121,12 @@ export class EngineVoice {
       const tgt = clamp01(this.sBoost * (0.55 + 0.45 * rpmN) + 0.12 * loadE * rpmN);
       const tau = tgt > this.tSpeed ? 0.09 : 0.9;
       this.tSpeed += smoothCoef(tau, dt) * (tgt - this.tSpeed);
-      // the blow-off valve vents the boost when the throttle body snaps shut: when the driver lifts, not on a flat upshift
+      // the blow-off valve vents the boost when the throttle body snaps shut: when the driver lifts, not on a flat upshift (a racing
+      // turbo without one holds its boost)
       const dPlate = (this.sPlate - this.prevPlate) / dt;
       this.prevPlate = this.sPlate;
       this.bovCool = Math.max(0, this.bovCool - dt);
-      if (dPlate < -3.5 && this.sBoost > 0.2 && this.bovCool <= 0) {
+      if (V.blowOff && dPlate < -3.5 && this.sBoost > 0.2 && this.bovCool <= 0) {
         this.bovEnv = clamp01(this.sBoost * 1.2);
         this.flutT = 0.7 * V.crackle + 0.25;
         this.bovF = 3300;
@@ -1251,7 +1261,7 @@ export class EngineVoice {
     const elInc0 = (ELECTRIC_ORDER / 60) * rpmPrev * tsPrev * invSr; // whine, cycles per sample, at the start and end of the block
     const elInc1 = (ELECTRIC_ORDER / 60) * rpm * this.sTs * invSr;
     const elDeploy = this.sNitro * Math.pow(thr, 1.2);
-    const elTarget = elOn && elInc1 < 0.42 ? 0.06 * (0.3 + 0.7 * rpmN) + 0.25 * ovr * (0.25 + 0.75 * rpmN) + elDeploy * (0.6 + 0.4 * rpmN) : 0;
+    const elTarget = elOn && elInc1 < 0.42 ? 0.06 * (0.3 + 0.7 * rpmN) + 0.25 * ovr * (0.25 + 0.75 * rpmN) + elDeploy * (0.7 + 0.5 * rpmN) : 0;
     const elW2 = elInc1 * 2 < 0.42 ? 0.22 + 0.33 * elDeploy : 0;
     const elW3 = elInc1 * 3 < 0.42 ? 0.06 + 0.2 * elDeploy : 0;
     const elKa = 1 - Math.exp(-invSr / 0.04);
@@ -1340,6 +1350,9 @@ export class EngineVoice {
     const Rq = V.Rq;
     const turbineGain = V.turbineGain;
     const turboOn = V.turbo;
+    // a racing turbo's wastegate, wide open on full boost at full load and high revs: part of every pulse goes round the turbine with its edge
+    const wgOn = turboOn && V.wastegate > 0;
+    const wg = wgOn ? V.wastegate * smoothstep(0.3, 0.9, this.sBoost) * smoothstep(0.4, 0.9, loadE) * smoothstep(0.45, 0.85, rpmN) : 0;
     const twin = V.twin;
     const liteGain = V.liteGain;
     const dbg = this.debug;
@@ -1565,7 +1578,9 @@ export class EngineVoice {
         if (turboOn) {
           const lt = lpTurb[b];
           lt.y += kLpTurb * (fwd - lt.y);
-          fwd = lt.y * turbineGain;
+          // (what the wastegate lets past is what the turbine would have taken off the top)
+          if (wgOn) fwd = lt.y * turbineGain + wg * (fwd - lt.y);
+          else fwd = lt.y * turbineGain;
         }
         const lf = lpSf[b];
         lf.y += kLpS * (fwd - lf.y);
@@ -1980,7 +1995,8 @@ export function measureExhaustSweepRms(profile: EngineSoundProfile, sr: number, 
   i.idleRpm = 900;
   i.throttle = 1;
   i.load = 1;
-  i.boost = 0;
+  // (an engine measured over its own revs is measured as it is driven: a turbo on the boost the labs drive it with)
+  i.boost = profile.limiterRpm !== undefined && profile.turbo ? 0.9 : 0;
   i.quality = 2;
   i.rpm = lim * 0.35;
   const secs = 0.5;

@@ -260,7 +260,8 @@ export async function engineReport(car: CarDefinition, checks: Checks): Promise<
     void hf;
     const burst = rms(lm, Math.floor(1.03 * lr.sr), Math.floor(1.25 * lr.sr));
     const after = rms(lm, Math.floor(2.0 * lr.sr), Math.floor(2.35 * lr.sr));
-    checks.add(`${id}: blow-off / flutter burst after lift`, burst > after * 1.1, db(burst / Math.max(after, 1e-9)), '> +0.8 dB vs later overrun');
+    // (a racing turbo without a blow-off valve, the Volta's, vents nothing: there is no burst to find)
+    if (car.sound.blowOff !== false) checks.add(`${id}: blow-off / flutter burst after lift`, burst > after * 1.1, db(burst / Math.max(after, 1e-9)), '> +0.8 dB vs later overrun');
   }
 
   // interior vs exterior: interior has more intake / mechanical (less harmonic exhaust purity)

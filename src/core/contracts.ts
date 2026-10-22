@@ -434,10 +434,10 @@ export interface EngineSoundProfile {
    */
   electric?: number;
   /**
-   * The engine's own rev limiter, rpm (absent: none given): its loudness is measured over 35 to 100 % of it, the revs it is driven at.
-   * Without it every engine is measured over a nominal 2800..8000 rpm (a big V8 over its own lower range), which is right for a road car
-   * but leaves one that revs far beyond 8000 louder than its target where its pipes ring brightest: the Volta's 12,500 rpm V6 by 2.3 dB,
-   * and at 0.97 of full scale at 0.95 x its redline. Keep it the physics' `limiterRpm`.
+   * The engine's own rev limiter, rpm (absent: none given): its loudness is measured as it is driven, flat out over 35 to 100 % of it and a
+   * turbo on boost. Without it every engine is measured over a nominal 2800..8000 rpm (a big V8 over its own lower range) and off boost,
+   * which is right for a road car but leaves one that revs far beyond 8000 louder than its target where its pipes ring brightest (the
+   * Volta's 12,500 rpm V6 by 2.3 dB), and a turbo on boost 1.8 dB louder still. Keep it the physics' `limiterRpm`.
    */
   limiterRpm?: number;
   /**
@@ -447,6 +447,22 @@ export interface EngineSoundProfile {
    * out at 4000 rpm than at 9000.
    */
   idleLiftTo?: number;
+  /**
+   * A turbo engine's blow-off valve (absent: it has one): the 'pssh' and the flutter of the boost vented when the driver lifts. false for a
+   * racing turbo that vents nothing on a lift, its boost held by the wastegate (the Volta's).
+   */
+  blowOff?: boolean;
+  /**
+   * How long an upshift cuts the engine's torque for, as heard, seconds (absent: 0.07, a road car's gearbox). A seamless-shift racing
+   * gearbox has the next gear in before the last one is out: about 0.02 s, a flick in the note instead of a gap.
+   */
+  shiftDip?: number;
+  /**
+   * 0..1 how much of the exhaust a turbo's wastegate lets past the turbine when it is wide open (absent: none). A racing turbo's wastegate
+   * opens on full boost at full load and high revs, and the pulses that go round the turbine keep their edge where the turbine alone rounds
+   * them off above 3.4 kHz: the hard, high rasp of a Formula 1 car flat out, its firing harmonics heard up to 10 kHz.
+   */
+  wastegate?: number;
 }
 
 export interface CarDefinition {

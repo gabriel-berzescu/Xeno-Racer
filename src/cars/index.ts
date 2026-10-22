@@ -599,13 +599,19 @@ const voltaVisual: CarVisualSpec = {
 
 // The Volta's voice: a 1.6 L 90-degree V6 with a flat crank (even firing, three pulses a turn), one turbo, one central tailpipe, and the MGU-K's whine.
 const voltaSound: EngineSoundProfile = {
-  cylinders: 6, layout: 'v', crankType: 'flat', displacement: 1.6, turbo: true, exhaustOpenness: 0.85, brightness: 0.8, gearWhine: 0.7, crackle: 0.15,
+  cylinders: 6, layout: 'v', crankType: 'flat', displacement: 1.6, turbo: true, exhaustOpenness: 1, brightness: 0.95, gearWhine: 0.7, crackle: 0.15,
   exhaustSystem: 'merged',
-  // its loudness measured over its own revs, and the lift of its 3000 rpm idle gone by 4500 rpm (not 6600)
+  // no muffler, and a wastegate that opens wide flat out: the firing harmonics go up to 10 kHz past the turbine, a hard, high rasp
+  wastegate: 1,
+  // its loudness measured as it is driven (its own revs, on boost), and the lift of its 3000 rpm idle gone by 4500 rpm (not 6600)
   limiterRpm: 12500,
   idleLiftTo: 1.5,
-  // the MGU-K's whine on the 14th order of the crank (2.6 kHz at 11,000 rpm): 12 to 22 dB over the rest of the engine in its band while a
-  // nitro shot deploys it, 10 to 16 dB under that while it harvests on a lift (tests/audio-volta.test.ts)
+  // no blow-off valve (the wastegate holds the boost on a lift: no 'pssh'), and a seamless-shift gearbox: an upshift is a 20 ms flick in
+  // the note, as the physics' shiftTime, not a road car's 70 ms gap
+  blowOff: false,
+  shiftDip: 0.02,
+  // the MGU-K's whine on the 14th order of the crank (2.6 kHz at 11,000 rpm): 12 to 23 dB over the rest of the engine in its band while a
+  // nitro shot deploys it, 14 to 18 dB under that while it harvests on a lift (tests/audio-volta.test.ts)
   electric: 1,
 };
 

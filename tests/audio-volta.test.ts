@@ -2,6 +2,9 @@
  * The Volta's engine (headless): a 2026-rules 1.6 L turbo V6 (90 degrees, flat crank, even firing) with an electric motor geared to its
  * crankshaft, the MGU-K. What the shared engine code gained for it is measured here with the same analysis the browser report uses:
  *
+ *  - the V6: three pulses a turn, every line of its exhaust on a multiple of 3 x rpm/60; louder and brighter with the revs, its loudness
+ *    measured over its own revs on boost; no muffler and a wastegate wide open flat out (the harmonics past the turbine, the rasp); no
+ *    blow-off valve; a seamless shift; no clipping at the limiter.
  *  - the MGU-K's whine: locked to the crank on its 14th order, a murmur while it turns free, faint while it harvests (a lift, the brakes),
  *    strong while it deploys, which is only while a nitro shot burns; the nitro reaches it through the control vector (CTL.NITRO).
  *  - nothing of this touches an engine that does not ask for it.
@@ -9,10 +12,12 @@
 import { describe, expect, it } from 'vitest';
 import { CARS } from '../src/cars';
 import type { EngineSoundProfile } from '../src/core/contracts';
-import { chirpDeviation, hasNonFinite, offGridLines, peakAbs, rms, strongestPeak, welch } from '../src/audio/analysis';
+import { bandPower, chirpDeviation, hasNonFinite, offGridLines, orderFamilies, peakAbs, rms, spectralCentroid, strongestPeak, welch } from '../src/audio/analysis';
 import { CTL, makeControlVector, readEngineInputs, writeEngineControls } from '../src/audio/controls';
-import { buildLayout } from '../src/audio/dsp/engine-layout';
-import { EngineVoice, createEngineDebug, deriveVoicing, type EngineDebug } from '../src/audio/dsp/engine-voice';
+import { bankFiringIntervals, buildLayout } from '../src/audio/dsp/engine-layout';
+import { EngineVoice, calibratedExhaustGain, createEngineDebug, deriveVoicing, exhaustTargetDb, measureExhaustSweepRms, type EngineDebug } from '../src/audio/dsp/engine-voice';
+import { makeLimiterCurve, volumeCurve } from '../src/audio/graph';
+import { DEFAULT_SETTINGS } from '../src/core/settings';
 import { makeVehicleState } from '../sandbox/audio/drive-sim';
 
 const SR = 48000;
@@ -77,6 +82,165 @@ describe('what the profile asks for is all the shared voice does for the Volta',
     expect(V.lope).toBe(0);
     expect(V.burble).toBe(0);
     expect(V.idleWobble).toBe(0.03);
+  });
+});
+
+describe('the 2026 V6', () => {
+  it('fires evenly three times a turn: 120 degrees apart, each bank every 240', () => {
+    const L = buildLayout(P);
+    expect(L.cylinders).toBe(6);
+    expect(L.banks).toBe(2);
+    expect(L.cyl.map((c) => c.fireDeg)).toEqual([0, 120, 240, 360, 480, 600]);
+    for (const b of [0, 1]) expect(bankFiringIntervals(L, b)).toEqual([240, 240, 240]);
+    expect(L.firingHzPerRpm * 60).toBeCloseTo(3, 12);
+    expect(P.displacement).toBe(1.6);
+    expect(P.turbo).toBe(true);
+    // one central tailpipe: the banks merge
+    expect(deriveVoicing(P, L).dual).toBe(false);
+  });
+
+  it('every line of its exhaust is a firing line, a multiple of 3 x rpm/60: 99 % and more of the power in the lines at 5000, 8000 and 11,000 rpm', () => {
+    for (const rpm of [5000, 8000, 11000]) {
+      const { dbg } = steady(voice(), rpm, 1, 1, 5);
+      const f0 = rpm / 120;
+      let nfft = 1 << 15;
+      while (SR / nfft > f0 / 9 && nfft < 1 << 18) nfft <<= 1;
+      const of = orderFamilies(welch(dbg.exhaust, nfft, Math.floor(1.5 * SR), dbg.exhaust.length), SR, f0, 6, 40, 6000);
+      expect(of.fire / (of.fire + of.half + of.whole), `@${rpm}`).toBeGreaterThan(0.99);
+      // and the strongest line of the whole voice near the firing frequency sits on it
+      const { out } = steady(voice(), rpm, 1, 1, 2.4);
+      const f = 3 * (rpm / 60);
+      const pk = strongestPeak(welch(out, 32768, Math.floor(1.2 * SR), out.length), SR, f * 0.9, f * 1.1);
+      expect(Math.abs(pk.freq - f) / f, `@${rpm}`).toBeLessThan(0.002);
+      expect(pk.prominenceDb, `@${rpm}`).toBeGreaterThan(12);
+    }
+  });
+
+  it('is louder with the revs: flat out, 8 dB and more louder at 11,000 rpm than at 5000, and no step up of 1500 rpm quieter by more than 1.5 dB', () => {
+    const at = (rpm: number): number => db(rms(steady(voice(), rpm, 1, 1, 2.4).out, SR));
+    const lv = [5000, 6500, 8000, 9500, 11000].map(at);
+    expect(lv[4] - lv[0]).toBeGreaterThan(8);
+    for (let k = 1; k < lv.length; k++) expect(lv[k] - lv[k - 1], JSON.stringify(lv)).toBeGreaterThan(-1.5);
+  });
+
+  it('is a hard, high rasp flat out: over 8750..12,000 rpm its centroid is over 2 kHz and a fifth of its power above 3 kHz, where the wastegate puts it', () => {
+    const g = calibratedExhaustGain(P, SR);
+    const at = (profile: EngineSoundProfile): { centroid: number; high: number } => {
+      let centroid = 0;
+      let high = 0;
+      const rpms = [8750, 10000, 11000, 12000];
+      for (const rpm of rpms) {
+        const v = new EngineVoice(SR, profile, 5, g);
+        Object.assign(v.inp, { idleRpm: E.idleRpm, limiterRpm: E.limiterRpm, redlineRpm: E.redlineRpm });
+        const { out } = steady(v, rpm, 1, 1, 2.4);
+        const psd = welch(out, 16384, Math.floor(1.0 * SR), out.length);
+        centroid += spectralCentroid(psd, SR, 40, 12000) / rpms.length;
+        high += bandPower(psd, SR, 3000, 12000) / bandPower(psd, SR, 40, 12000) / rpms.length;
+      }
+      return { centroid, high };
+    };
+    const open = at(P);
+    const shut = at({ ...P, wastegate: undefined });
+    expect(open.centroid).toBeGreaterThan(2050);
+    expect(open.high).toBeGreaterThan(0.2);
+    // the turbine alone rounds the pulses off: 150 Hz and more lower, and a fifth less above 3 kHz
+    expect(shut.centroid).toBeLessThan(open.centroid - 150);
+    expect(shut.high).toBeLessThan(0.8 * open.high);
+  });
+
+  it('the wastegate opens only on boost: off it, the voice is the same to the bit with it or without it', () => {
+    const g = calibratedExhaustGain(P, SR);
+    const run = (profile: EngineSoundProfile): Float32Array => {
+      const v = new EngineVoice(SR, profile, 5, g);
+      Object.assign(v.inp, { idleRpm: E.idleRpm, limiterRpm: E.limiterRpm, redlineRpm: E.redlineRpm, rpm: 11000, throttle: 1, load: 1, pedal: 1, boost: 0 });
+      const out = new Float32Array(SR);
+      v.process(out, SR);
+      return out;
+    };
+    const a = run(P);
+    const b = run({ ...P, wastegate: undefined });
+    let diff = 0;
+    for (let i = 0; i < a.length; i++) diff += Math.abs(a[i] - b[i]);
+    expect(diff).toBe(0);
+  });
+
+  it('its loudness is measured as it is driven, over its own revs on boost: on its target there, and 3 dB and more under the gain the nominal 2800..8000 rpm off boost would give it', () => {
+    expect(P.limiterRpm).toBe(E.limiterRpm);
+    const g = calibratedExhaustGain(P, SR);
+    expect(Math.abs(db(measureExhaustSweepRms(P, SR, g)) - exhaustTargetDb(P.exhaustOpenness, P.displacement))).toBeLessThan(0.6);
+    expect(db(g) - db(calibratedExhaustGain({ ...P, limiterRpm: undefined }, SR))).toBeLessThan(-3);
+  });
+
+  /** Flat out at the limiter, its cut chopping, as the game drives it: the load of 312 Nm of 380 and full boost (the controls.ts mapping). */
+  function atLimiter(seed: number): Float32Array {
+    const v = voice(P, volta, seed);
+    Object.assign(v.inp, { rpm: E.limiterRpm, throttle: 1, load: 0.5 * (312 / 380) + 0.5, pedal: 1, boost: 1, limiter: 1 });
+    const n = Math.floor(2.4 * SR);
+    const out = new Float32Array(n);
+    v.process(out, n);
+    return out.subarray(Math.floor(0.3 * SR));
+  }
+
+  it("does not clip at the limiter: its peak stays under 1.4 through the cut, and after the game's gains at the default volumes under the knee of the soft limiter", () => {
+    // (the voice is the raw engine; the graph turns it down by the equal-power panner, the engine bus and the master before the limiter)
+    const a = DEFAULT_SETTINGS.audio;
+    const toMaster = Math.SQRT1_2 * volumeCurve(a.engine) * volumeCurve(a.master);
+    const curve = makeLimiterCurve();
+    for (const seed of [1, 2, 3, 4, 5]) {
+      const x = atLimiter(seed);
+      expect(hasNonFinite(x)).toBe(false);
+      const pk = peakAbs(x);
+      expect(pk, `seed ${seed}`).toBeLessThan(1.4);
+      const m = pk * toMaster;
+      expect(m, `seed ${seed}`).toBeLessThan(0.8);
+      // (below the knee the curve passes the signal untouched)
+      expect(curve[Math.round(((m + 1) / 2) * (curve.length - 1))]).toBeCloseTo(m, 2);
+    }
+    // and in the terms of tests/audio-dsp.test.ts (off boost, at 0.97 of the redline) under full scale
+    const v = voice(P, volta, 3);
+    Object.assign(v.inp, { rpm: E.redlineRpm * 0.97, throttle: 1, load: 1, pedal: 1, boost: 0 });
+    const out = new Float32Array(Math.floor(2.4 * SR));
+    v.process(out, out.length);
+    expect(peakAbs(out, Math.floor(0.3 * SR))).toBeLessThan(1);
+  });
+
+  it('has no blow-off valve: a lift at full boost vents nothing, where the same engine with one blows off twenty times the energy', () => {
+    const vent = (profile: EngineSoundProfile): number => {
+      const v = voice(profile, volta, 17);
+      steady(v, 10000, 1, 1, 1.0);
+      Object.assign(v.inp, { throttle: 0, load: 0, pedal: 0, boost: 1 });
+      const n = Math.floor(0.3 * SR);
+      const dbg = createEngineDebug(n);
+      v.debug = dbg;
+      const x = new Float32Array(n);
+      v.process(x, n);
+      // the blow-off has no tap of its own: it is what is left of the output once the layers are taken away
+      let e = 0;
+      for (let i = 0; i < n; i++) {
+        const r = x[i] - (dbg.exhaust[i] + dbg.intake[i] + dbg.mech[i] + dbg.block[i] + dbg.turbo[i] + dbg.whine[i] + dbg.events[i] + dbg.electric![i]);
+        e += r * r;
+      }
+      return e / n;
+    };
+    expect(P.blowOff).toBe(false);
+    expect(vent({ ...P, blowOff: undefined })).toBeGreaterThan(20 * vent(P));
+  });
+
+  it("shifts seamlessly: an upshift dips the exhaust by 3 dB for 15 ms at most, where a road car's gearbox (70 ms) dips it for 50 ms and more", () => {
+    const dipMs = (profile: EngineSoundProfile, seed: number): number => {
+      const v = voice(profile, volta, seed);
+      const ref = rms(steady(v, 10000, 1, 1, 1).dbg.exhaust, Math.floor(0.5 * SR));
+      v.inp.shiftCount += 1;
+      const { dbg } = steady(v, 10000, 1, 1, 0.2);
+      const w = Math.floor(0.002 * SR);
+      let ms = 0;
+      for (let s = 0; s + w <= dbg.exhaust.length; s += w) if (rms(dbg.exhaust, s, s + w) < 0.7 * ref) ms += 2;
+      return ms;
+    };
+    for (const seed of [1, 2, 3]) {
+      expect(dipMs(P, seed)).toBeLessThanOrEqual(15);
+      expect(dipMs({ ...P, shiftDip: undefined }, seed)).toBeGreaterThan(50);
+    }
   });
 });
 
