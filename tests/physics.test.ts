@@ -152,12 +152,13 @@ describe('vehicle physics', () => {
         expect(drag.vmax).toBeLessThan(def.stats.topSpeedKmh * 1.15);
         // (a 2.45 t 4x4 on all-terrain tyres stops in the length of a good road car, not a sports car's, and must not corner like one: below a g on the
         // skidpad, where a sports car is at 1.0 and over; tests/mammoth.test.ts holds the rest of its numbers)
-        // (an 800 kg single-seater on slicks, with more downforce than the prototype, stops shorter and corners harder than it)
-        expect(brakeAbs.distance).toBeGreaterThan(def.class === 'Formula' ? 15 : def.class === 'Prototype' ? 17 : def.class === 'SUV' ? 34 : 26);
+        // (an 800 kg single-seater on slicks, with more downforce than the prototype, stops shorter and corners harder than it: 18.5 m and 2.40 g,
+        // where the LMP-X does 20.2 m and 1.92 g; tests/volta.test.ts holds the rest of its numbers)
+        expect(brakeAbs.distance).toBeGreaterThan(def.class === 'Formula' || def.class === 'Prototype' ? 17 : def.class === 'SUV' ? 34 : 26);
         expect(brakeAbs.distance).toBeLessThan(45);
         expect(brakeLock.distance).toBeGreaterThan(brakeAbs.distance * 0.98);
         expect(pad.latG).toBeGreaterThan(0.85);
-        expect(pad.latG).toBeLessThan(def.class === 'Formula' ? 2.8 : def.class === 'Prototype' ? 2.4 : def.class === 'SUV' ? 1.0 : 1.4);
+        expect(pad.latG).toBeLessThan(def.class === 'Formula' ? 2.6 : def.class === 'Prototype' ? 2.4 : def.class === 'SUV' ? 1.0 : 1.4);
       });
     }
     mkdirSync('.cache', { recursive: true });

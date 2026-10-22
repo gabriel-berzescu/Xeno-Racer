@@ -289,7 +289,8 @@ export function kerbStrike(def: CarDefinition, kmh: number, height = 0.07, steer
 
 /**
  * The time (s) of the second lap of an AI driver alone on a circuit, as tests/ai.test.ts takes it (a standing start, a lap to warm up,
- * the aids of the AI drivers), and what it hit on the way.
+ * the aids of the AI drivers), and what it hit on the way: impacts above the threshold of a hit, and `floor`, the substeps in which the plank or a
+ * lip of the body touched the road (a floor strike at a compression, or a kerb taken too hard).
  */
 export function aiLap(trackId: string, def: CarDefinition, wetness = 0, difficulty: Difficulty = 'alien') {
   const track = loadTrackRuntime(trackId);
@@ -323,7 +324,7 @@ export function aiLap(trackId: string, def: CarDefinition, wetness = 0, difficul
     }
     prev = tp.s;
   }
-  return { lap, resets, impacts: car.state.impactCount };
+  return { lap, resets, impacts: car.state.impactCount, floor: car.debugGroundHits };
 }
 
 /**
