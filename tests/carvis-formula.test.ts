@@ -9,7 +9,9 @@ import { sideX, topY } from '../src/carvis/bodies/probe';
 import { buildCarData, VERTEX_STRIDE, type CarData } from '../src/carvis/build';
 import { poseMoving } from '../src/carvis/car';
 import { makeDamageGeometry } from '../src/carvis/damageGeometry';
+import { IPART, makeInterior, YOKE } from '../src/carvis/interior';
 import { computeLayout, eyePoint, formulaPoints, wheelLook } from '../src/carvis/layouts';
+import { createBodyUniforms, createPillarMaterial } from '../src/carvis/materials';
 import { mirrorLayout } from '../src/carvis/mirrorLayout';
 import { PartBuilder } from '../src/carvis/parts';
 import { buildCaliper, buildWheel, styleForBody, type WheelParams } from '../src/carvis/wheels';
@@ -403,4 +405,172 @@ describe('Volta triangle budgets', () => {
       expect(d.lod0.glassIndex.length, q).toBe(0);
     }
   }, 120000);
+});
+
+describe('Volta cockpit', () => {
+  const eye = eyePoint(spec);
+  const lay = computeLayout(spec);
+  const inside = makeInterior(spec, 'high');
+  const { hoop, pillar } = haloPath(spec);
+  /** A point of the steering wheel's own frame (+x the driver's right, the driver looking at +z) in the body frame, the wheel straight. */
+  const onWheel = (p: V): V => {
+    const t = Math.atan2(inside.wheelNormal[1], -inside.wheelNormal[2]);
+    const c = Math.cos(t), s = Math.sin(t);
+    const w = inside.wheelPos;
+    return [w[0] - p[0], w[1] + p[1] * c + p[2] * s, w[2] + p[1] * s - p[2] * c];
+  };
+  /** The vertices of a mesh, with their part ids and zone channel 14. */
+  const verts = (d: { vertices: Float32Array }): Array<{ p: V; part: number; z14: number }> => {
+    const out: Array<{ p: V; part: number; z14: number }> = [];
+    for (let o = 0; o < d.vertices.length; o += VERTEX_STRIDE) {
+      out.push({ p: [d.vertices[o], d.vertices[o + 1], d.vertices[o + 2]], part: Math.round(d.vertices[o + 6 + 13]), z14: d.vertices[o + 6 + 14] });
+    }
+    return out;
+  };
+  /** How close the segment a..b comes to the halo's tubes (to their surface: negative when it goes through one). */
+  const haloClearance = (a: V, b: V): number => {
+    const tubes: Array<[V, V, number]> = [];
+    for (let i = 0; i < hoop.length - 1; i++) tubes.push([hoop[i] as V, hoop[i + 1] as V, 0.024]);
+    tubes.push([pillar[0] as V, pillar[1] as V, 0.03]);
+    let near = Infinity;
+    for (let k = 0; k <= 200; k++) {
+      const t = k / 200;
+      const p: V = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+      for (const [u, v, r] of tubes) {
+        const d: V = [v[0] - u[0], v[1] - u[1], v[2] - u[2]];
+        const l2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+        const s = Math.max(0, Math.min(1, ((p[0] - u[0]) * d[0] + (p[1] - u[1]) * d[1] + (p[2] - u[2]) * d[2]) / l2));
+        near = Math.min(near, dist(p, [u[0] + d[0] * s, u[1] + d[1] * s, u[2] + d[2] * s]) - r);
+      }
+    }
+    return near;
+  };
+  /** The body's field along the segment from a to b, short of its last `stop` metres (the thing looked at), at its lowest. */
+  const bodyClearance = (a: V, b: V, stop: number): number => {
+    const L = dist(a, b);
+    let low = Infinity;
+    for (let k = 0; k <= 200; k++) {
+      const t = (k / 200) * (1 - stop / L);
+      low = Math.min(low, bp.body(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t));
+    }
+    return low;
+  };
+
+  it("holds an F1 yoke 28 cm across, its display and its fifteen shift lights live parts of their own, the driver's hands on its grips", () => {
+    const w = verts(inside.wheel);
+    const display = w.filter((v) => v.part === IPART.wheelDisplay);
+    const lights = w.filter((v) => v.part === IPART.shiftLights);
+    expect(display.length).toBeGreaterThan(0);
+    // (the display's corners are where the shader draws it from: YOKE)
+    for (const v of display) {
+      expect(Math.abs(v.p[0] - YOKE.display.x)).toBeLessThanOrEqual(YOKE.display.hw + 1e-6);
+      expect(Math.abs(v.p[1] - YOKE.display.y)).toBeLessThanOrEqual(YOKE.display.hh + 1e-6);
+    }
+    // fifteen lights, each where the shader's count puts it
+    const slot = (x: number): number => Math.round((x - YOKE.lights.x0) / YOKE.lights.step);
+    expect([...new Set(lights.map((v) => slot(v.p[0])))].sort((a, b) => a - b)).toEqual(Array.from({ length: YOKE.lights.n }, (_, i) => i));
+    for (const v of lights) expect(Math.abs(v.p[0] - YOKE.lights.x0 - slot(v.p[0]) * YOKE.lights.step)).toBeLessThan(0.004);
+    // the wheel (its gloves aside) is 28 cm across and 16 cm tall; no other car has these parts
+    const bare = w.filter((v) => v.part !== IPART.glove);
+    const span = (k: 0 | 1): number => Math.max(...bare.map((v) => v.p[k])) - Math.min(...bare.map((v) => v.p[k]));
+    expect(span(0)).toBeGreaterThan(0.26);
+    expect(span(0)).toBeLessThan(0.3);
+    expect(span(1)).toBeLessThan(0.18);
+    for (const c of CARS.filter((c) => c.visual.style !== 'formula')) {
+      expect(verts(makeInterior(c.visual, 'low').wheel).some((v) => v.part === IPART.wheelDisplay || v.part === IPART.shiftLights), c.id).toBe(false);
+    }
+    // the driver's hands (seen from outside, on the T-camera) are on the grips, where the wheel's own gloves are
+    const gloves = verts(inside.driver).filter((v) => v.part === IPART.glove);
+    for (const sg of [1, -1]) {
+      const g = gloves.filter((v) => Math.sign(v.p[0]) === sg);
+      expect(g.length).toBeGreaterThan(5);
+      const mx = g.reduce((s, v) => s + Math.abs(v.p[0]), 0) / g.length;
+      expect(Math.abs(mx - YOKE.gripX)).toBeLessThan(0.03);
+    }
+  });
+
+  it("shows the driver the display, the shift lights and both mirrors past the cockpit's rim, the halo and its pillar", () => {
+    for (const [name, p] of [['display', onWheel([YOKE.display.x, YOKE.display.y, 0.014])], ['lights', onWheel([0, YOKE.lights.y, 0.015])]] as Array<[string, V]>) {
+      expect(bodyClearance(eye, p, 0.02), name).toBeGreaterThan(0);
+      expect(haloClearance(eye, p), name).toBeGreaterThan(0.02);
+      // in the default cockpit view (+-36 degrees up and down)
+      expect(Math.atan2(p[1] - eye[1], p[2] - eye[2]), name).toBeGreaterThan(-34 * (Math.PI / 180));
+    }
+    const L = mirrorLayout(spec);
+    for (const m of [L.left, L.right]) {
+      expect(bodyClearance(eye, m.pos, 0.02)).toBeGreaterThan(0.01);
+      expect(haloClearance(eye, m.pos)).toBeGreaterThan(0.02);
+    }
+  });
+
+  it("keeps its cabin in the tub: inside the chassis, or in the cockpit's opening under the helmet's centre (the headrest on the rim)", () => {
+    const base = bp.debug!.base;
+    const well = bp.debug!.well;
+    let out = 0;
+    for (const v of verts(inside.cabin)) {
+      const [x, y, z] = v.p;
+      if (base(x, y, z) < 0.005) continue;
+      if (well(x, 0.6, z) < 0 && y < inside.head[1]) continue;
+      out++;
+    }
+    expect(out).toBe(0);
+    // and no cluster: the display is the yoke's (no cabin vertex is on the cluster's face)
+    for (let o = 0; o < inside.cabin.vertices.length; o += VERTEX_STRIDE) expect(inside.cabin.vertices[o + 6 + 1]).toBe(1);
+  });
+
+  it("draws the helmet as a zone, its rim round the neck cut smooth, on the single-seater's driver only", () => {
+    const d = verts(inside.driver);
+    expect(d.some((v) => v.part === IPART.helmet)).toBe(false);
+    const helmet = d.filter((v) => v.z14 < 0);
+    expect(helmet.length).toBeGreaterThan(100);
+    for (const v of helmet) {
+      expect(dist(v.p, inside.head)).toBeLessThan(0.2);
+      // (its rim is level, 12.5 cm under the helmet's centre)
+      expect(v.p[1]).toBeGreaterThan(inside.head[1] - 0.126);
+    }
+    for (const c of CARS.filter((c) => c.visual.style !== 'formula')) {
+      const o = verts(makeInterior(c.visual, 'low').driver);
+      expect(o.every((v) => v.z14 === 1), c.id).toBe(true);
+      expect(o.some((v) => v.part === IPART.helmet), c.id).toBe(true);
+    }
+  });
+
+  it('films it from clear of the body: the T-camera over the airbox, the nose camera ahead of the front axle, the look back from behind the T-camera', () => {
+    // the T-camera's pod on the roll hoop (formulaParts.ts), and the look back's camera, 14 cm over the chase anchor (render/cameraRig.ts)
+    const pod: V = [0, spec.height + 0.02, eye[2] - 0.05 - 0.52];
+    const back: V = [lay.chase[0], lay.chase[1] + 0.14, lay.chase[2]];
+    expect(lay.hood[1]).toBeGreaterThan(topY(bp.body, 0, lay.hood[2]) + 0.06);
+    expect(bp.body(...lay.hood)).toBeGreaterThan(0.06);
+    expect(lay.bumper[2]).toBeGreaterThan(spec.wheelbase / 2 + 0.3);
+    // (the bumper camera's near plane is 12 cm: nothing of the nose that close in front of it)
+    expect(bp.body(...lay.bumper)).toBeGreaterThan(0.09);
+    expect(bp.body(lay.bumper[0], lay.bumper[1], lay.bumper[2] + 0.12)).toBeGreaterThan(0.09);
+    expect(bp.body(...back)).toBeGreaterThan(0.12);
+    expect(back[2]).toBeLessThan(pod[2] - 0.05 - 0.04);
+    // the chase anchor is also the roof the cameras size the car by
+    expect(lay.chase[1]).toBe(spec.height);
+    // the eye: in the cockpit, under the halo (the halo's test above), clear of the body
+    expect(bp.body(...eye)).toBeGreaterThan(0.08);
+  });
+
+  it("draws the halo's pillar faint in the cockpit view: a see-through copy over the body, which leaves the pillar out meanwhile", () => {
+    const U = createBodyUniforms();
+    const m = createPillarMaterial(U, 0.35);
+    expect(m.transparent).toBe(true);
+    expect(m.opacity).toBe(0.35);
+    expect(m.depthWrite).toBe(false);
+    const shader = {
+      uniforms: {} as Record<string, { value: unknown }>,
+      vertexShader: '#include <common>\n#include <beginnormal_vertex>\n#include <begin_vertex>',
+      fragmentShader:
+        '#include <common>\n#include <color_fragment>\n#include <roughnessmap_fragment>\n#include <metalnessmap_fragment>\n#include <normal_fragment_maps>\n#include <emissivemap_fragment>\n#include <lights_physical_fragment>\n#include <aomap_fragment>',
+    };
+    m.onBeforeCompile(shader as never, null as never);
+    // the copy shares the car's uniforms (dents, livery, wet) but never leaves the pillar out; the body's switch starts off
+    expect(shader.uniforms.uPrimary).toBe(U.uPrimary);
+    expect(shader.uniforms.uPillarGhost).not.toBe(U.uPillarGhost);
+    expect(shader.uniforms.uPillarGhost.value).toBe(0);
+    expect(U.uPillarGhost.value).toBe(0);
+    expect(shader.fragmentShader).toContain('if (uPillarGhost > 0.5 && zPart == 16 && vZ3.z < 0.0) discard;');
+  });
 });
