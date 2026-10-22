@@ -205,10 +205,23 @@ describe('control vector', () => {
     expect(v[CTL.LIMITER]).toBe(1);
     expect(v[CTL.SHIFT_COUNT]).toBe(70000 % 65536); // counters are wrapped so Float32 stays exact
     expect(v[CTL.DRIVE_OMEGA]).toBeCloseTo(100, 4);
+    // the nitro: 0 while none burns (a state without the field too), the level of the shot while one does, and nothing beyond 0..1
+    expect(v[CTL.NITRO]).toBe(0);
+    st.nitro = 0.75;
+    writeEngineControls(v, st);
+    expect(v[CTL.NITRO]).toBe(0.75);
+    const inp = defaultEngineInputs();
+    readEngineInputs(v, inp);
+    expect(inp.nitro).toBe(0.75);
+    st.nitro = 3;
+    writeEngineControls(v, st);
+    expect(v[CTL.NITRO]).toBe(1);
+    st.nitro = undefined;
     st.throttle = 0;
     st.engineLoad = 0;
     writeEngineControls(v, st);
     expect(v[CTL.LOAD]).toBe(0);
+    expect(v[CTL.NITRO]).toBe(0);
   });
 
   it('non-finite physics values never reach the DSP', () => {

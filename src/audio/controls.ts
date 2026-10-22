@@ -56,9 +56,11 @@ export const CTL = {
   SURF_ICE: 62,
   /** The driver's throttle pedal (the throttle body follows it; -1 = not known). */
   PEDAL: 63,
+  /** Nitro burning now, 0..1 (VehicleState.nitro): only a voice with an electric motor (EngineSoundProfile.electric) hears it. */
+  NITRO: 64,
 } as const;
 
-export const CTL_LEN = 64;
+export const CTL_LEN = 65;
 export const TIRE_STRIDE = 4;
 
 export function makeControlVector(): Float32Array {
@@ -100,6 +102,7 @@ export function writeEngineControls(v: Float32Array, st: VehicleState): void {
   v[CTL.REDLINE_RPM] = fin(st.redlineRpm, 6800);
   v[CTL.SPEED] = fin(st.speed, 0);
   v[CTL.GEAR] = fin(st.gear, 1);
+  v[CTL.NITRO] = Math.min(Math.max(fin(st.nitro ?? 0, 0), 0), 1);
   const w = st.wheels;
   v[CTL.DRIVE_OMEGA] = (Math.abs(w[0].omega) + Math.abs(w[1].omega) + Math.abs(w[2].omega) + Math.abs(w[3].omega)) * 0.25;
 }
@@ -126,4 +129,5 @@ export function readEngineInputs(v: Float32Array, o: EngineInputs): void {
   o.gear = fin(v[CTL.GEAR], 1);
   const pedal = fin(v[CTL.PEDAL], -1);
   o.pedal = pedal < 0 ? -1 : Math.min(pedal, 1);
+  o.nitro = Math.min(Math.max(fin(v[CTL.NITRO], 0), 0), 1);
 }

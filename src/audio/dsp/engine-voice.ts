@@ -77,6 +77,8 @@ export interface EngineInputs {
    * applied throttle stands in for it.
    */
   pedal: number;
+  /** Nitro burning now, 0..1: an electric motor's deployment (EngineSoundProfile.electric); every other engine ignores it. */
+  nitro: number;
 }
 
 export function defaultEngineInputs(): EngineInputs {
@@ -100,6 +102,7 @@ export function defaultEngineInputs(): EngineInputs {
     speed: 0,
     gear: 1,
     pedal: -1,
+    nitro: 0,
   };
 }
 
@@ -895,6 +898,7 @@ export class EngineVoice {
     I.boost = sane(I.boost, 0, 1.5, 0);
     I.clutch = sane(I.clutch, 0, 1, 0);
     I.pedal = sane(I.pedal, -1, 1, -1);
+    I.nitro = sane(I.nitro, 0, 1, 0);
     I.interior = sane(I.interior, 0, 1, 0);
     I.gain = sane(I.gain, 0, 4, 1);
     I.driveOmega = sane(I.driveOmega, -4000, 4000, 0);
