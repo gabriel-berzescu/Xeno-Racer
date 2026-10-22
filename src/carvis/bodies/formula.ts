@@ -157,9 +157,10 @@ export const makeFormula: BlueprintFactory = (s) => {
   // the cockpit opening: a rounded slot in plan, cut down to the seat
   const wellZ = sz + 0.09;
   const well = (ax: number, y: number, z: number): number => Math.max(sdRoundRect2(ax, z - wellZ, 0.205, 0.41, 0.12), 0.34 - y);
-  // the sidepods' letterbox inlets and the airbox's mouth
-  const inlet = (ax: number, y: number, z: number): number => sdRoundBox(ax - 0.385, y - 0.465 * hk, z - (podF + 0.04), 0.11, 0.06, 0.15, 0.045);
-  const mouth = (ax: number, y: number, z: number): number => sdRoundBox(ax, y - 0.835 * hk, z - (boxF + 0.03), 0.052, 0.058, 0.1, 0.03);
+  // the sidepods' letterbox inlets and the airbox's mouth, each cut at least two cells inside the skin round it (the pod's side and top,
+  // the airbox's sides and top): a thinner wall tore into shards at the lip
+  const inlet = (ax: number, y: number, z: number): number => sdRoundBox(ax - 0.36, y - 0.46 * hk, z - (podF + 0.04), 0.075, 0.054, 0.15, 0.04);
+  const mouth = (ax: number, y: number, z: number): number => sdRoundBox(ax, y - 0.81 * hk, z - (boxF + 0.03), 0.032, 0.05, 0.1, 0.028);
 
   const base = (ax: number, y: number, z: number): number => {
     let d = smin(sdLoft(tub, ax, y, z), sdLoft(snout, ax, y, z), 0.04);
