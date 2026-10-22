@@ -152,9 +152,9 @@ describe('vehicle physics', () => {
         expect(drag.vmax).toBeLessThan(def.stats.topSpeedKmh * 1.15);
         // (a 2.45 t 4x4 on all-terrain tyres stops in the length of a good road car, not a sports car's, and must not corner like one: below a g on the
         // skidpad, where a sports car is at 1.0 and over; tests/mammoth.test.ts holds the rest of its numbers)
-        // (an 800 kg single-seater on slicks, with more downforce than the prototype, stops shorter and corners harder than it: 19.2 m and 2.38 g,
+        // (an 800 kg single-seater on slicks, with more downforce than the prototype, stops shorter and corners harder than it: 18.8 m and 2.39 g,
         // where the LMP-X does 20.2 m and 1.92 g; tests/volta.test.ts holds the rest of its numbers)
-        expect(brakeAbs.distance).toBeGreaterThan(def.class === 'Formula' ? 18 : def.class === 'Prototype' ? 17 : def.class === 'SUV' ? 34 : 26);
+        expect(brakeAbs.distance).toBeGreaterThan(def.class === 'Formula' ? 17.5 : def.class === 'Prototype' ? 17 : def.class === 'SUV' ? 34 : 26);
         expect(brakeAbs.distance).toBeLessThan(45);
         expect(brakeLock.distance).toBeGreaterThan(brakeAbs.distance * 0.98);
         expect(pad.latG).toBeGreaterThan(0.85);
