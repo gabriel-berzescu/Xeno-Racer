@@ -22,7 +22,15 @@ import type {
 } from '../core/contracts';
 import { cloneEffects, isNeutral, type MechEffects } from '../core/mechanical';
 import { NITRO_POWER, NITRO_THRUST_G } from '../core/nitro';
-import { STRAIGHT_MODE_CLOSE_TIME, STRAIGHT_MODE_LAT, STRAIGHT_MODE_OPEN_TIME, STRAIGHT_MODE_SPEED, STRAIGHT_MODE_THROTTLE } from './aero';
+import {
+  STRAIGHT_MODE_CLOSE_TIME,
+  STRAIGHT_MODE_LAT,
+  STRAIGHT_MODE_LAT_HOLD,
+  STRAIGHT_MODE_LIFT,
+  STRAIGHT_MODE_OPEN_TIME,
+  STRAIGHT_MODE_SPEED,
+  STRAIGHT_MODE_THROTTLE,
+} from './aero';
 import { RADS_TO_RPM, RPM_TO_RADS, electricPower, peakTorque, torqueAt } from './engine';
 import type { AeroSpec, DifferentialSpec, EngineSpec, SuspensionSpec, TireSpec, VehicleSpec } from './spec';
 import { tireSurfaces, wetGripFactor, type SurfaceProps } from './surfaces';
@@ -631,10 +639,13 @@ export class Vehicle {
     if (this.straightMode) {
       const st = this.state;
       const v = st.forwardSpeed;
-      // (the lateral acceleration the steering asks for: the road-wheel angle of a car that follows its front wheels)
-      const asked = (v * v * Math.abs(this.steerAngle)) / this.spec.chassis.wheelbase;
-      const flatOut = c.throttle >= STRAIGHT_MODE_THROTTLE && !(c.brake > 0) && !this.holdOnGrid && this.gear >= 1;
-      const straight = v >= STRAIGHT_MODE_SPEED && !st.airborne && Math.abs(st.localAccel.x) < STRAIGHT_MODE_LAT && asked < STRAIGHT_MODE_LAT;
+      // (open flaps stay so through a part-lift and a gentle bend)
+      const open = this.aeroTarget > 0;
+      const latMax = open ? STRAIGHT_MODE_LAT_HOLD : STRAIGHT_MODE_LAT;
+      // (the lateral acceleration the steering asks for: the yaw rate the stability control takes the road-wheel angle to ask for, times the speed)
+      const asked = (v * v * Math.abs(this.steerAngle)) / (this.spec.chassis.wheelbase + 0.0022 * v * v);
+      const flatOut = c.throttle >= (open ? STRAIGHT_MODE_LIFT : STRAIGHT_MODE_THROTTLE) && !(c.brake > 0) && !this.holdOnGrid && this.gear >= 1;
+      const straight = v >= STRAIGHT_MODE_SPEED && !st.airborne && Math.abs(st.localAccel.x) < latMax && asked < latMax;
       this.aeroTarget = flatOut && straight ? 1 : 0;
     }
   }

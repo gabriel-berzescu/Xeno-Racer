@@ -1,7 +1,8 @@
 /**
  * The Volta's own mechanisms, each behind a field of the car's data that no other car has, held to what they promise:
  *   - active aero (AeroSpec.straightMode, src/physics/aero.ts): the flaps open over 0.4 s on a straight taken flat out above 150 km/h and
- *     close within 0.25 s on a lift, the brakes or a turn of the wheel; in straight mode the car has less drag and less downforce, the
+ *     close within 0.25 s on a lift, the brakes or a turn of the wheel (and not on a part-lift or in a gentle bend); in straight mode the
+ *     car has less drag and less downforce, the
  *     damage still takes its share of what is left, and a replay shows where the flaps stood. A car with fixed wings has no flaps at all;
  *   - the electric nitro (EngineSpec.electric): a shot deploys the MGU-K, whose power follows the 2026 rule (350 kW to 290 km/h, then
  *     1800 - 5 v kW, nothing from 345 km/h) through the gearbox, with no push from a bottle and no extra engine torque; the clutch holds it,
@@ -96,11 +97,12 @@ describe('active aero: the Volta opens its wings on the straights', () => {
 
   it('closes within 0.25 s on a lift, the brakes or a turn of the wheel', () => {
     const cases: [string, (c: ReturnType<typeof flatOut>['car']) => void][] = [
-      ['a lift to 90 %', (c) => (c.controls.throttle = 0.9)],
+      ['a lift to 70 %', (c) => (c.controls.throttle = 0.7)],
       ['a lift', (c) => (c.controls.throttle = 0)],
       ['a touch of the brakes, still flat out', (c) => (c.controls.brake = 0.1)],
       ['the brakes', (c) => ((c.controls.throttle = 0), (c.controls.brake = 1))],
-      ['a turn of the wheel, still flat out', (c) => (c.controls.steer = 0.05)],
+      // (2.4 degrees at the road wheel: a corner of 1.5 g at 250 km/h)
+      ['a turn of the wheel, still flat out', (c) => (c.controls.steer = 0.1)],
     ];
     for (const [name, act] of cases) {
       const { world, car } = flatOut(250, 1);
@@ -109,6 +111,22 @@ describe('active aero: the Volta opens its wings on the straights', () => {
       const t = timeToClose(world, car);
       expect(t, name).toBeLessThan(0.25);
       expect(t, name).toBeGreaterThan(0.15);
+    }
+  });
+
+  it('stays open through a part-lift and a gentle bend, so a driver holding a speed does not have them flapping', () => {
+    const cases: [string, (c: ReturnType<typeof flatOut>['car']) => void][] = [
+      ['easing to 85 %', (c) => (c.controls.throttle = 0.85)],
+      // (0.24 degrees: a bend of a fifth of a g at 250 km/h, which the bare v^2 δ / L would take for one of 0.7 g)
+      ['a bend', (c) => (c.controls.steer = 0.01)],
+    ];
+    for (const [name, act] of cases) {
+      const { world, car } = flatOut(250, 1);
+      act(car);
+      for (let i = 0; i < 60; i++) {
+        world.step(DT);
+        expect(car.state.aeroOpen, name).toBe(1);
+      }
     }
   });
 
