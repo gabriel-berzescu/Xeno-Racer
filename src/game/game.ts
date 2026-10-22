@@ -935,7 +935,8 @@ export class Game {
       spec.camera = d.rig.camera;
       spec.focus = d.car.vehicle.state.position;
       spec.speed = d.car.vehicle.state.speed;
-      spec.cockpit = d.rig.mode === 'cockpit';
+      // (an open cockpit has no windscreen: the rain beads on the lens, as on the hood camera's, and there is no wiper to draw or hear)
+      spec.cockpit = d.rig.mode === 'cockpit' && !d.car.def.visual.openCockpit;
     }
     specs.length = drivers.length;
     return specs;
@@ -1612,7 +1613,8 @@ export class Game {
     const pv = player.vehicle;
     const xr = this.render as XenoRenderSystem;
     player.visual.setCockpitView(this.camera.mode === 'cockpit');
-    xr.setCockpitView(this.camera.mode === 'cockpit');
+    // (an open cockpit has no windscreen: the rain beads on the lens, as on the hood camera's, and there is no wiper to draw or hear)
+    xr.setCockpitView(this.camera.mode === 'cockpit' && !player.def.visual.openCockpit);
     this.effects?.update(dt, this.world!.states, this.camera.camera);
     this.camera.update(dt, { state: pv.state, anchors: player.visual.anchors }, { x: input.lookX, y: input.lookY, back: input.lookBack });
     this.render.setFocus(pv.state.position);
