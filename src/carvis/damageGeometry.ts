@@ -91,8 +91,12 @@ function lampCentroid(vertices: Float32Array, count: number, field: number, side
   return { c, r: Math.max(0.08, r) };
 }
 
-/** Lamps in the order the model expects: headL, headR, tailL, tailR. A missing one falls back to a spot on the nose or tail. */
-export function findLamps(vertices: Float32Array, count: number, spec: CarVisualSpec): LampSpot[] {
+/**
+ * Lamps in the order the model expects: headL, headR, tailL, tailR. A missing one falls back to a spot on the nose or tail. A body whose
+ * lamps are parts the mesh scan cannot see (the single-seater's) names them itself (`given`, BlueprintInfo.lamps).
+ */
+export function findLamps(vertices: Float32Array, count: number, spec: CarVisualSpec, given?: ReadonlyArray<{ c: readonly number[]; r: number }>): LampSpot[] {
+  if (given) return given.map((l) => ({ c: [l.c[0], l.c[1], l.c[2]], r: l.r }));
   const zNose = spec.wheelbase / 2 + spec.frontOverhang;
   const zTail = -(spec.length - spec.wheelbase / 2 - spec.frontOverhang);
   const fallback = (side: number, z: number, y: number): LampSpot => ({ c: [side * (spec.width / 2 - 0.3), y, z], r: 0.2 });
@@ -226,7 +230,7 @@ export function makeDamageGeometry(body: BodyData, spec: CarVisualSpec): DamageG
     surfacePoint: (p, n) => bodySurfacePoint(body.vertices, count, p, n, band),
     glassPoints: (p, d) => glassPointsOf((glass ??= findGlass(body.vertices, count)), p, d),
     get lamps(): readonly LampSpot[] {
-      return (lamps ??= findLamps(body.vertices, count, spec));
+      return (lamps ??= findLamps(body.vertices, count, spec, body.info?.lamps));
     },
   };
 }

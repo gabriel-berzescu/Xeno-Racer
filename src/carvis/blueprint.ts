@@ -35,6 +35,16 @@ export const PART = {
   rugged: 14,
   /** the livery's accent colour on hardware that must not crumple in a crash (tow hooks, the spare's ring, the badge's X): satin, not clearcoat */
   signal: 15,
+  /**
+   * the single-seater's halo: titanium under the livery's paint, so it takes the livery like the body but never crumples; its central
+   * pillar is flagged with zone channel 14 < 0 (the cockpit view can tell it from the hoop)
+   */
+  halo: 16,
+  /**
+   * a red LED lens (the single-seater's rear-wing endplate lights): lit as a rear light with the tail lamps, pulsing while the electric
+   * boost deploys, dark when the tail lamp of its side is broken
+   */
+  ledRed: 17,
   // wheel parts (wheel shader)
   tire: 20,
   rimFace: 22,
@@ -57,15 +67,42 @@ export interface Blueprint {
   zones(x: number, y: number, z: number, nx: number, ny: number, nz: number, out: Float32Array, o: number): void;
   /** Static, non-SDF geometry (wings, splitters, mirrors, exhaust tips…). */
   parts?(b: PartBuilder): void;
+  /**
+   * What the far LOD keeps of the parts (absent: nothing): a few coarse pieces that hold the silhouette when the car is a speck and in
+   * the shadow it casts (the single-seater's wings, halo and helmet). Their baked colour is the livery's for PART.body and PART.halo,
+   * dark for everything else.
+   */
+  farParts?(b: PartBuilder): void;
+  /** Parts that move with the car's state, each drawn as a mesh of its own (absent: none). */
+  moving?: MovingPart[];
   /** Numbers the main thread needs that were measured on the sculpted surface. */
   info?: BlueprintInfo;
   /** Named sub-fields for tests / debugging only. */
   debug?: Record<string, FieldFn>;
 }
 
+/**
+ * A part posed every frame by a hinge (the active aero's wing flaps): built like the static parts, in the body frame as it stands at
+ * rest, and turned about `axis` through `pivot` by `angle` rad times what drives it (`aero`: VehicleState.aeroOpen, 0 corner mode ..
+ * 1 straight mode).
+ */
+export interface MovingPart {
+  name: string;
+  drive: 'aero';
+  pivot: [number, number, number];
+  axis: [number, number, number];
+  angle: number;
+  build(b: PartBuilder): void;
+}
+
 export interface BlueprintInfo {
   /** headlight projector sphere: |x|, y, z, radius */
   projector: [number, number, number, number];
+  /**
+   * Where the four lamps are when they are not sculpted zones the damage model can find on the body (absent: found on the mesh):
+   * headL, headR, tailL, tailR, each a centre and a radius.
+   */
+  lamps?: Array<{ c: [number, number, number]; r: number }>;
 }
 
 export type BlueprintFactory = (spec: CarVisualSpec) => Blueprint;
