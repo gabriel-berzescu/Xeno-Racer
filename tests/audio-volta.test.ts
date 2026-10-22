@@ -585,7 +585,7 @@ describe('the open cockpit: the driver hears the car through a helmet, not a clo
     }
   });
 
-  it('the sound of an open car hears its cockpit views from the car, and the rain drums on no roof: interior 1, under a roof 0', () => {
+  it('the sound of an open car hears its cockpit views from the car (interior 1) under no roof (cabin 0: the rain ambience hears the open air, tests/audio-split.test.ts)', () => {
     const host = {
       ctx: { sampleRate: SR },
       workletReady: false,
