@@ -7,7 +7,7 @@ import { haloPath } from '../src/carvis/bodies/formulaParts';
 import { makePrototype } from '../src/carvis/bodies/prototype';
 import { sideX, topY } from '../src/carvis/bodies/probe';
 import { buildCarData, VERTEX_STRIDE, type CarData } from '../src/carvis/build';
-import { poseMoving } from '../src/carvis/car';
+import { poseMoving, steeringLock } from '../src/carvis/car';
 import { makeDamageGeometry } from '../src/carvis/damageGeometry';
 import { IPART, makeInterior, YOKE } from '../src/carvis/interior';
 import { computeLayout, eyePoint, formulaPoints, wheelLook } from '../src/carvis/layouts';
@@ -486,6 +486,21 @@ describe('Volta cockpit', () => {
       expect(g.length).toBeGreaterThan(5);
       const mx = g.reduce((s, v) => s + Math.abs(v.p[0]), 0) / g.length;
       expect(Math.abs(mx - YOKE.gripX)).toBeLessThan(0.03);
+    }
+  });
+
+  it('turns its yoke to the lock either way (120 degrees) with its grips and gloves clear of the chassis', () => {
+    const lock = steeringLock(volta);
+    expect(lock).toBeCloseTo((120 * Math.PI) / 180, 2);
+    const w = inside.wheel.vertices;
+    for (const a of [-lock, -lock / 2, 0, lock / 2, lock]) {
+      let into = 0;
+      for (let o = 0; o < w.length; o += VERTEX_STRIDE) {
+        const x = w[o] * Math.cos(a) - w[o + 1] * Math.sin(a);
+        const y = w[o] * Math.sin(a) + w[o + 1] * Math.cos(a);
+        if (bp.body(...onWheel([x, y, w[o + 2]])) < -0.001) into++;
+      }
+      expect(into, `turned ${a.toFixed(2)} rad`).toBe(0);
     }
   });
 

@@ -168,9 +168,10 @@ function styleFor(style: BodyStyle): IStyle {
       };
     case 'formula':
       // the single-seater: lying back in a narrow tub, the back 60 degrees from upright (the shoulders under the helmet, below the
-      // cockpit's rim), no cage (the roll hoop and the halo are the body's), the yoke over the thighs; the cabin box reaches from behind
-      // the headrest to the footwell (cowlZ: the front bulkhead)
-      return { twoSeats: false, rearBench: false, cage: false, doorCards: false, bucket: true, seatTilt: 1.05, cowlZ: 1.2, cowlY: 0.6, floorY: 0.08, ...LOW_CABIN, wheelUp: 0.33, wheelFwd: 0.05, wheelTilt: 0.4, halfW: 0.24, top: 0.82 };
+      // cockpit's rim), no cage (the roll hoop and the halo are the body's), the yoke right over the hips, 8 cm inside the front end of
+      // the cockpit's opening (5 cm further on, its gloves were in the opening's rounded corners, and its grips went into the chassis as
+      // it turned); the cabin box reaches from behind the headrest to the footwell (cowlZ: the front bulkhead)
+      return { twoSeats: false, rearBench: false, cage: false, doorCards: false, bucket: true, seatTilt: 1.05, cowlZ: 1.2, cowlY: 0.6, floorY: 0.08, ...LOW_CABIN, wheelUp: 0.33, wheelFwd: 0, wheelTilt: 0.4, halfW: 0.24, top: 0.82 };
     default:
       return { twoSeats: false, rearBench: false, cage: true, doorCards: false, bucket: true, seatTilt: 0.62, cowlZ: 0.9, cowlY: 0.64, floorY: 0.14, ...LOW_CABIN, wheelUp: 0.34, wheelFwd: 0.6, wheelTilt: 0.9 };
   }

@@ -276,6 +276,16 @@ export function poseMoving(m: Pick<MovingPartData, 'pivot' | 'axis' | 'angle'>, 
   return out.compose(_mt, _mq, ONE);
 }
 
+/**
+ * How far the steering wheel turns each way at full lock (rad): the front wheels' lock times the steering ratio of the body style, at most
+ * one and a quarter turns. (The single-seater's yoke turns 120 degrees each way: hands on its grips never cross.)
+ */
+export function steeringLock(def: CarDefinition): number {
+  const style = def.visual.style;
+  const steerRatio = style === 'prototype' ? 7 : style === 'coupe' ? 12.5 : style === 'suv' ? 15 : style === 'formula' ? 5 : 13;
+  return Math.min(Math.PI * 2.5, def.physics.chassis.maxSteer * steerRatio);
+}
+
 export async function createCarVisual(def: CarDefinition, livery: Livery, quality: QualityLevel): Promise<CarVisual> {
   const spec = def.visual;
   const dbgCell = (globalThis as { __CARVIS_CELL__?: number }).__CARVIS_CELL__;
@@ -401,9 +411,7 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
   const qBase = new Quaternion().setFromAxisAngle(AX_X, tiltAng).multiply(new Quaternion().setFromAxisAngle(AX_Y, Math.PI));
   steerGroup.quaternion.copy(qBase);
   steerGroup.add(steerMesh);
-  // (the single-seater's yoke turns 120 degrees each way: hands on its grips never cross)
-  const steerRatio = spec.style === 'prototype' ? 7 : spec.style === 'coupe' ? 12.5 : spec.style === 'suv' ? 15 : spec.style === 'formula' ? 5 : 13;
-  const steerLock = Math.min(Math.PI * 2.5, def.physics.chassis.maxSteer * steerRatio);
+  const steerLock = steeringLock(def);
   const qSteer = new Quaternion();
 
   // ── assemble levels ────────────────────────────────────────────────────────
