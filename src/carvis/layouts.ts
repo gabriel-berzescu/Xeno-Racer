@@ -118,15 +118,19 @@ export function computeLayout(s: CarVisualSpec): CarLayout {
   };
   if (style === 'formula') {
     // the single-seater: the roundel on the sidepod's flank, the number on the nose behind its step, a split at its sidepods' height;
-    // the hood camera is the T-camera over the airbox, the bumper camera a nose camera 10 cm over the nose's lower stage, the headlamp spots are
-    // its two LED lamps in the nose, starting at the nose's tip (formulaPoints)
+    // the hood camera is the T-camera over the airbox; the bumper camera a nose camera 70 cm ahead of the front axle, just past the
+    // nose's step and 12 cm over its lower stage, which runs on to its tip in the bottom of the picture; the chase anchor (where the look
+    // back from the hood, the bumper and the centre seat is filmed, and the roof the cameras size the car by) on the airbox behind the
+    // T-camera, which would fill the bottom of that picture from in front of it; the headlamp spots are its two LED lamps in the nose,
+    // starting at the nose's tip (formulaPoints)
     const p = formulaPoints(s);
     lay.door = { z: eye[2] - 0.6, y: 0.37 * (s.height / 0.95), r: 0.11 };
     lay.hood = { z: zF + 0.3, r: 0.072 };
     lay.belt = 0.5;
     lay.trueRound = true;
     layout.hood = [0, s.height + 0.08, eye[2] - 0.5];
-    layout.bumper = [0, 0.4 * (s.height / 0.95), zNose - 0.22];
+    layout.bumper = [0, 0.45 * (s.height / 0.95), zF + 0.7];
+    layout.chase = [0, s.height, eye[2] - 0.72];
     layout.headlight = [p.beam[0], p.beam[1], p.beam[2]];
     layout.taillight = [p.rainLight[0], p.rainLight[1], p.rainLight[2]];
   }
