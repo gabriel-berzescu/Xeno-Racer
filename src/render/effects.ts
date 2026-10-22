@@ -110,6 +110,8 @@ interface CarFx {
   backfireSeen: number;
   /** Nitro flames owed (a fraction carried over between frames). */
   nitroAcc: number;
+  /** The boost is electric (EngineSpec.electric): a shot burns nothing in the exhaust, so no flame. */
+  electric: boolean;
   slot: number;
   first: boolean;
 }
@@ -339,8 +341,11 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
   function buildTips(def: CarDefinition): ExhaustTip[] {
     const v = def.visual;
     const tips: ExhaustTip[] = [];
-    const zr = -(v.length - v.frontOverhang - v.wheelbase / 2) + 0.03;
-    const y = v.style === 'prototype' ? v.height * 0.5 : v.rideHeight + 0.2;
+    // (the single-seater's one tailpipe stands over its crash structure, under the rear wing, 41 cm over the floor and half a metre
+    // behind the rear axle: carvis/layouts.ts formulaPoints puts the pipe there)
+    const formula = v.style === 'formula';
+    const zr = formula ? -v.wheelbase / 2 - 0.5 : -(v.length - v.frontOverhang - v.wheelbase / 2) + 0.03;
+    const y = v.style === 'prototype' ? v.height * 0.5 : formula ? v.rideHeight + 0.41 : v.rideHeight + 0.2;
     const { count, side } = v.exhaust;
     const back = (x: number, z: number, dx = 0, dz = -1): void => {
       const l = Math.hypot(dx, 0.06, dz);
@@ -1016,7 +1021,7 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
       backfire(rec, s);
     }
     const nitro = s.nitro ?? 0;
-    if (nitro > 0.05) nitroFlames(rec, s, nitro, dt);
+    if (nitro > 0.05 && !rec.electric) nitroFlames(rec, s, nitro, dt);
     else rec.nitroAcc = 0;
 
     updateBlob(rec, s);
@@ -1107,12 +1112,24 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
       const lamps = rec.damage?.lamps;
       const headOut = lamps ? 0.5 * (lamps[0] + lamps[1]) : 1;
       const tailOut = lamps ? 0.5 * (lamps[2] + lamps[3]) : 1;
+      // (the single-seater's lamps: two LEDs low in its nose, their beams from its tip, and a rain light on the tip of its crash structure;
+      // carvis/layouts.ts formulaPoints)
+      const formula = v.style === 'formula';
+      const hk = v.height / 0.95;
       if (head * headOut > 0.02) {
-        _v2.set(0, 0.62, zNose - 0.3).applyQuaternion(q);
+        if (formula) _v2.set(0, 0.405 * hk, zNose + 0.02).applyQuaternion(q);
+        else _v2.set(0, 0.62, zNose - 0.3).applyQuaternion(q);
         const k = 1.1 * head * headOut;
         lights.add(ox + _v2.x, oy + _v2.y, oz + _v2.z, 48, k, k * 0.93, k * 0.8, fx, fy, fz, 0.82, 0.14);
         // the beam itself: rain makes it a hazy cone
         if (beams && rainK > 0.02) beams.add(ox + _v2.x, oy + _v2.y, oz + _v2.z, fx, fy - 0.05, fz, 30, head * headOut * (0.006 + 0.02 * rainK) * hazeIn);
+      }
+      if (formula) {
+        // the rain light: steady once the road is wet or the night falls, never a brake light (carvis/car.ts lights its lens alike)
+        const rain = Math.max(head, clamp((Math.max(wetNow, 0.85 * rainK) - 0.08) / 0.22, 0, 1)) * 0.3 * tailOut;
+        _v2.set(0, 0.31 * hk, zTail).applyQuaternion(q);
+        if (rain > 0.01) lights.add(ox + _v2.x, oy + _v2.y, oz + _v2.z, 10, rain, rain * 0.06, rain * 0.04, -fx, -fy, -fz, 0.25, 0.4);
+        continue;
       }
       // tail lights: a dim red glow while the lamps are on, flaring on the brakes
       const tail = (0.1 * head + (s.brake > 0.05 ? 0.55 : 0)) * tailOut;
@@ -1165,6 +1182,7 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
         hasPrev: [false, false, false, false],
         impactSeen: 0,
         nitroAcc: 0,
+        electric: !!def.physics.engine.electric,
         backfireSeen: 0,
         slot: blobs.slotFor(id),
         first: true,
