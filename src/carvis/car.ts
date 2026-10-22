@@ -44,13 +44,14 @@ import type { CarVisual } from '../core/systems';
 import { VERTEX_STRIDE, type BodyData, type MovingPartData, type PartData } from './build';
 import { makeDamageGeometry, partBounds } from './damageGeometry';
 import { anyLampFlickers, packDamage, settleDentDepth } from './damageUniforms';
+import { PART } from './blueprint';
 import { loadCarData } from './dataSource';
 import { createInteriorMaterial } from './interiorMaterial';
 import { computeLayout, wheelLook } from './layouts';
 import { createMirrorRig, type MirrorRig } from './mirrors';
 import { paintLivery, type LiveryTextures, type LiveryTier } from './livery';
 import { acquireTireTextTexture } from './textures';
-import { createBodyMaterials, createFarMaterial, type BodyMaterials } from './materials';
+import { createBodyMaterials, createFarMaterial, createPillarMaterial, type BodyMaterials } from './materials';
 import { createWheelMaterial } from './wheelMaterial';
 
 /** Tunables the render/game side may want to adjust. */
@@ -81,6 +82,8 @@ interface GeoSet {
   steer: BufferGeometry;
   /** the parts that move with the car's state (the active aero's flaps), each with its hinge */
   moving: Array<{ geo: BufferGeometry; m: MovingPartData }>;
+  /** the halo's central pillar out of paint0 (null: the body has none), drawn faint in the cockpit view */
+  pillar: BufferGeometry | null;
   refs: number;
 }
 const geoCache = new Map<string, GeoSet>();
@@ -107,6 +110,24 @@ function bodyGeos(d: BodyData): { paint: BufferGeometry; glass: BufferGeometry }
     return g;
   };
   return { paint: mk(d.paintIndex), glass: mk(d.glassIndex) };
+}
+
+/** The paint triangles of the halo's central pillar (PART.halo, zone channel 14 < 0), over paint0's own vertices; null when there are none. */
+function pillarGeo(d: BodyData, paint: BufferGeometry): BufferGeometry | null {
+  const v = d.vertices;
+  const idx = d.paintIndex;
+  const out: number[] = [];
+  for (let t = 0; t < idx.length; t += 3) {
+    const o = idx[t] * VERTEX_STRIDE + 6;
+    if (Math.round(v[o + 13]) === PART.halo && v[o + 14] < 0) out.push(idx[t], idx[t + 1], idx[t + 2]);
+  }
+  if (out.length === 0) return null;
+  const g = new BufferGeometry();
+  for (const k of ['position', 'normal', 'aZ0', 'aZ1', 'aZ2', 'aZ3']) g.setAttribute(k, paint.getAttribute(k));
+  g.setIndex(new BufferAttribute(Uint32Array.from(out), 1));
+  g.boundingBox = paint.boundingBox;
+  g.boundingSphere = paint.boundingSphere;
+  return g;
 }
 
 function farGeo(d: BodyData): BufferGeometry {
@@ -166,6 +187,7 @@ function buildGeoSet(data: Awaited<ReturnType<typeof loadCarData>>): GeoSet {
     driverLite: partGeometry(data.interior.driverLite),
     steer: partGeometry(data.interior.wheel),
     moving: (data.moving ?? []).map((m) => ({ geo: movingGeometry(m.data, data.lod0), m })),
+    pillar: pillarGeo(data.lod0, b0.paint),
     refs: 0,
   };
 }
@@ -184,7 +206,7 @@ function movingGeometry(d: PartData, body: BodyData): BufferGeometry {
 
 function disposeGeoSet(s: GeoSet): void {
   const seen = new Set<BufferGeometry>();
-  for (const g of [s.paint0, s.glass0, s.paint1, s.glass1, s.far, ...s.wheel0, ...s.cal0, ...s.wheel1, ...s.cal1, s.cabin, s.driver, s.driverLite, s.steer, ...s.moving.map((m) => m.geo)]) {
+  for (const g of [s.paint0, s.glass0, s.paint1, s.glass1, s.far, ...s.wheel0, ...s.cal0, ...s.wheel1, ...s.cal1, s.cabin, s.driver, s.driverLite, s.steer, ...s.moving.map((m) => m.geo), ...(s.pillar ? [s.pillar] : [])]) {
     if (seen.has(g)) continue;
     seen.add(g);
     g.dispose();
@@ -391,6 +413,14 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
   const g0 = new Group();
   g0.name = 'lod0';
   g0.add(paint0, glass0, ...wheels0, ...cal0, cabinMesh, driverMesh, steerGroup);
+  // the halo's central pillar in the cockpit view: 35 % of itself, as a driver's two eyes see past it (the body leaves it out meanwhile)
+  const pillarMat = gs.pillar ? createPillarMaterial(U, 0.35) : null;
+  const pillar0 = gs.pillar && pillarMat ? mkStatic(gs.pillar, pillarMat, false) : null;
+  if (pillar0) {
+    pillar0.name = 'pillar';
+    pillar0.receiveShadow = false;
+    g0.add(pillar0);
+  }
 
   const paint1 = mkStatic(gs.paint1, mats.paint, true);
   const glass1 = mkStatic(gs.glass1, mats.glass, false);
@@ -598,6 +628,10 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
     shadowProxy.visible = !playerMode;
     proxyWheels.visible = !playerMode;
     driverMesh.visible = playerMode && !cockpitMode && !hideList.includes('driver');
+    if (pillar0) {
+      pillar0.visible = playerMode && cockpitMode && paint0.visible;
+      U.uPillarGhost.value = pillar0.visible ? 1 : 0;
+    }
     mirrorRig?.setCockpit(playerMode && cockpitMode);
     steerGroup.visible = playerMode && !hideList.includes('steer');
     for (const s of spots) s.visible = playerMode && spotsOn && beamsOn;
@@ -799,7 +833,7 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
       if (on && !mirrorRig) {
         mirrorRig = createMirrorRig(spec);
         // in a mirror the player's body is the coarse one (its wheels stay the full-detail ones: only they are posed in player mode)
-        mirrorRig.api.hide.push(cabinMesh, driverMesh, steerGroup, driverLiteMesh, ...wheels1, ...cal1);
+        mirrorRig.api.hide.push(cabinMesh, driverMesh, steerGroup, driverLiteMesh, ...wheels1, ...cal1, ...(pillar0 ? [pillar0] : []));
         mirrorRig.api.lowDetail.hide.push(paint0, glass0, ...moving.map((m) => m.near));
         mirrorRig.api.lowDetail.show.push(lodAI);
         g0.add(mirrorRig.group);
@@ -836,6 +870,7 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
       textures.dispose();
       wheelMat.material.dispose();
       interiorMat.material.dispose();
+      pillarMat?.dispose();
       farMat.dispose();
       proxyMat.dispose();
       farWheelMat.dispose();

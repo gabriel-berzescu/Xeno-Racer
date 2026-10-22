@@ -54,6 +54,11 @@ export interface BodyUniforms {
   uRev: IUniform<number>;
   /** 0..1: the electric boost's light, pulsing while it deploys (the single-seater's endplate LEDs, PART.ledRed); 0 on every other car */
   uErs: IUniform<number>;
+  /**
+   * 1: the halo's central pillar (PART.halo, zone channel 14 < 0) is left out of the body, because a faint copy of it is drawn instead
+   * (the cockpit view, createPillarMaterial); 0 on every other view and every other car
+   */
+  uPillarGhost: IUniform<number>;
   uInterior: IUniform<number>;
   uInteriorCarbon: IUniform<number>;
   uGlassAlpha: IUniform<number>;
@@ -95,6 +100,7 @@ export function createBodyUniforms(): BodyUniforms {
     uDrl: { value: 1 },
     uRev: { value: 0 },
     uErs: { value: 0 },
+    uPillarGhost: { value: 0 },
     uInterior: { value: 0.35 },
     uInteriorCarbon: { value: 0 },
     uGlassAlpha: { value: 0.88 },
@@ -164,6 +170,18 @@ export function createBodyMaterials(uniforms: BodyUniforms = createBodyUniforms(
   });
   patchBody(glass, uniforms, true);
   return { paint, glass, uniforms };
+}
+
+/**
+ * The halo's central pillar as the driver sees it, faint (`opacity`): the body's paint over the same uniforms, drawn after the opaque
+ * scene, its front faces only. A driver looks past it with two eyes and barely sees it; one camera in the middle of the head would show
+ * a solid bar, five degrees wide, dead ahead.
+ */
+export function createPillarMaterial(uniforms: BodyUniforms, opacity: number): MeshPhysicalMaterial {
+  const mat = new MeshPhysicalMaterial({ color: 0xffffff, metalness: 0, roughness: 0.4, clearcoat: 1, clearcoatRoughness: 0.03, side: FrontSide, transparent: true, opacity, depthWrite: false });
+  // (its own switch, always 0: the body leaves the pillar out, this draws it)
+  patchBody(mat, { ...uniforms, uPillarGhost: { value: 0 } }, false);
+  return mat;
 }
 
 export { Vector3 };

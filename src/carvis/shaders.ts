@@ -76,6 +76,7 @@ uniform float uHead;
 uniform float uDrl;
 uniform float uRev;
 uniform float uErs;       // the electric boost deploying: the single-seater's endplate LEDs pulse with it
+uniform float uPillarGhost; // 1: the halo's central pillar is drawn by a faint copy of its own (the cockpit view), so the body leaves it out
 uniform float uInterior;
 uniform float uInteriorCarbon;
 uniform float uGlassAlpha;
@@ -204,6 +205,7 @@ float winSd = vZ0.x;
 
 bool zBack = !gl_FrontFacing;
 int zPart = int(vZ3.y + 0.5);
+if (uPillarGhost > 0.5 && zPart == 16 && vZ3.z < 0.0) discard;
 vec3 zCol = vec3(0.5);
 float zRough = 0.4;
 float zMetal = 0.0;
