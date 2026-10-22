@@ -111,59 +111,83 @@ describe('the Volta is what its stats say', () => {
     expect(peakTorque(e)).toBe(volta.stats.torqueNm);
   });
 
-  it('does 0-100 in 2.4 s, the tyres\' limit, 200 in 5.6 s and 330 km/h flat out with the wings open, 303 with them shut', () => {
-    // (the brief: 2.6-2.8 s, about 5.5 s and about 330 km/h; the tyres that hold 2.4 g on the skidpad take the car to 100 in 2.43 s, and the
-    // bounds leave a tenth or two for the next change)
+  it('does 0-100 in 2.65 s, the slicks\' limit, 200 in 5.8 s and 330 km/h flat out with the wings open, 303 with them shut', () => {
+    // (the brief: 2.6-2.8 s, about 5.5 s and about 330 km/h. The start is the slicks' limit, and from 100 to 200 km/h the engine alone, 421 kW,
+    // takes 3.2 s: so 200 comes at 5.8 s)
     const d = dragRun(volta, 70);
+    expect(d.t100!).toBeGreaterThan(2.55);
+    expect(d.t100!).toBeLessThan(2.8);
     expect(Math.abs(d.t100! - volta.stats.zeroTo100)).toBeLessThan(0.15);
-    expect(d.t200!).toBeGreaterThan(5.4);
-    expect(d.t200!).toBeLessThan(5.85);
+    expect(d.t200!).toBeGreaterThan(5.65);
+    expect(d.t200!).toBeLessThan(6.0);
     expect(Math.abs(d.vmax - volta.stats.topSpeedKmh)).toBeLessThan(4);
     const shut = dragRun(fixedWings, 70);
     expect(shut.vmax).toBeGreaterThan(296);
     expect(shut.vmax).toBeLessThan(310);
-    // quicker off the line, to 200 and flat out than the LMP-X, on 125 hp less
+    // level with the LMP-X off the line (2.60 s), on 125 hp less, and quicker from 100 to 200 and flat out
     const l = dragRun(lmp, 70);
-    expect(d.t100!).toBeLessThan(l.t100!);
-    expect(d.t200!).toBeLessThan(l.t200!);
+    expect(Math.abs(d.t100! - l.t100!)).toBeLessThan(0.15);
+    expect(d.t200! - d.t100!).toBeLessThan(l.t200! - l.t100! - 0.05);
     expect(d.vmax).toBeGreaterThan(l.vmax + 6);
+  });
+
+  it('leaves the line at the slicks\' limit: the traction control is worth half a second, the nitro nothing', () => {
+    // (with the traction control off the slicks spin up and the car is at 100 in 3.3 s; with it on, in 2.65 s whether the motor deploys or not)
+    const off = dragRun(volta, 6, {}, 'off');
+    const low = dragRun(volta, 6, {}, 'low');
+    expect(off.t100!).toBeGreaterThan(low.t100! + 0.4);
+    expect(off.maxSlip).toBeGreaterThan(1);
+    const { world, car } = setup(volta, {}, 0, { ...AIDS });
+    world.simulate(1);
+    car.controls.throttle = 1;
+    car.nitro = 1;
+    const t0 = world.time;
+    while (car.state.forwardSpeed < 100 / 3.6 && world.time - t0 < 6) world.step(DT);
+    expect(Math.abs(world.time - t0 - low.t100!)).toBeLessThan(0.1);
   });
 });
 
 describe('the Volta corners and stops like a single-seater', () => {
-  it('holds 2.35-2.45 g on the skidpad, a little short of neutral', () => {
+  it('holds 2.3-2.45 g on the skidpad, a little short of neutral', () => {
+    // (the brief: 2.3-2.4 g)
     const pad = skidpad(volta);
-    expect(pad.latG).toBeGreaterThan(2.35);
-    expect(pad.latG).toBeLessThan(2.47);
+    expect(pad.latG).toBeGreaterThan(2.3);
+    expect(pad.latG).toBeLessThan(2.45);
     // (the fronts give up a little first: half a degree more slip angle than the rears)
     expect(pad.balanceDeg).toBeGreaterThan(0.2);
     expect(pad.balanceDeg).toBeLessThan(1.2);
     expect(pad.latG).toBeGreaterThan(skidpad(lmp).latG * 1.2);
   });
 
-  it('holds 2.5, 3.1 and 3.6 g at 150, 200 and 250 km/h, a fifth more than the LMP-X', () => {
-    for (const [kmh, lo, hi] of [[150, 2.4, 2.65], [200, 2.95, 3.3], [250, 3.45, 3.8]] as const) {
+  it('holds 2.5, 3.2 and 3.8 g at 150, 200 and 250 km/h, a fifth more than the LMP-X', () => {
+    // (the brief: 2.5, 3.0 and 3.6 g, give or take a tenth)
+    for (const [kmh, lo, hi] of [[150, 2.4, 2.65], [200, 3.0, 3.3], [250, 3.6, 3.96]] as const) {
       const g = gripAtSpeed(volta, kmh);
       expect(g.latG, `${kmh} km/h`).toBeGreaterThan(lo);
       expect(g.latG, `${kmh} km/h`).toBeLessThan(hi);
-      // (at 250 the drag of the wings and of the loaded tyres takes all the engine has: the figure is held at 235)
+      // (at 250 the drag of the wings and of the loaded tyres takes all the engine has: the figure is held at 240)
       expect(g.speedKmh, `${kmh} km/h`).toBeGreaterThan(kmh * 0.9);
       expect(g.latG, `${kmh} km/h against the LMP-X`).toBeGreaterThan(gripAtSpeed(lmp, kmh).latG * 1.12);
     }
   });
 
-  it('stops from 100 km/h in 17.5-19.5 m, from 200 in 55-61 m, and from 300 at 4.6-5.2 g', () => {
-    // (the brief: 18-20 m and 75-85 m, 4 g as in 2026 and up to 5 g in this tyre model; 3 g of grip at 200 km/h stops the car from there in 58 m)
+  it('stops from 100 km/h in 18.5-20 m, from 200 in 56-61 m, and from 300 at 4.2-4.6 g', () => {
+    // (the brief: 18-20 m and 75-85 m, 4 g as in 2026 and up to 5 g in this tyre model. The grip that pulls 3.2 g sideways at 200 km/h stops the
+    // car from there in 58 m, the LMP-X in 65: a stop of 75-85 m from 200 wants brakes of under half the torque, which stop it from 100 in 20 m
+    // but from 300 at 2.4 g. From 300 these brakes, not the tyres, have the last word: a full pedal asks for 4.0 g, the drag adds the rest)
     const b100 = brakeRun(volta, true, {}, 100);
     const b200 = brakeRun(volta, true, {}, 200);
-    expect(b100.distance).toBeGreaterThan(17.5);
-    expect(b100.distance).toBeLessThan(19.5);
-    expect(b200.distance).toBeGreaterThan(55);
+    expect(b100.distance).toBeGreaterThan(18.5);
+    expect(b100.distance).toBeLessThan(20);
+    expect(b200.distance).toBeGreaterThan(56);
     expect(b200.distance).toBeLessThan(61);
     const peak = stopFrom(300);
-    expect(peak).toBeGreaterThan(4.6);
-    expect(peak).toBeLessThan(5.2);
-    expect(b100.distance).toBeLessThan(brakeRun(lmp, true, {}, 100).distance - 1);
+    expect(peak).toBeGreaterThan(4.2);
+    expect(peak).toBeLessThan(4.6);
+    const l100 = brakeRun(lmp, true, {}, 100).distance;
+    const l200 = brakeRun(lmp, true, {}, 200).distance;
+    expect(b100.distance).toBeLessThan(l100 - 0.5);
+    expect(b200.distance).toBeLessThan(l200 - 4);
   });
 
   it('keeps 60-70 % of its grip on a wet road and 50-60 % in standing water, and stops in 1.3-1.75 times the distance', () => {
@@ -448,11 +472,11 @@ describe('the electric nitro: a shot wakes the Volta\'s MGU-K', () => {
     expect(boosted.limiter).toBe(0);
     // traction-limited off the line, the boost or not
     expect(Math.abs(boosted.t100 - plain.t100)).toBeLessThan(0.2);
-    // and then a good deal quicker: 200 km/h in 4.1-4.6 s, 1.3 s sooner, and 15 km/h more flat out, up to the cut at 345 (the brief: about 4.7 s and
-    // 343 km/h; the tyres set the start, the boost or not)
+    // and then a good deal quicker: 200 km/h in 4.35-4.75 s, 1.3 s sooner, and 15 km/h more flat out, up to the cut at 345 (the brief: about 4.7 s
+    // and 343 km/h; the tyres set the start, the boost or not)
     expect(boosted.t200).toBeLessThan(plain.t200 - 1);
-    expect(boosted.t200).toBeGreaterThan(4.1);
-    expect(boosted.t200).toBeLessThan(4.6);
+    expect(boosted.t200).toBeGreaterThan(4.35);
+    expect(boosted.t200).toBeLessThan(4.75);
     expect(boosted.vmax).toBeGreaterThan(plain.vmax + 12);
     expect(boosted.vmax).toBeGreaterThan(342);
     expect(boosted.vmax).toBeLessThan(345.5);
@@ -586,8 +610,8 @@ describe('the Volta on a lap', () => {
   }, 300000);
 
   it('is quicker than the LMP-X, dry and in a storm, and level with it on the studded tyres of Isvik', () => {
-    // (by 1.6-5 % on these laps, 1.7-5.4 % on the second laps of tests/ai.test.ts: the brief asked 7-12 %, which the engine alone, with the
-    // LMP-X's power for its weight, does not give)
+    // (by 1.4-6.3 % on these laps, as on the second laps of tests/ai.test.ts: the brief asked 7-12 %, which the engine alone, with the LMP-X's
+    // power for its weight, does not give; with 25 % more torque it would still be 6-9 % on the road circuits and 2.6 % on Isvik)
     for (const trackId of ['aurelia', 'brennwald'])
       for (const wetness of [0, 1]) {
         const v = aiLap(trackId, volta, wetness);
