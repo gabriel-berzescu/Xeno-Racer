@@ -636,7 +636,7 @@ describe('the Volta on a lap', () => {
   }, 300000);
 
   it('is quicker than the LMP-X, dry and in a storm, and level with it on the studded tyres of Isvik', () => {
-    // (by 1.4-5.9 % on these laps, as on the second laps of tests/ai.test.ts: the brief asked 7-12 %, which the engine alone, with the LMP-X's
+    // (by 1.5-6.0 % on these laps, as on the second laps of tests/ai.test.ts: the brief asked 7-12 %, which the engine alone, with the LMP-X's
     // power for its weight, does not give; with 25 % more torque it would still be 6-9 % on the road circuits and 2.6 % on Isvik)
     for (const trackId of ['aurelia', 'brennwald'])
       for (const wetness of [0, 1]) {
@@ -654,13 +654,17 @@ describe('the Volta on a lap', () => {
 describe('a whole grid of Voltas', () => {
   // The one-make race the game sets up, single-seaters wheel to wheel at 300 km/h: no wall hit, no reset (48 races of twelve on Aurelia,
   // Kuroyama and Brennwald, dry and wet, are in the stream's notes: PACKSEEDS=1 CAR=volta tests/probes/pack.test.ts)
-  it('races Aurelia dry and Brennwald in a storm without a wall hit or a reset', () => {
-    for (const [trackId, seed, wetness] of [['aurelia', 0, 0], ['brennwald', 1, 1]] as const) {
+  it('races Aurelia dry and Brennwald in a storm without a wall hit or a reset, and without pumping the brakes', () => {
+    // (a brake pump: a brake of 0.3 or more let off and taken back up within a quarter of a second. When the braking ahead counted the
+    // downforce afresh at every update, a car whose stop began behind another let off each time it left the traffic window: 27 and 286
+    // pumps in these two races, against 5 and 86 with each stop finished on the reach it began with)
+    for (const [trackId, seed, wetness, pumps] of [['aurelia', 0, 0, 12], ['brennwald', 1, 1, 200]] as const) {
       const r = runPack(trackId, 'volta', 'pro', 12, 1, false, { seed, wetness });
       expect(r.finished, `finished, ${trackId}`).toBe(12);
       expect(r.walls, `wall hits, ${trackId}`).toBe(0);
       expect(r.resets, `resets, ${trackId}`).toBe(0);
       expect(r.offTrack / 12, `seconds off the road per car, ${trackId}`).toBeLessThan(1);
+      expect(r.brakePumps, `brake pumps, ${trackId}`).toBeLessThan(pumps);
     }
   }, 600000);
 });

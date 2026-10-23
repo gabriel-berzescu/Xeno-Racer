@@ -5,11 +5,12 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { Matrix4, Vector3 } from 'three';
 import { describe, expect, it } from 'vitest';
-import { AIDriver, profileLapTime } from '../src/ai';
+import { AIDriver, brakeReach, profileLapTime } from '../src/ai';
 import { CARS, getCar } from '../src/cars';
 import type { Difficulty, TrackPoint } from '../src/core/contracts';
 import { PhysicsWorld } from '../src/physics';
 import { TRACKS, loadTrackRuntime } from '../src/track';
+import { aiLap } from './probes/car-metrics';
 import { runPack } from './probes/pack-race';
 
 const DT = 1 / 60;
@@ -105,5 +106,27 @@ describe('AI pack racing in the rain', () => {
     expect(resets).toBe(0);
     expect(off / seeds.length).toBeLessThan(9);
   }, 300000);
+});
+
+describe('AI braking ahead with the downforce', () => {
+  it('reaches exactly as far as brakes on the weight alone where there is no downforce, and as far as the stop summed step by step where there is', () => {
+    // (the stop from u at cap·(1 + c·u²/G), integrated in steps of a millimetre: the highest speed that comes down to va within d metres)
+    const summed = (va: number, d: number, cap: number, c: number) => {
+      let u = va;
+      for (let x = 0; x < d; x += 0.001) u += (cap * (1 + (c * u * u) / 9.81) * 0.001) / u;
+      return u;
+    };
+    for (const [va, d, cap] of [[20, 50, 14], [45, 120, 15], [60, 300, 12], [30, 0, 15]]) {
+      expect(brakeReach(va, d, cap, 0)).toBe(Math.sqrt(va * va + 2 * cap * d));
+      // (the Volta's corner mode, 3.8 m^2 on 800 kg, and the Mammoth's lift)
+      for (const c of [0.0029, -0.00004]) expect(brakeReach(va, d, cap, c) / summed(va, d, cap, c), `va ${va} d ${d} c ${c}`).toBeCloseTo(1, 4);
+    }
+  });
+
+  it('lets a car with wings brake as hard as its downforce allows in clean air: the LMP-X 2.5 g and more on a dry lap, the Volta 2.9 g', () => {
+    // (on the weight alone, the cap every car braked on before, 2.1 and 2.4 g at Portovela: 2.8 and 3.4 g now)
+    expect(aiLap('portovela', getCar('lmp-x')).brakeG).toBeGreaterThan(2.5);
+    expect(aiLap('portovela', getCar('volta')).brakeG).toBeGreaterThan(2.9);
+  }, 120000);
 });
 

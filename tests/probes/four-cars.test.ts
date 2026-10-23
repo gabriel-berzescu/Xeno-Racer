@@ -33,6 +33,11 @@
  *     game has, dry and wet, with the default aids and with none: the whole tyre, surface, drivetrain and aid code;
  *   - one AI lap of Aurelia (dry and in the rain) and of Isvik (winter tyres): the speed profile, the driver, the governor;
  *   - a pack of eight (two of each car) from the grid on Aurelia and on Isvik for a while: traffic, contacts, the lot.
+ *
+ * The AI's look-ahead braking counts the downforce in clean air (brakeReach, src/ai/driver.ts): a file recorded before that differs in
+ * the AI laps where that braking held a car back, the LMP-X's and the Volta's from their first big stop (12-16 s) and the other cars'
+ * only on Isvik's snow (the Vanta GT's, Kestrel R's and Ronin 86's from 78 s, by 2-22 cm; the Mammoth's, whose lift counts against it,
+ * from 72 s, and from 11 s in the snowfall), and in the packs; the open-loop drives are what they were.
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { Quaternion, Vector3 } from 'three';

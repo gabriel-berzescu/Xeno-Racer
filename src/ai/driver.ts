@@ -139,6 +139,19 @@ function fade(u: number, t: [number, number]): number {
   return Math.max(GOV_MIN, Math.min(1, (t[1] - u) / (t[1] - t[0])));
 }
 
+/**
+ * The highest speed (m/s) from which brakes that hold `brakeCap` (m/s^2) under the weight alone still bring a car down to `va` within `d`
+ * metres, when its downforce `c` (per (m/s)^2 and kilogram, as the speed profile counts it) presses the tyres on the road as well. The
+ * downforce grows as the square of the speed and falls away as the car slows, so a car with wings can brake later from speed, by as much
+ * as its downforce is worth over the whole stop and no more; a car with lift has c less than nothing. Where c is nothing it is
+ * sqrt(va^2 + 2 brakeCap d), to the bit.
+ */
+export function brakeReach(va: number, d: number, brakeCap: number, c: number): number {
+  if (c === 0) return Math.sqrt(va * va + 2 * brakeCap * d);
+  // (a deceleration of brakeCap·(1 + c·u²/G) at speed u, summed over the stop: 2·brakeCap·d where the downforce is nothing)
+  return Math.sqrt(va * va + ((G + c * va * va) * Math.expm1((2 * brakeCap * c * d) / G)) / c);
+}
+
 const smooth01 = (x: number) => x * x * (3 - 2 * x);
 const clampWetness = (w: number | undefined) => (w === undefined || !(w > 0) ? 0 : w > 1 ? 1 : w);
 
@@ -217,6 +230,11 @@ export class AIDriver {
   private dmgGrip = 1;
   private dmgAero = 1;
   private dmg: MechEffects | null = null;
+  /**
+   * The downforce per (m/s)^2 the look-ahead braking counts this update (brakeFrom): the car's in clean air, none behind another car, and
+   * while it brakes no more than it counted when the stop began.
+   */
+  private brakeDown = 0;
   private readonly brakeGain: number;
   private readonly alphaPkF: number;
   private readonly alphaPkR: number;
@@ -708,12 +726,20 @@ export class AIDriver {
 
     // ── speed: track the profile slightly ahead; brake early for slower points ahead ──
     let vT = this.targetSpeedOff(s + v * 0.3 + 2, this.offset);
-    // anticipate: the slowest requirement within the next ~1.2 s, discounted by distance
+    // anticipate: the slowest requirement within the next ~1.2 s, discounted by distance, with the downforce in clean air (brakeFrom). With a
+    // car ahead in the traffic window the brakes keep the margin of the weight alone: in its wake the car has less downforce than its speed
+    // profile counts (up to a fifth less), and the car ahead brakes where it brakes, so a pack does not dive into a corner on the profile's
+    // last metres (counting it there too made the first corners of a twelve-car start harder, and in tests/ai.test.ts's storm a reset).
+    // A stop is finished on the downforce it began with, or less, never more: as two cars slow, the one behind leaves the window and comes
+    // back into it, and a reach that grew mid-stop let it off the brakes and onto the throttle for a frame at a time. (c.brake is still
+    // the last update's.)
     const brakeCap = 9.81 * Math.min(def.physics.tireFront.mu, def.physics.tireRear.mu) * this.dmgGrip * this.wetMu * this.skill.brakeUse * 0.9 * this.surfGripAhead(s, 8 + v * 1.3);
+    const downAir = this.nOb > 0 ? 0 : this.cDown * this.dmgAero;
+    this.brakeDown = c.brake > 0 && downAir > this.brakeDown ? this.brakeDown : downAir;
     for (let k = 1; k <= 6; k++) {
       const ahead = v * 0.2 * k + 4;
       const va = this.targetSpeedOff(s + ahead, this.offset);
-      const allowed = Math.sqrt(va * va + 2 * brakeCap * Math.max(0, ahead - v * 0.12));
+      const allowed = this.brakeFrom(va, Math.max(0, ahead - v * 0.12), brakeCap);
       if (allowed < vT) vT = allowed;
     }
     // nitro: the profile is capped by the car's own power, so a boosted car would lift for it. While a shot burns, and after it until
@@ -865,17 +891,26 @@ export class AIDriver {
     return vc;
   }
 
-  /** The most a car at speed v can do at s and still slow for every corner ahead with brakes `brakeCap` (m/s^2). */
+  /** The most a car at speed v can do at s and still slow for every corner ahead with brakes `brakeCap` (m/s^2, and the downforce: brakeFrom). */
   private cornerBrakeSpeed(s: number, v: number, brakeCap: number): number {
     const look = (v * v) / (2 * brakeCap) + 40;
     const step = Math.max(this.line.step, 4);
     let best = 150;
     for (let x = 0; x <= look; x += step) {
       const vc = this.cornerSpeed(s + x);
-      const allowed = Math.sqrt(vc * vc + 2 * brakeCap * Math.max(0, x - v * 0.3));
+      const allowed = this.brakeFrom(vc, Math.max(0, x - v * 0.3), brakeCap);
       if (allowed < best) best = allowed;
     }
     return best;
+  }
+
+  /**
+   * The highest speed (m/s) from which the brakes `brakeCap` (m/s^2, what the tyres hold under the weight alone) still bring the car down
+   * to `va` within `d` metres, with the downforce this update counts (brakeDown: the corner mode's, for a car with active aero, whose flaps
+   * close for the brakes). Without it the car brakes at brakeCap all the way, as every car did before the downforce was counted.
+   */
+  private brakeFrom(va: number, d: number, brakeCap: number): number {
+    return brakeReach(va, d, brakeCap, this.brakeDown);
   }
 
   /** No corner the car would have to brake for within the reach of a nitro shot fired now. */

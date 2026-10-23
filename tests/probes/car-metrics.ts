@@ -290,7 +290,8 @@ export function kerbStrike(def: CarDefinition, kmh: number, height = 0.07, steer
 /**
  * The time (s) of the second lap of an AI driver alone on a circuit, as tests/ai.test.ts takes it (a standing start, a lap to warm up,
  * the aids of the AI drivers), and what it hit on the way: impacts above the threshold of a hit, and `floor`, the substeps in which the plank or a
- * lip of the body touched the road (a floor strike at a compression, or a kerb taken too hard).
+ * lip of the body touched the road (a floor strike at a compression, or a kerb taken too hard); and `brakeG`, the hardest the car slowed
+ * over a fifth of a second on the way (g).
  */
 export function aiLap(trackId: string, def: CarDefinition, wetness = 0, difficulty: Difficulty = 'alien') {
   const track = loadTrackRuntime(trackId);
@@ -309,6 +310,8 @@ export function aiLap(trackId: string, def: CarDefinition, wetness = 0, difficul
   let lapStart = 0;
   let lap = Number.NaN;
   let resets = 0;
+  const speeds: number[] = [];
+  let brakeG = 0;
   while (world.time < 900 && crossings < 3) {
     ai.update(DT, car.state, world.states, car.controls, true);
     if (ai.needsReset) {
@@ -316,6 +319,8 @@ export function aiLap(trackId: string, def: CarDefinition, wetness = 0, difficul
       ai.onReset();
     }
     world.step(DT);
+    speeds.push(car.state.forwardSpeed);
+    if (speeds.length > 12) brakeG = Math.max(brakeG, (speeds[speeds.length - 13] - car.state.forwardSpeed) / (12 * DT) / G);
     hint = track.project(car.p.x, car.p.z, tp, hint);
     if (tp.s - prev < -track.length / 2) {
       crossings++;
@@ -324,7 +329,7 @@ export function aiLap(trackId: string, def: CarDefinition, wetness = 0, difficul
     }
     prev = tp.s;
   }
-  return { lap, resets, impacts: car.state.impactCount, floor: car.debugGroundHits };
+  return { lap, resets, impacts: car.state.impactCount, floor: car.debugGroundHits, brakeG };
 }
 
 /**
