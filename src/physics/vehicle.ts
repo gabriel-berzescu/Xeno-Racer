@@ -24,6 +24,7 @@ import { cloneEffects, isNeutral, type MechEffects } from '../core/mechanical';
 import { NITRO_POWER, NITRO_THRUST_G } from '../core/nitro';
 import {
   STRAIGHT_MODE_CLOSE_TIME,
+  STRAIGHT_MODE_DWELL,
   STRAIGHT_MODE_LAT,
   STRAIGHT_MODE_LAT_HOLD,
   STRAIGHT_MODE_LIFT,
@@ -229,6 +230,8 @@ export class Vehicle {
   private readonly straightMode: NonNullable<AeroSpec['straightMode']> | null;
   private aeroOpen = 0;
   private aeroTarget = 0;
+  /** How long the way to open them has held without a break (s): closed flaps begin to open after STRAIGHT_MODE_DWELL of it. */
+  private aeroHeld = 0;
   /** The electric motor geared to the crankshaft (EngineSpec.electric; null for none): it deploys only while a nitro shot burns. */
   private readonly electric: NonNullable<EngineSpec['electric']> | null;
 
@@ -495,6 +498,7 @@ export class Vehicle {
     // (active aero starts in corner mode)
     this.aeroOpen = 0;
     this.aeroTarget = 0;
+    this.aeroHeld = 0;
     if (this.gear === 0 || this.gear === -1) this.gear = 1;
     this.publish(1, 1 / 60);
   }
@@ -646,7 +650,10 @@ export class Vehicle {
       const asked = (v * v * Math.abs(this.steerAngle)) / (this.spec.chassis.wheelbase + 0.0022 * v * v);
       const flatOut = c.throttle >= (open ? STRAIGHT_MODE_LIFT : STRAIGHT_MODE_THROTTLE) && !(c.brake > 0) && !this.holdOnGrid && this.gear >= 1;
       const straight = v >= STRAIGHT_MODE_SPEED && !st.airborne && Math.abs(st.localAccel.x) < latMax && asked < latMax;
-      this.aeroTarget = flatOut && straight ? 1 : 0;
+      // (shut flaps begin to open once that has held for STRAIGHT_MODE_DWELL without a break: a throttle pumped by a governor, or a
+      // twitch of the wheel, has them closing and opening again every few frames otherwise)
+      this.aeroHeld = flatOut && straight ? this.aeroHeld + dt : 0;
+      this.aeroTarget = flatOut && straight && (open || this.aeroHeld >= STRAIGHT_MODE_DWELL) ? 1 : 0;
     }
   }
 

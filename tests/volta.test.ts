@@ -6,10 +6,10 @@
  *   - on a lap it never strikes its floor, hits nothing and needs no reset, and the AI drivers are quicker in it than in the LMP-X, and a
  *     whole grid of them races cleanly.
  * And its own mechanisms, each behind a field of the car's data that no other car has:
- *   - active aero (AeroSpec.straightMode, src/physics/aero.ts): the flaps open over 0.4 s on a straight taken flat out above 150 km/h and
- *     close within 0.25 s on a lift, the brakes or a turn of the wheel (and not on a part-lift or in a gentle bend); in straight mode the
- *     car has less drag and less downforce, the damage still takes its share of what is left, and a replay shows where the flaps stood. A
- *     car with fixed wings has no flaps at all;
+ *   - active aero (AeroSpec.straightMode, src/physics/aero.ts): the flaps open over 0.4 s on a straight taken flat out above 150 km/h, a
+ *     quarter of a second after the driver is (not while a governor pumps the throttle), and close within 0.25 s on a lift, the brakes or a
+ *     turn of the wheel (and not on a part-lift or in a gentle bend); in straight mode the car has less drag and less downforce, the damage
+ *     still takes its share of what is left, and a replay shows where the flaps stood. A car with fixed wings has no flaps at all;
  *   - the electric nitro (EngineSpec.electric): a shot deploys the MGU-K, whose power follows the 2026 rule (350 kW to 290 km/h, then
  *     1800 - 5 v kW, nothing from 345 km/h) through the gearbox, with no push from a bottle and no extra engine torque; the clutch holds it,
  *     the limiter cuts it. Every other car keeps the bottle's push and the engine's extra torque;
@@ -229,7 +229,7 @@ describe('active aero: the Volta opens its wings on the straights', () => {
     }
   });
 
-  it('opens over 0.4 s on a straight taken flat out above 150 km/h', () => {
+  it('opens over 0.4 s on a straight taken flat out above 150 km/h, a quarter of a second after the driver is flat out', () => {
     const { world, car } = setup(volta, {}, 250 / 3.6, { ...AIDS });
     expect(car.state.aeroOpen).toBe(0);
     car.controls.throttle = 1;
@@ -240,11 +240,24 @@ describe('active aero: the Volta opens its wings on the straights', () => {
       if (half === Infinity && car.state.aeroOpen! >= 0.5) half = world.time;
       if (full === Infinity && car.state.aeroOpen! >= 1) full = world.time;
     }
-    // (a frame to see the driver flat out, then the 0.4 s the rule allows for the change, at an even pace)
-    expect(half).toBeGreaterThan(0.2);
-    expect(half).toBeLessThan(0.25);
-    expect(full).toBeGreaterThan(0.39);
-    expect(full).toBeLessThan(0.45);
+    // (a quarter of a second flat out on the straight, then the 0.4 s the rule allows for the change, at an even pace)
+    expect(half).toBeGreaterThan(0.45);
+    expect(half).toBeLessThan(0.5);
+    expect(full).toBeGreaterThan(0.64);
+    expect(full).toBeLessThan(0.7);
+    expect(car.state.aeroOpen).toBe(1);
+  });
+
+  it('stays shut while the throttle is pumped, as a governor does on a wet road, and opens once it is held', () => {
+    const { world, car } = setup(volta, {}, 200 / 3.6, { ...AIDS });
+    // (the AI's governor in standing water with the rear tyres spinning: 0.4-0.6 of the throttle and back to full every 2-6 frames)
+    for (let i = 0; i < 90; i++) {
+      car.controls.throttle = i % 6 < 3 ? 1 : 0.5;
+      world.step(DT);
+      expect(car.state.aeroOpen, `frame ${i}`).toBe(0);
+    }
+    car.controls.throttle = 1;
+    world.simulate(1);
     expect(car.state.aeroOpen).toBe(1);
   });
 

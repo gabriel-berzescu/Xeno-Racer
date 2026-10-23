@@ -10,6 +10,9 @@
  *     steering asks for is the yaw rate the stability control takes the road-wheel angle to ask for, times the speed: v^2 δ / (L + 0.0022
  *     v^2). The bare v^2 δ / L would count the slip angle the front tyres run at as a turn, and that alone is 1 g at 290 km/h in a bend of
  *     0.3 g.)
+ * They begin to open once all of it has held for STRAIGHT_MODE_DWELL without a break: a governor pumping the throttle on a wet road (the
+ * AI's, every 2-6 frames while the rear tyres spin) or a twitch of the wheel on a straight otherwise has them shutting and opening 10-20
+ * times a second.
  * Once open they stay so through a part-lift to STRAIGHT_MODE_LIFT and a bend up to STRAIGHT_MODE_LAT_HOLD, and close, over
  * STRAIGHT_MODE_CLOSE_TIME, as soon as that fails: a lift, the brakes, a turn of the wheel, a corner, a jump. (Without that margin a
  * driver holding a speed at 0.95 of the throttle, or running a bend at 1 g, has them opening and closing many times a second.)
@@ -29,6 +32,8 @@ export const STRAIGHT_MODE_SPEED = 150 / 3.6;
  */
 export const STRAIGHT_MODE_LAT = 9.81;
 export const STRAIGHT_MODE_LAT_HOLD = 1.25 * 9.81;
+/** Seconds the way to open the flaps must hold, without a break, before they begin to open. */
+export const STRAIGHT_MODE_DWELL = 0.25;
 /** Seconds the flaps take to open fully (the rule allows 0.4 s for the change), and to close fully. */
 export const STRAIGHT_MODE_OPEN_TIME = 0.4;
 export const STRAIGHT_MODE_CLOSE_TIME = 0.2;
