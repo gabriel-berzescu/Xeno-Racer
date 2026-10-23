@@ -376,16 +376,16 @@ export interface SpeedGrip {
  * What a car holds sideways at a steady speed on `ground`: the pedals hold `kmh` while the road wheels are wound on slowly (a ramp over
  * `seconds` up to `maxDeg`), and the best lateral acceleration on the way is its grip at that speed, downforce included. A skidpad finds the
  * grip at whatever speed its radius and the creeping target meet; this one asks for the speed, so that a car with downforce and one without
- * can be set side by side at 60 and at 120 km/h. The aids are all off (the stability control would hold the car back, the traction control
- * would take the throttle the speed needs).
+ * can be set side by side at 60 and at 120 km/h. The aids are all off unless `assists` says otherwise (the stability control can hold the
+ * car back, the traction control can take the throttle the speed needs).
  */
-export function gripAtSpeed(def: CarDefinition, kmh: number, ground: Ground = {}, seconds = 18, maxDeg = 20): SpeedGrip {
+export function gripAtSpeed(def: CarDefinition, kmh: number, ground: Ground = {}, seconds = 18, maxDeg = 20, assists: Assists = { ...NO_AIDS }): SpeedGrip {
   const surface = ground.surface ?? 'asphalt';
   const winter = ground.winter ?? WINTER_SURFACES.includes(surface);
   const world = new PhysicsWorld(createFlatTrack({ surface, winter, wall: 6000, halfWidth: 6000 }));
   world.wetness = ground.wetness ?? 0;
   const car = world.addVehicle(def);
-  car.assists = { ...NO_AIDS };
+  car.assists = { ...assists };
   const v0 = kmh / 3.6;
   car.placeOnGround(new Vector3(0, 0, 0), new Quaternion(), v0);
   car.setTemperatures(1);

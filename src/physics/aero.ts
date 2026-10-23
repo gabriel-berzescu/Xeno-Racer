@@ -7,9 +7,10 @@
  *   - the driver is flat out: the throttle pedal at STRAIGHT_MODE_THROTTLE or more, and no brake;
  *   - the car goes forwards, in a forward gear, at STRAIGHT_MODE_SPEED or more, with its wheels on the ground;
  *   - it is hardly cornering: the lateral acceleration it has, and the one its steering asks for, both under STRAIGHT_MODE_LAT. (What the
- *     steering asks for is the yaw rate the stability control takes the road-wheel angle to ask for, times the speed: v^2 δ / (L + 0.0022
- *     v^2). The bare v^2 δ / L would count the slip angle the front tyres run at as a turn, and that alone is 1 g at 290 km/h in a bend of
- *     0.3 g.)
+ *     steering asks for is the road-wheel angle's turn with a road car's understeer, times the speed: v^2 δ / (L + 0.0022 v^2). The bare
+ *     v^2 δ / L would count the slip angle the front tyres run at as a turn, and that alone is 1 g at 290 km/h in a bend of 0.3 g. The
+ *     stability control's reference takes less of that understeer for a car the downforce presses down; the flaps keep the road car's, and
+ *     the lateral acceleration the car has shuts them in a corner either way.)
  * They begin to open once all of it has held for STRAIGHT_MODE_DWELL without a break: a governor pumping the throttle on a wet road (the
  * AI's, every 2-6 frames while the rear tyres spin) or a twitch of the wheel on a straight otherwise has them shutting and opening 10-20
  * times a second.

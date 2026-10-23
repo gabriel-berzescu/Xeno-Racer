@@ -232,6 +232,8 @@ export class Vehicle {
   private aeroTarget = 0;
   /** How long the way to open them has held without a break (s): closed flaps begin to open after STRAIGHT_MODE_DWELL of it. */
   private aeroHeld = 0;
+  /** The downforce the air put on the car in the last substep (N; less than nothing for a car with lift), which stability control counts. */
+  private downforce = 0;
   /** The electric motor geared to the crankshaft (EngineSpec.electric; null for none): it deploys only while a nitro shot burns. */
   private readonly electric: NonNullable<EngineSpec['electric']> | null;
 
@@ -495,10 +497,11 @@ export class Vehicle {
     this.hullHint = -1;
     this.comHint = -1;
     this.scrapeAcc = 0;
-    // (active aero starts in corner mode)
+    // (active aero starts in corner mode, and the air has not yet pressed on the car)
     this.aeroOpen = 0;
     this.aeroTarget = 0;
     this.aeroHeld = 0;
+    this.downforce = 0;
     if (this.gear === 0 || this.gear === -1) this.gear = 1;
     this.publish(1, 1 / 60);
   }
@@ -646,7 +649,8 @@ export class Vehicle {
       // (open flaps stay so through a part-lift and a gentle bend)
       const open = this.aeroTarget > 0;
       const latMax = open ? STRAIGHT_MODE_LAT_HOLD : STRAIGHT_MODE_LAT;
-      // (the lateral acceleration the steering asks for: the yaw rate the stability control takes the road-wheel angle to ask for, times the speed)
+      // (the lateral acceleration the steering asks for: the road-wheel angle's turn with a road car's understeer, 0.0022 v^2, times the
+      // speed, as src/physics/aero.ts says; the stability control takes less of that understeer for a car the downforce presses down)
       const asked = (v * v * Math.abs(this.steerAngle)) / (this.spec.chassis.wheelbase + 0.0022 * v * v);
       const flatOut = c.throttle >= (open ? STRAIGHT_MODE_LIFT : STRAIGHT_MODE_THROTTLE) && !(c.brake > 0) && !this.holdOnGrid && this.gear >= 1;
       const straight = v >= STRAIGHT_MODE_SPEED && !st.airborne && Math.abs(st.localAccel.x) < latMax && asked < latMax;
@@ -915,7 +919,9 @@ export class Vehicle {
     if (as.esc && fwdSpeed > 8 && contacts >= 3) {
       const L = ch.wheelbase;
       const yaw = w.dot(ay);
-      // (the most yaw rate the road can hold: the tyre's friction on the surface it is on, 1 on asphalt, half on packed snow)
+      // (the most yaw rate the road can hold: the tyre's friction on the surface it is on, 1 on asphalt, half on packed snow, under the
+      // weight alone; or, while the car is turning harder than that, the lateral acceleration it has: a car the downforce presses down may
+      // turn at speed as hard as its tyres then hold it, and no harder than they hold it on the road it is on, wet or dry)
       let gripSum = 0;
       let loadSum = 0;
       for (const wh of wheels) {
@@ -924,10 +930,13 @@ export class Vehicle {
         gripSum += wh.load * sf.grip * (sf.fresh !== undefined ? 1 + (sf.fresh - 1) * this.wetness : 1);
         loadSum += wh.load;
       }
-      const maxYaw = (tire0.mu * (loadSum > 0 ? gripSum / loadSum : 1) * GRAVITY) / fwdSpeed;
+      const maxYaw = Math.max(tire0.mu * (loadSum > 0 ? gripSum / loadSum : 1) * GRAVITY, Math.abs(this.accelSmoothed.x)) / fwdSpeed;
       // (the steering the car answers is the rack's plus the mean toe of the front wheels: a car pulling to one side is driven with
-      // the wheel held the other way, and stability control must not mistake that steering for a turn the car is not making)
-      const ref = clamp((fwdSpeed * (sa + this.toeMean)) / (L + 0.0022 * fwdSpeed * fwdSpeed), -maxYaw, maxYaw);
+      // the wheel held the other way, and stability control must not mistake that steering for a turn the car is not making; and the
+      // understeer the reference takes for it, which grows with speed, grows less on a car the downforce presses down: its tyres carry the
+      // same sideways force at a smaller slip angle when they carry more load, so it turns more for the same wheel than a car without wings)
+      const press = GRAVITY + this.downforce * this.invMass;
+      const ref = clamp((fwdSpeed * (sa + this.toeMean)) / (L + 0.0022 * fwdSpeed * fwdSpeed * (GRAVITY / press)), -maxYaw, maxYaw);
       const err = yaw - ref;
       const dead = 0.06 + 0.12 * Math.abs(ref);
       if (Math.abs(err) > dead) {
@@ -1005,6 +1014,7 @@ export class Vehicle {
       liftRear += (sm.liftAreaRear - liftRear) * k;
     }
     const speed2 = v.lengthSq();
+    this.downforce = 0;
     if (speed2 > 0.01) {
       const sp = Math.sqrt(speed2);
       _f.copy(v).multiplyScalar(-0.5 * AIR_DENSITY * dragArea * this.dragMul * sp);
@@ -1016,6 +1026,7 @@ export class Vehicle {
       if (qd > 0) {
         const dfF = qd * liftFront * this.aeroFrontMul;
         const dfR = qd * liftRear * this.aeroRearMul;
+        this.downforce = dfF + dfR;
         _f.copy(ay).multiplyScalar(-dfF);
         _r.copy(az).multiplyScalar(ch.cgToFrontAxle);
         F.add(_f);

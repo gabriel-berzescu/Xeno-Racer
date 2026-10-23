@@ -6,16 +6,17 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { Quaternion, Vector3 } from 'three';
 import { describe, expect, it } from 'vitest';
-import { CARS } from '../src/cars';
+import { CARS, getCar } from '../src/cars';
 import type { Assists, CarDefinition } from '../src/core/contracts';
 import { DEFAULT_SETTINGS } from '../src/core/settings';
-import { PhysicsWorld, SteeringFilter, createFlatTrack } from '../src/physics';
+import { PhysicsWorld, SteeringFilter, createFlatTrack, type FlatTrackOptions } from '../src/physics';
+import { gripAtSpeed } from './probes/car-metrics';
 
 const DT = 1 / 60;
 
 /** Drive with a scripted raw stick (as a human would) through the SteeringFilter. */
-function run(def: CarDefinition, assists: Assists, kmh: number, script: (t: number) => { steer: number; throttle: number; brake: number }, seconds: number, wetness = 0) {
-  const world = new PhysicsWorld(createFlatTrack());
+function run(def: CarDefinition, assists: Assists, kmh: number, script: (t: number) => { steer: number; throttle: number; brake: number }, seconds: number, wetness = 0, ground: FlatTrackOptions = {}) {
+  const world = new PhysicsWorld(createFlatTrack(ground));
   world.wetness = wetness;
   const car = world.addVehicle(def);
   car.assists = { ...assists };
@@ -76,4 +77,38 @@ describe('gamepad handling', () => {
     writeFileSync(`.cache/handling-${label}.txt`, rows.join('\n') + '\n');
     expect(failures).toEqual([]);
   }, 300000);
+});
+
+describe('the stability control on a car with wings', () => {
+  // ESC's ceiling is the yaw rate the tyres hold under the weight, or the lateral acceleration the car has when it turns harder than that,
+  // and its reference takes less understeer for a car the downforce presses down. With the weight alone the default aids held the LMP-X
+  // to 2.67 g at 250 km/h where its tyres hold 3.02, and the Volta to 2.27 g at 225 km/h where they hold 3.71 at 241. With the downforce
+  // counted as the weight is, a ceiling that knew nothing of the water, the two slid 40-60 degrees in a stop at full lock from 250 km/h in
+  // standing water and the Volta spun in a lane change there.
+  const winged = [getCar('lmp-x'), getCar('volta')];
+  const aids = DEFAULT_SETTINGS.assists;
+
+  it('lets it turn at 250 km/h as hard as its tyres hold it', () => {
+    for (const def of winged) {
+      const on = gripAtSpeed(def, 250, {}, 18, 20, { ...aids });
+      const off = gripAtSpeed(def, 250, {}, 18, 20, { ...aids, esc: false });
+      // (the Volta gives up a few km/h on the turn-in, where ESC still steps in, and holds what its tyres hold there: 3.60 g at 235 km/h)
+      expect(on.latG / off.latG, def.id).toBeGreaterThan(0.95);
+    }
+  }, 120000);
+
+  it('still catches it in standing water at 250 km/h: a stop at full lock, and a lane change flat out', () => {
+    const wide: FlatTrackOptions = { wall: 6000, halfWidth: 6000 };
+    for (const def of winged)
+      for (const wetness of [0.75, 1]) {
+        const stop = (a: Assists) => run(def, a, 250, (t) => ({ steer: t > 0.3 ? 1 : 0, throttle: 0, brake: t > 0.3 ? 1 : 0 }), 4, wetness, wide);
+        const on = stop({ ...aids });
+        const off = stop({ ...aids, esc: false });
+        const name = `${def.id} wet ${wetness}`;
+        expect(on.maxBetaDeg, `${name}: stop`).toBeLessThan(25);
+        expect(on.maxBetaDeg, `${name}: stop`).toBeLessThan(off.maxBetaDeg);
+        const lane = run(def, { ...aids }, 240, (t) => ({ steer: t < 0.5 ? 0 : t < 1.2 ? 1 : t < 2.6 ? -1 : t < 3.3 ? 1 : 0, throttle: 1, brake: 0 }), 6, wetness, wide);
+        expect(lane.maxBetaDeg, `${name}: lane change`).toBeLessThan(25);
+      }
+  }, 120000);
 });

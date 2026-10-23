@@ -22,6 +22,12 @@
  * and in nothing else: Vanta, Kestrel and Ronin, and the LMP-X on asphalt, kerb, concrete, snow, ice and deep snow, are bit for bit
  * what they were. Record a new file on the commit before the next change.
  *
+ * The stability control counts the downforce (src/physics/vehicle.ts: its yaw ceiling is the lateral acceleration the car has when that is
+ * more than the weight alone allows, and its reference takes less understeer for a car the downforce presses down): a file recorded before
+ * that differs in the open-loop drives with the default aids (ESC on), each from the first time ESC steps in, at 2.5-4.5 s (the Kestrel
+ * R's and the Ronin 86's, whose lips press them down by a few kilos, by up to 42 mm; the others' by up to 1.5 m over the slides), and in
+ * nothing else: the drives with no aids, the AI laps and the packs (the AI drives with ESC off) are bit for bit what they were.
+ *
  * Scenarios:
  *   - open-loop drives (fixed stick, throttle, brake and handbrake against time, no feedback) on a flat plane of each surface the
  *     game has, dry and wet, with the default aids and with none: the whole tyre, surface, drivetrain and aid code;
