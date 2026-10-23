@@ -88,8 +88,8 @@ export interface EngineSpec {
   /**
    * An electric motor geared to the crankshaft (absent: none), a 2026 MGU-K. It deploys only while a nitro shot burns, and on a car
    * that has one it is the nitro: no push from a bottle and no extra engine torque. Up to `powerKw` and `torqueNm` at the crank, the power
-   * full up to `fullToKmh` and tapering above it to nothing at `zeroAtKmh` (the 2026 rule: 350 kW to 290 km/h, then 1800 - 5 v kW with v
-   * in km/h, cut at 345).
+   * full up to `fullToKmh` and tapering above it to nothing at `zeroAtKmh` (the 2026 rule made simpler: 350 kW to 290 km/h, then
+   * 1800 - 5 v kW with v in km/h, cut at 345; electricPower says where the rule itself differs).
    */
   electric?: { powerKw: number; torqueNm: number; fullToKmh: number; zeroAtKmh: number };
 }

@@ -10,9 +10,9 @@
  *     quarter of a second after the driver is (not while a governor pumps the throttle), and close within 0.25 s on a lift, the brakes or a
  *     turn of the wheel (and not on a part-lift or in a gentle bend); in straight mode the car has less drag and less downforce, the damage
  *     still takes its share of what is left, and a replay shows where the flaps stood. A car with fixed wings has no flaps at all;
- *   - the electric nitro (EngineSpec.electric): a shot deploys the MGU-K, whose power follows the 2026 rule (350 kW to 290 km/h, then
- *     1800 - 5 v kW, nothing from 345 km/h) through the gearbox, with no push from a bottle and no extra engine torque; the clutch holds it,
- *     the limiter cuts it. Every other car keeps the bottle's push and the engine's extra torque;
+ *   - the electric nitro (EngineSpec.electric): a shot deploys the MGU-K, whose power follows the 2026 rule made simpler (350 kW to
+ *     290 km/h, then 1800 - 5 v kW, nothing from 345 km/h) through the gearbox, with no push from a bottle and no extra engine torque; the
+ *     clutch holds it, the limiter cuts it. Every other car keeps the bottle's push and the engine's extra torque;
  *   - the AI knows the flaps: its speed profile accelerates the Volta in straight mode where they open (faster on the straights, the same
  *     in the corners and the braking zones), an AI lap has them open on the straights and shut under braking and in the corners, and with
  *     the nitro off the driver is the one it always was. No other car's profile has a straight mode.
@@ -399,7 +399,7 @@ function clutchOpen(def: CarDefinition, kmh: number, nitro: number) {
 describe('the electric nitro: a shot wakes the Volta\'s MGU-K', () => {
   const m = volta.physics.engine.electric!;
 
-  it('deploys the 2026 rule\'s power: 350 kW to 290 km/h, then 1800 - 5 v kW, nothing from 345 km/h', () => {
+  it('deploys the 2026 rule\'s power, made simpler: 350 kW to 290 km/h, then 1800 - 5 v kW, nothing from 345 km/h', () => {
     expect(m).toEqual({ powerKw: 350, torqueNm: 500, fullToKmh: 290, zeroAtKmh: 345 });
     for (const kmh of [-10, 0, 100, 200, 290]) expect(electricPower(m, kmh), `${kmh} km/h`).toBe(350000);
     for (const kmh of [291, 300, 320, 340, 344]) expect(electricPower(m, kmh), `${kmh} km/h`).toBeCloseTo((1800 - 5 * kmh) * 1000, 6);
