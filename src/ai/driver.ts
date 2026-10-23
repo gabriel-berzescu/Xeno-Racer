@@ -94,6 +94,8 @@ const SLIPPERY_RATIO = 0.8;
 const LATERAL_RATE_MIN = 0.15;
 /** The steering never asks for more lateral acceleration than this share of the grip (plus the bank's help). */
 const CURVATURE_GRIP = 1.05;
+/** Seconds over which the downforce the steering counts follows the traffic: it fades behind another car and comes back in clean air. */
+const STEER_DOWN_TIME = 0.3;
 /** Throttle gain (per m/s of speed deficit) in the middle of a corner on a wet road, instead of the normal 0.35. */
 const THROTTLE_GAIN_CORNER_WET = 0.03;
 /** Slip angle / combined-slip thresholds (multiples of the tyre's peak) where the throttle governor starts and finishes lifting. */
@@ -226,6 +228,8 @@ export class AIDriver {
   /** Peak friction coefficient of the weaker axle (dry), downforce acceleration per (m/s)^2, braking acceleration at full pedal. */
   private readonly gripMu: number;
   private readonly cDown: number;
+  /** The downforce per (m/s)^2 the steering counts for the slip angle of the front tyres: the car's in clean air, fading behind another car. */
+  private steerDown = 0;
   /** What mechanical damage has left of the car (setDamage): the grip of its weaker axle, the downforce of its weaker end. Both 1 on a sound car. */
   private dmgGrip = 1;
   private dmgAero = 1;
@@ -688,10 +692,16 @@ export class AIDriver {
       const kLim = Math.max(aMax / (v * v), Math.abs(kff) * 1.02);
       kappa = Math.max(-kLim, Math.min(kLim, kappa));
     }
-    // kinematic angle + the slip angle the front tires need for this lateral acceleration
+    // kinematic angle + the slip angle the front tires need for this lateral acceleration, out of what presses them on the road: the weight
+    // and, in clean air, the downforce (on the weight alone a car with wings asked its fronts for more than their peak slip angle in every
+    // fast bend, ran wide and braked off the asphalt). Behind another car it counts the weight alone, as the braking ahead does, and the
+    // downforce fades out and back in over STEER_DOWN_TIME so the wheel does not jump as cars come and go: counted there too, one-make
+    // packs hit the walls of Kuroyama's narrow corners on the first lap twice as often. On a winter circuit it counts the weight alone,
+    // as the studded tyres' steering was tuned: there it gained nothing (laps of Isvik 0.1 s slower)
     const ph = def.physics;
     const aLat = v * v * kappa;
-    const muG = 9.81 * ph.tireFront.mu * this.wetMu * sGrip;
+    this.steerDown += ((this.nOb > 0 || this.winter ? 0 : this.cDown * this.dmgAero) - this.steerDown) * (1 - Math.exp(-dt / STEER_DOWN_TIME));
+    const muG = (9.81 + this.steerDown * v * v) * ph.tireFront.mu * this.wetMu * sGrip;
     let delta = Math.atan(L * kappa) + ph.tireFront.peakSlipAngle * Math.max(-1.2, Math.min(1.2, aLat / muG)) * 0.85;
     // yaw-rate tracking: steer against yaw rate that differs from what the path asks for
     // (gentler at hairpin speeds, where the loop through the tires would otherwise ring)

@@ -636,7 +636,7 @@ describe('the Volta on a lap', () => {
   }, 300000);
 
   it('is quicker than the LMP-X, dry and in a storm, and level with it on the studded tyres of Isvik', () => {
-    // (by 1.5-6.0 % on these laps, as on the second laps of tests/ai.test.ts: the brief asked 7-12 %, which the engine alone, with the LMP-X's
+    // (by 3.9-6.0 % on these laps, as on the second laps of tests/ai.test.ts: the brief asked 7-12 %, which the engine alone, with the LMP-X's
     // power for its weight, does not give; with 25 % more torque it would still be 6-9 % on the road circuits and 2.6 % on Isvik)
     for (const trackId of ['aurelia', 'brennwald'])
       for (const wetness of [0, 1]) {
@@ -649,6 +649,13 @@ describe('the Volta on a lap', () => {
     const l = aiLap('isvik', lmp).lap;
     expect(Math.abs(v / l - 1)).toBeLessThan(0.02);
   }, 300000);
+
+  it('keeps to the asphalt in the fast bends, as the LMP-X does', () => {
+    // (with the slip angle of its front tyres worked out of the weight alone, the AI asked them for more than their peak in every bend
+    // above 230 km/h, ran wide and braked off the asphalt: the Volta 4.2 s past the edge at Brennwald and 1.4 s at Aurelia, the LMP-X 0.5 s)
+    for (const def of [volta, lmp])
+      for (const trackId of ['aurelia', 'brennwald']) expect(aiLap(trackId, def).offEdge, `${def.id} at ${trackId}: seconds past the edge`).toBe(0);
+  }, 300000);
 });
 
 describe('a whole grid of Voltas', () => {
@@ -657,7 +664,7 @@ describe('a whole grid of Voltas', () => {
   it('races Aurelia dry and Brennwald in a storm without a wall hit or a reset, and without pumping the brakes', () => {
     // (a brake pump: a brake of 0.3 or more let off and taken back up within a quarter of a second. When the braking ahead counted the
     // downforce afresh at every update, a car whose stop began behind another let off each time it left the traffic window: 27 and 286
-    // pumps in these two races, against 5 and 86 with each stop finished on the reach it began with)
+    // pumps in these two races, against 1 and 102 with each stop finished on the reach it began with)
     for (const [trackId, seed, wetness, pumps] of [['aurelia', 0, 0, 12], ['brennwald', 1, 1, 200]] as const) {
       const r = runPack(trackId, 'volta', 'pro', 12, 1, false, { seed, wetness });
       expect(r.finished, `finished, ${trackId}`).toBe(12);
