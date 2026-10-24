@@ -1110,7 +1110,9 @@ export class Vehicle {
 
     // engine torque
     const idleThrottle = clamp((e.idleRpm + 80 - rpm) / 450, 0, 0.45);
-    let th = throttleIn * this.tcsFactor * this.escThrottle;
+    // (the pedal through the engine's throttle map, if it has one: EngineSpec.throttleGamma)
+    const demand = e.throttleGamma === undefined ? throttleIn : Math.pow(throttleIn, e.throttleGamma);
+    let th = demand * this.tcsFactor * this.escThrottle;
     if (shiftThrottle >= 0) th = shiftThrottle;
     if (this.launching && !this.clutchLocked && G !== 0) {
       th *= clamp01(1 - (rpm - this.launchRpm(clamp01(throttleIn))) / 450);
