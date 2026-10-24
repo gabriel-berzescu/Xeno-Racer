@@ -357,7 +357,10 @@ describe('a whole grid of Diecis', () => {
   it('races Aurelia dry and Brennwald in a storm without a wall hit or a reset, and its brake pumps in traffic held where they are', () => {
     // (a brake pump: a brake of 0.3 or more let off and taken back up within a quarter of a second. Alone on these laps the Dieci has none; in
     // traffic it has more than the Volta, 20 and 121 in these two races where twelve Voltas have 1 and 102, 6-20 and 118-138 over seeds 0-3
-    // where they have 1-11 and 86-114)
+    // where they have 1-11 and 86-114. At Aurelia 16 of the 20 come in the first braking zone, at 480-580 m: the cars ahead drop in and out of
+    // the AI's traffic window from one frame to the next, and with them the speed it caps the car at, so for a frame the car lets off the brake
+    // onto the throttle, as twelve Voltas do there at seeds 1 and 3 on half the throttle. In the storm at Brennwald all but one come back on a
+    // brake request for a car ahead, as all but two of the Volta's do)
     for (const [trackId, seed, wetness, pumps] of [['aurelia', 0, 0, 36], ['brennwald', 1, 1, 300]] as const) {
       const r = runPack(trackId, 'dieci', 'pro', 12, 1, false, { seed, wetness });
       expect(r.finished, `finished, ${trackId}`).toBe(12);
