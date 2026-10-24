@@ -1253,6 +1253,8 @@ describe('hood / bumper / cockpit', () => {
     const { F, U } = carAxes(car);
     expect(forwardOf(rig).dot(F)).toBeLessThan(-0.85);
     expect(maxStep).toBeLessThan(25 * DEG);
+    // (a head turned in the cockpit, not the rear camera: the cockpit's glass and instruments are still the driver's)
+    expect(rig.onRearCamera).toBe(false);
 
     for (const mode of ['hood', 'bumper'] as const) {
       rig.setMode(mode);
@@ -1264,8 +1266,10 @@ describe('hood / bumper / cockpit', () => {
       expect(off.dot(U) - front.dot(U)).toBeCloseTo(ANCHOR_LAYOUT.chase[1] + 0.14 - ANCHOR_LAYOUT[mode][1], 1);
       expect(off.dot(F)).toBeGreaterThan(-1.5);
       expect(forwardOf(rig).dot(F)).toBeLessThan(-0.95);
+      expect(rig.onRearCamera).toBe(true);
       drive(rig, car, straight(20), 60, 0.3, { t0: 2.3 });
       expect(forwardOf(rig).dot(F)).toBeGreaterThan(0.95);
+      expect(rig.onRearCamera).toBe(false);
     }
   });
 
@@ -1285,8 +1289,11 @@ describe('hood / bumper / cockpit', () => {
     expect(off.dot(U) - eye.dot(U)).toBeCloseTo(ANCHOR_LAYOUT.chase[1] + 0.14 - 0.77, 1);
     expect(Math.abs(off.dot(L))).toBeLessThan(0.02);
     expect(forwardOf(rig).dot(F)).toBeLessThan(-0.95);
+    // (so the game turns the cockpit's mirrors off and gives the HUD its shift strip back: the yoke is out of the picture)
+    expect(rig.onRearCamera).toBe(true);
     drive(rig, car, straight(20), 60, 0.3, { t0: 1.3 });
     expect(forwardOf(rig).dot(F)).toBeGreaterThan(0.95);
+    expect(rig.onRearCamera).toBe(false);
     expect(rig.camera.position.clone().sub(car.state.position).distanceTo(eye)).toBeLessThan(0.1);
   });
 });

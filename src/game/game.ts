@@ -2059,7 +2059,8 @@ export class Game {
       championship: this.hudChampionship,
       spotter: this.settings.hud.spotter ? d.spotOut : null,
       mirror: split ? false : (this.render as XenoRenderSystem).mirrorStrip,
-      openCockpitView: d.rig.mode === 'cockpit' && !!def.visual.openCockpit,
+      // (not while the look back is on the rear camera: the yoke's shift lights are out of the picture, so the HUD's strip comes back)
+      openCockpitView: d.rig.mode === 'cockpit' && !d.rig.onRearCamera && !!def.visual.openCockpit,
       weather: this.wx?.plan ? this.hudWeather(now) : null,
       damage: this.hudDamage(p, d.seat),
       brakeAssist: d.aids.added,
@@ -2136,7 +2137,14 @@ export class Game {
     const cam = this.camera.mode;
     f.rig = player?.visual.mirrors ?? null;
     f.mode =
-      !player || this.replay || this.resultsShown || this.settings.hud.mirror === 'off' ? 'off' : cam === 'cockpit' ? 'real' : (cam === 'hood' || cam === 'bumper') && !lookBack ? 'virtual' : 'off';
+      !player || this.replay || this.resultsShown || this.settings.hud.mirror === 'off'
+        ? 'off'
+        : cam === 'cockpit'
+          ? // (a driver on the centre line looks back through the rear camera, where no glass is in the picture)
+            this.camera.onRearCamera ? 'off' : 'real'
+          : (cam === 'hood' || cam === 'bumper') && !lookBack
+            ? 'virtual'
+            : 'off';
     // the strip is part of the HUD: it goes with the H key, the pause menu and the start sequence
     f.hud = this.hudVisible && !this.paused && this.session?.phase !== 'countdown';
     // the lamps of the cars that face us glare in the glass once it is dark enough for them to be lit

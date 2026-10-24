@@ -610,6 +610,9 @@ class CameraRigImpl implements CameraRig {
   get mode(): CameraMode {
     return this._mode;
   }
+  get onRearCamera(): boolean {
+    return this.rearActive && (this._mode === 'hood' || this._mode === 'bumper' || this._mode === 'cockpit');
+  }
   set mode(m: CameraMode) {
     this.setMode(m);
   }

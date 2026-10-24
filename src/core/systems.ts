@@ -145,6 +145,11 @@ export interface CameraTarget {
 export interface CameraRig {
   readonly camera: THREE.PerspectiveCamera;
   mode: CameraMode;
+  /**
+   * The look back is being filmed from the rear camera on the car: in the hood and bumper views, and in the cockpit of a driver on the
+   * centre line (who has no shoulder to look over), so the cockpit's own instruments and glass are out of the picture.
+   */
+  readonly onRearCamera: boolean;
   next(): CameraMode;
   setMode(m: CameraMode): void;
   /** Hard-cut (no smoothing) on next update — after resets / restarts. */
