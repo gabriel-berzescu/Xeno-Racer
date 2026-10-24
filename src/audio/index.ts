@@ -345,16 +345,16 @@ class AudioSystemImpl implements AudioSystem, CarHost {
       assignLod(this.lodDist, n, this.lodOut, this.lodOrder);
       for (let i = 0; i < n; i++) this.aiList[i].lod = this.lodOut[i];
     }
-    // rain ambience: open or cabin mix and the windscreen follow the player's camera / speed
+    // rain ambience: open or cabin mix and the windscreen follow the player's camera / speed (an open cockpit has no roof: the open mix)
     const pl = this.seatCars[0] ?? this.player;
-    let interior = pl ? pl.interior : 0;
+    let interior = pl ? pl.cabin : 0;
     let speed = pl ? pl.speed : 0;
     if (this.split) {
       // two humans: half way between a cabin and the open air when one is in it, and the faster one's wind
       const a = this.seatCars[0];
       const b = this.seatCars[1];
       if (a && b) {
-        interior = (a.interior + b.interior) * 0.5;
+        interior = (a.cabin + b.cabin) * 0.5;
         speed = Math.max(a.speed, b.speed);
       }
     }
@@ -365,8 +365,8 @@ class AudioSystemImpl implements AudioSystem, CarHost {
 
   // ── cars ───────────────────────────────────────────────────────────────────
 
-  createCarSound(profile: EngineSoundProfile, isPlayer: boolean, seat: Seat = 0): CarSound {
-    const c = new CarSoundImpl(this, profile, isPlayer, seat);
+  createCarSound(profile: EngineSoundProfile, isPlayer: boolean, seat: Seat = 0, openCockpit = false): CarSound {
+    const c = new CarSoundImpl(this, profile, isPlayer, seat, openCockpit);
     this.cars.add(c);
     if (isPlayer) {
       this.player = c;

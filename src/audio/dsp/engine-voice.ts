@@ -15,9 +15,9 @@
  *        ├─ intake window table ─► gated, resonated intake noise
  *        └─ valve ticks ─► mechanical clatter
  *   + turbo (spool whistle / flutter / blow-off), gear whine, shift clunk, backfire pops, rev limiter
- *   + interior / exterior mix (cabin resonance, muffled exhaust path)
+ *   + interior / exterior mix (cabin resonance, muffled exhaust path; or, in an open cockpit, the helmet)
  *
- * Two things a profile can ask for beyond that (both off, and costing nothing, for every other engine):
+ * Three things a profile can ask for beyond that (all off, and costing nothing, for every other engine):
  *
  *   `exhaustSystem: 'dual'`  the secondaries do not meet: each bank goes on through a main pipe, muffler and tailpipe of its own (TailChain)
  *        and the listener hears the sum, a little nearer one tailpipe than the other. Through twin pipes the sum of a cross-plane V8's banks
@@ -26,10 +26,17 @@
  *        fading with the rpm as the pulses crowd into the roar; an X-pipe throws that difference away, which is why a merged exhaust is smoother.
  *   `supercharger`  a positive-displacement blower: a whine locked to the crank (rpm/60 x pulley ratio x lobes) with its harmonics, the rotor's
  *        own turn and the hiss of the air, following the pedal through the bypass valve (a whirr off the throttle, a whine on it).
+ *   `electric`  an electric motor geared to the crankshaft (a 2026 MGU-K): a whine on the 14th order of the crank with its harmonics, a
+ *        murmur of its gears as it turns, faint while it harvests on a lift or under braking, strong while it deploys (a nitro shot burning,
+ *        in a forward gear), as strong as the share of its power the road speed leaves it (`electricTaper`).
  *
  * A cross-plane V8 (crankType 'crossplane') is also lumpier, strongest at idle: what each bank's pipe still holds of its last pulse, the cammed
  * idle's cycle-to-cycle spread and weak cylinders, a bank that runs richer for a while, and a burble of unburnt charge on a lift-off
  * (see pulseFactor, burnFactor, and the burble in block()). These are events, so the lite voice has them too.
+ *
+ * A racing engine (the Volta's) can also give its own revs (limiterRpm: its loudness measured over them, on boost; idleLiftTo: the lift of a
+ * high idle kept near the idle), a turbo with no blow-off valve (blowOff) and a wastegate that lets part of every pulse past the turbine
+ * flat out (wastegate), a seamless shift (shiftDip); and a car with an open cockpit is heard from it through a helmet (EngineVoice.helmet).
  *
  * No allocation after construction; process() is safe to call from an AudioWorklet.
  */
@@ -77,6 +84,8 @@ export interface EngineInputs {
    * applied throttle stands in for it.
    */
   pedal: number;
+  /** Nitro burning now, 0..1: an electric motor's deployment (EngineSoundProfile.electric); every other engine ignores it. */
+  nitro: number;
 }
 
 export function defaultEngineInputs(): EngineInputs {
@@ -100,6 +109,7 @@ export function defaultEngineInputs(): EngineInputs {
     speed: 0,
     gear: 1,
     pedal: -1,
+    nitro: 0,
   };
 }
 
@@ -112,6 +122,8 @@ export interface EngineDebug {
   turbo: Float32Array;
   whine: Float32Array;
   events: Float32Array;
+  /** The electric motor's whine (EngineSoundProfile.electric); optional, so the labs' and tests' own tap sets need not name it. */
+  electric?: Float32Array;
 }
 export function createEngineDebug(n: number): EngineDebug {
   return {
@@ -122,6 +134,7 @@ export function createEngineDebug(n: number): EngineDebug {
     turbo: new Float32Array(n),
     whine: new Float32Array(n),
     events: new Float32Array(n),
+    electric: new Float32Array(n),
   };
 }
 
@@ -148,6 +161,8 @@ export interface Voicing {
   fcTail: number;
   fcTurb: number;
   turbineGain: number;
+  /** How much of the exhaust the wastegate lets past the turbine, wide open (EngineSoundProfile.wastegate; 0 = all of it through the turbine). */
+  wastegate: number;
   // radiation
   tilt: number;
   kd: number;
@@ -179,9 +194,18 @@ export interface Voicing {
   whistleF0: number;
   whistleF1: number;
   whistleLevel: number;
+  /** A blow-off valve that vents the boost on a lift (EngineSoundProfile.blowOff; true unless the profile says false). */
+  blowOff: boolean;
   whine: number;
   crackle: number;
   liteGain: number;
+  /** Seconds an upshift dips the load for (EngineSoundProfile.shiftDip: 0.07 unless the profile says). */
+  shiftDip: number;
+  /**
+   * The profile gives its shift dip, so that dip alone is the shift: the throttle the gearbox shuts while it changes gear, which the control
+   * frames show for a whole frame or two, is bridged (EngineVoice.block, CUT_BRIDGE). false for an engine that does not say.
+   */
+  bridgeCut: boolean;
   // supercharger: a positive-displacement blower, its whine locked to the crank
   blower: boolean;
   /** Whine fundamental per rpm (Hz): pulley ratio x lobes / 60. */
@@ -189,6 +213,16 @@ export interface Voicing {
   /** Whole lobes: the rotor turns at fundamental / lobes. */
   blowerLobes: number;
   blowerLevel: number;
+  /** An electric motor geared to the crank (EngineSoundProfile.electric): how loud its whine is, 0 = none. */
+  electric: number;
+  /**
+   * Its power falls with the road speed (EngineSoundProfile.electricTaper): all of it to `elFullKmh`, none from `elZeroKmh`, and between them
+   * 5 kW less per km/h, which would take all of it in `elFallKmh`. false: all of it at any speed.
+   */
+  elTaper: boolean;
+  elFullKmh: number;
+  elZeroKmh: number;
+  elFallKmh: number;
   // the cross-plane V8's lumpiness (see EngineVoice.pulseFactor): all 0 for every other engine
   /** Depth of the back-pressure memory of a bank's pipe, 0 = none. */
   lope: number;
@@ -207,6 +241,8 @@ export interface Voicing {
    * 0.03 every engine has makes ~0.1 % of rpm, a pitch change nobody hears); a cammed V8 hunts a good percent or two: 0.4 makes 1.5 %.
    */
   idleWobble: number;
+  /** Where the lift of the idle has faded out, x the idle rpm (EngineSoundProfile.idleLiftTo: 2.2 for an engine that does not say). */
+  idleLiftTo: number;
   // exhaust: a true dual system, each bank to its own tailpipe (full quality)
   dual: boolean;
   /** Length of the left / right pipes (after the collector) relative to the nominal ones. */
@@ -233,6 +269,7 @@ export function deriveVoicing(p: EngineSoundProfile, layout: EngineLayout): Voic
   const dual = p.exhaustSystem === 'dual' && layout.banks === 2;
   const sc = p.supercharger;
   const lobes = sc ? Math.max(1, Math.round(sc.lobes)) : 0;
+  const et = p.electricTaper;
   return {
     Ls: lerp(0.62, 0.4, o),
     Lm: lerp(1.0, 0.55, o),
@@ -256,6 +293,7 @@ export function deriveVoicing(p: EngineSoundProfile, layout: EngineLayout): Voic
     fcTail: lerp(3200, 9500, o),
     fcTurb: 3400,
     turbineGain: p.turbo ? 0.78 : 1,
+    wastegate: p.turbo && p.wastegate !== undefined ? clamp01(p.wastegate) : 0,
     tilt: 0.25 + 0.5 * b,
     kd: 7,
     exGain: 1,
@@ -281,15 +319,23 @@ export function deriveVoicing(p: EngineSoundProfile, layout: EngineLayout): Voic
     whistleF0: smallTurbo ? 2400 : 1800,
     whistleF1: smallTurbo ? 6400 : 4800,
     whistleLevel: 0.09,
+    blowOff: p.blowOff !== false,
     whine: p.gearWhine,
     crackle: p.crackle,
     // (the dual exhaust is louder through its two separate chains than the one shared chain of lite: averaged over the rev range, with
     // the same pulses, the lite voice came out 5.6 dB under the full one at a gain of 1.35, and a little above it at 1.7, where the others' lite voices come out within 2 dB of theirs)
     liteGain: dual ? 1.35 * 1.7 : 1.35,
+    shiftDip: p.shiftDip !== undefined ? clamp(p.shiftDip, 0.005, 0.2) : 0.07,
+    bridgeCut: p.shiftDip !== undefined,
     blower: sc !== undefined && sc.ratio > 0 && lobes > 0,
     blowerHzPerRpm: sc ? (sc.ratio * lobes) / 60 : 0,
     blowerLobes: lobes,
     blowerLevel: sc ? clamp01(sc.level ?? 1) : 0,
+    electric: p.electric !== undefined ? clamp01(p.electric) : 0,
+    elTaper: et !== undefined,
+    elFullKmh: et ? et.fullToKmh : 0,
+    elZeroKmh: et ? et.zeroAtKmh : 0,
+    elFallKmh: et ? Math.max(et.powerKw, 1) / ELECTRIC_TAPER_KW_PER_KMH : 1,
     lope: cross ? 0.28 : 0,
     lopeTau: 0.018,
     lump: cross ? 0.3 : 0,
@@ -297,6 +343,7 @@ export function deriveVoicing(p: EngineSoundProfile, layout: EngineLayout): Voic
     bankDrift: cross ? 0.16 : 0,
     burble: cross ? 1 : 0,
     idleWobble: cross ? 0.4 : 0.03,
+    idleLiftTo: p.idleLiftTo !== undefined ? clamp(p.idleLiftTo, 1.05, 4) : 2.2,
     dual,
     dualLen: [1, 1.004],
     dualMuff: [1, 0.97],
@@ -398,6 +445,22 @@ class TailChain {
 }
 
 const K_FINAL_DRIVE = 3.7;
+/**
+ * The order of the crank an electric motor geared to it whines at: the MGU-K turns 3.5 times for every crank turn (43,750 rpm at the
+ * Volta's 12,500; the 2026 rules allow it 50,000) and its four pole pairs pass each coil four times a turn, 14 times the crank's speed
+ * (2.9 kHz at 12,500 rpm, 930 Hz at 4000). Twice it is a whole number, so the whine and its harmonics sit on the engine-order grid
+ * (rpm/120) where the aliasing test looks for strays.
+ */
+const ELECTRIC_ORDER = 14;
+/** How fast the power of that motor falls above its `fullToKmh` (kW per km/h; EngineSoundProfile.electricTaper): the 2026 rule's rate, as the physics' electricPower. */
+const ELECTRIC_TAPER_KW_PER_KMH = 5;
+/**
+ * The longest an upshift's cut is bridged for, seconds (Voicing.bridgeCut). The gearbox shuts the throttle for the whole of its shift (the
+ * Volta's: 20 ms), and the control frames show that for one frame or two (17 ms each at 60 Hz); held as it comes, with the smoothing of
+ * the throttle and the load, it was a gap of 40 to 64 ms, 8 to 10 dB deep, in place of the shift dip. 40 ms covers two frames at 60 Hz and
+ * one at 30 Hz; a cut that lasts longer is not a shift (the traction control with the pedal down, a launch) and is heard after them.
+ */
+const CUT_BRIDGE = 0.04;
 const PINION_TEETH = 11;
 const PAIR_TEETH = 22;
 const WIN_N = 1024;
@@ -415,6 +478,13 @@ export class EngineVoice {
   readonly V: Voicing;
   readonly inp: EngineInputs = defaultEngineInputs();
   debug: EngineDebug | null = null;
+  /**
+   * An open cockpit (CarVisualSpec.openCockpit): the interior input then puts the listener on the car in a helmet, not in a closed cabin.
+   * The exhaust is heard straight and only a little less than from behind the car, the airbox above the driver's head roars, there is no
+   * cabin to boom at 95 and 230 Hz, and the helmet's shell takes a little off the top. Set before the first render (the worklet sets it
+   * from its processor options).
+   */
+  helmet = false;
 
   private rng: Rng;
   private readonly G: number;
@@ -436,6 +506,10 @@ export class EngineVoice {
   private lastBackfire: number;
   private asleep = false;
   private needSnap = true;
+  // an upshift's cut bridged (Voicing.bridgeCut): the throttle and the load before it, and how long it has been held
+  private preCutThr = 0;
+  private preCutLoad = 0;
+  private cutHeld = 0;
 
   // crank clock
   private ph: number;
@@ -553,6 +627,13 @@ export class EngineVoice {
   private scDr = 0;
   private svfSc = new SVF();
 
+  // the electric motor: its phase (turns of the whine), smoothed strength and gain, and the share of its power it deploys (the nitro, in a
+  // forward gear, as much as the road speed leaves it) smoothed
+  private elPh = 0;
+  private elA = 0;
+  private gEl = 0;
+  private sNitro = 0;
+
   // the cross-plane V8's lumpiness (pulseFactor): what each bank's pipe still holds of the last pulses, when the bank last fired (in samples)
   private lopeH: Float64Array;
   private lopeT: Float64Array;
@@ -600,6 +681,8 @@ export class EngineVoice {
   private cabin = new Biquad();
   private cabin2 = new Biquad();
   private hpOut = new DcBlock();
+  /** The helmet's shell (open cockpit): what is above about 2.5 kHz is taken down a little. */
+  private lpHelmet = new OnePole();
 
   // idle wobble
   private wobble = 0;
@@ -766,6 +849,10 @@ export class EngineVoice {
     this.lpMf.y = this.lpMb.y = this.lpCf.y = this.lpCb.y = this.lpQ.y = this.lpTf.y = this.lpEnd.y = 0;
     for (const t of this.tails) t.clear();
     this.scA = 0;
+    this.elA = 0;
+    this.lpHelmet.y = 0;
+    // (nothing held from before a sleep: a cut seen first after it is heard)
+    this.cutHeld = CUT_BRIDGE;
     this.lopeH.fill(0);
     for (const r of this.blk) r.reset();
     this.clunkR1.reset();
@@ -892,6 +979,7 @@ export class EngineVoice {
     I.boost = sane(I.boost, 0, 1.5, 0);
     I.clutch = sane(I.clutch, 0, 1, 0);
     I.pedal = sane(I.pedal, -1, 1, -1);
+    I.nitro = sane(I.nitro, 0, 1, 0);
     I.interior = sane(I.interior, 0, 1, 0);
     I.gain = sane(I.gain, 0, 4, 1);
     I.driveOmega = sane(I.driveOmega, -4000, 4000, 0);
@@ -939,9 +1027,26 @@ export class EngineVoice {
     this.sinceRpmChange += dt;
     this.rpmRampT = Math.min(this.rpmRampT + dt, this.rpmRampLen);
     this.sRpm = this.rpmFrom + (this.rpmTo - this.rpmFrom) * (this.rpmRampT / this.rpmRampLen);
-    this.sThr += smoothCoef(0.03, dt) * (I.throttle - this.sThr);
+    // an upshift's cut (Voicing.bridgeCut): the throttle shut with the pedal down and the clutch out, and not by the limiter, is held at
+    // what it was before for CUT_BRIDGE at most; the shift counter that follows starts the dip that is the shift
+    let thrIn = I.throttle;
+    let loadIn = I.load;
+    if (V.bridgeCut) {
+      if (I.pedal >= 0.25 && I.throttle < 0.05 && I.clutch > 0 && I.limiter < 0.5) {
+        if (this.cutHeld < CUT_BRIDGE) {
+          this.cutHeld += dt;
+          thrIn = this.preCutThr;
+          loadIn = this.preCutLoad;
+        }
+      } else {
+        this.cutHeld = 0;
+        this.preCutThr = I.throttle;
+        this.preCutLoad = I.load;
+      }
+    }
+    this.sThr += smoothCoef(0.03, dt) * (thrIn - this.sThr);
     this.sPlate += smoothCoef(0.03, dt) * ((I.pedal >= 0 ? I.pedal : I.throttle) - this.sPlate);
-    this.sLoad += smoothCoef(0.035, dt) * (I.load - this.sLoad);
+    this.sLoad += smoothCoef(0.035, dt) * (loadIn - this.sLoad);
     this.sBoost += smoothCoef(0.04, dt) * (I.boost - this.sBoost);
     this.sInt += smoothCoef(0.06, dt) * (I.interior - this.sInt);
     this.sClutch += smoothCoef(0.02, dt) * (I.clutch - this.sClutch);
@@ -958,7 +1063,7 @@ export class EngineVoice {
       const fresh = I.shiftCount > this.lastShift;
       this.lastShift = I.shiftCount;
       if (fresh) {
-        this.dipT = 0.07;
+        this.dipT = V.shiftDip;
         this.clunkIn += 0.5 + 0.5 * this.sLoad;
         this.clunkNoise = 1;
         if (V.crackle > 0.3 && this.ovr > 0.2) this.burstLeft += 1;
@@ -1023,8 +1128,8 @@ export class EngineVoice {
     const loadShape = 0.45 + 0.55 * Math.pow(loadE, 1.2);
     const rpmShape = 0.4 + 0.6 * rpmN;
     // idle presence: a real idle is far quieter than full throttle, but in a game the grid / pit wait must stay
-    // characterful, so lift the region around idle (fades out by ~2.2 x idle rpm)
-    const idlePresence = 1 + 1.9 * smoothstep(idle * 2.2, idle * 1.0, rpm);
+    // characterful, so lift the region around idle (faded out by idleLiftTo x the idle rpm: 2.2, less for an engine that idles high)
+    const idlePresence = 1 + 1.9 * smoothstep(idle * V.idleLiftTo, idle * 1.0, rpm);
     this.pArea = V.exGain * loadShape * rpmShape * idlePresence * (1 - 0.1 * ovr) * (1 + 0.25 * this.sBoost);
     this.pFast = clamp(V.fastFrac + 0.25 * loadE - 0.1 * ovr, 0.12, 0.85);
     // the valve-opening part of the blowdown is fixed in crank angle, so pulses are softer at low rpm and
@@ -1083,11 +1188,12 @@ export class EngineVoice {
       const tgt = clamp01(this.sBoost * (0.55 + 0.45 * rpmN) + 0.12 * loadE * rpmN);
       const tau = tgt > this.tSpeed ? 0.09 : 0.9;
       this.tSpeed += smoothCoef(tau, dt) * (tgt - this.tSpeed);
-      // the blow-off valve vents the boost when the throttle body snaps shut: when the driver lifts, not on a flat upshift
+      // the blow-off valve vents the boost when the throttle body snaps shut: when the driver lifts, not on a flat upshift (a racing
+      // turbo without one holds its boost)
       const dPlate = (this.sPlate - this.prevPlate) / dt;
       this.prevPlate = this.sPlate;
       this.bovCool = Math.max(0, this.bovCool - dt);
-      if (dPlate < -3.5 && this.sBoost > 0.2 && this.bovCool <= 0) {
+      if (V.blowOff && dPlate < -3.5 && this.sBoost > 0.2 && this.bovCool <= 0) {
         this.bovEnv = clamp01(this.sBoost * 1.2);
         this.flutT = 0.7 * V.crackle + 0.25;
         this.bovF = 3300;
@@ -1100,10 +1206,12 @@ export class EngineVoice {
     const thr = this.sThr;
     const intakeAmt =
       (0.1 + 0.9 * Math.pow(thr, 1.1)) * (0.15 + 0.85 * Math.pow(rpmN, 1.4)) + 0.75 * ovr * Math.pow(rpmN, 1.3);
-    const tExE = 1 - sI;
-    const tExI = 0.55 * sI;
-    const tBlk = lerp(0.5, 0.85, sI) * (0.15 + 0.85 * loadE) * (0.35 + 0.65 * rpmN) * (1 + 1.2 * smoothstep(idle * 2.2, idle * 1.0, rpm));
-    const tInt = lerp(0.42, 1.05, sI) * V.intakeGain * intakeAmt;
+    // (in an open cockpit the exhaust is heard straight, not through a cabin: no muffled path, and the airbox above the helmet is louder)
+    const helmet = this.helmet;
+    const tExE = helmet ? 1 - 0.3 * sI : 1 - sI;
+    const tExI = helmet ? 0 : 0.55 * sI;
+    const tBlk = lerp(0.5, 0.85, sI) * (0.15 + 0.85 * loadE) * (0.35 + 0.65 * rpmN) * (1 + 1.2 * smoothstep(idle * V.idleLiftTo, idle * 1.0, rpm));
+    const tInt = lerp(0.42, helmet ? 1.3 : 1.05, sI) * V.intakeGain * intakeAmt;
     const tMech = lerp(0.145, 0.36, sI) * (0.25 + 0.75 * Math.pow(rpmN, 1.6)) * (0.45 + 0.55 * loadE);
     const tTur = V.turbo ? lerp(0.165, 0.46, sI) : V.blower ? lerp(1.15, 2.1, sI) : 0;
     const tWh = lerp(0.14, 0.9, sI) * V.whine;
@@ -1169,6 +1277,8 @@ export class EngineVoice {
     const kLpTurb = 1 - Math.exp((-TAU * V.fcTurb) / sr);
     const kLpQ = 1 - Math.exp((-TAU * 2400) / sr);
     const kLpEnd = 1 - Math.exp((-TAU * (V.fcTail * 0.8)) / sr);
+    const kHelmet = 1 - Math.exp((-TAU * 2500) / sr);
+    const lpHelmet = this.lpHelmet;
 
     // turbo whistle block parameters
     const tSp = this.tSpeed;
@@ -1212,6 +1322,31 @@ export class EngineVoice {
     const blowKdr = 1 - Math.exp((-TAU * 4) / sr);
     if (blowOn) this.svfSc.set(clamp(blowInc1 * sr * 3.3, 900, sr * 0.4), 2.5, sr);
     const svfSc = this.svfSc;
+
+    // electric motor block parameters. It is geared to the crank, so its whine follows the rpm at once, whatever it is doing; how loud
+    // it is depends on its work. Turning free, only its gears murmur; harvesting (a lift, the brakes: the throttle shut while the engine
+    // turns) it brakes the crank with its field and whines faintly; deploying (only while a nitro shot burns, only in a forward gear, as
+    // far as the throttle asks and as much of its power as the road speed leaves it: Voicing.elTaper) it drives it with its field and whines
+    // loud and bright. All of it full quality only, as the blower.
+    const elOn = V.electric > 0 && full;
+    if (V.electric > 0) {
+      const kmh = sane(I.speed, 0, 300, 0) * 3.6;
+      const share = !(I.gear >= 1) ? 0 : !V.elTaper ? 1 : kmh >= V.elZeroKmh ? 0 : clamp01(1 - (kmh - V.elFullKmh) / V.elFallKmh);
+      this.sNitro += smoothCoef(0.05, dt) * (I.nitro * share - this.sNitro);
+    }
+    const elInc0 = (ELECTRIC_ORDER / 60) * rpmPrev * tsPrev * invSr; // whine, cycles per sample, at the start and end of the block
+    const elInc1 = (ELECTRIC_ORDER / 60) * rpm * this.sTs * invSr;
+    const elDeploy = this.sNitro * Math.pow(thr, 1.2);
+    const elTarget = elOn && elInc1 < 0.42 ? 0.06 * (0.3 + 0.7 * rpmN) + 0.25 * ovr * (0.25 + 0.75 * rpmN) + elDeploy * (0.7 + 0.5 * rpmN) : 0;
+    const elW2 = elInc1 * 2 < 0.42 ? 0.22 + 0.33 * elDeploy : 0;
+    const elW3 = elInc1 * 3 < 0.42 ? 0.06 + 0.2 * elDeploy : 0;
+    const elKa = 1 - Math.exp(-invSr / 0.04);
+    const elKr = 1 - Math.exp(-invSr / 0.06);
+    const tEl = lerp(1.15, 2.1, sI) * V.electric;
+    if (firstBlock) this.gEl = tEl;
+    const dEl = (tEl - this.gEl) * invLen;
+    let cEl = this.gEl;
+    this.gEl = tEl;
 
     // event-sound decay constants (sample-rate independent)
     const popEnvK = Math.exp(-invSr / 0.017);
@@ -1291,6 +1426,9 @@ export class EngineVoice {
     const Rq = V.Rq;
     const turbineGain = V.turbineGain;
     const turboOn = V.turbo;
+    // a racing turbo's wastegate, wide open on full boost at full load and high revs: part of every pulse goes round the turbine with its edge
+    const wgOn = turboOn && V.wastegate > 0;
+    const wg = wgOn ? V.wastegate * smoothstep(0.3, 0.9, this.sBoost) * smoothstep(0.4, 0.9, loadE) * smoothstep(0.45, 0.85, rpmN) : 0;
     const twin = V.twin;
     const liteGain = V.liteGain;
     const dbg = this.debug;
@@ -1326,6 +1464,8 @@ export class EngineVoice {
     let scPh = this.scPh;
     let scA = blowOn ? this.scA : 0; // a blower that was not rendered (lite) fades in again, it does not come back at its old level
     let scDr = this.scDr;
+    let elPh = this.elPh;
+    let elA = elOn ? this.elA : 0; // (as the blower: a motor that was not rendered fades in again)
     let bovEnv = this.bovEnv;
     let flutPh = this.flutPh;
     let popEnv = this.popEnv;
@@ -1514,7 +1654,9 @@ export class EngineVoice {
         if (turboOn) {
           const lt = lpTurb[b];
           lt.y += kLpTurb * (fwd - lt.y);
-          fwd = lt.y * turbineGain;
+          // (what the wastegate lets past is what the turbine would have taken off the top)
+          if (wgOn) fwd = lt.y * turbineGain + wg * (fwd - lt.y);
+          else fwd = lt.y * turbineGain;
         }
         const lf = lpSf[b];
         lf.y += kLpS * (fwd - lf.y);
@@ -1640,6 +1782,7 @@ export class EngineVoice {
       let whine = 0;
       let turbo = 0;
       let bov = 0;
+      let elec = 0;
       if (full) {
         // engine block modes excited by combustion
         const bi = blkIn * 0.05;
@@ -1719,6 +1862,18 @@ export class EngineVoice {
             turbo += (tone + 0.5 * svfSc.bpn) * scA * 0.05 * (1 + 0.1 * sinCyc(wrap1(nN * cyc + 0.3)) + 6.5 * scDr);
           }
         }
+
+        // the electric motor's whine, the 14th order of the crank and its harmonics: the firing of the engine shakes the gears that drive
+        // it, so its speed wobbles a little at the firing frequency (sidebands one firing frequency either side, on the grid too)
+        if (elOn) {
+          elA += (elTarget > elA ? elKa : elKr) * (elTarget - elA);
+          if (elA > 1e-4) {
+            const eInc = elInc0 + (elInc1 - elInc0) * fr;
+            elPh += eInc * (1 + 0.015 * sinCyc(wrap1(nN * cyc)));
+            if (elPh >= 1) elPh -= 1;
+            elec = (sinCyc(elPh) + elW2 * sinCyc(wrap1(elPh * 2)) + elW3 * sinCyc(wrap1(elPh * 3))) * elA * 0.05;
+          }
+        }
       } else {
         // A lite voice renders neither the block nor the ticks, but what feeds them (every combustion, every valve tick) must not pile
         // up: a voice promoted to full (an opponent coming within 80 m, a TV camera cutting onto a pack) used to throw the whole heap
@@ -1765,9 +1920,17 @@ export class EngineVoice {
       cOut += dOut;
       const exI = cExI > 1e-4 || sIntNow > 0.002 ? lpInt2.step(lpInt.step(u)) : 0;
       let y = bov * lerp(0.7, 0.9, sIntNow) + exD * cExE + exI * cExI + crack * (cExE + 0.3 * cExI) + blkOut * cBlk + intake * cInt + mech * cMech + turbo * cTur + whine * cWh + ev * cEv;
-      if (sIntNow > 0.002) {
+      if (elOn) {
+        cEl += dEl;
+        y += elec * cEl;
+      }
+      if (sIntNow > 0.002 && !helmet) {
         const cb1 = cabin2.step(cabin.step(y));
         y += (cb1 - y) * sIntNow;
+      } else if (helmet && sIntNow > 0.002) {
+        // the helmet: no cabin, a gentle shelf of 3.7 dB off the top
+        lpHelmet.y += kHelmet * (y - lpHelmet.y);
+        y -= 0.35 * sIntNow * (y - lpHelmet.y);
       }
       out[o + i] = hpOut.step(y) * cOut;
       if (dbg) {
@@ -1779,6 +1942,7 @@ export class EngineVoice {
         dbg.turbo[k] = turbo * cTur;
         dbg.whine[k] = whine * cWh;
         dbg.events[k] = ev * cEv;
+        if (dbg.electric) dbg.electric[k] = elOn ? elec * cEl : 0;
       }
     }
 
@@ -1794,6 +1958,8 @@ export class EngineVoice {
     this.scPh = scPh;
     this.scA = scA;
     this.scDr = scDr;
+    this.elPh = elPh;
+    this.elA = elA;
     this.clock += len;
     this.bovEnv = bovEnv;
     this.flutPh = flutPh;
@@ -1876,9 +2042,11 @@ const CAL_LIMITER = 8000;
 /**
  * The nominal limiter of the loudness sweep. Small and medium engines are measured over 2800..8000 rpm; a big V8 (a 6.2 L turns to 6500, not 8000) over
  * its own range, since what is averaged is the exhaust's loudness at the rpm it actually runs at, and a pipe that rings at 7000 rpm
- * must not decide how loud the engine is at 4500. 5 L and below: 8000 as it always was; 6.5 L and up: 6200.
+ * must not decide how loud the engine is at 4500. 5 L and below: 8000 as it always was; 6.5 L and up: 6200. An engine that gives its own
+ * limiter (EngineSoundProfile.limiterRpm) is measured over its own range, whatever its size.
  */
 function calLimiter(profile: EngineSoundProfile): number {
+  if (profile.limiterRpm !== undefined) return clamp(profile.limiterRpm, 1000, 20000);
   return profile.displacement > 5 ? lerp(CAL_LIMITER, 6200, clamp01((profile.displacement - 5) / 1.5)) : CAL_LIMITER;
 }
 const calCache = new Map<string, number>();
@@ -1907,7 +2075,8 @@ export function measureExhaustSweepRms(profile: EngineSoundProfile, sr: number, 
   i.idleRpm = 900;
   i.throttle = 1;
   i.load = 1;
-  i.boost = 0;
+  // (an engine measured over its own revs is measured as it is driven: a turbo on the boost the labs drive it with)
+  i.boost = profile.limiterRpm !== undefined && profile.turbo ? 0.9 : 0;
   i.quality = 2;
   i.rpm = lim * 0.35;
   const secs = 0.5;
@@ -1941,7 +2110,8 @@ export function measureExhaustSweepRms(profile: EngineSoundProfile, sr: number, 
  * muffler topology attenuates. Cached per profile; costs ~15 ms once.
  */
 export function calibratedExhaustGain(profile: EngineSoundProfile, sr: number): number {
-  const key = [sr, profile.cylinders, profile.layout, profile.crankType, profile.displacement, profile.turbo ? 1 : 0, profile.exhaustOpenness, profile.brightness, profile.exhaustSystem ?? 'merged'].join('|');
+  // (everything the sweep hears: a wastegate opens on its boost, and a wide lift of the idle can reach into its lower end)
+  const key = [sr, profile.cylinders, profile.layout, profile.crankType, profile.displacement, profile.turbo ? 1 : 0, profile.exhaustOpenness, profile.brightness, profile.exhaustSystem ?? 'merged', profile.limiterRpm ?? '', profile.wastegate ?? '', profile.idleLiftTo ?? ''].join('|');
   const hit = calCache.get(key);
   if (hit !== undefined) return hit;
   const rmsCrack = measureExhaustSweepRms(profile, sr, 0, true); // pulses off: crack only

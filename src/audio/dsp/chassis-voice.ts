@@ -153,6 +153,12 @@ class ImpactVoice {
 
 export class ChassisVoice {
   readonly inp = makeChassisInputs();
+  /**
+   * An open cockpit (CarVisualSpec.openCockpit): the interior input then puts the listener in a helmet in the airstream, not in a closed
+   * cabin. The wind is louder than outside the car, not quieter, and only a little duller; the front tyres are beside the helmet; the road
+   * is not darkened by a cabin, and the spray and hiss of a wet road are heard in the open. Set before the first render (the worklet sets it).
+   */
+  helmet = false;
   private rng: Rng;
   private readonly sr: number;
   private asleep = false;
@@ -491,18 +497,19 @@ export class ChassisVoice {
     const sI = this.sInt;
     const invLen = 1 / len;
 
-    // category gains (ext, int)
-    const gTire = lerp(0.85, 1.0, sI);
-    const gRoad = lerp(0.6, 1.0, sI);
-    const gWind = lerp(0.8, 0.55, sI);
+    // category gains (ext, int: a closed cabin or, in an open cockpit, a helmet)
+    const helmet = this.helmet;
+    const gTire = lerp(0.85, helmet ? 1.1 : 1.0, sI);
+    const gRoad = lerp(0.6, helmet ? 0.75 : 1.0, sI);
+    const gWind = lerp(0.8, helmet ? 0.9 : 0.55, sI);
     const gHit = lerp(1.0, 1.15, sI);
     const roadAir = 1 - 0.9 * this.sAir;
 
     // filter updates (block rate)
-    const fcRoad = (180 + 950 * Math.min(sN, 1)) * lerp(1.0, 0.72, sI);
+    const fcRoad = (180 + 950 * Math.min(sN, 1)) * lerp(1.0, helmet ? 0.85 : 0.72, sI);
     this.svfRoadL.set(fcRoad, 0.7, sr);
     this.svfRoadR.set(fcRoad, 0.7, sr);
-    const fcWind = (320 + 1900 * Math.min(sN, 1.2)) * lerp(1, 0.6, sI);
+    const fcWind = (320 + 1900 * Math.min(sN, 1.2)) * lerp(1, helmet ? 0.85 : 0.6, sI);
     this.svfWindL.set(fcWind, 0.7, sr);
     this.svfWindR.set(fcWind, 0.7, sr);
     const whistleF = 900 + 1700 * Math.min(sN, 1.2);
@@ -534,7 +541,7 @@ export class ChassisVoice {
     const wetActive = wetNow > 0.002 || wetVoice.on;
     if (wetActive) {
       const paved = wHard + 0.8 * wCurb + 0.22 * wGrass + 0.12 * wGravel + 0.1 * wSand + 0.28 * wDirt;
-      wetRoad(wetNow > 0.002 ? wetNow : 0, paved, speed, sI, this.wetLv);
+      wetRoad(wetNow > 0.002 ? wetNow : 0, paved, speed, helmet ? 0 : sI, this.wetLv);
       wetCut = this.wetLv.roarCut;
       wetVoice.prepare(this.wetLv, this.sSlush, speed / 2.1, len);
     }

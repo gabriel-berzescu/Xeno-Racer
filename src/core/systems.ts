@@ -192,7 +192,7 @@ export type CreateCarVisual = (def: CarDefinition, livery: Livery, quality: Qual
 
 export interface CarSound {
   update(state: VehicleState, dt: number): void;
-  /** Player in cockpit/hood view (more intake/mechanical, less exhaust). */
+  /** Player in cockpit/hood view (more intake/mechanical, less exhaust; an open cockpit's through a helmet, not a cabin). */
   setInterior(on: boolean): void;
   dispose(): void;
 }
@@ -202,8 +202,11 @@ export interface AudioSystem {
   readonly unlocked: boolean;
   /** Where the ears are: the camera and its velocity. In split screen (setSplit) each seat has its own, `seat` 1 for player 2's. */
   setListener(camera: THREE.Camera, velocity: THREE.Vector3, seat?: Seat): void;
-  /** `seat`: the human a player's car belongs to (split screen); absent = seat 0. Opponents are not players. */
-  createCarSound(profile: EngineSoundProfile, isPlayer: boolean, seat?: Seat): CarSound;
+  /**
+   * `seat`: the human a player's car belongs to (split screen); absent = seat 0. Opponents are not players. `openCockpit`: the car's
+   * CarVisualSpec.openCockpit (absent: a closed cabin), so that its cockpit views hear it through a helmet and the rain drums on no roof.
+   */
+  createCarSound(profile: EngineSoundProfile, isPlayer: boolean, seat?: Seat, openCockpit?: boolean): CarSound;
   /** Split screen on or off: two listeners (one per seat) instead of one. */
   setSplit(on: boolean): void;
   /** Global effects that are not tied to a car. */

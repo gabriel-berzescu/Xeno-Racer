@@ -26,6 +26,8 @@ export interface CarNodeOptions {
   seed: number;
   /** Offline mode: pre-recorded control frames played on the audio clock. */
   script?: { step: number; data: Float32Array };
+  /** An open cockpit (CarVisualSpec.openCockpit): its interior views are a helmet's, not a closed cabin's. */
+  openCockpit?: boolean;
 }
 
 function makePanner(ctx: BaseAudioContext, ref: number, rolloff: number): PannerNode {
@@ -53,6 +55,7 @@ export function createCarNodes(ctx: BaseAudioContext, g: MasterGraph, o: CarNode
       seed: o.seed,
       exGain: calibratedExhaustGain(o.profile, ctx.sampleRate),
       script: o.script,
+      openCockpit: o.openCockpit === true,
     },
   });
   const engineLp = ctx.createBiquadFilter();
@@ -202,7 +205,7 @@ export class CarSoundImpl implements CarSound {
   speed = 0;
   private frame: CarFrame;
   private nodes: CarNodes | null = null;
-  /** 1 while the camera is in the cabin (player only; set through setInterior). */
+  /** 1 while the camera is in the cabin, or on an open car's cockpit (player only; set through setInterior). */
   interior = 0;
   private seed: number;
   private disposed = false;
@@ -214,12 +217,16 @@ export class CarSoundImpl implements CarSound {
   /** Split screen: which human's ears an opponent is placed for (it keeps them until the other human is clearly nearer). */
   private heardBy: 0 | 1 = 0;
 
-  /** `seat`: the human a player's car belongs to (split screen; opponents ignore it). */
+  /**
+   * `seat`: the human a player's car belongs to (split screen; opponents ignore it). `openCockpit` (CarVisualSpec.openCockpit): the car
+   * has no cabin, so its cockpit views hear it through a helmet (the voices are told once, when they are built) and nothing drums on a roof.
+   */
   constructor(
     private host: CarHost,
     readonly profile: EngineSoundProfile,
     readonly isPlayer: boolean,
     readonly seat: Seat = 0,
+    readonly openCockpit = false,
   ) {
     this.seed = host.nextSeed();
     this.frame = new CarFrame(isPlayer);
@@ -234,7 +241,7 @@ export class CarSoundImpl implements CarSound {
     if (this.nodes) return true;
     if (this.failed || !this.host.workletReady) return false;
     try {
-      this.nodes = createCarNodes(this.host.ctx, this.host.graph, { profile: this.profile, isPlayer: this.isPlayer, seed: this.seed });
+      this.nodes = createCarNodes(this.host.ctx, this.host.graph, { profile: this.profile, isPlayer: this.isPlayer, seed: this.seed, openCockpit: this.openCockpit });
       return true;
     } catch (e) {
       this.failed = true;
@@ -286,6 +293,11 @@ export class CarSoundImpl implements CarSound {
 
   setInterior(on: boolean): void {
     this.interior = on ? 1 : 0;
+  }
+
+  /** 1 while the camera is under the car's roof, what the rain drums on and the windscreen it streams down: never in an open cockpit. */
+  get cabin(): number {
+    return this.openCockpit ? 0 : this.interior;
   }
 
   /** Immediately silence (system pause): push a zero-gain vector so the voice goes to sleep. */

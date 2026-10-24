@@ -430,9 +430,48 @@ export interface EngineSoundProfile {
   exhaustSystem?: 'merged' | 'dual';
   /**
    * 0..1 how loud the whine of an electric motor geared to the crankshaft is (absent: none), the Volta's MGU-K (EngineSpec.electric):
-   * locked to the engine speed, faint while it harvests under braking and strong while it deploys, which is only while a nitro shot burns.
+   * locked to the engine speed, faint while it harvests under braking and strong while it deploys, which is only while a nitro shot burns,
+   * in a forward gear.
    */
   electric?: number;
+  /**
+   * How the power that electric motor may deploy falls with the road speed (absent: all of it at any speed), as the physics' EngineSpec.electric
+   * has it (keep them the same): all of its `powerKw` up to `fullToKmh`, 5 kW less for every km/h above it and nothing from `zeroAtKmh`
+   * (the 2026 rule). Its deploying whine follows that share of its power: at 340 km/h the Volta's motor gives 100 of its 350 kW.
+   */
+  electricTaper?: { powerKw: number; fullToKmh: number; zeroAtKmh: number };
+  /**
+   * The engine's own rev limiter, rpm (absent: none given): its loudness is measured as it is driven, flat out over 35 to 100 % of it and a
+   * turbo on boost. Without it every engine is measured over a nominal 2800..8000 rpm (a big V8 over its own lower range) and off boost,
+   * which is right for a road car but leaves one that revs far beyond 8000 louder than its target where its pipes ring brightest (the
+   * Volta's 12,500 rpm V6 by 2.3 dB), and a turbo on boost 1.8 dB louder still. Keep it the physics' `limiterRpm`.
+   */
+  limiterRpm?: number;
+  /**
+   * How far above the idle the voice's lift of the idle reaches, as a multiple of the idle rpm (absent: 2.2). The level near the idle is
+   * lifted so that the wait on the grid has some character (a real idle is far quieter than full throttle); above a road car's 900 rpm
+   * idle the lift is gone by 2000 rpm, but above a racing engine's 3000 it would reach 6600, a third of the revs, and make it louder flat
+   * out at 4000 rpm than at 9000.
+   */
+  idleLiftTo?: number;
+  /**
+   * A turbo engine's blow-off valve (absent: it has one): the 'pssh' and the flutter of the boost vented when the driver lifts. false for a
+   * racing turbo that vents nothing on a lift, its boost held by the wastegate (the Volta's).
+   */
+  blowOff?: boolean;
+  /**
+   * How long an upshift cuts the engine's torque for, as heard, seconds (absent: 0.07, a road car's gearbox). A seamless-shift racing
+   * gearbox has the next gear in before the last one is out: about 0.02 s, a flick in the note instead of a gap. A profile that gives it
+   * is heard as that dip alone: the physics' gearbox shuts the throttle for the whole of a shift and a control frame shows that for all of
+   * its 17 ms (two frames at times), and the voice bridges it, 40 ms at most; without it the frames are played as they come.
+   */
+  shiftDip?: number;
+  /**
+   * 0..1 how much of the exhaust a turbo's wastegate lets past the turbine when it is wide open (absent: none). A racing turbo's wastegate
+   * opens on full boost at full load and high revs, and the pulses that go round the turbine keep their edge where the turbine alone rounds
+   * them off above 3.4 kHz: the hard, high rasp of a Formula 1 car flat out, its firing harmonics heard up to 10 kHz.
+   */
+  wastegate?: number;
 }
 
 export interface CarDefinition {

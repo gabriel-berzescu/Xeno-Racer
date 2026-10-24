@@ -1,8 +1,9 @@
 /**
  * Loudness lab (Node): how loud each car's engine is, in the units a listener would compare them in. K-weighted loudness after ITU-R BS.1770
  * (the two-stage filter: a head-related high shelf and a 38 Hz high-pass, then mean square), over a drive through the gears and over steady
- * wide-open-throttle rpm points, exterior and cockpit, plus the plain RMS and the crest factor. "LUFS-ish": the absolute gating of the
- * standard is dropped, the engine is never silent, and the figures are for comparing cars, not for broadcast.
+ * wide-open-throttle rpm points, exterior and cockpit (an open cockpit's through the helmet, as the game plays it), plus the plain RMS and
+ * the crest factor. "LUFS-ish": the absolute gating of the standard is dropped, the engine is never silent, and the figures are for
+ * comparing cars, not for broadcast.
  *
  *   node sandbox/audio/lab/run.mjs loud-lab.ts [--car all]
  */
@@ -85,6 +86,7 @@ function run3(car: CarDefinition, interior: number, secs = 8): Float32Array {
   const e = car.physics.engine;
   const sim = new DriveSim(car, { gear: 1, rpm: e.idleRpm + 0.38 * (e.redlineRpm - e.idleRpm) });
   const v = new EngineVoice(SR, car.sound, 1);
+  v.helmet = car.visual.openCockpit === true;
   const n = Math.floor(secs * SR);
   const sig = new Float32Array(n);
   const vec = makeControlVector();
@@ -105,6 +107,7 @@ function run3(car: CarDefinition, interior: number, secs = 8): Float32Array {
 function steadyWot(car: CarDefinition, frac: number, interior: number): Float32Array {
   const e = car.physics.engine;
   const v = new EngineVoice(SR, car.sound, 3);
+  v.helmet = car.visual.openCockpit === true;
   Object.assign(v.inp, { rpm: e.redlineRpm * frac, throttle: 1, load: 1, pedal: 1, idleRpm: e.idleRpm, limiterRpm: e.limiterRpm, redlineRpm: e.redlineRpm, interior, boost: car.sound.turbo ? 0.9 : 0 });
   const sig = new Float32Array(Math.floor(4 * SR));
   v.process(sig, sig.length);

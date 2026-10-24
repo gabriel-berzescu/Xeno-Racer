@@ -561,7 +561,8 @@ export class Game {
       dmg.onEvent = (e) => this.replayRec?.addDamage(index, e);
       dmg.otherAt = (x, y, z) => this.contactOther(vehicle.id, x, y, z);
     }
-    const sound = withSound ? this.audio.createCarSound(def.sound, entrant.isPlayer, entrant.seat ?? 0) : null;
+    // (an open cockpit has no cabin: its cockpit views hear the car through a helmet, and nothing drums on a roof)
+    const sound = withSound ? this.audio.createCarSound(def.sound, entrant.isPlayer, entrant.seat ?? 0, def.visual.openCockpit === true) : null;
     this.effects?.registerCar(vehicle.id, def, visual.damage);
     const driver = ai ? new AIDriver(world.track, def, { difficulty: ai, seed: aiSeed ?? vehicle.id * 17 + slot, wetness: world.wetness }) : null;
     // a race whose weather changes: the racing line of the other weather is made now, behind the loading screen, not when it turns

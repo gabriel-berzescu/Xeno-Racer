@@ -388,6 +388,7 @@ describe('the level of two human voices (real synthesis, full throttle from a st
   let vanta2: Voice;
   let kestrel: Voice;
   let lmp: Voice;
+  let volta: Voice;
   let one: ReturnType<typeof level>;
   const two = (other: Voice, trim: number) => level(mix([{ v: vanta1, pan: -pan, trim }, { v: other, pan, trim }]), from);
   beforeAll(() => {
@@ -395,8 +396,10 @@ describe('the level of two human voices (real synthesis, full throttle from a st
     vanta2 = renderPlayer('vanta-gt', 29, seconds);
     kestrel = renderPlayer('kestrel-r', 31, seconds);
     lmp = renderPlayer('lmp-x', 37, seconds);
+    // (the Volta: a high-revving V6 with a whine, the last car to join; the trim must hold for it too)
+    volta = renderPlayer('volta', 41, seconds);
     one = level(mix([{ v: vanta1, pan: 0, trim: 1 }]), from);
-    // four players' worth of real synthesis: a few seconds alone, far more while the machine is busy with something else
+    // five players' worth of real synthesis: a few seconds alone, far more while the machine is busy with something else
   }, 60_000);
 
   it('untrimmed, a second voice adds about 2 to 4 dB: the doubling the trim is there to take away', () => {
@@ -407,7 +410,7 @@ describe('the level of two human voices (real synthesis, full throttle from a st
 
   it('with SPLIT_PLAYER_TRIM two voices stay within 1.5 dB of one untrimmed voice, for equal and for unequal pairs', () => {
     const rows: string[] = [];
-    for (const [name, other] of [['vanta+vanta', vanta2], ['vanta+kestrel', kestrel], ['vanta+lmp-x', lmp]] as const) {
+    for (const [name, other] of [['vanta+vanta', vanta2], ['vanta+kestrel', kestrel], ['vanta+lmp-x', lmp], ['vanta+volta', volta]] as const) {
       const t = two(other, SPLIT_PLAYER_TRIM);
       rows.push(`${name}: rms ${(t.rmsDb - one.rmsDb).toFixed(2)} dB, loudest second ${(t.loudestDb - one.loudestDb).toFixed(2)} dB, peak ${(t.peakDb - one.peakDb).toFixed(2)} dB`);
       expect(Math.abs(t.rmsDb - one.rmsDb)).toBeLessThan(1.5);
@@ -558,6 +561,7 @@ function fakeContext(): BaseAudioContext {
 
 const VOLUMES = { master: 0.85, engine: 0.9, effects: 0.85, music: 0.5, raceMusic: 0.45, ui: 0.6 };
 const profile = CARS[0].sound;
+const voltaCar = CARS.find((c) => c.id === 'volta')!;
 
 beforeAll(() => {
   vi.stubGlobal('AudioWorkletNode', FWorklet);
@@ -587,7 +591,8 @@ const camAt = (x: number, y: number, z: number, yaw: number): PerspectiveCamera 
   return c;
 };
 
-async function makeScene(aiAt: [number, number, number][]): Promise<Scene> {
+/** `open`: which of the two humans drives a car with an open cockpit (the Volta, its sound told so as the game tells it). */
+async function makeScene(aiAt: [number, number, number][], open: [boolean, boolean] = [false, false]): Promise<Scene> {
   FWorklet.made.length = 0;
   const ctx = fakeContext();
   const sys = createAudioSystemOn(ctx, VOLUMES);
@@ -602,7 +607,8 @@ async function makeScene(aiAt: [number, number, number][]): Promise<Scene> {
     s.position.set(...p);
     return s;
   });
-  const cars = [sys.createCarSound(profile, true, 0), sys.createCarSound(profile, true, 1), ...ais.map(() => sys.createCarSound(profile, false))] as Scene['cars'];
+  const human = (seat: 0 | 1) => (open[seat] ? sys.createCarSound(voltaCar.sound, true, seat, voltaCar.visual.openCockpit) : sys.createCarSound(profile, true, seat));
+  const cars = [human(0), human(1), ...ais.map(() => sys.createCarSound(profile, false))] as Scene['cars'];
   const scene: Scene = {
     sys,
     ctx,
@@ -744,6 +750,28 @@ describe('AudioSystem in split mode', () => {
     s.frame(true);
     expect(rain.last()[WCTL.INTERIOR]).toBe(0);
     expect(rain.last()[WCTL.SPEED]).toBeCloseTo(20, 4);
+  });
+
+  it('the rain drums on no roof over an open cockpit: its cockpit view is the open air, alone or in split screen beside a cabin', async () => {
+    const heard = async (open: [boolean, boolean], split: boolean): Promise<number> => {
+      const s = await makeScene([], open);
+      s.sys.setSplit(split);
+      s.sys.setWeather(0.6, 0.6);
+      // both humans in their cockpit views
+      s.cars[0].setInterior(true);
+      s.cars[1].setInterior(true);
+      s.frame(split);
+      s.frame(split);
+      return FWorklet.made.find((w) => w.name === 'xr-weather')!.last()[WCTL.INTERIOR];
+    };
+    // alone: an open car's cockpit is the open mix, a closed car's the cabin's
+    expect(await heard([true, false], false)).toBe(0);
+    expect(await heard([false, true], false)).toBe(1);
+    // two humans: half a cabin when one of them is in a closed car, none when both are open
+    expect(await heard([true, false], true)).toBe(0.5);
+    expect(await heard([false, true], true)).toBe(0.5);
+    expect(await heard([true, true], true)).toBe(0);
+    expect(await heard([false, false], true)).toBe(1);
   });
 
   it('setSplit(false) is the single listener again, exactly as a system that never split', async () => {
