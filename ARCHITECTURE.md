@@ -27,7 +27,7 @@ signage: teal `#16e0bd`, hot pink `#ff2e63`, near-black `#0b0c10`, off-white `#e
 | `src/game/`, `src/main.ts` | lead | game loop, race logic, timing, ghosts, championship (`championship.ts`: pure scoring, standings and persistence), weather that changes during a race (`weather.ts`: the plan, the timeline and the director, pure; the rules of a legal forecast are in `src/core/forecast.ts`), integration |
 | `src/track/` | track | track definitions, spline/runtime queries, road/terrain/scenery meshes |
 | `src/render/` | render | renderer, post-processing, sky/sun/env map, cameras, particle FX, skidmarks |
-| `src/carvis/` | carvis | procedural car models, wheels, lights, liveries, cockpit |
+| `src/carvis/` | carvis | procedural car models (`bodies/`: a blueprint per body style; the single-seater's two eras in `formula.ts` + `formulaParts.ts`, the Volta's 2026 car, and `formula04.ts` + `formula04Parts.ts`, the Dieci's 2004 one), wheels, lights, liveries, cockpit (`layouts.ts`: where a car's eye, cameras and lamps are, `formulaCockpit` for the single-seaters) |
 | `src/audio/` | audio | engine synthesis, tires, wind, impacts, UI sounds, music |
 | `src/input/` | ui | gamepad + keyboard → `InputFrame` |
 | `src/ui/` | ui | HUD, menus, settings screens (DOM/CSS overlay in `#ui`) |
@@ -35,6 +35,8 @@ signage: teal `#16e0bd`, hot pink `#ff2e63`, near-black `#0b0c10`, off-white `#e
 | `sandbox/<owner>.html` + `sandbox/<owner>/*` | each owner | standalone dev page for the subsystem |
 | `public/assets/<owner>/` | each owner | downloaded assets + `CREDITS.md` |
 | `tests/<owner>*.test.ts` | each owner | vitest (headless) tests |
+| `tests/<car>.test.ts` | lead | a car's promises in numbers (`mammoth`, `volta`, `dieci`), beside its look (`carvis-suv`, `carvis-formula`, `carvis-formula04`) and its voice (`audio-<car>`) |
+| `previews/<car>/` | audio | git-ignored: a car's voice rendered to MP3s and spectrograms to listen to (`sandbox/audio/lab/<car>-previews.ts`) |
 
 Each module exposes its public API from `src/<module>/index.ts`, matching `src/core/systems.ts`
 exactly. Modules never import each other's internals — only `core/*`, `cars`, and other
@@ -72,17 +74,17 @@ engine position) and kept with its record (`MechState.profile`; a record made wi
 physics, the AI, the drawn wheels) and `mechanicalReport` (the HUD) both read it, so they cannot disagree: a part of the indicator lights exactly when
 the hit changed how that car drives. `Vehicle.setDamage` also refuses to scale a lift area that is not downforce, whatever it is handed.
 
-| the nose and tail can lose | Vanta GT | Kestrel R | Ronin 86 | LMP-X | Mammoth | Volta |
-|---|---|---|---|---|---|---|
-| front and rear downforce (to 60 %) | yes | no: a lip and a ducktail | no: the same | yes, a great deal | no: its aero is lift | yes, the most, its flaps open or shut |
-| engine power (up to 10 %, heavy nose hits) | yes | yes | yes | no: radiators in the side pods | yes | no: radiators in the sidepods |
-| the rear wheels pushed out of line (a trace, tail hits) | yes | yes | yes | yes | yes | yes |
+| the nose and tail can lose | Vanta GT | Kestrel R | Ronin 86 | LMP-X | Mammoth | Volta | Dieci |
+|---|---|---|---|---|---|---|---|
+| front and rear downforce (to 60 %) | yes | no: a lip and a ducktail | no: the same | yes, a great deal | no: its aero is lift | yes, a great deal, its flaps open or shut | yes, the most |
+| engine power (up to 10 %, heavy nose hits) | yes | yes | yes | no: radiators in the side pods | yes | no: radiators in the sidepods | no: radiators in the sidepods |
+| the rear wheels pushed out of line (a trace, tail hits) | yes | yes | yes | yes | yes | yes | yes |
 
 The wheels are every car's (toe and camber, from the hits along the flank). The indicator shows a nose by its downforce where the car has any and by its
 engine where not (so a Mammoth's stays dark until a hit reaches the radiator), and a tail by its downforce or by the trace of toe (never worse than Light).
 It draws the car in the outline of its body style (`HudDamage.style`, from `CarVisualSpec.style`): a teardrop for the road cars, a brick with flared arches
-for the Mammoth, a prototype with its front and rear wings for the LMP-X, an open-wheeler for the Volta (a front wing, a narrow nose, its wheels out on their
-arms, sidepods narrowing to the gearbox, a rear wing), each with its own wheels and zone splits (`SHAPES` in `src/ui/hud/damage.ts`).
+for the Mammoth, a prototype with its front and rear wings for the LMP-X, an open-wheeler for the Volta and the Dieci (a front wing, a narrow nose, the wheels
+out on their arms, sidepods narrowing to the gearbox, a rear wing), each with its own wheels and zone splits (`SHAPES` in `src/ui/hud/damage.ts`).
 
 Track: `loadTrackRuntime(id)` is headless (physics/AI/tests use it); `buildTrackScene()` makes the
 visible world. Physics asks the track `groundAt()` for every wheel every substep and `project()`
@@ -203,7 +205,7 @@ purpose. Nothing else changes for the other four circuits: a road circuit gets t
 - **Tyres** (`src/physics/compound.ts`): `fitCar(def, track)` returns the car itself on a road circuit and a copy on studded winter tyres on
   a winter one; `PhysicsWorld.addVehicle`, `AIDriver` and the steering filter all read the fitted car, so physics, AI and aids agree. A studded
   tyre peaks later (10 degrees, slip ratio 0.16), falls off gently (`slideRatio` 0.9) and hardly minds load: the car slides without letting go.
-  The studded tyre keeps the all-terrain trait of the tyre it replaces (the Mammoth's) and drops the slick one (the LMP-X's and the Volta's), see below. The thermal model runs in air at -6 degrees (`WINTER_AMBIENT_C`). The stick is scaled to the grip of the snow or the ice under the front
+  The studded tyre keeps the all-terrain trait of the tyre it replaces (the Mammoth's) and drops the slick one (the LMP-X's, the Volta's and the Dieci's), see below. The thermal model runs in air at -6 degrees (`WINTER_AMBIENT_C`). The stick is scaled to the grip of the snow or the ice under the front
   wheels (`SteeringFilter`): full stick asks for what the tyres can use there, not what they could on asphalt.
 - **Soft barriers:** `BarrierKind` `snowbank` sets `TrackPoint.softLeft/softRight`. `Vehicle.resolveBank` is a spring and a damper that
   stiffens with depth, gives back a fifth of what it took and drags the flank along it, with a hard stop at 3.5 m (the frozen ground under
@@ -264,7 +266,7 @@ it is held to are in `tests/mammoth.test.ts` (the table in `tests/probes/mammoth
 
 ## The racing slick: the LMP-X on loose ground
 
-The LMP-X and the Volta are the two cars on racing slicks (`TireSpec.slick`): smooth, soft rubber with no tread, the stickiest tyre in the game on asphalt, kerb and concrete and the weakest on anything else. It is the other end of
+The LMP-X and the Volta run on racing slicks (`TireSpec.slick`): smooth, soft rubber with no tread, the stickiest tyre in the game on asphalt, kerb and concrete and the weakest on anything else; the Dieci's grooved dry tyres carry the trait too, their four grooves no tread for loose ground. It is the other end of
 the scale from the Mammoth's all-terrain tyre, and the numbers it is held to are in `tests/slicks.test.ts` (the tables in `tests/probes/slick-probe.test.ts`).
 
 - **One scale** (`treadOf`, `src/physics/surfaces.ts`): a tyre's place between the slick (-1) and the all-terrain tyre (+1) is `offroad` - `slick`; a road tyre is 0, and so is a tyre with both traits. `tireSurfaces`
@@ -277,8 +279,10 @@ the scale from the Mammoth's all-terrain tyre, and the numbers it is held to are
   table's grip, and the downforce that presses a slick into soft ground gives less back than the model credits it, so grass, dirt and gravel keep **0.40**, sand 0.42, deep snow 0.45. Wet turf and wet dirt keep 0.7
   of their wet factor (a smooth tyre aquaplanes on turf), gravel and sand drain and keep theirs, and a wide smooth tyre digs in: rolling x1.2 and ploughing x1.3 in gravel, x1.15 and x1.25 in sand, x1.1 in turf and dirt.
   Asphalt, kerb, concrete, packed snow and ice are the very same objects in every table, so on a road the LMP-X is bit for bit what it was.
-  The Volta's slicks (a mu of 1.75, 1.5-1.75 times a road tyre's) carry the same trait, so the same table, whose shares are of each tyre's own grip; the
-  figures below are the LMP-X's, and the Volta's on loose ground were not measured.
+  The Volta's slicks (a mu of 1.75, 1.5-1.75 times a road tyre's) and the Dieci's grooved tyres (1.65) carry the same trait, so the same table, whose shares
+  are of each tyre's own grip; the figures below are the LMP-X's. On dry grass the Volta holds 0.44 / 0.48 g at 60 / 120 km/h and the Dieci 0.44 / 0.47, on
+  gravel 0.35 / 0.30 and 0.34 / 0.29, against the LMP-X's 0.40 / 0.43 and 0.29 / 0.25 (`SLICK=grip SURFACE=asphalt,grass,dirt,gravel CAR=dieci,volta,lmp-x,vanta-gt
+  npx vitest run tests/probes/slick-probe.test.ts`).
 - **Winter**: `winterTire` drops the trait (the studded tyre has a tread of its own; the Mammoth's all-terrain trait is kept), so Isvik is unchanged for every car.
 - **What it comes to** on a flat plane (lateral g held at 60 / 120 km/h; the stop from 60 / 120 km/h with ABS; the LMP-X before the rule in brackets): dry grass 0.40 / 0.43 g (0.92 / 1.17) against the road cars' 0.55-0.63 and the
   Mammoth's 0.71-0.74, and 31 / 106 m (13 / 46) against 20-22 / 76-86; wet grass 0.18 / 0.15 g (0.55 / 0.65) against 0.36-0.38, and 63 / 204 m against 33 / 124-128; gravel 0.29 / 0.25 g (0.95 / 1.17) against 0.52-0.62.
@@ -289,9 +293,9 @@ the scale from the Mammoth's all-terrain tyre, and the numbers it is held to are
 ## The Volta: active aero, an electric nitro and an open cockpit
 
 `CARS[5]`, class `Formula`, body style `'formula'`: a 2026-rules single-seater of 800 kg, 565 hp from a 1.6 L turbo V6 alone (380 Nm from 8000 to
-10,500 rpm, 564.5 hp at 12,000), 8 speeds and rear drive, on slicks (280/45R18 front, 375/35R18 rear). It is the one car with active aero, with an electric
-nitro and with an open cockpit, and the numbers it is held to are in `tests/volta.test.ts` (`MAMMOTH=all CAR=volta,lmp-x npx vitest run
-tests/probes/mammoth-probe.test.ts` prints the table; `tests/physics.test.ts` holds the class to a stop from 100 km/h over 17.5 m and a skidpad under 2.5 g),
+10,500 rpm, 564.5 hp at 12,000), 8 speeds and rear drive, on slicks (280/45R18 front, 375/35R18 rear). It is the one car with active aero and with an
+electric nitro, and the first with an open cockpit (the Dieci has the other), and the numbers it is held to are in `tests/volta.test.ts` (`MAMMOTH=all CAR=volta,lmp-x npx vitest run
+tests/probes/mammoth-probe.test.ts` prints the table; `tests/physics.test.ts` holds the class to a stop from 100 km/h over 17.5 m and a skidpad under 2.75 g, 2.5 before the Dieci),
 its look in `tests/carvis-formula.test.ts` and its voice in `tests/audio-volta.test.ts`. Everything it brought is behind a field of the car's data that no other
 car has (`AeroSpec.straightMode`, `EngineSpec.electric`, `CarVisualSpec.openCockpit`, the new `EngineSoundProfile` fields, the new `Blueprint` hooks) or behind
 its body style, so the other five cars were bit for bit what they were until the four fixes at the end of this section: before them
@@ -412,11 +416,154 @@ its body style, so the other five cars were bit for bit what they were until the
 - **On a lap and in packs**, with all four (the AI drives with ESC off, so the two ESC fixes do not move these): the AI drivers lap the road circuits 3.9-5.7 % quicker in the Volta than in the LMP-X dry and 5.1-6.3 % in a
   storm, and Isvik level with it (0.1 %: `tests/ai.test.ts`). The brief asked 7-12 %, which the engine alone, with the LMP-X's power for its weight (0.71
   against 0.73 hp per kg), does not give. In 48 races of twelve on Aurelia, Kuroyama and Brennwald, dry and wet, as the Mammoth was
-  measured (`PACKSEEDS=1 SEEDS=0..7 CAR=volta` or `CAR=mixed npx vitest run tests/probes/pack.test.ts`), no car needs a reset and mixed grids hit no wall; one-make grids of Voltas hit a
+  measured (`PACKSEEDS=1 SEEDS=0..7 CAR=volta` or `CAR=mixed npx vitest run tests/probes/pack.test.ts`), no car needs a reset and mixed grids of the six cars then hit no wall; one-make grids of Voltas hit a
   wall twice, at Kuroyama in the dry, at a narrow corner (8 m of asphalt, the wall 2.2 m past its edge) where they scrape it on the first lap in 3 races of 24
   seeds: a matter for the traffic planner, left as it is. With the nitro on, one-make and mixed grids hit no wall and need no reset on any circuit
-  (`tests/probes/nitro-probe.test.ts`). The braking assist laps every circuit in it as in every car, though dry its centre is past the asphalt's edge for
-  14.3 s of two laps of Kuroyama (`tests/probes/brake-assist.test.ts`).
+  (`tests/probes/nitro-probe.test.ts`). The braking assist laps every circuit in it without a reset, though dry its centre is past the asphalt's edge for
+  14.3 s of two laps of Kuroyama, and in the wet it runs wide out of the hairpin at 3.4 km and touches the wall twice at 2 m/s, as the LMP-X does
+  (`tests/probes/brake-assist.test.ts`).
+
+## The Dieci: a 2004 V10, a launch control and a throttle map
+
+`CARS[6]`, class `Formula`, body style `'formula'` with `CarVisualSpec.formulaEra` 2004: a single-seater of the last V10 years, 640 kg with its driver and an
+average fuel load (46 % of it on the front axle), 912 hp from a 3.0 L V10 (375 Nm at 16,500 rpm, 680 kW at 18,500; it shifts at 19,000 and is cut at
+19,300), 7 speeds and rear drive, on grooved dry tyres on 13-inch rims (325 mm front, 375 mm rear, 660 mm tall), with fixed wings (3.95 m^2 of downforce
+area, 44 % of it at the front, and a CdA of 1.25) and nothing electric: its nitro is the ordinary bottle, so with the nitro off nothing is missing. The
+numbers it is held to are in `tests/dieci.test.ts` (`MAMMOTH=drag,brake,pad,snow CAR=dieci,volta,lmp-x npx vitest run tests/probes/mammoth-probe.test.ts`
+prints the table; `tests/physics.test.ts` holds the class to a skidpad under 2.75 g), its look in `tests/carvis-formula04.test.ts` and its voice in
+`tests/audio-dieci.test.ts`. Everything it brought is behind a field of the car's data that no other car has (`EngineSpec.launchRpm`,
+`EngineSpec.throttleGamma`, `CarVisualSpec.formulaEra`, the exhaust side `'periscope'`, `EngineSoundProfile.exhaustSystem` `'short'` and `ignitionCut`),
+never behind its id, so the six other cars are bit for bit what they were in their physics, AI, geometry and voice: `tests/probes/four-cars.test.ts`
+prints `ALL BIT-IDENTICAL` with the default ids, with `FOURCARS_IDS=mammoth` and with `FOURCARS_IDS=volta`, and the audio regress-lab `27/27 scenarios
+identical` for each of the six other voices. Two things change for every car on purpose, neither in how it drives or sounds: the nitro flames start at the
+pipes (below), and the car picker's power bar is out of 1000 hp (750), so that the Dieci's 912 reads stronger than the Mammoth's 710.
+
+- **The launch control** (`EngineSpec.launchRpm`, `Vehicle.launchRpm`): the engine speed the launch control holds a standing start at on a full throttle,
+  against the clutch on the grid and while it slips; on a part throttle as much less as a road car's. Absent, it is a road car's: half the redline, at most
+  4600, and at least 900 over the idle, which would hold a V10 that idles at 4000 at 4900, barely off its idle. The Dieci leaves the line at 10,000 rpm, as a
+  car of its time did: about 10,400 on the grid with the pedal flat, and 0-100 km/h in 2.48 s from a grid start, the engine already held there. Floored from
+  the idle (`tests/physics.test.ts`) it is 2.63 s, 0.17 s slower than held at 4900: the engine first revs past 8700 rpm before the clutch bites, and the
+  clutch then slips up to 54 km/h, not 26, at what the tyres take at rest, the rear wheels at a steady slip with no burst for the traction control to cut.
+  **On a winter circuit** every car is held where a road car is: on studs a launch at 10,000 rpm mostly slips the clutch, and on ice the traction control is
+  worth 0.5 s to 100 km/h there (13.7 s against 14.1 without it) where held at 4900 it is worth 1.5 s (12.5 against 14.0; 9.7 against 10.7 on snow).
+- **The throttle map and the engine braking** (`EngineSpec.throttleGamma`): a pedal p opens the throttle to p^throttleGamma (1.3: a third of the pedal is
+  a quarter of the throttle, half of it four tenths), and the traction control, the stability control and the limiter cut what it opens. In this model the
+  engine braking is also what every part throttle loses (the torque is th·full - (1 - th)·braking), so the two are one choice, and the map is what lets the
+  Dieci have half a bare V10's drag, as the engine-braking maps of the period left it:
+  - With 110 Nm, a bare V10's or more, the engine held the rears locked in a wet stop with the wheel turned once ABS had let their brakes go, the gearbox,
+    reading the slowed rears, dropped to first, and in standing water the car spun in two of eight such stops from 250 and 180 km/h with the AI's aids.
+  - With 50 Nm (half of 95) and no map, 35 % of the pedal gave 26 % of the torque at 17,000 rpm, and in first gear on snow the power slide of
+    `tests/winter-handling.test.ts` went from 10 to 30 degrees of body slip in 0.17 s, where it asks for more than 0.25.
+  - With 50 Nm behind the map, 35 % of the pedal gives 16 %, the slide takes 0.37 s, none of the eight wet stops spins (30 degrees at worst), and a dry
+    lap of Isvik is 2:15.0 (2:16.5 with 110 Nm). A coast in gear slows the car at 0.86 g from 300 km/h in 7th and 0.36 g from 120 in 2nd.
+  - `VehicleState.throttle` reads the throttle after the map and the cuts, and `VehicleState.throttlePedal` the pedal through the map, where the throttle
+    body stands before the cuts: the voice takes the ratio of the two for the share of the firings the traction control cuts, and so hears the map as a
+    smaller throttle, not as a cut (`tests/audio-dieci.test.ts`).
+- **Tuned to the brief**, nitro off (the brief in brackets): 0-100 km/h in 2.63 s, 2.48 from a grid start (2.5); 200 in 4.67 s, 4.50 (4.5); 300 in 9.4 s,
+  9.2 (8.8); 332 km/h flat out in 7th at 18,560 rpm (330); 2.64 g on the skidpad (2.6-2.7); 2.7, 3.4 and 4.3 g at 150, 200 and 250 km/h (2.7, 3.3 and 4.1,
+  give or take a tenth); 18.3 m from 100 km/h (18-20) and 55 m from 200 (58-60); 4.65 g at the most braking from 300 km/h, the car settled there first (4.5-5);
+  66 % of its dry grip at a wetness of 0.75 and 56 % in standing water. The tyre is a mu of 1.65 with a load sensitivity of 0.2 (the Volta's slick 1.75 and
+  0.12): a grooved tyre loses more of its grip under load, 1.87 on the 1.4 kN a front wheel carries at rest and 1.47 on the 7 kN of a fast corner. The
+  period's 4.1 m^2 and 1.30 were worked out in air of 1.18 kg/m^3; in the game's 1.225 the same forces are 3.95 and 1.25. Two targets are missed, for
+  reasons in the model rather than in the tune:
+  - **0-300 in 9.4 s, not 8.8.** The drag that sets the brief's 330 km/h leaves too little at 250-300 km/h: at 300 the car has 610 kW at the wheels against
+    about 5.6 kN of drag and rolling. The brief's figure is a point-mass model's, in thinner air and without the 60 kg or so of rotating inertia the wheels
+    and the engine add in 7th; a CdA of 1.1 gives 8.75 s, but 344.5 km/h flat out.
+  - **200-0 in 55 m, not 58-60.** Braking and cornering share one friction circle and ABS holds each wheel at its own limit, so the grip that pulls 3.4 g
+    sideways at 200 km/h stops the car at 4.2 g as it passes 200; 58 m would want about 6 % less grip at 100-200 km/h, which would take the skidpad to
+    about 2.45 g and the lateral g at 150 km/h to 2.5. BMW's media kit of 2004 gave 55 m. The brake balance does not help, and lighter brakes only lower
+    the peak from 300: 2600 / 1750 Nm ask for 4.2 g, and 2500 / 1700 left 4.52 g there (4.57 in the test's own stop, under `tests/dieci.test.ts`'s 4.6).
+- **The AI** has no code of its own for the Dieci: the Volta's four fixes carry it. Its drivers (alien, nitro off: `tests/ai.test.ts`) lap the four road
+  circuits in 0.942 of the Volta's time dry and 0.944 in a storm (the brief asked about 0.945): 0.92-0.93 on Aurelia and Brennwald, 0.96 on Kuroyama, and
+  Isvik, where grip and not power sets the pace, in 0.97 dry and 0.99 in the snowfall. Every lap is clean (no reset, no impact, no time off the road), the
+  tyres in their window and the discs at 800 °C at most. In 48 one-make races of twelve on Aurelia, Kuroyama and Brennwald, dry and wet (`PACKSEEDS=1
+  SEEDS=0..7 CAR=dieci npx vitest run tests/probes/pack.test.ts`), no car hits a wall or needs a reset (the one-make Voltas' first-lap scrape at Kuroyama
+  does not happen). In 48 mixed races of twelve (`CAR=mixed`: two each of the Vanta, Kestrel, Ronin, LMP-X and Mammoth, one Volta and one Dieci) no car
+  needs a reset and the Dieci hits no wall (off the road for 0.11 s a race at Kuroyama dry, and nowhere else), but road cars touched the wall at Brennwald three times,
+  at 2.3-4.7 m/s, each running wide as it moved out to pass the car ahead, with no Dieci within 60 m; the same field with seeds 8-15 touched none, so it
+  reads as the chance of a different race order, not as anything the Dieci does. In traffic it pumps its brakes more than the Volta, which
+  `tests/dieci.test.ts` holds where it is (see the known limits below). The braking assist (the Beginner aids, the path follower at the wheel) laps every
+  circuit in it, dry and wet, without a wall hit or a reset, its centre past the asphalt's edge for 3.0 s of two laps of Kuroyama dry (the Volta's 14.3).
+- **The body** (`src/carvis/bodies/formula04.ts` and `formula04Parts.ts`): `BLUEPRINTS.formula` sends a spec with `formulaEra` 2004 to `makeFormula04` and
+  the Volta's, as before, to `makeFormula`, and the 2004 body is built with the Volta's toolkit (`formulaParts.ts` exports `element`, `edges`, `plate`,
+  `plates`, `rods` and `smooth`, whose output is unchanged). Every place that differs by era reads it through small pure helpers in layouts.ts
+  (`isFormula04`, `formula04Points`, `formulaCockpit`). Sculpted: the tub and the high pointed nose (its tip 0.97 m ahead of the front axle and 0.33 m up),
+  the undercut sidepods with rounded inlets and the periscopes on their tops, the airbox and roll hoop to 0.95 m, the deep engine cover with no fin, the
+  crash structure. Parts: the front wing hung under the nose on two pylons, dipped into a spoon in the middle, with big endplates; the bargeboards, a keel
+  and the flip-ups; the floor and the large diffuser of the years before 2005, with five strakes; a rear wing of two elements, its flap's top 83 cm up under
+  endplates of 84.5, over a beam wing; pushrod suspension, its arms ending inside the 13-inch rims; no halo, no fin and nothing that moves. The far LOD keeps
+  both wings, a pylon to the nose, the beam wing, the floor and the helmet.
+  - **The periscopes** are sculpted with the sidepods they stand on, so a dent moves the two alike. Each mouth is an open pipe, an oval 10 x 7 cm with its
+    long axis along the car (`periscopeMouth04`): a carbon lip 12 mm proud of the stack's top (`PART.carbon`, so it crumples with the body) round a black
+    bore, with 14 mm of soot round it. **The chimneys** on the sidepods' shoulders are parts (`chimney04`, `PART.body`: stacks in the livery from 9 cm
+    inside the pod to an open top, a grille 15 mm down inside the lip), where sculpted they came out as lumpy bumps.
+  - **Its lamps:** two small LEDs in the tip of the high nose, their beams from 2 cm ahead of it, and the rain light, an upright block on the tip of the
+    crash structure 35.5 cm over the floor and 48 cm behind the rear axle (within 10 cm of the centre line, at least 35 cm up and 45 cm behind the axle, as
+    the rules of the time had it), steady in the wet and in the dark as the Volta's is. Its two halves are the damage model's tail lamps (`info.lamps`: the
+    car has no other rear light). `effects.ts` takes every car's light points from `lampPoints`, and the Dieci's and its periscopes' from the same numbers
+    as `formula04Points` (`tests/render-fx.test.ts` keeps them equal).
+  - **Its default livery:** shards of charcoal and white over burnt orange, number 19 (the revs); the opponents' orange car is split in black, so a one-make
+    grid tells the two apart.
+- **The 2004 wheel** (`wheels.ts` style `'formula04'`; `styleForBody` and `wheelLook` take the era): a 13-inch forged rim with twelve thin spokes in a deep
+  dish, a centre-lock nut, the tall sidewall a 13-inch rim leaves in a 660 mm tyre and, through the spokes, the brake duct's drum the 2026 wheel closes
+  with. Only the Dieci's look has grooves (`WheelLook.grooves`, in metres from the tread's centre line: the inner and the outer groove's centres 25 and 75 mm
+  out, 7 mm half width, 2.5 mm deep). A wheel material built with `{ grooves: true }` draws them, its program with a cache key of its own
+  (`xr-wheel-v3-grooves`); every other car's wheel program is the text it always was. Its tyres carry white lettering (XENO RACING, the size, GROOVED • DRY),
+  where the 2026 car's are in the medium compound's yellow.
+- **The cockpit and the cameras** (`formulaCockpit(spec)` in layouts.ts: each single-seater's eye, posture, wheel, T-camera, nose camera, chase anchor,
+  mirror glass and stalk, and the rear camera of the HUD's mirror strip; `eyePoint`, `computeLayout`, `styleFor` in interior.ts and mirrorLayout.ts read it,
+  and the Volta's numbers are the literal ones it had): the eye 73 cm up and 1.42 m behind the front axle, 10 cm over the tub's sides beside the helmet
+  (the body sets them from it), the driver lying back 63 degrees from upright.
+  - **The 2004 steering wheel** (`WHEEL04` in interior.ts): a carbon butterfly 27 cm across with three live parts, drawn by branches of the one interior
+    shader built from global constants, as the Volta's yoke is (every interior material shares one program): `IPART.wheelDisplay04` (59: a small backlit
+    display, dark figures on yellow-green, a bar graph of the revs, the gear and the speed), `IPART.shiftLights04` (60: ten round lights along the top edge,
+    four green, three red and three blue, coming on from 85 % of the limiter to 98 %, 18,924 rpm, just under the 19,000 rpm upshift, all blue on the
+    limiter) and `IPART.wheelButtons04` (61: nine coloured buttons and the pointers of four rotary switches). There is no halo pillar to draw.
+  - The T-camera stands on the airbox over the helmet, the nose camera 45 cm ahead of the front axle and 14 cm over the nose. The mirrors stand on stalks
+    from the front of the sidepods, their glass 15 x 5 cm placed where the Volta's lands on the screen (40.2 degrees out and 7.5 under the eye, the Volta's
+    39.8 and 8.0: `tests/carvis-mirrors.test.ts`), so the open cockpit's HUD fits round them as it is. The look-back to the rear camera, the rain on the lens,
+    the helmet and the HUD's shift lights stood down come from the data (`openCockpit`, the seat on the centre line), as they do for the Volta.
+- **The nitro flames, every car:** `nitroFlames` (effects.ts) placed the body's origin on the far side of the centre of mass from where the backfires, the
+  steam, the debris and the light list place it, so a shot's flames started 2 x bodyCgZ along the car from the pipes: 63 cm inside the Kestrel R's body,
+  16 cm behind the Vanta GT's pipes. They start at the pipes now, the Dieci's at the mouths of its periscopes, rising up and back (`buildTips`, exhaust side
+  `'periscope'`). Visual only: nothing else reads it, and the Volta's boost throws no flame (`tests/render-fx.test.ts`).
+- **The voice** (`dieciSound`: ten cylinders in a V on a flat crank, so it fires evenly five times a turn, 3.0 L and no turbo; `tests/audio-dieci.test.ts`):
+  - **The short exhaust** (`EngineSoundProfile.exhaustSystem` `'short'`, read in `deriveVoicing`): each collector goes straight out through a short open
+    pipe, the pipes after the collectors 0.65 of a merged exhaust's length, the closed end reflecting 0.2 of what reaches it (0.78) and the open end 0.45 of
+    what it did. The pipe resonances that ripple a long exhaust's note over the top of a 19,000 rpm engine's revs are damped: steady flat out from 14,500 rpm
+    to the limiter the note rises 0.7 dB every 1000 rpm, within 0.3 dB of that line, where through the merged exhaust it rises 0.3 dB with 2.5 dB either
+    side, and a close-ratio gearbox would leave each gear quieter at its top than at its bottom. Through the physics flat out from rest the 4th, 5th and 6th
+    gears rise 0.9, 0.9 and 0.8 dB, and no gear from the 3rd on sags by more than 0.4 dB.
+  - **The ignition cut** (`EngineSoundProfile.ignitionCut`): the torque the traction control or the launch control takes away with the pedal down is cut
+    from whole firing events, each cylinder's spark cut at random with the share of the torque taken, the throttle left open. The firings left burn at the
+    pedal's load, a cylinder whose spark is cut pushes out a weak pulse, and a cut charge lights in the pipe at crackle x 24 times a second times the share
+    cut, on a hazard of its own (on the overrun's shared timer few cuts popped). The share is 1 - `throttle` / `throttlePedal`, the pedal through the map
+    (above). Without the field none of it runs and no random number is drawn, so every other voice is what it was to the bit. In 1st gear flat out from rest
+    the stutter is 3 dB and more louder than the same torque heard as a lighter load; on the grid with the pedal flat the launch control holds about 10,400
+    rpm with nine firings in ten cut, 8.5 dB louder than heard as a lighter load.
+  - **Its shifts:** the physics' 30 ms upshift is an ignition cut (`shiftDip` 0.04, the shut throttle bridged as for the Volta's flick): from the 2-3 on the
+    note is under -3 dB for 28-32 ms and 9-12 dB down at its deepest, at 60 and at 144 frames a second (the Volta's flick is 8-16 ms, a road car's gap 70).
+    **The 1-2 of a standing start is longer**, 84 ms at 60 frames a second and 124 at 144: just after the shift the traction control holds the throttle at
+    0.08-0.17 of the full pedal for about 150 ms, which the voice hears as an ignition cut of nine firings in ten. The physics is left as it is. Every
+    downshift is blipped by the gearbox (a throttle of its own, which the map does not touch): braking from 300 km/h in 7th the car changes down six times in
+    1.7 s, each blip 5-10.5 dB over the overrun, and a backfire stands 17 dB over the overrun.
+  - In its interior views it is heard through the helmet, as the Volta is, and a Vanta and a Dieci side by side in split screen stay within 1.5 dB of one
+    Vanta (`tests/audio-split.test.ts`). The nitro has no voice of its own: the bottle only brings the revs and the gears quicker.
+  - **The bench** (`sandbox/audio/bench.ts`) turns the revs to 20,000 rpm, and its exhaust is a select of merged, dual and short (the toggle it replaces could
+    set only dual or merged). **The previews:** `node sandbox/audio/lab/run.mjs dieci-previews.ts` drives the real physics through the game's control mapping
+    and writes nine scenes to `previews/dieci/`, each an MP3 and a spectrogram: the idle and blips, a run from rest outside and in the cockpit, a flyby at
+    300 km/h, the lift-off and the overrun, a nitro shot, the Volta's run and then the Dieci's, the LMP-X's and then the Dieci's, and a grid start held through
+    the countdown.
+- **Damage:** the LMP-X's profile (downforce at both ends, the most of any car, 1.74 and 2.21 m^2, and the engine in the middle) and the open-wheeler's
+  outline on the HUD (`SHAPES.formula`). Badly bent (everything at 1.0) it laps 1.9-5.1 % slower for an AI driver told of it, every lap clean
+  (`DMGCAL=lap DMGTRACK=aurelia,kuroyama,brennwald,portovela DMGCARS=dieci npx vitest run tests/probes/damage-calib.test.ts`).
+- **Known limits**, left as they are because fixing them would change the Volta, or every car:
+  - Replays do not record the clutch, so a replayed shift sounds unlike the live one, in every car.
+  - In the wet with the wheel turned, the automatic gearbox chooses its downshifts by the driven wheels' speed, and the engine's drag still acts on a wheel
+    that ABS has released: a car with more engine braking than the Dieci's can spin in such a stop.
+  - The AI's traffic window has no hysteresis on its entry test: a car ahead drops in and out of it from one frame to the next, and the speed it caps the
+    car at with it, and the Dieci's brake pumps in traffic were traced to that.
+  - Road cars sometimes run wide at Brennwald in traffic as they move out to pass.
 
 ## Driving aids: the driving line and the braking assist
 
