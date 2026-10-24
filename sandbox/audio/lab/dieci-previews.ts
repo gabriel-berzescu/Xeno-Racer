@@ -6,7 +6,7 @@
  * (0.72 x 0.72) where a scene has it: what reaches the master's compressor and limiter, which are left out. So the levels are comparable
  * from file to file, with the Volta's previews (sandbox/audio/lab/volta-previews.ts) and with the two cars it is played against here.
  *
- *   node sandbox/audio/lab/run.mjs dieci-previews.ts [--out previews/dieci] [--only idle,run,flyby,overrun,nitro,ab] [--ffmpeg path/to/ffmpeg.exe]
+ *   node sandbox/audio/lab/run.mjs dieci-previews.ts [--out previews/dieci] [--only idle,run,flyby,overrun,nitro,ab,grid] [--ffmpeg path/to/ffmpeg.exe]
  *                                                     [--patch '{"crackle":0.3}']   (a variant of the Dieci's profile, to compare)
  *
  * Writes, for every scene, a 192 kbit MP3 (ffmpeg) and a spectrogram PNG (0..5 kHz above: the firing line at 5 x rpm/60 and its 2nd and
@@ -23,6 +23,9 @@
  *   07-volta-then-dieci       the Volta's run from a standstill and then the Dieci's, the same scene from the chase camera: the 2026 V6 and
  *                             the 2004 V10
  *   08-lmp-x-then-dieci       the LMP-X's run and then the Dieci's: two V10s, 9000 rpm and 19,000
+ *   09-grid-start             held on the grid (the brakes on and the clutch open, as the game holds every car through the countdown) with
+ *                             the pedal flat for 4 s, the launch control holding the revs and cutting the spark, then away flat out for
+ *                             4 s: the chase camera, with the chassis
  */
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
@@ -110,6 +113,8 @@ function drive(
     chassis?: boolean;
     pedal: (t: number, kmh: number) => number;
     brake?: (t: number, kmh: number) => number;
+    /** Held on the grid until this time (Vehicle.holdOnGrid, s). */
+    hold?: number;
     nitro?: (t: number) => number;
     frame?: (t: number, st: VehicleState, v: EngineVoice) => { gain: number; lpHz: number };
   },
@@ -138,6 +143,7 @@ function drive(
     vehicle.controls.throttle = opts.pedal(t, kmh);
     vehicle.controls.brake = opts.brake?.(t, kmh) ?? 0;
     vehicle.nitro = opts.nitro?.(t) ?? 0;
+    vehicle.holdOnGrid = t < (opts.hold ?? 0);
     world.step(1 / 60);
     const st = vehicle.state;
     // (the listener rides with the car, 2.2 m off it: no Doppler)
@@ -287,4 +293,7 @@ if (want('ab')) {
   const d = run(dieci);
   save('07-volta-then-dieci', join(run(volta), d));
   save('08-lmp-x-then-dieci', join(run(lmp), d));
+}
+if (want('grid')) {
+  save('09-grid-start', drive(dieci, 8, { pedal: flat, hold: 4, chassis: true }));
 }
