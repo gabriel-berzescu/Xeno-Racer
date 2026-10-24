@@ -633,7 +633,7 @@ const volta: CarDefinition = {
   name: 'Volta',
   maker: 'Xeno Racing',
   description:
-    'A 2026-rules single-seater: 800 kg, a 1.6 L turbo V6 and wings that open on the straights. Its 350 kW electric motor wakes only with the nitro — and without it, it is still the quickest thing here.',
+    'A 2026-rules single-seater: 800 kg, a 1.6 L turbo V6 and wings that open on the straights. Its 350 kW electric motor wakes only with the nitro — and without it, nothing is missing.',
   class: 'Formula',
   drivetrain: 'RWD',
   // (measured: 0-100 in 2.42 s with the traction control on, 330.0 km/h flat out with the wings open; the curve gives 564.5 hp at 12,000 rpm and
