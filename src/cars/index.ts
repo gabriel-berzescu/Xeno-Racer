@@ -792,7 +792,8 @@ const dieciSound: EngineSoundProfile = {
   // its loudness measured over its own revs, and the lift of its 4000 rpm idle gone by 5600 rpm (not 8800)
   limiterRpm: 19300,
   idleLiftTo: 1.4,
-  // an upshift that cuts the ignition, heard for 40 ms (not seamless: the Volta's is a 20 ms flick, a road car's a 70 ms gap)
+  // an upshift that cuts the ignition: through the physics' 30 ms shift the note is 3 dB and more down for 28 ms, 10 to 12 dB at its deepest (not
+  // seamless: the Volta's is a flick of 8 to 16 ms; a road car's gearbox leaves a gap of 70 ms)
   shiftDip: 0.04,
 };
 
