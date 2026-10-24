@@ -480,7 +480,7 @@ pipes (below), and the car picker's power bar is out of 1000 hp (750), so that t
   SEEDS=0..7 CAR=dieci npx vitest run tests/probes/pack.test.ts`), no car hits a wall or needs a reset (the one-make Voltas' first-lap scrape at Kuroyama
   does not happen). In 48 mixed races of twelve (`CAR=mixed`: two each of the Vanta, Kestrel, Ronin, LMP-X and Mammoth, one Volta and one Dieci) no car
   needs a reset and the Dieci hits no wall (off the road for 0.11 s a race at Kuroyama dry, and nowhere else), but road cars touched the wall at Brennwald three times,
-  at 2.3-4.7 m/s, each running wide as it moved out to pass the car ahead, with no Dieci within 60 m; the same field with seeds 8-15 touched none, so it
+  at 2.3-4.7 m/s, each running wide as it moved out to pass the car ahead, with no Dieci within 60 m; the same field at Brennwald with seeds 8-15 touched none, so it
   reads as the chance of a different race order, not as anything the Dieci does. In traffic it pumps its brakes more than the Volta, which
   `tests/dieci.test.ts` holds where it is (see the known limits below). The braking assist (the Beginner aids, the path follower at the wheel) laps every
   circuit in it, dry and wet, without a wall hit or a reset, its centre past the asphalt's edge for 3.0 s of two laps of Kuroyama dry (the Volta's 14.3).
@@ -554,7 +554,7 @@ pipes (below), and the car picker's power bar is out of 1000 hp (750), so that t
     and writes nine scenes to `previews/dieci/`, each an MP3 and a spectrogram: the idle and blips, a run from rest outside and in the cockpit, a flyby at
     300 km/h, the lift-off and the overrun, a nitro shot, the Volta's run and then the Dieci's, the LMP-X's and then the Dieci's, and a grid start held through
     the countdown.
-- **Damage:** the LMP-X's profile (downforce at both ends, the most of any car, 1.74 and 2.21 m^2, and the engine in the middle) and the open-wheeler's
+- **Damage:** the LMP-X's profile (downforce at both ends, the engine in the middle; its 1.74 and 2.21 m^2 of lift area are the most of any car) and the open-wheeler's
   outline on the HUD (`SHAPES.formula`). Badly bent (everything at 1.0) it laps 1.9-5.1 % slower for an AI driver told of it, every lap clean
   (`DMGCAL=lap DMGTRACK=aurelia,kuroyama,brennwald,portovela DMGCARS=dieci npx vitest run tests/probes/damage-calib.test.ts`).
 - **Known limits**, left as they are because fixing them would change the Volta, or every car:
