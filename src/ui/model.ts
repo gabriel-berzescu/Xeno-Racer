@@ -81,7 +81,8 @@ export function carStatBars(car: CarDefinition, units: 'kmh' | 'mph'): StatBar[]
   const s = car.stats;
   const top = units === 'mph' ? Math.round(s.topSpeedKmh * 0.621371) + ' mph' : Math.round(s.topSpeedKmh) + ' km/h';
   return [
-    { id: 'power', label: 'Power', value: clamp01(s.powerHp / 750), text: Math.round(s.powerHp) + ' hp' },
+    // (out of 1000 hp: the Dieci's 912 fills nine tenths of it, the Mammoth's 710 seven tenths, the Ronin's 240 a quarter)
+    { id: 'power', label: 'Power', value: clamp01(s.powerHp / 1000), text: Math.round(s.powerHp) + ' hp' },
     // (out of 2.5 t: the Mammoth fills it, a sports car sits around the middle)
     { id: 'weight', label: 'Weight', value: clamp01(s.massKg / 2500), text: thousands(s.massKg) + ' kg', neutral: true },
     { id: 'grip', label: 'Grip', value: gripScore(car), text: '' + Math.round(gripScore(car) * 100) },
