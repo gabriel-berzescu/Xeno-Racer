@@ -429,8 +429,9 @@ export interface EngineSoundProfile {
    * orders of the crank, rpm/120), strongest below 3000 rpm and fading as the pulses crowd into the roar. Absent or 'merged': the banks meet
    * in an X-pipe and one pipe goes on, which throws that difference away, so the same engine is smoother. The pipes are run in full quality;
    * a lite voice has the same lope as per-pulse strengths. 'short': each collector straight out through a short open pipe with no muffler
-   * (the periscopes of a 2004 single-seater), whose ends reflect little: the pipe resonances that ripple a long exhaust's note through the
-   * top of a 19,000 rpm engine's revs are damped.
+   * (the periscopes of a 2004 single-seater; the two pipes of an even-firing engine, heard from one point, are the merged one): the pipes
+   * 0.65 of a merged exhaust's length and their ends reflecting little, so that the pipe resonances which ripple a long exhaust's note
+   * through the top of a 19,000 rpm engine's revs are damped and the note rises to the limiter.
    */
   exhaustSystem?: 'merged' | 'dual' | 'short';
   /**

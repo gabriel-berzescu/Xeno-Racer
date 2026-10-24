@@ -785,7 +785,7 @@ const dieciVisual: CarVisualSpec = {
 };
 
 // The Dieci's voice: a 3.0 L V10 with a flat crank (even firing, five pulses a turn) to 19,300 rpm, no turbo, and two short open
-// periscopes (heard as the merged exhaust until the voice gives 'short' pipes of its own).
+// periscopes whose ends reflect little, so that its scream rises to the limiter in every gear (tests/audio-dieci.test.ts).
 const dieciSound: EngineSoundProfile = {
   cylinders: 10, layout: 'v', crankType: 'flat', displacement: 3.0, turbo: false, exhaustOpenness: 1, brightness: 0.95, gearWhine: 0.75, crackle: 0.35,
   exhaustSystem: 'short',

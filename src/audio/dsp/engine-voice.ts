@@ -17,13 +17,16 @@
  *   + turbo (spool whistle / flutter / blow-off), gear whine, shift clunk, backfire pops, rev limiter
  *   + interior / exterior mix (cabin resonance, muffled exhaust path; or, in an open cockpit, the helmet)
  *
- * Three things a profile can ask for beyond that (all off, and costing nothing, for every other engine):
+ * Four things a profile can ask for beyond that (all off, and costing nothing, for every other engine):
  *
  *   `exhaustSystem: 'dual'`  the secondaries do not meet: each bank goes on through a main pipe, muffler and tailpipe of its own (TailChain)
  *        and the listener hears the sum, a little nearer one tailpipe than the other. Through twin pipes the sum of a cross-plane V8's banks
  *        (which fire 90 / 180 / 270 / 180 degrees apart, copies of each other 360 degrees apart) is the same even train as a flat-plane's:
  *        a linear system cannot tell them apart. The lope is the difference between the two pipes, small in level, length and delay and
  *        fading with the rpm as the pulses crowd into the roar; an X-pipe throws that difference away, which is why a merged exhaust is smoother.
+ *   `exhaustSystem: 'short'`  the same merged chain, short and open (a 2004 single-seater's periscopes): its pipes after the collectors
+ *        0.65 of their length and both its ends reflecting little, so that the pipe resonances do not ripple the note through the top of a
+ *        19,000 rpm engine's revs and it rises to the limiter in every gear (see deriveVoicing).
  *   `supercharger`  a positive-displacement blower: a whine locked to the crank (rpm/60 x pulley ratio x lobes) with its harmonics, the rotor's
  *        own turn and the hiss of the air, following the pedal through the bypass valve (a whirr off the throttle, a whine on it).
  *   `electric`  an electric motor geared to the crankshaft (a 2026 MGU-K): a whine on the 14th order of the crank with its harmonics, a
@@ -34,9 +37,10 @@
  * idle's cycle-to-cycle spread and weak cylinders, a bank that runs richer for a while, and a burble of unburnt charge on a lift-off
  * (see pulseFactor, burnFactor, and the burble in block()). These are events, so the lite voice has them too.
  *
- * A racing engine (the Volta's) can also give its own revs (limiterRpm: its loudness measured over them, on boost; idleLiftTo: the lift of a
- * high idle kept near the idle), a turbo with no blow-off valve (blowOff) and a wastegate that lets part of every pulse past the turbine
- * flat out (wastegate), a seamless shift (shiftDip); and a car with an open cockpit is heard from it through a helmet (EngineVoice.helmet).
+ * A racing engine (the Volta's, the Dieci's) can also give its own revs (limiterRpm: its loudness measured over them, on boost; idleLiftTo:
+ * the lift of a high idle kept near the idle), a turbo with no blow-off valve (blowOff) and a wastegate that lets part of every pulse past the
+ * turbine flat out (wastegate), a shift of its own (shiftDip: the Volta's seamless flick, the Dieci's short ignition cut); and a car with an
+ * open cockpit is heard from it through a helmet (EngineVoice.helmet).
  *
  * No allocation after construction; process() is safe to call from an AudioWorklet.
  */
@@ -267,24 +271,31 @@ export function deriveVoicing(p: EngineSoundProfile, layout: EngineLayout): Voic
   // a cross-plane V8: its banks fire unevenly, so each bank's pipe sees pulses 90, 180, 270 and 180 degrees apart
   const cross = p.crankType === 'crossplane' && p.cylinders === 8 && layout.banks === 2;
   const dual = p.exhaustSystem === 'dual' && layout.banks === 2;
+  // a short open exhaust (a 2004 single-seater's periscopes): every pipe after the collectors 0.65 of the length the openness gives it
+  // (x 1 for every other engine, which is exact)
+  const short = p.exhaustSystem === 'short';
+  const kLen = short ? 0.65 : 1;
   const sc = p.supercharger;
   const lobes = sc ? Math.max(1, Math.round(sc.lobes)) : 0;
   const et = p.electricTaper;
   return {
-    Ls: lerp(0.62, 0.4, o),
-    Lm: lerp(1.0, 0.55, o),
-    Lc: lerp(0.52, 0.3, o),
-    Lq: lerp(0.34, 0.2, o),
-    Lt: lerp(0.62, 0.3, o),
+    Ls: lerp(0.62, 0.4, o) * kLen,
+    Lm: lerp(1.0, 0.55, o) * kLen,
+    Lc: lerp(0.52, 0.3, o) * kLen,
+    Lq: lerp(0.34, 0.2, o) * kLen,
+    Lt: lerp(0.62, 0.3, o) * kLen,
     gS: 2.0,
     gM: layout.banks === 2 ? 1.5 : 1.0,
     rc: lerp(5.2, 1.18, Math.pow(o, 0.8)),
     rq: lerp(0.45, 0.06, o),
     // (a dual exhaust is two separate pipes with the big mufflers of a truck and nothing to scatter the energy of a resonance into, as the junction
     // of a merged system does: damped a little more, so that the exhaust does not surge as the firing harmonics sweep a pipe resonance: 2 dB
-    // between two 66 ms windows of a rev sweep, where it was 4.7)
-    Rc: dual ? 0.66 : 0.78,
-    Ro: lerp(0.95, 0.88, o) * (dual ? 0.88 : 1),
+    // between two 66 ms windows of a rev sweep, where it was 4.7. A short open exhaust's ends reflect little: steady flat out over the top of
+    // a 19,000 rpm V10's revs (14,500..19,300 rpm) its note rises 0.7 dB every 1000 rpm, 0.3 dB either side of that and every step up of
+    // 1500 rpm louder, where through the merged exhaust it rises 0.3 dB, 2.5 dB either side, and a step up can be 6 dB quieter: a close-ratio
+    // box keeps the engine there, so each gear would come out quieter at its top than at its bottom)
+    Rc: dual ? 0.66 : short ? 0.2 : 0.78,
+    Ro: lerp(0.95, 0.88, o) * (dual ? 0.88 : short ? 0.45 : 1),
     Rq: 0.85,
     fcP: 5200 + 3500 * b,
     fcS: 6000 + 3000 * b,
