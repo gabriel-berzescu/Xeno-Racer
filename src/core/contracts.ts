@@ -476,7 +476,7 @@ export interface EngineSoundProfile {
    * The torque the traction control or the launch control takes away with the pedal down is cut from the engine by cutting the spark of
    * whole firing events, the throttle left open (absent: it is heard as a lighter load): the share of the cylinders that miss is the share
    * of the torque taken, the rest burn at the pedal's load, and now and then a cut charge lights in the pipe. The stuttering rasp of a 2004
-   * single-seater's traction control on a slow exit, and of its launch held at 10,000 rpm.
+   * single-seater's traction control on a slow exit, and of its launch control holding the revs on the grid.
    */
   ignitionCut?: boolean;
   /**

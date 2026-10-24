@@ -336,7 +336,7 @@ describe('through the real physics, as the game drives it', () => {
   const rates = [60, 144];
   const runs = new Map<number, Frame[]>();
   beforeAll(() => {
-    // flat out from a standstill on a flat plane for 12 s: 314 km/h in 7th
+    // flat out from a standstill on a flat plane for 12 s, up through the seven gears
     for (const hz of rates) runs.set(hz, drive(hz, 12, () => ({ thr: 1, brk: 0 })));
   });
 

@@ -795,8 +795,8 @@ const dieciSound: EngineSoundProfile = {
   // an upshift that cuts the ignition: through the physics' 30 ms shift the note is 3 dB and more down for 28 ms, 10 to 12 dB at its deepest (not
   // seamless: the Volta's is a flick of 8 to 16 ms; a road car's gearbox leaves a gap of 70 ms)
   shiftDip: 0.04,
-  // its traction control and its launch control cut the spark, not the throttle: in 1st gear flat out from rest it stutters 4 dB louder
-  // than the same torque heard as a lighter load
+  // its traction control and its launch control cut the spark, not the throttle: in 1st gear flat out from rest it stutters 3 dB and more
+  // louder than the same torque heard as a lighter load (tests/audio-dieci.test.ts)
   ignitionCut: true,
 };
 
