@@ -9,6 +9,7 @@
 import type { CarDefinition, GroundSample, SurfaceType, TrackRuntime } from '../core/contracts';
 import type { MechEffects } from '../core/mechanical';
 import { Vector3 } from 'three';
+import { STRAIGHT_MODE_LAT, STRAIGHT_MODE_SPEED } from '../physics/aero';
 import { fitCar } from '../physics/compound';
 import { peakPower } from '../physics/engine';
 import { SURFACES, carSurfaces, wetGripFactor, type SurfaceProps } from '../physics/surfaces';
@@ -260,6 +261,13 @@ export interface GripModel {
   aqua(vv: number): number;
   /** Lateral acceleration the tyres can give at speed vv. */
   latMax(vv: number): number;
+  /**
+   * Active aero (AeroSpec.straightMode; null for a car with fixed wings): the downforce and the drag per (m/s)^2 in straight mode. The
+   * profile accelerates the car with them where its flaps open (src/physics/aero.ts): flat out (the engine's power, not the tyres, the
+   * limit) at STRAIGHT_MODE_SPEED or more on a line that asks less than STRAIGHT_MODE_LAT of it. It corners and brakes in corner mode,
+   * with `cDown` and `cDrag`: the flaps close for both.
+   */
+  straight: { cDown: number; cDrag: number } | null;
 }
 
 export function gripModel(def: CarDefinition, o: ProfileOptions, road: SurfaceProps = SURFACES.asphalt): GripModel {
@@ -280,7 +288,9 @@ export function gripModel(def: CarDefinition, o: ProfileOptions, road: SurfacePr
   const L = ph.chassis.wheelbase;
   const drivenFrac = ph.drivetrain.layout === 'FWD' ? (L - a) / L * 0.92 : ph.drivetrain.layout === 'RWD' ? (a / L) * 1.1 : awdTractionShare(ph);
   const latMax = (vv: number) => mu * aqua(vv) * (G + cDown * vv * vv);
-  return { mu, cDown, cDrag, power, vTop, drivenFrac, mass: m, aqua, latMax };
+  const sm = ph.aero.straightMode;
+  const straight = sm ? { cDown: ((0.5 * RHO * (sm.liftAreaFront + sm.liftAreaRear)) / m) * dmg.aero, cDrag: (0.5 * RHO * sm.dragArea) / m } : null;
+  return { mu, cDown, cDrag, power, vTop, drivenFrac, mass: m, aqua, latMax, straight };
 }
 
 /**
@@ -448,10 +458,10 @@ export class ProfileJob {
     this.speeds[i] = Math.min(gm.vTop, vmax);
   }
 
-  /** Friction-circle remainder for longitudinal acceleration at speed vv on curvature k at line point i. */
-  private longAvail(i: number, vv: number, k: number, cap: number): number {
+  /** Friction-circle remainder for longitudinal acceleration at speed vv on curvature k at line point i (with the downforce `cDown`). */
+  private longAvail(i: number, vv: number, k: number, cap: number, cDown = this.gm.cDown): number {
     const lat = vv * vv * Math.abs(k);
-    const lm = this.muAt[i] * this.aquaAt(i, vv) * (G + this.gm.cDown * vv * vv);
+    const lm = this.muAt[i] * this.aquaAt(i, vv) * (G + cDown * vv * vv);
     const r = lat / lm;
     return r >= 1 ? 0 : cap * Math.sqrt(1 - r * r);
   }
@@ -463,9 +473,19 @@ export class ProfileJob {
     const b = (i + 1) % n;
     const vi = v[i];
     const mu = this.muAt[i];
-    const trac = (mu * 1.05 * G * gm.drivenFrac + mu * gm.cDown * vi * vi * gm.drivenFrac) * this.aquaAt(i, vi);
+    let cDown = gm.cDown;
+    let cDrag = gm.cDrag;
+    let trac = (mu * 1.05 * G * gm.drivenFrac + mu * cDown * vi * vi * gm.drivenFrac) * this.aquaAt(i, vi);
     const pow = gm.power / (gm.mass * Math.max(vi, 3));
-    const acc = this.longAvail(i, vi, line.k[i], Math.min(trac, pow)) - gm.cDrag * vi * vi - 0.12;
+    // a car with active aero accelerates in straight mode where the line is fast and nearly straight and the engine, not the tyres, limits
+    // it: the driver is flat out there and the flaps open (on snow the throttle is held to what the tyres take, and they stay shut)
+    const sm = gm.straight;
+    if (sm !== null && vi >= STRAIGHT_MODE_SPEED && vi * vi * Math.abs(line.k[i]) < STRAIGHT_MODE_LAT && pow < trac) {
+      cDown = sm.cDown;
+      cDrag = sm.cDrag;
+      trac = (mu * 1.05 * G * gm.drivenFrac + mu * cDown * vi * vi * gm.drivenFrac) * this.aquaAt(i, vi);
+    }
+    const acc = this.longAvail(i, vi, line.k[i], Math.min(trac, pow), cDown) - cDrag * vi * vi - 0.12;
     const vn = Math.sqrt(Math.max(0, vi * vi + 2 * acc * line.ds[i]));
     if (vn < v[b]) v[b] = vn;
   }

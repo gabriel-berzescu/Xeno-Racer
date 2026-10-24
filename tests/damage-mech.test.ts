@@ -709,14 +709,19 @@ describe('what the damage does to the car', () => {
 
 // ── the air under damage ─────────────────────────────────────────────────────────
 
-/** The four wheel loads added up (N), the mean of a second at a speed the car holds: its weight, and what the air adds to it or takes from it. */
+/**
+ * The four wheel loads added up (N), the mean of a second at a speed the car holds: its weight, and what the air adds to it or takes from it.
+ * (A car with active aero is held under the throttle its flaps open at, so the air is its corner mode's: tests/volta.test.ts has the damage
+ * on top of the straight mode.)
+ */
 function loadAt(def: CarDefinition, kmh: number, damage: MechEffects | null): number {
   const { world, v } = car(def, kmh, damage);
+  const most = def.physics.aero.straightMode ? 0.9 : 1;
   let sum = 0;
   let n = 0;
   for (let i = 0; i < 180; i++) {
     v.controls.steer = holdLine(v);
-    v.controls.throttle = Math.min(1, Math.max(0, 0.3 + (kmh / 3.6 - v.state.forwardSpeed) * 0.3));
+    v.controls.throttle = Math.min(most, Math.max(0, 0.3 + (kmh / 3.6 - v.state.forwardSpeed) * 0.3));
     world.step(1 / 60);
     if (i >= 120) {
       sum += v.wheels.reduce((a, w) => a + w.load, 0);

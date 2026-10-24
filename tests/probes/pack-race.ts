@@ -26,6 +26,8 @@ export interface PackResult {
   overtakes: number;
   finished: number;
   winnerTime: number;
+  /** Brake pumps: a brake of 0.3 or more let off and taken back up within a quarter of a second, by any car while it raced */
+  brakePumps: number;
   perCar: { model: string; off: number; walls: number; hits: number; hard: number; resets: number }[];
   /** Damage: Full only: hits that moved the mechanics, and the worst part (0..1) on any car at the end */
   mechHits?: number;
@@ -68,7 +70,7 @@ export function runPack(trackId: string, carSpec: string, diff: Difficulty, n: n
     const p = track.pointAt(track.wrapS(s), d, new Vector3());
     v.placeOnGround(p, q, speed);
   };
-  const cars: { v: Vehicle; ai: AIDriver; hint: number; prevS: number; crossings: number; lapStart: number; laps: number[]; carHits: number; hardHits: number; wallHits: number; seenImpact: number; wasOff: boolean; resets: number; off: number; finished: boolean; finishT: number }[] = [];
+  const cars: { v: Vehicle; ai: AIDriver; hint: number; prevS: number; crossings: number; lapStart: number; laps: number[]; carHits: number; hardHits: number; wallHits: number; seenImpact: number; wasOff: boolean; resets: number; off: number; finished: boolean; finishT: number; prevBrake: number; letOff: number }[] = [];
   for (let i = 0; i < n; i++) {
     const def = carSpec === 'mixed' ? CARS[i % CARS.length] : getCar(carSpec);
     const v = world.addVehicle(def);
@@ -80,7 +82,7 @@ export function runPack(trackId: string, carSpec: string, diff: Difficulty, n: n
     v.holdOnGrid = true;
     const d = i === n - 1 && process.env.LASTDIFF ? (process.env.LASTDIFF as Difficulty) : diff;
     const ai = new AIDriver(track, def, { difficulty: d, seed: v.id * 17 + i + (opts.seed ?? 0) * 101, wetness });
-    cars.push({ v, ai, hint: -1, prevS: 0, crossings: 0, lapStart: 0, laps: [], carHits: 0, hardHits: 0, wallHits: 0, resets: 0, off: 0, finished: false, finishT: 0, seenImpact: 0, wasOff: false });
+    cars.push({ v, ai, hint: -1, prevS: 0, crossings: 0, lapStart: 0, laps: [], carHits: 0, hardHits: 0, wallHits: 0, resets: 0, off: 0, finished: false, finishT: 0, seenImpact: 0, wasOff: false, prevBrake: 0, letOff: -1 });
   }
   // Damage: Full: the record of each car (what its visual keeps), the observer that feeds it, and the link to its physics and driver
   const records = opts.full || opts.initial
@@ -115,6 +117,7 @@ export function runPack(trackId: string, carSpec: string, diff: Difficulty, n: n
       })
     : [];
   let mechHits = 0;
+  let brakePumps = 0;
   const tanks = opts.nitro ? cars.map(() => new NitroTank()) : null;
   const shots = new Array<number>(n).fill(0);
   const tp: TrackPoint = { s: 0, d: 0, segment: 0, widthLeft: 0, widthRight: 0, wallLeft: 0, wallRight: 0, tx: 0, tz: 1, lx: 1, lz: 0, y: 0 };
@@ -148,6 +151,16 @@ export function runPack(trackId: string, carSpec: string, diff: Difficulty, n: n
         c.ai.nitroOn = tank.active;
       }
       c.ai.update(DT, c.v.state, states, c.v.controls, racing);
+      // (a brake pump: let off from 0.3 or more, and back up within a quarter of a second)
+      const brake = c.v.controls.brake;
+      if (racing && !c.finished) {
+        if (c.prevBrake >= 0.3 && brake === 0) c.letOff = world.time;
+        else if (c.letOff >= 0 && brake >= 0.3) {
+          if (world.time - c.letOff < 0.25) brakePumps++;
+          c.letOff = -1;
+        }
+      }
+      c.prevBrake = brake;
       if (tank && c.ai.wantNitro && tank.fire()) {
         shots[i]++;
         if (log) events.push(`t=${world.time.toFixed(1)} car${c.v.id} NITRO s=${c.ai.s.toFixed(0)} v=${(c.v.state.speed * 3.6).toFixed(0)}`);
@@ -250,7 +263,7 @@ export function runPack(trackId: string, carSpec: string, diff: Difficulty, n: n
   rows.push(`  TOTAL carHits ${contacts} hard ${hard} walls ${walls} off ${offTrack.toFixed(1)}s resets ${resets}${tanks ? `  nitro shots ${shots.reduce((a, b) => a + b, 0)}` : ''}`);
   if (log) rows.push(...events.slice(0, process.env.TRACE ? 400 : 80));
   const perCar = cars.map((c) => ({ model: c.v.def.id, off: c.off, walls: c.wallHits, hits: c.carHits, hard: c.hardHits, resets: c.resets }));
-  const res: PackResult = { rows, contacts, hardContacts: hard, walls, resets, offTrack, overtakes, finished: finishedCount, winnerTime, perCar };
+  const res: PackResult = { rows, contacts, hardContacts: hard, walls, resets, offTrack, overtakes, finished: finishedCount, winnerTime, brakePumps, perCar };
   if (tanks) {
     res.nitroShots = shots.reduce((a, b) => a + b, 0);
     res.nitroPerCar = shots;

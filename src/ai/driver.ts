@@ -16,6 +16,9 @@
  * - Weather: everything that depends on the water on the road (speed profile, racing line, grip estimates, the wet
  *   racecraft) is derived from one number, set at construction and changed with setWetness(), which moves the driver to
  *   the new conditions over a couple of seconds instead of jumping.
+ * - Active aero (a car with AeroSpec.straightMode, src/physics/aero.ts): the speed profile accelerates the car in straight mode where
+ *   its flaps open and corners and brakes it in corner mode, as the flaps close for both; the grip and the drag the driver works with
+ *   where the car is follow its flaps (VehicleState.aeroOpen), and everything it looks ahead at is in corner mode.
  * - Nitro: the game says whether a shot is ready (`nitroReady`) and burning (`nitroOn`); the driver asks for one (`wantNitro`)
  *   on a straight with no corner within reach of the boosted car, and while it burns (and until the car is back down to the
  *   profile) it drives to what the corners ahead and its brakes allow, not to the profile, which is capped by the car's own power.
@@ -91,6 +94,8 @@ const SLIPPERY_RATIO = 0.8;
 const LATERAL_RATE_MIN = 0.15;
 /** The steering never asks for more lateral acceleration than this share of the grip (plus the bank's help). */
 const CURVATURE_GRIP = 1.05;
+/** Seconds over which the downforce the steering counts follows the traffic: it fades behind another car and comes back in clean air. */
+const STEER_DOWN_TIME = 0.3;
 /** Throttle gain (per m/s of speed deficit) in the middle of a corner on a wet road, instead of the normal 0.35. */
 const THROTTLE_GAIN_CORNER_WET = 0.03;
 /** Slip angle / combined-slip thresholds (multiples of the tyre's peak) where the throttle governor starts and finishes lifting. */
@@ -134,6 +139,19 @@ function wetGripRatio(surface: SurfaceType, road: SurfaceProps = SURFACES.asphal
 /** Throttle factor from 1 (below the first threshold) down to GOV_MIN (past the second). */
 function fade(u: number, t: [number, number]): number {
   return Math.max(GOV_MIN, Math.min(1, (t[1] - u) / (t[1] - t[0])));
+}
+
+/**
+ * The highest speed (m/s) from which brakes that hold `brakeCap` (m/s^2) under the weight alone still bring a car down to `va` within `d`
+ * metres, when its downforce `c` (per (m/s)^2 and kilogram, as the speed profile counts it) presses the tyres on the road as well. The
+ * downforce grows as the square of the speed and falls away as the car slows, so a car with wings can brake later from speed, by as much
+ * as its downforce is worth over the whole stop and no more; a car with lift has c less than nothing. Where c is nothing it is
+ * sqrt(va^2 + 2 brakeCap d), to the bit.
+ */
+export function brakeReach(va: number, d: number, brakeCap: number, c: number): number {
+  if (c === 0) return Math.sqrt(va * va + 2 * brakeCap * d);
+  // (a deceleration of brakeCap·(1 + c·u²/G) at speed u, summed over the stop: 2·brakeCap·d where the downforce is nothing)
+  return Math.sqrt(va * va + ((G + c * va * va) * Math.expm1((2 * brakeCap * c * d) / G)) / c);
 }
 
 const smooth01 = (x: number) => x * x * (3 - 2 * x);
@@ -210,10 +228,17 @@ export class AIDriver {
   /** Peak friction coefficient of the weaker axle (dry), downforce acceleration per (m/s)^2, braking acceleration at full pedal. */
   private readonly gripMu: number;
   private readonly cDown: number;
+  /** The downforce per (m/s)^2 the steering counts for the slip angle of the front tyres: the car's in clean air, fading behind another car. */
+  private steerDown = 0;
   /** What mechanical damage has left of the car (setDamage): the grip of its weaker axle, the downforce of its weaker end. Both 1 on a sound car. */
   private dmgGrip = 1;
   private dmgAero = 1;
   private dmg: MechEffects | null = null;
+  /**
+   * The downforce per (m/s)^2 the look-ahead braking counts this update (brakeFrom): the car's in clean air, none behind another car, and
+   * while it brakes no more than it counted when the stop began.
+   */
+  private brakeDown = 0;
   private readonly brakeGain: number;
   private readonly alphaPkF: number;
   private readonly alphaPkR: number;
@@ -272,6 +297,12 @@ export class AIDriver {
   private readonly drivenShare: number;
   /** Aerodynamic drag per kilogram and per (m/s)^2. */
   private readonly cDrag: number;
+  /**
+   * Active aero (AeroSpec.straightMode; null for a car with fixed wings): the downforce and the drag per kilogram and (m/s)^2 in straight
+   * mode (`cDown` and `cDrag` are the corner mode's), and where the car's flaps stood at the last update (0 corner mode .. 1 straight mode).
+   */
+  private readonly straight: { cDown: number; cDrag: number } | null;
+  private aeroOpen = 0;
 
   constructor(
     readonly track: TrackRuntime,
@@ -314,6 +345,8 @@ export class AIDriver {
     const cgA = ph.chassis.cgToFrontAxle;
     this.drivenShare = ph.drivetrain.layout === 'FWD' ? ((wb - cgA) / wb) * 0.92 : ph.drivetrain.layout === 'RWD' ? Math.min(1, (cgA / wb) * 1.1) : awdTractionShare(ph);
     this.cDrag = (0.5 * RHO * ph.aero.dragArea) / ph.chassis.mass;
+    const sm = ph.aero.straightMode;
+    this.straight = sm ? { cDown: (0.5 * RHO * (sm.liftAreaFront + sm.liftAreaRear)) / ph.chassis.mass, cDrag: (0.5 * RHO * sm.dragArea) / ph.chassis.mass } : null;
   }
 
   // ── weather ─────────────────────────────────────────────────────────────────
@@ -481,10 +514,15 @@ export class AIDriver {
     this.lineCur = m;
   }
 
-  /** What the tyres can give in any horizontal direction at speed v (m/s^2): wet grip, aquaplaning and downforce included. */
+  /**
+   * What the tyres can give in any horizontal direction at speed v (m/s^2): wet grip, aquaplaning and downforce included (the downforce of
+   * where the car's flaps stand, for a car with active aero).
+   */
   private gripAccel(v: number): number {
     const wetF = this.wetness > 0 ? wetGripFactor(this.wetness, this.tireWet, this.road, v) : 1;
-    return this.gripMu * this.dmgGrip * wetF * (G + this.cDown * this.dmgAero * v * v);
+    let cDown = this.cDown;
+    if (this.straight !== null && this.aeroOpen > 0) cDown += (this.straight.cDown - cDown) * this.aeroOpen;
+    return this.gripMu * this.dmgGrip * wetF * (G + cDown * this.dmgAero * v * v);
   }
 
   /** The grip of the surface under the racing line at track position s, relative to asphalt (1 on a road of asphalt). */
@@ -556,6 +594,7 @@ export class AIDriver {
     this.s = s;
     this.d = _tp.d;
     const v = Math.max(0, me.forwardSpeed);
+    if (this.straight !== null) this.aeroOpen = me.aeroOpen ?? 0;
     _f.set(0, 0, 1).applyQuaternion(me.quaternion);
     _l.set(1, 0, 0).applyQuaternion(me.quaternion);
     this.up.set(0, 1, 0).applyQuaternion(me.quaternion);
@@ -653,10 +692,16 @@ export class AIDriver {
       const kLim = Math.max(aMax / (v * v), Math.abs(kff) * 1.02);
       kappa = Math.max(-kLim, Math.min(kLim, kappa));
     }
-    // kinematic angle + the slip angle the front tires need for this lateral acceleration
+    // kinematic angle + the slip angle the front tires need for this lateral acceleration, out of what presses them on the road: the weight
+    // and, in clean air, the downforce (on the weight alone a car with wings asked its fronts for more than their peak slip angle in every
+    // fast bend, ran wide and braked off the asphalt). Behind another car it counts the weight alone, as the braking ahead does, and the
+    // downforce fades out and back in over STEER_DOWN_TIME so the wheel does not jump as cars come and go: counted there too, one-make
+    // packs hit the walls of Kuroyama's narrow corners on the first lap twice as often. On a winter circuit it counts the weight alone,
+    // as the studded tyres' steering was tuned: there it gained nothing (laps of Isvik 0.1 s slower)
     const ph = def.physics;
     const aLat = v * v * kappa;
-    const muG = 9.81 * ph.tireFront.mu * this.wetMu * sGrip;
+    this.steerDown += ((this.nOb > 0 || this.winter ? 0 : this.cDown * this.dmgAero) - this.steerDown) * (1 - Math.exp(-dt / STEER_DOWN_TIME));
+    const muG = (9.81 + this.steerDown * v * v) * ph.tireFront.mu * this.wetMu * sGrip;
     let delta = Math.atan(L * kappa) + ph.tireFront.peakSlipAngle * Math.max(-1.2, Math.min(1.2, aLat / muG)) * 0.85;
     // yaw-rate tracking: steer against yaw rate that differs from what the path asks for
     // (gentler at hairpin speeds, where the loop through the tires would otherwise ring)
@@ -691,12 +736,20 @@ export class AIDriver {
 
     // ── speed: track the profile slightly ahead; brake early for slower points ahead ──
     let vT = this.targetSpeedOff(s + v * 0.3 + 2, this.offset);
-    // anticipate: the slowest requirement within the next ~1.2 s, discounted by distance
+    // anticipate: the slowest requirement within the next ~1.2 s, discounted by distance, with the downforce in clean air (brakeFrom). With a
+    // car ahead in the traffic window the brakes keep the margin of the weight alone: in its wake the car has less downforce than its speed
+    // profile counts (up to a fifth less), and the car ahead brakes where it brakes, so a pack does not dive into a corner on the profile's
+    // last metres (counting it there too made the first corners of a twelve-car start harder, and in tests/ai.test.ts's storm a reset).
+    // A stop is finished on the downforce it began with, or less, never more: as two cars slow, the one behind leaves the window and comes
+    // back into it, and a reach that grew mid-stop let it off the brakes and onto the throttle for a frame at a time. (c.brake is still
+    // the last update's.)
     const brakeCap = 9.81 * Math.min(def.physics.tireFront.mu, def.physics.tireRear.mu) * this.dmgGrip * this.wetMu * this.skill.brakeUse * 0.9 * this.surfGripAhead(s, 8 + v * 1.3);
+    const downAir = this.nOb > 0 ? 0 : this.cDown * this.dmgAero;
+    this.brakeDown = c.brake > 0 && downAir > this.brakeDown ? this.brakeDown : downAir;
     for (let k = 1; k <= 6; k++) {
       const ahead = v * 0.2 * k + 4;
       const va = this.targetSpeedOff(s + ahead, this.offset);
-      const allowed = Math.sqrt(va * va + 2 * brakeCap * Math.max(0, ahead - v * 0.12));
+      const allowed = this.brakeFrom(va, Math.max(0, ahead - v * 0.12), brakeCap);
       if (allowed < vT) vT = allowed;
     }
     // nitro: the profile is capped by the car's own power, so a boosted car would lift for it. While a shot burns, and after it until
@@ -754,7 +807,10 @@ export class AIDriver {
       const r = Math.min(1, aLatNeed / Math.max(aGrip, 2));
       const axLeft = this.drivenShare * aGrip * Math.sqrt(1 - r * r) * WINTER_AX_USE;
       const thrust = Math.min(THRUST_MAX, this.powerPerKg / Math.max(v, 3));
-      thr = Math.min(thr, THR_NEUTRAL + (1 - THR_NEUTRAL) * Math.min(1, (axLeft + this.cDrag * v * v + 0.12) / thrust));
+      // (the drag of where the car's flaps stand, for a car with active aero)
+      let cDrag = this.cDrag;
+      if (this.straight !== null && this.aeroOpen > 0) cDrag += (this.straight.cDrag - cDrag) * this.aeroOpen;
+      thr = Math.min(thr, THR_NEUTRAL + (1 - THR_NEUTRAL) * Math.min(1, (axLeft + cDrag * v * v + 0.12) / thrust));
     }
     // governor: lift while an axle is sliding past its peak (front = understeer, driven rear = oversteer) or the driven
     // tyres use more than they have (wheelspin on top of the sideways slip)
@@ -845,17 +901,26 @@ export class AIDriver {
     return vc;
   }
 
-  /** The most a car at speed v can do at s and still slow for every corner ahead with brakes `brakeCap` (m/s^2). */
+  /** The most a car at speed v can do at s and still slow for every corner ahead with brakes `brakeCap` (m/s^2, and the downforce: brakeFrom). */
   private cornerBrakeSpeed(s: number, v: number, brakeCap: number): number {
     const look = (v * v) / (2 * brakeCap) + 40;
     const step = Math.max(this.line.step, 4);
     let best = 150;
     for (let x = 0; x <= look; x += step) {
       const vc = this.cornerSpeed(s + x);
-      const allowed = Math.sqrt(vc * vc + 2 * brakeCap * Math.max(0, x - v * 0.3));
+      const allowed = this.brakeFrom(vc, Math.max(0, x - v * 0.3), brakeCap);
       if (allowed < best) best = allowed;
     }
     return best;
+  }
+
+  /**
+   * The highest speed (m/s) from which the brakes `brakeCap` (m/s^2, what the tyres hold under the weight alone) still bring the car down
+   * to `va` within `d` metres, with the downforce this update counts (brakeDown: the corner mode's, for a car with active aero, whose flaps
+   * close for the brakes). Without it the car brakes at brakeCap all the way, as every car did before the downforce was counted.
+   */
+  private brakeFrom(va: number, d: number, brakeCap: number): number {
+    return brakeReach(va, d, brakeCap, this.brakeDown);
   }
 
   /** No corner the car would have to brake for within the reach of a nitro shot fired now. */

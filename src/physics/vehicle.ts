@@ -22,8 +22,18 @@ import type {
 } from '../core/contracts';
 import { cloneEffects, isNeutral, type MechEffects } from '../core/mechanical';
 import { NITRO_POWER, NITRO_THRUST_G } from '../core/nitro';
-import { RADS_TO_RPM, RPM_TO_RADS, peakTorque, torqueAt } from './engine';
-import type { DifferentialSpec, SuspensionSpec, TireSpec, VehicleSpec } from './spec';
+import {
+  STRAIGHT_MODE_CLOSE_TIME,
+  STRAIGHT_MODE_DWELL,
+  STRAIGHT_MODE_LAT,
+  STRAIGHT_MODE_LAT_HOLD,
+  STRAIGHT_MODE_LIFT,
+  STRAIGHT_MODE_OPEN_TIME,
+  STRAIGHT_MODE_SPEED,
+  STRAIGHT_MODE_THROTTLE,
+} from './aero';
+import { RADS_TO_RPM, RPM_TO_RADS, electricPower, peakTorque, torqueAt } from './engine';
+import type { AeroSpec, DifferentialSpec, EngineSpec, SuspensionSpec, TireSpec, VehicleSpec } from './spec';
 import { tireSurfaces, wetGripFactor, type SurfaceProps } from './surfaces';
 import { loadFactor, makeShape, shapeRatio, tempFactor, type TireShape } from './tire';
 
@@ -200,7 +210,10 @@ export class Vehicle {
   /** Set each frame by the world: slipstream / dirty air. */
   dragMul = 1;
   downforceMul = 1;
-  /** Nitro burning, 0..1 (set each frame by the game from the car's NitroTank, src/core/nitro.ts): more torque and a push forward. */
+  /**
+   * Nitro burning, 0..1 (set each frame by the game from the car's NitroTank, src/core/nitro.ts): more torque and a push forward, or on
+   * a car with an electric motor geared to the crankshaft (EngineSpec.electric) that motor's torque instead.
+   */
   nitro = 0;
   /** Mechanical damage (setDamage): the share of the front and rear downforce and of the engine's torque that is left. */
   private aeroFrontMul = 1;
@@ -210,6 +223,19 @@ export class Vehicle {
   private toeMean = 0;
   /** The mechanical damage the car carries now, or null when it is sound. */
   private damage: MechEffects | null = null;
+  /**
+   * Active aero (AeroSpec.straightMode; null for a car with fixed wings): where the flaps stand, 0 corner mode .. 1 straight mode, and
+   * where they are going (src/physics/aero.ts has the rule). The way is decided each frame (beginFrame), the flaps move each substep.
+   */
+  private readonly straightMode: NonNullable<AeroSpec['straightMode']> | null;
+  private aeroOpen = 0;
+  private aeroTarget = 0;
+  /** How long the way to open them has held without a break (s): closed flaps begin to open after STRAIGHT_MODE_DWELL of it. */
+  private aeroHeld = 0;
+  /** The downforce the air put on the car in the last substep (N; less than nothing for a car with lift), which stability control counts. */
+  private downforce = 0;
+  /** The electric motor geared to the crankshaft (EngineSpec.electric; null for none): it deploys only while a nitro shot burns. */
+  private readonly electric: NonNullable<EngineSpec['electric']> | null;
 
   // rigid body
   readonly p = new Vector3();
@@ -294,6 +320,8 @@ export class Vehicle {
     this.rand = rng(0x9e3779b9 ^ (id * 7919));
     this.winter = track.info.winter === true;
     this.ambient = this.winter ? WINTER_AMBIENT_C : AMBIENT_C;
+    this.straightMode = s.aero.straightMode ?? null;
+    this.electric = s.engine.electric ?? null;
 
     const a = c.cgToFrontAxle;
     const b = c.wheelbase - a;
@@ -421,6 +449,8 @@ export class Vehicle {
       wheels: [ws(), ws(), ws(), ws()],
       airborne: false,
     };
+    // (a car with fixed wings has no aeroOpen at all)
+    if (this.straightMode) this.state.aeroOpen = 0;
     for (let i = 0; i < 4; i++) {
       this.state.wheels[i].radius = this.wheels[i].tire.radius;
       this.state.wheels[i].width = this.wheels[i].tire.width;
@@ -467,6 +497,11 @@ export class Vehicle {
     this.hullHint = -1;
     this.comHint = -1;
     this.scrapeAcc = 0;
+    // (active aero starts in corner mode, and the air has not yet pressed on the car)
+    this.aeroOpen = 0;
+    this.aeroTarget = 0;
+    this.aeroHeld = 0;
+    this.downforce = 0;
     if (this.gear === 0 || this.gear === -1) this.gear = 1;
     this.publish(1, 1 / 60);
   }
@@ -606,6 +641,24 @@ export class Vehicle {
     } else if (thrIn > 0.3) this.popBudget = 0;
     if (this.limiterCut && thrIn > 0.5 && this.rand() < crackle * dt * 6) this.state.backfireCount++;
     this.prevThrottleIn = thrIn;
+
+    // active aero: the flaps open for a straight taken flat out and close for anything else (src/physics/aero.ts)
+    if (this.straightMode) {
+      const st = this.state;
+      const v = st.forwardSpeed;
+      // (open flaps stay so through a part-lift and a gentle bend)
+      const open = this.aeroTarget > 0;
+      const latMax = open ? STRAIGHT_MODE_LAT_HOLD : STRAIGHT_MODE_LAT;
+      // (the lateral acceleration the steering asks for: the road-wheel angle's turn with a road car's understeer, 0.0022 v^2, times the
+      // speed, as src/physics/aero.ts says; the stability control takes less of that understeer for a car the downforce presses down)
+      const asked = (v * v * Math.abs(this.steerAngle)) / (this.spec.chassis.wheelbase + 0.0022 * v * v);
+      const flatOut = c.throttle >= (open ? STRAIGHT_MODE_LIFT : STRAIGHT_MODE_THROTTLE) && !(c.brake > 0) && !this.holdOnGrid && this.gear >= 1;
+      const straight = v >= STRAIGHT_MODE_SPEED && !st.airborne && Math.abs(st.localAccel.x) < latMax && asked < latMax;
+      // (shut flaps begin to open once that has held for STRAIGHT_MODE_DWELL without a break: a throttle pumped by a governor, or a
+      // twitch of the wheel, has them closing and opening again every few frames otherwise)
+      this.aeroHeld = flatOut && straight ? this.aeroHeld + dt : 0;
+      this.aeroTarget = flatOut && straight && (open || this.aeroHeld >= STRAIGHT_MODE_DWELL) ? 1 : 0;
+    }
   }
 
   // ───────────────────────────────────────────────────────────────────────────
@@ -866,7 +919,9 @@ export class Vehicle {
     if (as.esc && fwdSpeed > 8 && contacts >= 3) {
       const L = ch.wheelbase;
       const yaw = w.dot(ay);
-      // (the most yaw rate the road can hold: the tyre's friction on the surface it is on, 1 on asphalt, half on packed snow)
+      // (the most yaw rate the road can hold: the tyre's friction on the surface it is on, 1 on asphalt, half on packed snow, under the
+      // weight alone; or, while the car is turning harder than that, the lateral acceleration it has: a car the downforce presses down may
+      // turn at speed as hard as its tyres then hold it, and no harder than they hold it on the road it is on, wet or dry)
       let gripSum = 0;
       let loadSum = 0;
       for (const wh of wheels) {
@@ -875,10 +930,13 @@ export class Vehicle {
         gripSum += wh.load * sf.grip * (sf.fresh !== undefined ? 1 + (sf.fresh - 1) * this.wetness : 1);
         loadSum += wh.load;
       }
-      const maxYaw = (tire0.mu * (loadSum > 0 ? gripSum / loadSum : 1) * GRAVITY) / fwdSpeed;
+      const maxYaw = Math.max(tire0.mu * (loadSum > 0 ? gripSum / loadSum : 1) * GRAVITY, Math.abs(this.accelSmoothed.x)) / fwdSpeed;
       // (the steering the car answers is the rack's plus the mean toe of the front wheels: a car pulling to one side is driven with
-      // the wheel held the other way, and stability control must not mistake that steering for a turn the car is not making)
-      const ref = clamp((fwdSpeed * (sa + this.toeMean)) / (L + 0.0022 * fwdSpeed * fwdSpeed), -maxYaw, maxYaw);
+      // the wheel held the other way, and stability control must not mistake that steering for a turn the car is not making; and the
+      // understeer the reference takes for it, which grows with speed, grows less on a car the downforce presses down: its tyres carry the
+      // same sideways force at a smaller slip angle when they carry more load, so it turns more for the same wheel than a car without wings)
+      const press = GRAVITY + this.downforce * this.invMass;
+      const ref = clamp((fwdSpeed * (sa + this.toeMean)) / (L + 0.0022 * fwdSpeed * fwdSpeed * (GRAVITY / press)), -maxYaw, maxYaw);
       const err = yaw - ref;
       const dead = 0.06 + 0.12 * Math.abs(ref);
       if (Math.abs(err) > dead) {
@@ -899,7 +957,7 @@ export class Vehicle {
     }
 
     // ── powertrain ──────────────────────────────────────────────────────────
-    this.solveDrivetrain(dt, throttle, brake, handbrake);
+    this.solveDrivetrain(dt, throttle, brake, handbrake, fwdSpeed);
 
     // brake & tire thermals
     for (const wh of wheels) {
@@ -936,24 +994,39 @@ export class Vehicle {
         T.add(_t.crossVectors(_r, _f));
       }
     }
-    // nitro: the bottle's push along the car, with the throttle, in a forward gear
-    if (this.nitro > 0 && this.gear >= 1) {
+    // nitro: the bottle's push along the car, with the throttle, in a forward gear (a car whose nitro is its electric motor has no bottle)
+    if (this.nitro > 0 && this.gear >= 1 && this.electric === null) {
       const push = this.nitro * NITRO_THRUST_G * GRAVITY * this.mass * clamp01(this.controls.throttle);
       if (push > 0) F.addScaledVector(az, push);
     }
-    // aerodynamics
+    // aerodynamics (a car with active aero has the areas of where its flaps stand, between its corner mode and its straight mode)
+    let dragArea = s.aero.dragArea;
+    let liftFront = s.aero.liftAreaFront;
+    let liftRear = s.aero.liftAreaRear;
+    const sm = this.straightMode;
+    if (sm !== null) {
+      const to = this.aeroTarget;
+      const open = this.aeroOpen;
+      this.aeroOpen = to > open ? Math.min(to, open + dt / STRAIGHT_MODE_OPEN_TIME) : Math.max(to, open - dt / STRAIGHT_MODE_CLOSE_TIME);
+      const k = this.aeroOpen;
+      dragArea += (sm.dragArea - dragArea) * k;
+      liftFront += (sm.liftAreaFront - liftFront) * k;
+      liftRear += (sm.liftAreaRear - liftRear) * k;
+    }
     const speed2 = v.lengthSq();
+    this.downforce = 0;
     if (speed2 > 0.01) {
       const sp = Math.sqrt(speed2);
-      _f.copy(v).multiplyScalar(-0.5 * AIR_DENSITY * s.aero.dragArea * this.dragMul * sp);
+      _f.copy(v).multiplyScalar(-0.5 * AIR_DENSITY * dragArea * this.dragMul * sp);
       _r.copy(this.hullCenterLocal).applyQuaternion(this.q);
       F.add(_f);
       T.add(_t.crossVectors(_r, _f));
       const vf = fwdSpeed > 0 ? fwdSpeed : 0;
       const qd = 0.5 * AIR_DENSITY * vf * vf * this.downforceMul;
       if (qd > 0) {
-        const dfF = qd * s.aero.liftAreaFront * this.aeroFrontMul;
-        const dfR = qd * s.aero.liftAreaRear * this.aeroRearMul;
+        const dfF = qd * liftFront * this.aeroFrontMul;
+        const dfR = qd * liftRear * this.aeroRearMul;
+        this.downforce = dfF + dfR;
         _f.copy(ay).multiplyScalar(-dfF);
         _r.copy(az).multiplyScalar(ch.cgToFrontAxle);
         F.add(_f);
@@ -999,7 +1072,7 @@ export class Vehicle {
   }
 
   /** Engine, clutch, gearbox, differential(s), brakes and wheel spin — solved implicitly. */
-  private solveDrivetrain(dt: number, throttleIn: number, brakeIn: number, handbrake: number): void {
+  private solveDrivetrain(dt: number, throttleIn: number, brakeIn: number, handbrake: number, fwdSpeed: number): void {
     const s = this.spec;
     const e = s.engine;
     const d = s.drivetrain;
@@ -1054,13 +1127,22 @@ export class Vehicle {
       this.boost += (target - this.boost) * clamp01(rate * dt);
       boostFactor = tb.baseFraction + (1 - tb.baseFraction) * this.boost;
     }
-    const nitroMul = this.nitro > 0 && this.gear >= 1 ? 1 + NITRO_POWER * this.nitro : 1;
+    // nitro: more torque from the engine, or on a car with an electric motor geared to the crankshaft that motor instead (src/physics/engine.ts,
+    // electricPower): its torque, or what its power allows at this road speed and this engine speed if that is less. Either is scaled by
+    // the throttle with the engine's own, so the traction control, the launch control, a shift and the limiter cut it as they cut the engine.
+    const m = this.electric;
+    const nitroMul = this.nitro > 0 && this.gear >= 1 && m === null ? 1 + NITRO_POWER * this.nitro : 1;
     const full = torqueAt(e, rpm) * boostFactor * this.powerMul * nitroMul;
+    const motor = m !== null && this.nitro > 0 && this.gear >= 1 ? Math.min(m.torqueNm, electricPower(m, fwdSpeed * 3.6) / Math.max(this.omegaE, 1)) * this.nitro : 0;
     const braking = e.engineBraking * clamp01(rpm / e.limiterRpm) + 0.015 * this.torquePeak;
     let Te = th * full - (1 - th) * braking;
+    if (motor > 0) Te += th * motor;
     if (Te > 0) Te *= d.efficiency;
     this.appliedThrottle = th;
     this.engineLoad = full > 0 ? clamp01((th * full) / this.torquePeak) : 0;
+    // (the clutch holds the motor's torque with the same margin it has over the engine's; a slipping clutch still takes only what the
+    // driven tyres can, as at a launch)
+    const clutchMax = motor > 0 ? this.clutchMax + 1.7 * motor : this.clutchMax;
 
     // clutch engagement
     let engage: number;
@@ -1077,7 +1159,7 @@ export class Vehicle {
       if (this.clutchLocked) engage = 1;
       else {
         const tIn = clamp01(throttleIn);
-        const capFrac = (this.launchCapacity / Math.abs(G)) * (0.3 + 0.7 * tIn) / this.clutchMax;
+        const capFrac = (this.launchCapacity / Math.abs(G)) * (0.3 + 0.7 * tIn) / clutchMax;
         const launchRpm = Math.max(e.idleRpm + 900, this.launchRpm(tIn));
         engage = smoothstep(Math.max(launchRpm - 1300, e.idleRpm + 150), launchRpm - 150, rpm) * Math.min(1, capFrac);
         this.launching = tIn > 0.05;
@@ -1087,7 +1169,7 @@ export class Vehicle {
     if (this.holdOnGrid) engage = 0;
     engage *= shiftClutch;
     this.clutchEngage = engage;
-    const clutchCap = engage * this.clutchMax;
+    const clutchCap = engage * clutchMax;
 
     // brakes (+ ABS / ESC) and rolling resistance are friction torques
     for (const wh of wheels) {
@@ -1438,6 +1520,7 @@ export class Vehicle {
     st.engineLoad = this.engineLoad;
     st.boost = this.boost;
     st.nitro = this.nitro;
+    if (this.straightMode !== null) st.aeroOpen = this.aeroOpen;
     st.revLimiter = this.limiterCut;
     st.absActive = this.absActive;
     st.tcsActive = this.tcsActive;

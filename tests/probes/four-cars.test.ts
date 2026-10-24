@@ -22,11 +22,27 @@
  * and in nothing else: Vanta, Kestrel and Ronin, and the LMP-X on asphalt, kerb, concrete, snow, ice and deep snow, are bit for bit
  * what they were. Record a new file on the commit before the next change.
  *
+ * The stability control counts the downforce (src/physics/vehicle.ts: its yaw ceiling is the lateral acceleration the car has when that is
+ * more than the weight alone allows, and its reference takes less understeer for a car the downforce presses down): a file recorded before
+ * that differs in the open-loop drives with the default aids (ESC on), each from the first time ESC steps in, at 2.5-4.5 s (the Kestrel
+ * R's and the Ronin 86's, whose lips press them down by a few kilos, by up to 42 mm; the others' by up to 1.5 m over the slides), and in
+ * nothing else: the drives with no aids, the AI laps and the packs (the AI drives with ESC off) are bit for bit what they were.
+ *
  * Scenarios:
  *   - open-loop drives (fixed stick, throttle, brake and handbrake against time, no feedback) on a flat plane of each surface the
  *     game has, dry and wet, with the default aids and with none: the whole tyre, surface, drivetrain and aid code;
  *   - one AI lap of Aurelia (dry and in the rain) and of Isvik (winter tyres): the speed profile, the driver, the governor;
  *   - a pack of eight (two of each car) from the grid on Aurelia and on Isvik for a while: traffic, contacts, the lot.
+ *
+ * The AI's look-ahead braking counts the downforce in clean air (brakeReach, src/ai/driver.ts): a file recorded before that differs in
+ * the AI laps where that braking held a car back, the LMP-X's and the Volta's from their first big stop (12-16 s) and the other cars'
+ * only on Isvik's snow (the Vanta GT's, Kestrel R's and Ronin 86's from 78 s, by 2-22 cm; the Mammoth's, whose lift counts against it,
+ * from 72 s, and from 11 s in the snowfall), and in the packs; the open-loop drives are what they were.
+ *
+ * The AI's steering counts the downforce in clean air (the slip angle of the front tyres, src/ai/driver.ts): a file recorded before that
+ * differs in the AI laps of Aurelia, every car's from the first second or two (the road cars' and the Mammoth's by up to 23 cm, the
+ * LMP-X's by 4.4 m, the Volta's by 61 m: it no longer runs wide in the fast bends), and in the packs of Aurelia and Brennwald; on Isvik, a
+ * winter circuit where the steering counts the weight alone, and in the open-loop drives everything is what it was.
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { Quaternion, Vector3 } from 'three';

@@ -289,7 +289,10 @@ export function kerbStrike(def: CarDefinition, kmh: number, height = 0.07, steer
 
 /**
  * The time (s) of the second lap of an AI driver alone on a circuit, as tests/ai.test.ts takes it (a standing start, a lap to warm up,
- * the aids of the AI drivers), and what it hit on the way.
+ * the aids of the AI drivers), and what it hit on the way: impacts above the threshold of a hit, and `floor`, the substeps in which the plank or a
+ * lip of the body touched the road (a floor strike at a compression, or a kerb taken too hard); `brakeG`, the hardest the car slowed
+ * over a fifth of a second on the way (g); and `offEdge`, the seconds it spent more than half a metre past the edge of the asphalt, where
+ * the driver backs off.
  */
 export function aiLap(trackId: string, def: CarDefinition, wetness = 0, difficulty: Difficulty = 'alien') {
   const track = loadTrackRuntime(trackId);
@@ -308,6 +311,9 @@ export function aiLap(trackId: string, def: CarDefinition, wetness = 0, difficul
   let lapStart = 0;
   let lap = Number.NaN;
   let resets = 0;
+  const speeds: number[] = [];
+  let brakeG = 0;
+  let offEdge = 0;
   while (world.time < 900 && crossings < 3) {
     ai.update(DT, car.state, world.states, car.controls, true);
     if (ai.needsReset) {
@@ -315,7 +321,10 @@ export function aiLap(trackId: string, def: CarDefinition, wetness = 0, difficul
       ai.onReset();
     }
     world.step(DT);
+    speeds.push(car.state.forwardSpeed);
+    if (speeds.length > 12) brakeG = Math.max(brakeG, (speeds[speeds.length - 13] - car.state.forwardSpeed) / (12 * DT) / G);
     hint = track.project(car.p.x, car.p.z, tp, hint);
+    if (tp.d > tp.widthLeft + 0.5 || tp.d < -tp.widthRight - 0.5) offEdge += DT;
     if (tp.s - prev < -track.length / 2) {
       crossings++;
       if (crossings === 2) lap = world.time - lapStart;
@@ -323,7 +332,7 @@ export function aiLap(trackId: string, def: CarDefinition, wetness = 0, difficul
     }
     prev = tp.s;
   }
-  return { lap, resets, impacts: car.state.impactCount };
+  return { lap, resets, impacts: car.state.impactCount, floor: car.debugGroundHits, brakeG, offEdge };
 }
 
 /**
@@ -375,16 +384,16 @@ export interface SpeedGrip {
  * What a car holds sideways at a steady speed on `ground`: the pedals hold `kmh` while the road wheels are wound on slowly (a ramp over
  * `seconds` up to `maxDeg`), and the best lateral acceleration on the way is its grip at that speed, downforce included. A skidpad finds the
  * grip at whatever speed its radius and the creeping target meet; this one asks for the speed, so that a car with downforce and one without
- * can be set side by side at 60 and at 120 km/h. The aids are all off (the stability control would hold the car back, the traction control
- * would take the throttle the speed needs).
+ * can be set side by side at 60 and at 120 km/h. The aids are all off unless `assists` says otherwise (the stability control can hold the
+ * car back, the traction control can take the throttle the speed needs).
  */
-export function gripAtSpeed(def: CarDefinition, kmh: number, ground: Ground = {}, seconds = 18, maxDeg = 20): SpeedGrip {
+export function gripAtSpeed(def: CarDefinition, kmh: number, ground: Ground = {}, seconds = 18, maxDeg = 20, assists: Assists = { ...NO_AIDS }): SpeedGrip {
   const surface = ground.surface ?? 'asphalt';
   const winter = ground.winter ?? WINTER_SURFACES.includes(surface);
   const world = new PhysicsWorld(createFlatTrack({ surface, winter, wall: 6000, halfWidth: 6000 }));
   world.wetness = ground.wetness ?? 0;
   const car = world.addVehicle(def);
-  car.assists = { ...NO_AIDS };
+  car.assists = { ...assists };
   const v0 = kmh / 3.6;
   car.placeOnGround(new Vector3(0, 0, 0), new Quaternion(), v0);
   car.setTemperatures(1);
