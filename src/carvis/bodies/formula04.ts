@@ -41,16 +41,17 @@ export const makeFormula04: BlueprintFactory = (s) => {
   const hw = s.width / 2;
   const zero = curve([zTail - 1, 0, zNose + 1, 0]);
   const flat = (v: number) => curve([zTail - 1, v, zNose + 1, v]);
-  // (the cockpit's sides are set from the driver's eye, just above them: the rim beside the helmet is 9.5 cm under the eye)
+  // (the cockpit's sides are set from the driver's eye, just above them: the rim beside the helmet is 10 cm under the eye)
   const ey = eye[1];
 
-  // the monocoque and the high nose, one piece: low and narrow at the cockpit, its sides high round the driver, rising ahead of the
-  // cockpit and narrowing to a rounded tip 33 cm off the ground, its underside level from the front axle on
+  // the monocoque and the high nose, one piece: narrow at the cockpit, its sides high round the driver, its top falling gently from the
+  // front of the cockpit (62.5 cm up there with the eye at 73, 58.5 over the front axle) and narrowing to a rounded tip 33 cm off the
+  // ground, its underside level from the front axle on
   const tubR = sz - 0.55;
   const tub = defaultLoft(
     {
       yb: curve([tubR, 0.07, sz + 0.45, 0.07, zF - 0.75, 0.1, zF - 0.3, 0.22, zF + 0.05, 0.275, zF + 0.5, 0.29, zNose - 0.1, 0.29, zNose, 0.285], 0.05),
-      yt: curve([tubR, ey - 0.1, sz - 0.3, ey - 0.085, sz, ey - 0.07, sz + 0.3, ey - 0.08, sz + 0.58, ey - 0.105, zF - 0.5, 0.645 * hk, zF, 0.585 * hk, zF + 0.5, 0.48 * hk, zNose - 0.15, 0.405 * hk, zNose, 0.375 * hk], 0.05),
+      yt: curve([tubR, ey - 0.1, sz - 0.3, ey - 0.085, sz, ey - 0.07, sz + 0.3, ey - 0.08, sz + 0.58, ey - 0.105, zF - 0.5, 0.62 * hk, zF, 0.585 * hk, zF + 0.5, 0.48 * hk, zNose - 0.15, 0.405 * hk, zNose, 0.375 * hk], 0.05),
       w: curve([tubR, 0.27, sz, 0.285, sz + 0.55, 0.265, zF - 0.5, 0.225, zF, 0.175, zF + 0.45, 0.13, zNose - 0.15, 0.095, zNose, 0.08], 0.05),
       crown: curve([tubR, 0.05, zF, 0.05, zNose, 0.03], 0.05),
       tum: flat(0.035),

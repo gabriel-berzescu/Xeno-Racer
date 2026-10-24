@@ -62,16 +62,18 @@ export function formulaCockpit(s: CarVisualSpec): FormulaCockpit {
   const zF = s.wheelbase / 2;
   const hk = s.height / 0.95;
   if (s.formulaEra === 2004) {
-    // the 2004 car: the driver lies back in a tub whose sides are set from the eye, just under it (bodies/formula04.ts), as the Volta's
-    // driver does, holding the Volta's yoke; the T-camera on the airbox over the helmet; the nose camera 45 cm ahead of the front axle,
+    // the 2004 car: the eye 51 cm over the seat reference and 37 cm behind it (73 cm up and 1.42 m behind the front axle, as the build
+    // sheet has it), 10 cm over the tub's sides beside the helmet, which are set from it (bodies/formula04.ts); the back 63 degrees from
+    // upright, the neck under the helmet about as long as the Volta driver's and the shoulders under the rim; holding the Volta's yoke;
+    // the T-camera on the airbox over the helmet; the nose camera 45 cm ahead of the front axle,
     // 12 cm over the high nose; the chase anchor on the airbox behind the T-camera; the mirrors on stalks from the front of the sidepods,
     // the glass 15 x 5 cm (the rules of the time: at least 12 x 5) placed where the Volta's is on the screen, 40 degrees off the driver's
     // line of sight and 8 under it, 55 cm ahead of the eye, so the cockpit's HUD fits round them as it does round the Volta's; the rear
     // camera 11 cm over the rear wing, lower than the Volta's
-    const eye: V3 = [s.seat.x, s.seat.y + 0.55, s.seat.z - 0.37];
+    const eye: V3 = [s.seat.x, s.seat.y + 0.51, s.seat.z - 0.37];
     return {
       eye,
-      seatTilt: 1.05,
+      seatTilt: 1.1,
       wheel: { up: 0.33, fwd: 0, tilt: 0.4 },
       hood: [0, s.height + 0.08, eye[2] - 0.36],
       bumper: [0, 0.635 * hk, zF + 0.45],
