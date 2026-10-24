@@ -392,7 +392,7 @@ describe('createEffects', () => {
     const dieci = getCar('dieci');
     const v = dieci.visual;
     const p = formula04Points(v);
-    // the flames: from both periscopes' mouths (the car's origin bodyCgZ ahead of its centre of mass, a frame's travel on), along their axes
+    // the flames: from both periscopes' mouths (the car's origin bodyCgZ behind its centre of mass, a frame's travel on), along their axes
     const { render, particles } = mockRender();
     const fx = createEffects(render, makeRingTrack(), 'high');
     const s = stateOnAsphalt(9, dieci);
@@ -445,8 +445,9 @@ describe('createEffects', () => {
   });
 
   it("lights a nitro shot's flames at the mouths of the tailpipes, where a backfire's flame starts, on every car with a nitro that burns", () => {
-    // (the car's origin for the flames is its body's, the centre of the wheelbase, bodyCgZ ahead of the centre of mass: the nitro once took
-    // it bodyCgZ behind instead, so its flames started 2 x bodyCgZ from the pipes, 63 cm inside the Kestrel's body)
+    // (the car's origin for the flames is its body's, the centre of the wheelbase, bodyCgZ behind the centre of mass (ahead of it when
+    // bodyCgZ is negative): the nitro once took it bodyCgZ ahead instead, so its flames started 2 x bodyCgZ from the pipes, 63 cm inside
+    // the Kestrel's body)
     const first = (id: string, nitro: boolean): number[] => {
       seedRandom(13);
       const { render, particles } = mockRender();
