@@ -95,9 +95,17 @@ export interface EngineSpec {
   /**
    * The engine speed the launch control holds a standing start at on a full throttle, rpm (absent: half the redline, at most 4600 and at
    * least 900 over the idle, a road car's). That would hold a racing V10 that idles at 4000 at 4900, barely off its idle; a 2004
-   * single-seater left the line at about 10,000.
+   * single-seater left the line at about 10,000. On a part throttle it is as much less as a road car's, and on a winter circuit, on studs,
+   * every car is held at a road car's (Vehicle.launchRpm).
    */
   launchRpm?: number;
+  /**
+   * The engine's throttle map (absent: none, the throttle is the pedal). A pedal p opens the throttle to p^throttleGamma, as a racing
+   * engine's drive-by-wire map opens it less for a small pedal: with 1.3 a third of the pedal is a quarter of the throttle, and half of it
+   * four tenths. The traction control, the stability control and the limiter cut what it opens; VehicleState.throttle reads that, and
+   * VehicleState.throttlePedal the pedal.
+   */
+  throttleGamma?: number;
 }
 
 export interface DifferentialSpec {

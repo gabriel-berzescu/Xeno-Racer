@@ -139,7 +139,7 @@ describe('nitro in the physics', () => {
   }
 
   it('a shot makes every kind of car gain a good deal more speed', () => {
-    for (const id of ['vanta-gt', 'kestrel-r', 'ronin-86', 'lmp-x', 'volta']) {
+    for (const id of ['vanta-gt', 'kestrel-r', 'ronin-86', 'lmp-x', 'volta', 'dieci']) {
       const plain = gain(id, 120 / 3.6, 0);
       const boosted = gain(id, 120 / 3.6, 1);
       // (more torque and the bottle's push, or for the Volta its electric motor: about half as much again, and more where the car is short of power)

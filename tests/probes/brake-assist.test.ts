@@ -37,4 +37,4 @@ it.skipIf(!process.env.BRAKEASSIST)('braking assist: every circuit, steering onl
     const r = assistedLaps(t, c, { laps, wetness: w, aids, steer, assist, gripUse, brakeUse, ai: process.env.AI === '1', pad: process.env.STEER === 'pad' });
     appendFileSync(out, describeLap(`${t} ${c} wet ${w}`, r) + '\n');
   }
-});
+}, 900000);

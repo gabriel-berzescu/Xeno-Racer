@@ -750,9 +750,15 @@ const volta: CarDefinition = {
 // ─────────────────────────────────────────────────────────────────────────────
 // Dieci — a 2004-style single-seater. A 3.0 L V10 screaming to 19,300 rpm, fixed wings, grooved tyres, and nothing electric.
 // ─────────────────────────────────────────────────────────────────────────────
-// A first pass, to be tuned. What it does on a flat plane (tests/physics.test.ts, .cache/physics-metrics.txt): 0-100 km/h in 2.55 s with the
-// traction control on, 0-200 in 4.62 s and 328 km/h flat out in seventh; it stops from 100 in 19.0 m with ABS and holds 2.54 g on the skidpad.
-// It leaves the line as a road car does for now, held at 4900 rpm: nothing reads its launchRpm yet.
+// What it does on a flat plane (tests/physics.test.ts, .cache/physics-metrics.txt; tests/dieci.test.ts holds the bounds and measures the grip
+// at speed): 0-100 km/h in 2.63 s with the traction control on, 200 in 4.67 s, 300 in 9.4 s and 332 km/h flat out in seventh; from a grid start,
+// the engine already held at 10,000 rpm against the clutch, 2.48 and 4.50 s. A nitro shot, the ordinary bottle, takes 200 to 3.65 s and the top
+// speed to seventh's limiter at 345. It stops from 100 in 18.3 m with ABS and from 200 in 55 m, at 4.65 g from 300 km/h, and holds 2.64 g on
+// the skidpad, 2.7 g at 150 km/h, 3.4 at 200 and 4.3 at 250. In the wet it keeps 66 % of that (56 % in standing water) and stops from 100 in
+// 24 m (27). On a lap the AI drivers are 5.8 % quicker in it than in the Volta on the four road circuits, dry, and 5.6 % in a storm (7-8 % on
+// the fast Aurelia and Brennwald, 3.5-4 % on the tight Kuroyama), and 1-3 % on the studded tyres of Isvik (tests/ai.test.ts).
+// It leaves the line at 10,000 rpm, its launchRpm: 0.15 s slower to 100 on the flat than at the 4900 a road car is held at, since the engine
+// first revs past 8700 before the clutch bites and the clutch then slips up to 56 km/h, not 27, at what the tyres take at rest.
 
 // The Dieci's body: 4.55 m long, 1.8 m wide over the tyres, 0.95 m to the top of the airbox, an open cockpit with the driver on the centre
 // line. formulaEra 2004 draws it with a body of its own (src/carvis/bodies/formula04.ts: the high nose, the periscopes, the beam wing) on
@@ -810,9 +816,8 @@ const dieci: CarDefinition = {
     'A 2004-style single-seater: 640 kg, a 3.0 L V10 screaming to 19,300 rpm, grooved tyres on 13-inch rims, and nothing electric. The quickest car here, and an octave above the rest.',
   class: 'Formula',
   drivetrain: 'RWD',
-  // (measured, a first pass: 0-100 in 2.55 s with the traction control on, 328.2 km/h flat out; the curve gives 911.9 hp at 18,500 rpm and
-  // 375 Nm at 16,500)
-  stats: { powerHp: 912, torqueNm: 375, massKg: 640, topSpeedKmh: 328, zeroTo100: 2.5 },
+  // (measured: 0-100 in 2.63 s with the traction control on, 332.4 km/h flat out; the curve gives 911.9 hp at 18,500 rpm and 375 Nm at 16,500)
+  stats: { powerHp: 912, torqueNm: 375, massKg: 640, topSpeedKmh: 332, zeroTo100: 2.6 },
   visual: dieciVisual,
   sound: dieciSound,
   // (the big blocks of colour of the time's liveries, without their sponsors: shards of charcoal and white over burnt orange on the nose,
@@ -840,17 +845,24 @@ const dieci: CarDefinition = {
         [0, 50], [4000, 110], [6000, 175], [8000, 235], [10000, 288], [12000, 325], [14000, 355], [15500, 370], [16500, 375],
         [17500, 368], [18500, 351], [19000, 338], [19300, 330], [20000, 295],
       ],
-      // (about half the 95 Nm a bare V10 drags at 18,000 rpm with the throttle shut, as the engine-braking maps of the period gave)
+      // (52 Nm at 18,000 rpm with the throttle shut, about half what a bare V10 drags, 95, as the engine-braking maps of the period left it.
+      // With 110, a bare V10's, the engine held the rears locked in a stop on a wet road with the wheel turned once ABS had let their brakes
+      // go, and in standing water the car spun in two of eight such stops from 250 and 180 km/h with the AI's aids; with 50 in none)
       engineBraking: 50,
+      // (a throttle map: in this model a part throttle also loses what the engine drags, and with 50 Nm and no map 35 % of the pedal gave 26 %
+      // of the torque at 17,000 rpm, which in first gear on snow spun the rears at once: the power slide of tests/winter-handling.test.ts went
+      // from 10 to 30 degrees of body slip in 0.17 s. With the map it gives 16 %, and the slide takes 0.37 s)
+      throttleGamma: 1.3,
       inertia: 0.05,
       turbo: null,
-      // the launch control holds it at 10,000 rpm off the line
+      // the launch control holds it at 10,000 rpm off the line (on a winter circuit at 4900, as a road car)
       launchRpm: 10000,
     },
     drivetrain: {
       layout: 'RWD',
-      // (19,000 rpm is 116 / 148 / 182 / 216 / 253 / 295 / 344 km/h)
-      gears: [5.09, 3.98, 3.25, 2.73, 2.34, 2.0, 1.72],
+      // (19,000 rpm is 116 / 153 / 182 / 216 / 253 / 295 / 344 km/h: a long second, so that a car on the limit of a 60 m bend at 145 km/h holds
+      // its gear; with a second to 148 the shift jolted it there, which the skidpad read as 0.09 g more grip than the car holds)
+      gears: [5.09, 3.85, 3.25, 2.73, 2.34, 2.0, 1.72],
       reverse: 3.0,
       finalDrive: 4.0,
       efficiency: 0.94,
@@ -861,16 +873,21 @@ const dieci: CarDefinition = {
       diff: { type: 'lsd', preload: 120, powerLock: 0.45, coastLock: 0.3 },
       frontSplit: 0,
     },
+    // (a full pedal asks for 4.2 g, 60 % of it at the front: above about 195 km/h the brakes are the limit, below it the tyres and ABS, so a
+    // stop from 300 km/h peaks at 4.65 g over a tenth of a second, drag included, as the period's carbon brakes did (4.5 with 2500 / 1700 Nm),
+    // and passes 200 at 4.2 g)
     brakes: { frontTorque: 2600, rearTorque: 1750, handbrakeTorque: 1500, discHeatCapacity: 2400 },
-    // fixed wings of medium downforce: 4.1 m^2 of downforce area, 44 % of it at the front, and a CdA of 1.3
-    aero: { dragArea: 1.3, liftAreaFront: 1.8, liftAreaRear: 2.3 },
-    // grooved dry tyres: four grooves cost the contact patch some grip (1.62 against the Volta's 1.75, 1.78 on the load a wheel carries at
-    // rest) and leave no tread for grass, dirt or gravel, so they take the slick's table of surfaces
+    // fixed wings of medium downforce: 3.95 m^2 of downforce area, 44 % of it at the front, and a CdA of 1.25. (The period's estimates, 4.1 and
+    // 1.30, were worked out in air of 1.18 kg/m^3; in this air, 1.225, these give the same forces.)
+    aero: { dragArea: 1.25, liftAreaFront: 1.738, liftAreaRear: 2.212 },
+    // grooved dry tyres: four grooves cost the contact patch some grip, and the more the harder it is pressed (1.87 on the 1.4 kN a front wheel
+    // carries at rest, as the Volta's slick on its 1.8 kN, but 1.47 on the 7 kN of a fast corner, nine tenths of the slick's 1.63), and leave no
+    // tread for grass, dirt or gravel, so they take the slick's table of surfaces
     tireFront: {
-      ...roadTire(325, 51, 13, 1.62),
+      ...roadTire(325, 51, 13, 1.65),
       radius: dieciVisual.wheelRadiusFront,
       inertia: 1.0,
-      loadSensitivity: 0.15,
+      loadSensitivity: 0.2,
       nominalLoad: 4500,
       peakSlipAngle: 6.5 * DEG,
       peakSlipRatio: 0.09,
@@ -885,10 +902,10 @@ const dieci: CarDefinition = {
       slick: 1,
     },
     tireRear: {
-      ...roadTire(375, 44, 13, 1.62),
+      ...roadTire(375, 44, 13, 1.65),
       radius: dieciVisual.wheelRadiusRear,
       inertia: 1.15,
-      loadSensitivity: 0.15,
+      loadSensitivity: 0.2,
       nominalLoad: 4500,
       peakSlipAngle: 6.5 * DEG,
       peakSlipRatio: 0.09,

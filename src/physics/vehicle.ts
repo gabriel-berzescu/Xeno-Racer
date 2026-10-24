@@ -1110,7 +1110,9 @@ export class Vehicle {
 
     // engine torque
     const idleThrottle = clamp((e.idleRpm + 80 - rpm) / 450, 0, 0.45);
-    let th = throttleIn * this.tcsFactor * this.escThrottle;
+    // (the pedal through the engine's throttle map, if it has one: EngineSpec.throttleGamma)
+    const demand = e.throttleGamma === undefined ? throttleIn : Math.pow(throttleIn, e.throttleGamma);
+    let th = demand * this.tcsFactor * this.escThrottle;
     if (shiftThrottle >= 0) th = shiftThrottle;
     if (this.launching && !this.clutchLocked && G !== 0) {
       th *= clamp01(1 - (rpm - this.launchRpm(clamp01(throttleIn))) / 450);
@@ -1290,10 +1292,17 @@ export class Vehicle {
     if (this.omegaE < 0) this.omegaE = 0;
   }
 
-  /** Engine speed held by launch control for a given throttle. */
+  /**
+   * Engine speed held by launch control for a given throttle: the engine's own launch speed on a full throttle if it names one
+   * (EngineSpec.launchRpm), else half the redline, at most 4600; on a part throttle as much less, and never under 900 over the idle.
+   * On a winter circuit every car is held where a road car is: on studs on snow and ice the clutch held at the engine's own speed slips
+   * until the car is at 50 km/h, the traction control cutting the throttle and the engine sinking to where the clutch barely bites (the
+   * Dieci, held at 10,000 rpm, took 14.9 s to 100 km/h on ice with the traction control and 14.2 without it; held at 4900, 12.6 and 14.0).
+   */
   private launchRpm(throttle: number): number {
     const e = this.spec.engine;
-    return Math.max(e.idleRpm + 900, Math.min(0.5 * e.redlineRpm, 4600) * (0.55 + 0.45 * throttle));
+    const own = this.track.info.winter ? undefined : e.launchRpm;
+    return Math.max(e.idleRpm + 900, (own ?? Math.min(0.5 * e.redlineRpm, 4600)) * (0.55 + 0.45 * throttle));
   }
 
   /** Locking torque capacity of a differential for a given input torque. */

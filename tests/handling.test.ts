@@ -14,15 +14,33 @@ import { gripAtSpeed } from './probes/car-metrics';
 
 const DT = 1 / 60;
 
-/** Drive with a scripted raw stick (as a human would) through the SteeringFilter. */
-function run(def: CarDefinition, assists: Assists, kmh: number, script: (t: number) => { steer: number; throttle: number; brake: number }, seconds: number, wetness = 0, ground: FlatTrackOptions = {}) {
+/** The gear that has the engine under its upshift speed at `kmh`. */
+function gearFor(def: CarDefinition, kmh: number): number {
+  const d = def.physics.drivetrain;
+  const rpm = (g: number) => (kmh / 3.6 / def.physics.tireRear.radius) * d.gears[g - 1] * d.finalDrive * (60 / (2 * Math.PI));
+  let g = 1;
+  while (g < d.gears.length && rpm(g) > d.upshiftRpm * 0.97) g++;
+  return g;
+}
+
+/**
+ * Drive with a scripted raw stick (as a human would) through the SteeringFilter. `settled`: the car starts in the gear for the speed and
+ * holds the speed for 1.5 s before the script begins (placed at speed, a car starts in first gear, and its box climbs from there).
+ */
+function run(def: CarDefinition, assists: Assists, kmh: number, script: (t: number) => { steer: number; throttle: number; brake: number }, seconds: number, wetness = 0, ground: FlatTrackOptions = {}, settled = false) {
   const world = new PhysicsWorld(createFlatTrack(ground));
   world.wetness = wetness;
   const car = world.addVehicle(def);
   car.assists = { ...assists };
+  if (settled) car.gear = gearFor(def, kmh);
   car.placeOnGround(new Vector3(), new Quaternion(), kmh / 3.6);
   car.setTemperatures(1);
   // hold speed for a moment
+  if (settled)
+    for (let i = 0; i < 90; i++) {
+      car.controls.throttle = car.state.forwardSpeed < kmh / 3.6 ? 1 : 0.5;
+      world.step(DT);
+    }
   const filter = new SteeringFilter();
   let maxBeta = 0;
   let maxYaw = 0;
@@ -84,8 +102,11 @@ describe('the stability control on a car with wings', () => {
   // and its reference takes less understeer for a car the downforce presses down. With the weight alone the default aids held the LMP-X
   // to 2.67 g at 250 km/h where its tyres hold 3.02, and the Volta to 2.27 g at 225 km/h where they hold 3.71 at 241. With the downforce
   // counted as the weight is, a ceiling that knew nothing of the water, the two slid 40-60 degrees in a stop at full lock from 250 km/h in
-  // standing water and the Volta spun in a lane change there.
-  const winged = [getCar('lmp-x'), getCar('volta')];
+  // standing water and the Volta spun in a lane change there. (The Dieci, with the most downforce for its weight, holds 4.24 g at 248 km/h
+  // with the default aids and 4.26 without them.) The drives in standing water start in the gear for their speed, the speed held for 1.5 s:
+  // placed at 250 km/h a car started in first gear, over its limiter, and its box climbed a gear every few tenths of a second through the
+  // stop. Settled, the three slide 9-12 degrees in the stop with ESC and 19-27 without it, and 2-11 in the lane change.
+  const winged = [getCar('lmp-x'), getCar('volta'), getCar('dieci')];
   const aids = DEFAULT_SETTINGS.assists;
 
   it('lets it turn at 250 km/h as hard as its tyres hold it', () => {
@@ -101,13 +122,13 @@ describe('the stability control on a car with wings', () => {
     const wide: FlatTrackOptions = { wall: 6000, halfWidth: 6000 };
     for (const def of winged)
       for (const wetness of [0.75, 1]) {
-        const stop = (a: Assists) => run(def, a, 250, (t) => ({ steer: t > 0.3 ? 1 : 0, throttle: 0, brake: t > 0.3 ? 1 : 0 }), 4, wetness, wide);
+        const stop = (a: Assists) => run(def, a, 250, (t) => ({ steer: t > 0.3 ? 1 : 0, throttle: 0, brake: t > 0.3 ? 1 : 0 }), 4, wetness, wide, true);
         const on = stop({ ...aids });
         const off = stop({ ...aids, esc: false });
         const name = `${def.id} wet ${wetness}`;
         expect(on.maxBetaDeg, `${name}: stop`).toBeLessThan(25);
         expect(on.maxBetaDeg, `${name}: stop`).toBeLessThan(off.maxBetaDeg);
-        const lane = run(def, { ...aids }, 240, (t) => ({ steer: t < 0.5 ? 0 : t < 1.2 ? 1 : t < 2.6 ? -1 : t < 3.3 ? 1 : 0, throttle: 1, brake: 0 }), 6, wetness, wide);
+        const lane = run(def, { ...aids }, 240, (t) => ({ steer: t < 0.5 ? 0 : t < 1.2 ? 1 : t < 2.6 ? -1 : t < 3.3 ? 1 : 0, throttle: 1, brake: 0 }), 6, wetness, wide, true);
         expect(lane.maxBetaDeg, `${name}: lane change`).toBeLessThan(25);
       }
   }, 120000);
