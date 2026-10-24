@@ -1,5 +1,5 @@
 /**
- * Car showroom. Query: ?car=vanta-gt|kestrel-r|ronin-86|lmp-x|mammoth|volta &view=front34|side|rear34|top|front|rear|chase|cockpit|low|lowrear|wheelF|wheelR|sheet
+ * Car showroom. Query: ?car=vanta-gt|kestrel-r|ronin-86|lmp-x|mammoth|volta|dieci &view=front34|side|rear34|top|front|rear|chase|cockpit|low|lowrear|wheelF|wheelR|sheet
  *   &anim=0|1 &night=0|1 &q=low|medium|high &primary=%23hex &pattern=… &number=7 &metallic=0|1 &finish=0..1 &player=0|1
  *   &wet=0..1 (wet paint, beading, glass drops: env.wetness)  &rain=0..1 (env.rain; > 0 also marks the weather as rain)
  *   &aero=0..1 where the active aero stands (VehicleState.aeroOpen: the Volta's wing flaps open with it; with anim=1 it opens and

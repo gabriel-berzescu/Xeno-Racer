@@ -3,7 +3,7 @@
  * the cabin / driver / steering-wheel meshes.
  */
 import { Color, DoubleSide, MeshPhysicalMaterial, Vector3, Vector4, type IUniform, type WebGLProgramParametersWithUniforms } from 'three';
-import { YOKE } from './interior';
+import { WHEEL04, YOKE } from './interior';
 
 export interface InteriorUniforms {
   [k: string]: IUniform;
@@ -54,11 +54,22 @@ vHelm = aZ3.z;
 `;
 /** A number as a GLSL float literal. */
 const glf = (v: number): string => (Number.isInteger(v) ? v.toFixed(1) : String(v));
+/** The body of w4Button (the colour of the 2004 wheel's button or rotary switch nearest a point, WHEEL04): one test for each. */
+const W4_BUTTONS = [...WHEEL04.buttons, ...WHEEL04.rotaries]
+  .map(([x, y, k]) => `  d = distance(p, vec2(${glf(x)}, ${glf(y)})); if (d < best) { best = d; c = vec3(${WHEEL04.colours[k].map(glf).join(', ')}); }`)
+  .join('\n');
 const FRAG_PARS = /* glsl */ `
 #define YK_DX ${glf(YOKE.display.x)}
 #define YK_DY ${glf(YOKE.display.y)}
 #define YK_LX0 ${glf(YOKE.lights.x0)}
 #define YK_LSTEP ${glf(YOKE.lights.step)}
+#define W4_DX ${glf(WHEEL04.display.x)}
+#define W4_DY ${glf(WHEEL04.display.y)}
+#define W4_LX0 ${glf(WHEEL04.lights.x0)}
+#define W4_LSTEP ${glf(WHEEL04.lights.step)}
+#define W4_LN ${glf(WHEEL04.lights.n - 1)}
+#define W4_L0 ${glf(WHEEL04.lights.on0)}
+#define W4_LD ${glf(WHEEL04.lights.onStep)}
 uniform vec3 uAccent;
 uniform vec3 uPrimary;
 uniform vec3 uSeat;
@@ -121,6 +132,14 @@ float yokeBox(vec2 q, vec2 lo, vec2 hi) {
   vec2 aa = fwidth(q) * 0.7 + 1e-6;
   vec2 a = smoothstep(lo - aa, lo + aa, q) * (1.0 - smoothstep(hi - aa, hi + aa, q));
   return a.x * a.y;
+}
+// the colour of the 2004 wheel's button (or rotary switch's pointer) nearest p, in the wheel's own frame (WHEEL04.buttons, .rotaries)
+vec3 w4Button(vec2 p) {
+  vec3 c = vec3(0.5);
+  float best = 1.0;
+  float d;
+${W4_BUTTONS}
+  return c;
 }
 float ihash(vec3 p) {
   p = fract(p * 0.1031);
@@ -219,6 +238,56 @@ else if (ip == 58) {
   iCol = lc * 0.04;
   iRough = 0.2;
   iEmis = lc * (0.03 + 1.3 * on) * uScreen;
+}
+else if (ip == 59) {
+  // the 2004 wheel's display, a backlit liquid crystal, in the wheel's own frame (metres from the display's centre): dark figures on a
+  // lit yellow-green ground, the segments that are off faintly there; the revs as a bar graph of eight rising bars on the left (from half
+  // the limiter's revs to all of them), the gear in the middle, the speed on the right
+  vec2 q = vObjPos.xy - vec2(W4_DX, W4_DY);
+  int g = int(uCluster.y + 0.5);
+  int gd = uCluster.y < -0.5 ? 11 : g <= 0 ? 10 : min(g, 9);
+  vec2 glo = vec2(-0.0065, -0.0125), ghi = vec2(0.0065, 0.0125);
+  float ink = yokeDigit(q, glo, ghi, gd, 0.003);
+  float ghost = yokeDigit(q, glo, ghi, 8, 0.003);
+  // (the speed's three digits 5 x 12 mm, the leading ones blank under 100 and 10)
+  int sv = int(max(uCluster.z, 0.0) + 0.5);
+  vec2 s0 = vec2(0.0215, -0.0065), s1 = vec2(0.015, -0.0065), s2 = vec2(0.0085, -0.0065), sd = vec2(0.005, 0.012);
+  ink += yokeDigit(q, s0, s0 + sd, sv % 10, 0.0014);
+  ink += step(10.0, float(sv)) * yokeDigit(q, s1, s1 + sd, (sv / 10) % 10, 0.0014);
+  ink += step(100.0, float(sv)) * yokeDigit(q, s2, s2 + sd, (sv / 100) % 10, 0.0014);
+  ghost += yokeDigit(q, s0, s0 + sd, 8, 0.0014) + yokeDigit(q, s1, s1 + sd, 8, 0.0014) + yokeDigit(q, s2, s2 + sd, 8, 0.0014);
+  float rf = clamp(uCluster.x, 0.0, 1.0);
+  for (int k = 0; k < 8; k++) {
+    float x0 = -0.0275 + 0.00225 * float(k);
+    float bar = yokeBox(q, vec2(x0, -0.0065), vec2(x0 + 0.0016, -0.0035 + 0.0012 * float(k)));
+    ghost += bar;
+    ink += bar * step(0.5 + 0.0625 * float(k), rf);
+  }
+  ink = min(ink, 1.0);
+  ghost = min(ghost, 1.0);
+  float edge = max(abs(q.x) / 0.03, abs(q.y) / 0.016);
+  vec3 lit = vec3(0.3, 0.42, 0.12) * (1.0 - 0.3 * smoothstep(0.7, 1.0, edge));
+  iCol = vec3(0.01);
+  iRough = 0.15;
+  iEmis = lit * (1.0 - 0.92 * ink) * (1.0 - 0.14 * ghost * (1.0 - ink)) * uScreen * 1.3;
+}
+else if (ip == 60) {
+  // the 2004 wheel's shift lights along its top edge: ten from left to right, four green, three red, three blue, lit one by one over the
+  // last revs before the shift point (from 85 % of the limiter's), all of them blue on the limiter
+  float li = clamp(floor((vObjPos.x - W4_LX0) / W4_LSTEP + 0.5), 0.0, W4_LN);
+  vec3 lc = li < 3.5 ? vec3(0.04, 1.0, 0.1) : li < 6.5 ? vec3(1.0, 0.02, 0.01) : vec3(0.08, 0.16, 1.0);
+  float lim = step(0.5, uCluster.w);
+  float on = max(step(W4_L0 + li * W4_LD, clamp(uCluster.x, 0.0, 1.0)), lim);
+  lc = mix(lc, vec3(0.08, 0.16, 1.0), lim);
+  iCol = lc * 0.04;
+  iRough = 0.2;
+  iEmis = lc * (0.03 + 1.3 * on) * uScreen;
+}
+else if (ip == 61) {
+  // the 2004 wheel's buttons and its rotary switches' pointers, each in its own colour (WHEEL04.buttons, .rotaries)
+  iCol = w4Button(vObjPos.xy);
+  iRough = 0.32;
+  iCC = 0.5;
 }
 else if (ip == 54) { iCol = vec3(0.03); iRough = 0.5; iMetal = 0.6; }
 else if (ip == 55) { iCol = vec3(0.01); iRough = 0.8; }

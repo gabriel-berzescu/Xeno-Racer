@@ -23,7 +23,7 @@ import {
   type Camera,
   type Scene,
 } from 'three';
-import { bodyCgZ, type CarDefinition, type EnvironmentState, type QualityLevel, type SurfaceType, type TrackPoint, type TrackRuntime, type VehicleState } from '../core/contracts';
+import { bodyCgZ, type CarDefinition, type CarVisualSpec, type EnvironmentState, type QualityLevel, type SurfaceType, type TrackPoint, type TrackRuntime, type VehicleState } from '../core/contracts';
 import type { CarDamageControl } from '../core/damage';
 import type { EffectsSystem, RenderSystem } from '../core/systems';
 import { makeSmokeAtlas } from './noise';
@@ -112,8 +112,25 @@ interface CarFx {
   nitroAcc: number;
   /** The boost is electric (EngineSpec.electric): a shot burns nothing in the exhaust, so no flame. */
   electric: boolean;
+  /** Where its lights are for the light list (lampPoints). */
+  lamps: { head: [number, number]; tail: [number, number] };
   slot: number;
   first: boolean;
+}
+
+/**
+ * Where a car's lights shine from for the light list, on its centre line in the body frame (y, z): its headlamps, and its tail lights or,
+ * on a single-seater, its rain light on the tip of the crash structure. A single-seater's are where its body has them
+ * (carvis/layouts.ts formulaPoints, and formula04Points for the 2004 car: two LEDs in the tip of its high nose, the rain light 35.5 cm over
+ * the floor; a test keeps the two the same).
+ */
+function lampPoints(v: CarVisualSpec): { head: [number, number]; tail: [number, number] } {
+  const zNose = v.wheelbase / 2 + v.frontOverhang;
+  const zTail = -(v.wheelbase / 2 + (v.length - v.wheelbase - v.frontOverhang));
+  const hk = v.height / 0.95;
+  if (v.style === 'formula' && v.formulaEra === 2004) return { head: [0.335 * hk, zNose + 0.02], tail: [v.rideHeight + 0.355, zTail] };
+  if (v.style === 'formula') return { head: [0.405 * hk, zNose + 0.02], tail: [0.31 * hk, zTail] };
+  return { head: [0.62, zNose - 0.3], tail: [0.8, zTail + 0.05] };
 }
 
 function isHard(s: SurfaceType): boolean {
@@ -341,6 +358,15 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
   function buildTips(def: CarDefinition): ExhaustTip[] {
     const v = def.visual;
     const tips: ExhaustTip[] = [];
+    if (v.exhaust.side === 'periscope') {
+      // (the 2004 single-seater's two periscopes on top of its sidepods, 60 cm ahead of the rear axle and 25 cm either side of the centre
+      // line, their mouths facing up and 40 degrees back, a little outward: carvis/layouts.ts formula04Points sculpts them there, and a
+      // test keeps the two the same)
+      const hk = v.height / 0.95;
+      const d = Math.hypot(0.12, 0.77, 0.63);
+      for (const s of [1, -1]) tips.push({ x: s * 0.25, y: 0.585 * hk, z: -v.wheelbase / 2 + 0.6, dx: (s * 0.12) / d, dy: 0.77 / d, dz: -0.63 / d });
+      return tips;
+    }
     // (the single-seater's one tailpipe stands over its crash structure, under the rear wing, 41 cm over the floor and half a metre
     // behind the rear axle: carvis/layouts.ts formulaPoints puts the pipe there)
     const formula = v.style === 'formula';
@@ -750,7 +776,7 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
     rec.nitroAcc -= n;
     if (n > 3) n = 3;
     const v = rec.def.visual;
-    _v1.set(0, v.cgHeight, v.cgToFrontAxle - v.wheelbase / 2).applyQuaternion(s.quaternion);
+    _v1.set(0, v.cgHeight, bodyCgZ(v)).applyQuaternion(s.quaternion);
     const ox = s.position.x - _v1.x, oy = s.position.y - _v1.y, oz = s.position.z - _v1.z;
     for (let j = 0; j < n; j++) {
       for (let i = 0; i < rec.tips.length; i++) {
@@ -1106,19 +1132,14 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
       const ox = s.position.x - _v1.x, oy = s.position.y - _v1.y, oz = s.position.z - _v1.z;
       _v3.set(0, 0, 1).applyQuaternion(q);
       const fx = _v3.x, fy = _v3.y, fz = _v3.z;
-      const zNose = v.wheelbase / 2 + v.frontOverhang;
-      const zTail = -(v.wheelbase / 2 + (v.length - v.wheelbase - v.frontOverhang));
       // a broken headlight or tail light gives less (or nothing)
       const lamps = rec.damage?.lamps;
       const headOut = lamps ? 0.5 * (lamps[0] + lamps[1]) : 1;
       const tailOut = lamps ? 0.5 * (lamps[2] + lamps[3]) : 1;
-      // (the single-seater's lamps: two LEDs low in its nose, their beams from its tip, and a rain light on the tip of its crash structure;
-      // carvis/layouts.ts formulaPoints)
       const formula = v.style === 'formula';
-      const hk = v.height / 0.95;
+      const lp = rec.lamps;
       if (head * headOut > 0.02) {
-        if (formula) _v2.set(0, 0.405 * hk, zNose + 0.02).applyQuaternion(q);
-        else _v2.set(0, 0.62, zNose - 0.3).applyQuaternion(q);
+        _v2.set(0, lp.head[0], lp.head[1]).applyQuaternion(q);
         const k = 1.1 * head * headOut;
         lights.add(ox + _v2.x, oy + _v2.y, oz + _v2.z, 48, k, k * 0.93, k * 0.8, fx, fy, fz, 0.82, 0.14);
         // the beam itself: rain makes it a hazy cone
@@ -1126,15 +1147,16 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
       }
       if (formula) {
         // the rain light: steady once the road is wet or the night falls, never a brake light, dimmed by each broken tail lamp (the
-        // endplate LEDs either side of it; carvis/car.ts and the PART.rainLight shader light its lens alike)
+        // endplate LEDs either side of it, or on the 2004 car its own two halves; carvis/car.ts and the PART.rainLight shader light its
+        // lens alike)
         const rain = Math.max(head, clamp((Math.max(wetNow, 0.85 * rainK) - 0.08) / 0.22, 0, 1)) * 0.3 * tailOut;
-        _v2.set(0, 0.31 * hk, zTail).applyQuaternion(q);
+        _v2.set(0, lp.tail[0], lp.tail[1]).applyQuaternion(q);
         if (rain > 0.01) lights.add(ox + _v2.x, oy + _v2.y, oz + _v2.z, 10, rain, rain * 0.06, rain * 0.04, -fx, -fy, -fz, 0.25, 0.4);
         continue;
       }
       // tail lights: a dim red glow while the lamps are on, flaring on the brakes
       const tail = (0.1 * head + (s.brake > 0.05 ? 0.55 : 0)) * tailOut;
-      _v2.set(0, 0.8, zTail + 0.05).applyQuaternion(q);
+      _v2.set(0, lp.tail[0], lp.tail[1]).applyQuaternion(q);
       if (tail > 0.01) lights.add(ox + _v2.x, oy + _v2.y, oz + _v2.z, s.brake > 0.05 ? 13 : 9, tail, tail * 0.06, tail * 0.04, -fx, -fy, -fz, 0.25, 0.4);
     }
     // street lamps (the track scene publishes their heads in userData.xrLamps)
@@ -1184,6 +1206,7 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
         impactSeen: 0,
         nitroAcc: 0,
         electric: !!def.physics.engine.electric,
+        lamps: lampPoints(def.visual),
         backfireSeen: 0,
         slot: blobs.slotFor(id),
         first: true,

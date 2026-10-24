@@ -7,6 +7,8 @@ import { createEffects } from '../src/render/effects';
 import { ContactShadows } from '../src/render/fx/contactShadow';
 import { ChipPool, FlamePool, makePuffSpec, PuffPool, SparkPool, seedRandom } from '../src/render/fx/pools';
 import { makeTrail, SkidMarks } from '../src/render/fx/skidmarks';
+import { lightUniforms } from '../src/render/wet/lights';
+import { formula04Points } from '../src/carvis/layouts';
 import { makeState } from '../sandbox/render/cars';
 import { makeRingTrack } from '../sandbox/render/fakeTrack';
 
@@ -383,6 +385,96 @@ describe('createEffects', () => {
     expect(P[1]).toBeCloseTo(v.rideHeight + 0.41, 2);
     expect(P[2]).toBeCloseTo(-v.wheelbase / 2 - 0.5 - bodyCgZ(v) + s.velocity.z / 60, 2);
     fx.dispose();
+  });
+
+  it("backfires out of the 2004 single-seater's two periscopes, up and back, and lights its LEDs and its rain light where its body has them", () => {
+    seedRandom(17);
+    const dieci = getCar('dieci');
+    const v = dieci.visual;
+    const p = formula04Points(v);
+    // the flames: from both periscopes' mouths (the car's origin bodyCgZ behind its centre of mass, a frame's travel on), along their axes
+    const { render, particles } = mockRender();
+    const fx = createEffects(render, makeRingTrack(), 'high');
+    const s = stateOnAsphalt(9, dieci);
+    fx.registerCar(9, dieci);
+    fx.update(1 / 60, [s], cam);
+    // (the second tip now and then stays dark: enough backfires that both have flamed)
+    for (let k = 0; k < 4; k++) {
+      s.backfireCount++;
+      fx.update(1 / 60, [s], cam);
+    }
+    const flames = particles.children.find((c) => c.name === 'xr.fx.flames') as Mesh;
+    const n = (flames.geometry as unknown as { instanceCount: number }).instanceCount;
+    const P = flames.geometry.getAttribute('aP').array as Float32Array;
+    const D = flames.geometry.getAttribute('aV').array as Float32Array;
+    const sides = new Set<number>();
+    for (let i = 0; i < n; i++) {
+      const o = i * 4;
+      const sg = Math.sign(P[o]);
+      sides.add(sg);
+      expect(Math.abs(P[o])).toBeCloseTo(p.periscope.at[0], 4);
+      expect(P[o + 1]).toBeCloseTo(p.periscope.at[1], 4);
+      // (each flame has ridden on with the car for the frames since it was lit)
+      const back = P[o + 2] - (p.periscope.at[2] - bodyCgZ(v));
+      expect(back).toBeGreaterThan(0);
+      expect(back).toBeLessThan((5 * s.velocity.z) / 60 + 1e-4);
+      expect(D[o] * sg).toBeCloseTo(p.periscope.dir[0], 5);
+      expect(D[o + 1]).toBeCloseTo(p.periscope.dir[1], 5);
+      expect(D[o + 2]).toBeCloseTo(p.periscope.dir[2], 5);
+    }
+    expect(sides).toEqual(new Set([1, -1]));
+    fx.dispose();
+    // the light list at night in the rain: the LEDs' glow from 2 cm ahead of the nose's tip at their height, the rain light on the tip of
+    // the crash structure at its own (the car's origin at the world's, facing +z)
+    const night = mockRender();
+    (night.render as unknown as { env: unknown }).env = { darkness: 0.95, rain: 0.8, wetness: 0.8, settings: { timeOfDay: 'night', weather: 'rain' } };
+    const fx2 = createEffects(night.render, makeRingTrack(), 'high');
+    const s2 = stateOnAsphalt(10, dieci);
+    s2.position.set(0, v.cgHeight, bodyCgZ(v));
+    fx2.registerCar(10, dieci);
+    fx2.update(1 / 60, [s2], cam);
+    const lp = lightUniforms.uLP.value.filter((l) => l.w > 0);
+    const head = lp.find((l) => l.z > 0)!;
+    const rain = lp.find((l) => l.z < 0)!;
+    expect(head.x).toBeCloseTo(0, 6);
+    expect(head.y).toBeCloseTo(p.beam[1], 6);
+    expect(head.z).toBeCloseTo(p.beam[2], 6);
+    expect(rain.y).toBeCloseTo(p.rainLight[1], 6);
+    expect(rain.z).toBeCloseTo(p.rainLight[2], 2);
+    fx2.dispose();
+  });
+
+  it("lights a nitro shot's flames at the mouths of the tailpipes, where a backfire's flame starts, on every car with a nitro that burns", () => {
+    // (the car's origin for the flames is its body's, the centre of the wheelbase, bodyCgZ behind the centre of mass (ahead of it when
+    // bodyCgZ is negative): the nitro once took it bodyCgZ ahead instead, so its flames started 2 x bodyCgZ from the pipes, 63 cm inside
+    // the Kestrel's body)
+    const first = (id: string, nitro: boolean): number[] => {
+      seedRandom(13);
+      const { render, particles } = mockRender();
+      const fx = createEffects(render, makeRingTrack(), 'high');
+      const def = getCar(id);
+      const s = stateOnAsphalt(12, def);
+      fx.registerCar(12, def);
+      fx.update(1 / 60, [s], cam);
+      if (nitro) {
+        s.nitro = 1;
+        // (the jet is a steady 34 flames a second: the first comes on the second frame)
+        fx.update(1 / 60, [s], cam);
+        fx.update(1 / 60, [s], cam);
+      } else {
+        s.backfireCount++;
+        fx.update(1 / 60, [s], cam);
+      }
+      const flames = particles.children.find((c) => c.name === 'xr.fx.flames') as Mesh;
+      const P = flames.geometry.getAttribute('aP').array as Float32Array;
+      const out = [P[0], P[1], P[2]];
+      fx.dispose();
+      return out;
+    };
+    for (const id of ['vanta-gt', 'kestrel-r', 'ronin-86', 'lmp-x', 'mammoth', 'dieci']) {
+      const a = first(id, false), b = first(id, true);
+      for (let k = 0; k < 3; k++) expect(b[k], `${id} ${'xyz'[k]}`).toBeCloseTo(a[k], 4);
+    }
   });
 
   it('survives resets, unknown cars, zero and huge dt and clear()', () => {

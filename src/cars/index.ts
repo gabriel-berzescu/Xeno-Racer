@@ -755,7 +755,8 @@ const volta: CarDefinition = {
 // It leaves the line as a road car does for now, held at 4900 rpm: nothing reads its launchRpm yet.
 
 // The Dieci's body: 4.55 m long, 1.8 m wide over the tyres, 0.95 m to the top of the airbox, an open cockpit with the driver on the centre
-// line. It is drawn with the Volta's body at these sizes for now: nothing reads formulaEra or the periscopes yet.
+// line. formulaEra 2004 draws it with a body of its own (src/carvis/bodies/formula04.ts: the high nose, the periscopes, the beam wing) on
+// 13-inch grooved wheels, and its flames come out of the periscopes (src/render/effects.ts).
 const dieciVisual: CarVisualSpec = {
   style: 'formula',
   formulaEra: 2004,
@@ -779,7 +780,7 @@ const dieciVisual: CarVisualSpec = {
   wing: 1,
   engine: 'mid',
   exhaust: { count: 2, side: 'periscope' },
-  // (the eye 1.42 m behind the front axle, at the Volta's height for now)
+  // (the hips 1.05 m behind the front axle: the eye 1.42 m behind it and 73 cm up, as the build sheet has it, formulaCockpit)
   seat: { x: 0, y: 0.22, z: 0.5 },
   openCockpit: true,
 };
@@ -814,7 +815,9 @@ const dieci: CarDefinition = {
   stats: { powerHp: 912, torqueNm: 375, massKg: 640, topSpeedKmh: 328, zeroTo100: 2.5 },
   visual: dieciVisual,
   sound: dieciSound,
-  defaultLivery: { primary: '#e2541b', secondary: '#23262b', accent: '#f4f4f2', pattern: 'split', number: 19, driver: 'You', finish: 0, metallic: false },
+  // (the big blocks of colour of the time's liveries, without their sponsors: shards of charcoal and white over burnt orange on the nose,
+  // the sidepods, the engine cover and the endplates; the opponents' orange car is split in black, so a field of Diecis tells them apart)
+  defaultLivery: { primary: '#e2541b', secondary: '#23262b', accent: '#f4f4f2', pattern: 'shards', number: 19, driver: 'You', finish: 0, metallic: false },
   physics: {
     chassis: {
       mass: 640,

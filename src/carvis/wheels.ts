@@ -13,12 +13,22 @@
  * rim instead of spokes (it never blurs: there is nothing to see turn but the centre-lock nut), and on the inboard side a drum closing the
  * rim round the brake, carried with the caliper so it steers but does not spin. Its wheels are seen from every side, so the tyre's inner
  * sidewall is as fine as its outer one.
+ *
+ * The 'formula04' style (the 2004 single-seater's, CarVisualSpec.formulaEra) is the open wheel of the V10 years: a 13-inch forged rim with
+ * twelve thin spokes in a deep dish, a centre-lock nut, the tall sidewall a 13-inch rim leaves in a 660 mm tyre, and through the spokes
+ * the brake duct's drum the 'formula' style closes the rim with on its inboard side (the caliper and the disc are inside it). Seen from
+ * every side as well, its tyre's inner sidewall is as fine as its outer one; its spokes blur at speed as a road car's do.
  */
 import type { QualityLevel } from '../core/contracts';
 import { PART } from './blueprint';
 import { PartBuilder, frameFromAxis, type Frame, type V3 } from './parts';
 
-export type WheelStyle = 'multi' | 'split5' | 'six' | 'centerlock' | 'beadlock' | 'formula';
+export type WheelStyle = 'multi' | 'split5' | 'six' | 'centerlock' | 'beadlock' | 'formula' | 'formula04';
+
+/** A single-seater's wheel, of either era: no bodywork round it, so seen from every side, and closed on its inboard side by the brake's drum. */
+function singleSeater(s: WheelStyle): boolean {
+  return s === 'formula' || s === 'formula04';
+}
 
 export interface WheelParams {
   R: number; // tire outer radius
@@ -42,7 +52,7 @@ const SEGS: Record<QualityLevel, number> = { low: 32, medium: 48, high: 64, ultr
 
 export function wheelLayout(p: WheelParams): WheelLayout {
   const xo = 0.43 * p.W;
-  const dish = p.style === 'centerlock' ? 0.016 : p.style === 'six' ? 0.045 : p.style === 'multi' ? 0.03 : p.style === 'beadlock' ? 0.04 : p.style === 'formula' ? 0.01 : 0.026;
+  const dish = p.style === 'centerlock' ? 0.016 : p.style === 'six' ? 0.045 : p.style === 'multi' ? 0.03 : p.style === 'beadlock' ? 0.04 : p.style === 'formula' ? 0.01 : p.style === 'formula04' ? 0.035 : 0.026;
   const xOut = xo - dish;
   const discOuter = Math.min(p.rimR - 0.04, 0.215);
   return { xOut, xDisc: xOut - 0.062, discInner: 0.1, discOuter, discHalf: 0.014 };
@@ -308,7 +318,7 @@ export function buildWheel(p: WheelParams): PartBuilder {
     const prof: Array<[number, number]> = [];
     // inner side: a coarse sidewall (hidden behind the rim from almost every angle) + the tread edge; on an open wheel, the whole sidewall
     const sw0 = 4; // first sidewall index in `half`
-    const inner = p.style === 'formula' ? half.slice(sw0).reverse() : [half[half.length - 1], half[Math.min(sw0 + 4, half.length - 1)], half[sw0]];
+    const inner = singleSeater(p.style) ? half.slice(sw0).reverse() : [half[half.length - 1], half[Math.min(sw0 + 4, half.length - 1)], half[sw0]];
     for (const [x, r] of inner) prof.push([-x, r]);
     for (let i = 3; i >= 1; i--) prof.push([-half[i][0], half[i][1]]);
     for (let i = 0; i < half.length; i++) prof.push(half[i]);
@@ -354,7 +364,7 @@ export function buildWheel(p: WheelParams): PartBuilder {
 
   // ── spokes ────────────────────────────────────────────────────────────────
   const xOut = lay.xOut;
-  const dpt = p.style === 'centerlock' ? 0.026 : p.style === 'beadlock' ? 0.032 : p.style === 'formula' ? 0.012 : 0.021;
+  const dpt = p.style === 'centerlock' ? 0.026 : p.style === 'beadlock' ? 0.032 : p.style === 'formula' ? 0.012 : p.style === 'formula04' ? 0.018 : 0.021;
   const frame: Frame = { o: [xOut - dpt, 0, 0], u: [0, 1, 0], v: [0, 0, 1] };
   const rIn = 0.05;
   const rEnd = rimR - 0.006;
@@ -413,6 +423,15 @@ export function buildWheel(p: WheelParams): PartBuilder {
       for (let i = 0; i < n; i++) {
         const ang = (i / n) * Math.PI * 2;
         addSpoke(rotPoly(spokePoly(0.045, rEnd, 0.03, 0.062, 0.03, 1.2, 8), ang));
+      }
+      break;
+    }
+    case 'formula04': {
+      // twelve thin forged spokes, straight from the centre lock to the lip, at the bottom of a deep dish
+      const n = 12;
+      for (let i = 0; i < n; i++) {
+        const ang = (i / n) * Math.PI * 2;
+        addSpoke(rotPoly(spokePoly(0.058, rEnd, 0.0085, 0.0065, 0, 1, 8), ang));
       }
       break;
     }
@@ -481,7 +500,7 @@ export function buildWheel(p: WheelParams): PartBuilder {
     // (the beadlock's centre cap is satin black like its spokes: a polished one only reflected the white of the studio)
     setZ(pb, v0, v0 + prof.length * 40, 13, p.style === 'beadlock' ? PART.rimFace : PART.hub);
     setZ(pb, v0, v0 + prof.length * 40, 12, 0.9);
-    if (p.style === 'centerlock' || p.style === 'formula') {
+    if (p.style === 'centerlock' || singleSeater(p.style)) {
       // big knurled centre-lock nut
       const nProf: Array<[number, number]> = [
         [xOut + 0.001, 0.05],
@@ -507,8 +526,8 @@ export function buildWheel(p: WheelParams): PartBuilder {
     }
   }
 
-  // ── brake disc + hat (none behind a closing panel: nothing would see them) ─
-  if (p.style !== 'formula') {
+  // ── brake disc + hat (none on a single-seater's wheel: they are inside the brake duct's drum, behind a closing panel on the 2026 car) ─
+  if (!singleSeater(p.style)) {
     const { xDisc, discInner, discOuter, discHalf } = lay;
     const discSegs = Math.max(40, Math.floor(segs * 0.7));
     for (const sgn of [-1, 1]) {
@@ -550,9 +569,9 @@ export function buildWheel(p: WheelParams): PartBuilder {
 /** Non-spinning brake caliper + dust shield. In the wheel frame (+X outward), unrotated. */
 export function buildCaliper(p: WheelParams, trailing: boolean): PartBuilder {
   const pb = new PartBuilder();
-  if (p.style === 'formula') {
-    // the closed wheel's inboard side: a disc over the rim at its inner bead, the brake drum standing in from it and the duct's scoop at
-    // the front of the drum (the caliper and the disc are inside, never seen)
+  if (singleSeater(p.style)) {
+    // a single-seater's wheel, closed on its inboard side: a disc over the rim at its inner bead, the brake drum standing in from it and
+    // the duct's scoop at the front of the drum (the caliper and the disc are inside, never seen)
     const xi = -0.43 * p.W;
     const v0 = pb.vertexCount;
     pb.lathe([xi + 0.003, 0, 0], [1, 0, 0], [0.0, 0.0, p.rimR + 0.004, 0.0], 40);
@@ -598,7 +617,9 @@ export function buildCaliper(p: WheelParams, trailing: boolean): PartBuilder {
   return pb;
 }
 
-export function styleForBody(style: string): WheelStyle {
+/** The wheel a body is drawn with; `era`, a single-seater's (CarVisualSpec.formulaEra): 2004, the open 13-inch wheel of its years. */
+export function styleForBody(style: string, era?: 2004): WheelStyle {
+  if (style === 'formula' && era === 2004) return 'formula04';
   switch (style) {
     case 'gt':
       return 'multi';

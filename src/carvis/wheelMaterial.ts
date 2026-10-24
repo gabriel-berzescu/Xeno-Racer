@@ -2,8 +2,12 @@
  * Wheel shader: one patched MeshPhysicalMaterial handles tire, rim, spokes, brake disc (heat glow),
  * motion-blur disc and the (mirrored) caliper. Per-instance data comes from `instanceColor`:
  *   r = wheel angular speed (rad/s)   g = brake disc temperature (°C)   b = 1 -> mirror in z (right-side caliper)
+ *
+ * A grooved racing tyre (the 2004 single-seater's: layouts.ts WheelLook.grooves) is drawn by a material built with `grooves`: its program
+ * has the grooves' code and a cache key of its own, and the setting (uGrooves) is in metres from the tread's centre line, as the front and
+ * rear tyres share the material at different widths. Every other wheel's program is the one it always was, word for word.
  */
-import { Color, DoubleSide, MeshPhysicalMaterial, Vector3, type IUniform, type Texture, type WebGLProgramParametersWithUniforms } from 'three';
+import { Color, DoubleSide, MeshPhysicalMaterial, Vector3, Vector4, type IUniform, type Texture, type WebGLProgramParametersWithUniforms } from 'three';
 
 export interface WheelUniforms {
   [k: string]: IUniform;
@@ -18,6 +22,8 @@ export interface WheelUniforms {
   uAccent: IUniform<Color>;
   uTread: IUniform<number>;
   uWet: IUniform<number>;
+  /** A grooved tyre's grooves (read by a material built with `grooves` only), metres: the inner and outer groove's centres, their half width, their depth. */
+  uGrooves: IUniform<Vector4>;
 }
 
 export function createWheelUniforms(): WheelUniforms {
@@ -33,6 +39,7 @@ export function createWheelUniforms(): WheelUniforms {
     uAccent: { value: new Color(1, 1, 1) },
     uTread: { value: 1 },
     uWet: { value: 0 },
+    uGrooves: { value: new Vector4(0, 0, 0, 0) },
   };
 }
 
@@ -105,6 +112,9 @@ vec3 perturbNormalH(vec3 surf_pos, vec3 surf_norm, vec2 dHdxy, float faceDirecti
   return normalize(abs(fDet) * surf_norm - vGrad);
 }
 `;
+
+/** The last line of the road tyre's tread, after which a grooved tyre's grooves are drawn. */
+const TREAD_END = '    wRough = mix(wRough, 0.95, tread * uTread * 0.5);\n';
 
 const FRAG_ZONES = /* glsl */ `
 int wPart = int(vZ3.y + 0.5);
@@ -237,6 +247,23 @@ if (wPart == 20) {
 diffuseColor.rgb = wCol;
 `;
 
+/**
+ * The grooved tyre's four circumferential grooves, drawn over the road tyre's tread (which a grooved tyre's look turns off: uTread 0): each
+ * a channel 2 x uGrooves.z across at the surface, its floor narrower, uGrooves.w deep, darker inside where the light hardly reaches. As a
+ * groove narrows under a pixel it fades to the faint darkening it makes of the whole tread, so it never shimmers.
+ */
+const FRAG_GROOVES = /* glsl */ `
+    {
+      float gx = abs(vObjPos.x);
+      float gw = uGrooves.z;
+      float gFade = 1.0 - smoothstep(0.3, 0.9, fwidth(vObjPos.x) / gw);
+      float gIn = max(1.0 - smoothstep(0.7 * gw, gw, abs(gx - uGrooves.x)), 1.0 - smoothstep(0.7 * gw, gw, abs(gx - uGrooves.y)));
+      wHeight = -uGrooves.w * gIn * gFade;
+      wCol *= 1.0 - mix(0.12, 0.6 * gIn, gFade);
+      wRough = mix(wRough, 0.95, 0.5 * gIn * gFade);
+    }
+`;
+
 const FRAG_NORMAL = /* glsl */ `
 {
   vec2 dH = vec2(dFdx(wHeight), dFdy(wHeight));
@@ -245,7 +272,8 @@ const FRAG_NORMAL = /* glsl */ `
 }
 `;
 
-export function createWheelMaterial(uniforms: WheelUniforms = createWheelUniforms()): { material: MeshPhysicalMaterial; uniforms: WheelUniforms } {
+/** `grooves`: the tyre is a grooved racing tyre, its grooves set by uGrooves (absent: the program every other wheel has). */
+export function createWheelMaterial(uniforms: WheelUniforms = createWheelUniforms(), opts: { grooves?: boolean } = {}): { material: MeshPhysicalMaterial; uniforms: WheelUniforms } {
   const mat = new MeshPhysicalMaterial({ color: 0xffffff, metalness: 0, roughness: 0.5, clearcoat: 0.5, clearcoatRoughness: 0.08, side: DoubleSide });
   mat.onBeforeCompile = (shader: WebGLProgramParametersWithUniforms) => {
     Object.assign(shader.uniforms, uniforms);
@@ -254,8 +282,8 @@ export function createWheelMaterial(uniforms: WheelUniforms = createWheelUniform
       .replace('#include <beginnormal_vertex>', VERT_NORMAL)
       .replace('#include <begin_vertex>', VERT_BEGIN);
     let f = shader.fragmentShader;
-    f = f.replace('#include <common>', '#include <common>\n' + FRAG_PARS);
-    f = f.replace('#include <color_fragment>', '#include <color_fragment>\n' + FRAG_ZONES);
+    f = f.replace('#include <common>', '#include <common>\n' + FRAG_PARS + (opts.grooves ? 'uniform vec4 uGrooves;\n' : ''));
+    f = f.replace('#include <color_fragment>', '#include <color_fragment>\n' + (opts.grooves ? FRAG_ZONES.replace(TREAD_END, TREAD_END + FRAG_GROOVES) : FRAG_ZONES));
     f = f.replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = wRough * (1.0 - 0.45 * uWet);');
     f = f.replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\nmetalnessFactor = wMetal;');
     f = f.replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\n' + FRAG_NORMAL);
@@ -281,7 +309,7 @@ export function createWheelMaterial(uniforms: WheelUniforms = createWheelUniform
     );
     shader.fragmentShader = f;
   };
-  mat.customProgramCacheKey = () => 'xr-wheel-v3';
+  mat.customProgramCacheKey = () => (opts.grooves ? 'xr-wheel-v3-grooves' : 'xr-wheel-v3');
   return { material: mat, uniforms };
 }
 

@@ -30,12 +30,77 @@ export interface CarLayout {
 /** Driver's eye point (body frame). Shared by the cockpit anchor and the interior builder. */
 export function eyePoint(s: CarVisualSpec): V3 {
   const proto = s.style === 'prototype';
-  // (the single-seater lies its driver back, the hips well ahead of the head: the eye is 55 cm over the seat reference and 37 cm behind
-  // it, 10 cm under the halo's hoop)
-  if (s.style === 'formula') return [s.seat.x, s.seat.y + 0.55, s.seat.z - 0.37];
+  if (s.style === 'formula') return formulaCockpit(s).eye;
   // (a 4x4 sits its driver bolt upright and high: the eye is 68 cm above the seat reference)
   const eyeRise = proto ? 0.56 : s.style === 'hatch' ? 0.66 : s.style === 'suv' ? 0.68 : 0.62;
   return [s.seat.x, s.seat.y + eyeRise, s.seat.z + (proto ? 0.05 : 0.1)];
+}
+
+/**
+ * A single-seater's cockpit and the cameras round it (body frame, +x the left), which differ by its era (CarVisualSpec.formulaEra;
+ * absent, the Volta's 2026 car). eyePoint, computeLayout, the interior (interior.ts) and the mirrors (mirrorLayout.ts) read them here.
+ */
+export interface FormulaCockpit {
+  /** the driver's eye: the cockpit camera, and what the body sets its cockpit's opening, its airbox and its mirrors by */
+  eye: V3;
+  /** how far the driver lies back (rad from upright: the spine from the hips, the neck at its top under the helmet behind the eye) */
+  seatTilt: number;
+  /** the steering wheel's centre over the seat reference (up, forward), its tilt back from upright (rad), and which wheel it is: the
+   * 2026 yoke or the 2004 butterfly wheel (interior.ts, YOKE and WHEEL04) */
+  wheel: { up: number; fwd: number; tilt: number; kind: 'yoke' | 'wheel04' };
+  /** the T-camera (the hood camera), the nose camera (the bumper camera) and the chase anchor (where the look back from those and from
+   * the centre seat is filmed, and the roof the cameras size the car by) */
+  hood: V3;
+  bumper: V3;
+  chase: V3;
+  /** the left mirror's glass (its centre and half sizes), how far its housing reaches ahead of the glass, and where its stalk stands */
+  mirror: { pos: V3; hw: number; hh: number; depth: number; stalk: V3 };
+  /** the rear camera that films the HUD's mirror strip: its height, and how far ahead of the tail it is */
+  rear: { y: number; fromTail: number };
+}
+
+export function formulaCockpit(s: CarVisualSpec): FormulaCockpit {
+  const zF = s.wheelbase / 2;
+  const hk = s.height / 0.95;
+  if (s.formulaEra === 2004) {
+    // the 2004 car: the eye 51 cm over the seat reference and 37 cm behind it (73 cm up and 1.42 m behind the front axle, as the build
+    // sheet has it), 10 cm over the tub's sides beside the helmet, which are set from it (bodies/formula04.ts); the back 63 degrees from
+    // upright, the neck under the helmet about as long as the Volta driver's and the shoulders under the rim; the butterfly wheel of the
+    // time right over the hips; the T-camera on the airbox over the helmet; the nose camera 45 cm ahead of the front axle, 14 cm over the
+    // high nose; the chase anchor on the airbox behind the T-camera; the mirrors on stalks from the front of the sidepods, the glass 15 x 5
+    // cm (the rules of the time: at least 12 x 5) placed where the Volta's is on the screen, 40 degrees off the driver's line of sight and
+    // 8 under it, 55 cm ahead of the eye, so the cockpit's HUD fits round them as it does round the Volta's; the rear camera 11 cm over
+    // the rear wing's endplates, lower than the Volta's
+    const eye: V3 = [s.seat.x, s.seat.y + 0.51, s.seat.z - 0.37];
+    return {
+      eye,
+      seatTilt: 1.1,
+      wheel: { up: 0.33, fwd: 0, tilt: 0.4, kind: 'wheel04' },
+      hood: [0, s.height + 0.08, eye[2] - 0.36],
+      bumper: [0, 0.635 * hk, zF + 0.45],
+      chase: [0, s.height, eye[2] - 0.72],
+      mirror: { pos: [0.465, eye[1] - 0.095, eye[2] + 0.55], hw: 0.075, hh: 0.025, depth: 0.07, stalk: [0.4, 0.52 * hk, eye[2] + 0.42] },
+      rear: { y: 0.955 * hk, fromTail: 0.1 },
+    };
+  }
+  // the 2026 car: the driver lies back, the hips well ahead of the head: the eye is 55 cm over the seat reference and 37 cm behind it,
+  // 10 cm under the halo's hoop, the back 60 degrees from upright; the yoke right over the hips; the T-camera over the airbox; the nose
+  // camera 70 cm ahead of the front axle, just past the nose's step and 12 cm over its lower stage, which runs on to its tip in the bottom
+  // of the picture; the chase anchor on the airbox behind the T-camera, which would fill the bottom of that picture from in front of it;
+  // the mirrors on stalks from the chassis's shoulders, beside the front of the cockpit and out past the halo, 40 degrees off the driver's
+  // line of sight, the glass 19 x 5 cm (the rules' is 20 x 5); the rear camera over the rear wing
+  const eye: V3 = [s.seat.x, s.seat.y + 0.55, s.seat.z - 0.37];
+  const sz = eye[2] - 0.05;
+  return {
+    eye,
+    seatTilt: 1.05,
+    wheel: { up: 0.33, fwd: 0, tilt: 0.4, kind: 'yoke' },
+    hood: [0, s.height + 0.08, eye[2] - 0.5],
+    bumper: [0, 0.45 * hk, zF + 0.7],
+    chase: [0, s.height, eye[2] - 0.72],
+    mirror: { pos: [0.5, 0.66 * hk, sz + 0.65], hw: 0.095, hh: 0.025, depth: 0.075, stalk: [0.2, 0.6 * hk, sz + 0.6] },
+    rear: { y: 1.04 * hk, fromTail: 0.15 },
+  };
 }
 
 /**
@@ -61,6 +126,39 @@ export function formulaPoints(s: CarVisualSpec): { noseLed: V3; beam: V3; rainLi
     rainLight: [0, 0.31 * hk, zTail - 0.002],
     wingLed: [0.522, 0.785 * hk, zTail - 0.1],
     exhaust: [0, s.rideHeight + 0.41, zR - 0.5],
+  };
+}
+
+/** The single-seater of the V10 years (CarVisualSpec.formulaEra 2004, the Dieci); every other spec, the Volta's 2026 car among them, is not. */
+export function isFormula04(s: CarVisualSpec): boolean {
+  return s.style === 'formula' && s.formulaEra === 2004;
+}
+
+/**
+ * Where the 2004 single-seater (isFormula04) carries its lights and its exhausts (body frame, +x the left), for its body
+ * (bodies/formula04.ts), its headlamp spots, the lamps the damage model knows and the exhaust effects:
+ *   - noseLed: the left of its two LED lamps, in the rounded tip of its high nose (the right one is mirrored; the body finds the face);
+ *   - beam: where the left lamp's beam starts, 2 cm ahead of the tip and as high as the lamp (the spots cast no shadow: from further back
+ *     they lit the front wing hung under the nose);
+ *   - rainLight: the centre of the rain light on the tip of the crash structure, 35.5 cm over the floor and 48 cm behind the rear axle
+ *     (the rules of the time: within 10 cm of the centre line, at least 35 cm up, at least 45 cm behind the axle), its block 1 cm deep
+ *     standing on the tip's face;
+ *   - periscope: the mouth of the left periscope on top of the sidepod, 60 cm ahead of the rear axle (the right one is mirrored), and the
+ *     way its gas leaves it, up and 40 degrees back, a little outward (src/render/effects.ts buildTips blows the flames there: a test keeps
+ *     the two the same).
+ */
+export function formula04Points(s: CarVisualSpec): { noseLed: V3; beam: V3; rainLight: V3; periscope: { at: V3; dir: V3 } } {
+  const zF = s.wheelbase / 2;
+  const zR = -s.wheelbase / 2;
+  const zNose = zF + s.frontOverhang;
+  const zTail = -(s.wheelbase / 2 + (s.length - s.wheelbase - s.frontOverhang));
+  const hk = s.height / 0.95;
+  const d = Math.hypot(0.12, 0.77, 0.63);
+  return {
+    noseLed: [0.052, 0.335 * hk, zNose - 0.02],
+    beam: [0.052, 0.335 * hk, zNose + 0.02],
+    rainLight: [0, s.rideHeight + 0.355, zTail - 0.002],
+    periscope: { at: [0.25, 0.585 * hk, zR + 0.6], dir: [0.12 / d, 0.77 / d, -0.63 / d] },
   };
 }
 
@@ -117,21 +215,35 @@ export function computeLayout(s: CarVisualSpec): CarLayout {
     steerTilt: 0.38,
     livery: lay,
   };
-  if (style === 'formula') {
+  if (isFormula04(s)) {
+    // the 2004 single-seater: the roundel on the sidepod's flank, the number on the top of the high nose ahead of the front axle, a split
+    // at its sidepods' height; the cameras its cockpit's (formulaCockpit); the headlamp spots are its two LED lamps in the tip of the
+    // nose, the rain light the tail light (formula04Points)
+    const p = formula04Points(s);
+    const c = formulaCockpit(s);
+    const hk = s.height / 0.95;
+    lay.door = { z: eye[2] - 0.6, y: 0.37 * hk, r: 0.11 };
+    lay.hood = { z: zF + 0.25, r: 0.07 };
+    lay.belt = 0.5;
+    lay.trueRound = true;
+    layout.hood = c.hood;
+    layout.bumper = c.bumper;
+    layout.chase = c.chase;
+    layout.headlight = [p.beam[0], p.beam[1], p.beam[2]];
+    layout.taillight = [p.rainLight[0], p.rainLight[1], p.rainLight[2]];
+  } else if (style === 'formula') {
     // the single-seater: the roundel on the sidepod's flank, the number on the nose behind its step, a split at its sidepods' height;
-    // the hood camera is the T-camera over the airbox; the bumper camera a nose camera 70 cm ahead of the front axle, just past the
-    // nose's step and 12 cm over its lower stage, which runs on to its tip in the bottom of the picture; the chase anchor (where the look
-    // back from the hood, the bumper and the centre seat is filmed, and the roof the cameras size the car by) on the airbox behind the
-    // T-camera, which would fill the bottom of that picture from in front of it; the headlamp spots are its two LED lamps in the nose,
-    // starting at the nose's tip (formulaPoints)
+    // the cameras its cockpit's (formulaCockpit); the headlamp spots are its two LED lamps in the nose, starting at the nose's tip
+    // (formulaPoints)
     const p = formulaPoints(s);
+    const c = formulaCockpit(s);
     lay.door = { z: eye[2] - 0.6, y: 0.37 * (s.height / 0.95), r: 0.11 };
     lay.hood = { z: zF + 0.3, r: 0.072 };
     lay.belt = 0.5;
     lay.trueRound = true;
-    layout.hood = [0, s.height + 0.08, eye[2] - 0.5];
-    layout.bumper = [0, 0.45 * (s.height / 0.95), zF + 0.7];
-    layout.chase = [0, s.height, eye[2] - 0.72];
+    layout.hood = c.hood;
+    layout.bumper = c.bumper;
+    layout.chase = c.chase;
     layout.headlight = [p.beam[0], p.beam[1], p.beam[2]];
     layout.taillight = [p.rainLight[0], p.rainLight[1], p.rainLight[2]];
   }
@@ -147,10 +259,20 @@ export interface WheelLook {
   caliper: [number, number, number];
   slick: number;
   tread: number;
+  /**
+   * A grooved racing tyre's grooves (absent: none), metres across the tread from its centre line: the inner and the outer groove's
+   * centres, their half width at the surface and their depth (wheelMaterial.ts, uGrooves).
+   */
+  grooves?: [number, number, number, number];
 }
 
-/** Linear-space colours. */
-export function wheelLook(style: CarVisualSpec['style']): WheelLook {
+/** Linear-space colours. `era`: a single-seater's (CarVisualSpec.formulaEra); 2004, its grooved tyres on 13-inch forged rims. */
+export function wheelLook(style: CarVisualSpec['style'], era?: 2004): WheelLook {
+  if (style === 'formula' && era === 2004) {
+    // dark forged magnesium spokes and a polished lip, a silver centre-lock nut, a dry tyre of the grooved years: four grooves 14 mm wide
+    // and 2.5 mm deep, 50 mm apart (the rules of 1999-2008), white lettering as the time had it (no compound colours)
+    return { rimColor: [0.032, 0.033, 0.036], rimMetal: 0.85, rimRough: 0.34, rimCC: 0.2, nutColor: [0.62, 0.62, 0.64], caliper: [0.05, 0.05, 0.05], slick: 1, tread: 0, grooves: [0.025, 0.075, 0.007, 0.0025] };
+  }
   switch (style) {
     case 'gt':
       return { rimColor: [0.085, 0.09, 0.1], rimMetal: 1, rimRough: 0.3, rimCC: 0.5, nutColor: [0.75, 0.75, 0.78], caliper: [0.85, 0.5, 0.02], slick: 0, tread: 1 };

@@ -11,7 +11,7 @@
  * of the HUD at 16:9); it still reads as a mirror on a short stalk from the windscreen.
  */
 import type { BodyStyle, CarVisualSpec } from '../core/contracts';
-import { eyePoint } from './layouts';
+import { eyePoint, formulaCockpit } from './layouts';
 
 export type V3 = [number, number, number];
 
@@ -128,17 +128,16 @@ function styleFor(style: BodyStyle, spec: CarVisualSpec): Style {
         rear: { y: 1.97, fromTail: 0.45, pitch: 3 },
       };
     case 'formula': {
-      // the single-seater's two mirrors on stalks from the chassis's shoulders, beside the front of the cockpit and out past the halo,
-      // 40 degrees off the driver's line of sight; the glass is 19 x 5 cm (the rules' is 20 x 5); nothing in the cockpit, the rear
-      // camera over the rear wing
-      const fk = spec.height / 0.95;
-      const sz = eyePoint(spec)[2] - 0.05;
+      // the single-seater's two mirrors on stalks, 40 degrees off the driver's line of sight, and its rear camera over the rear wing, as
+      // its cockpit has them (formulaCockpit: from the chassis's shoulders on the 2026 car, from the sidepods on the 2004 one); nothing in
+      // the cockpit
+      const c = formulaCockpit(spec);
       return {
-        door: { pos: [0.5, 0.66 * fk, sz + 0.65], hw: 0.095, hh: 0.025, out: 10 },
-        housing: { depth: 0.075, carbon: false, stalk: [0.2, 0.6 * fk, sz + 0.6] },
+        door: { pos: c.mirror.pos, hw: c.mirror.hw, hh: c.mirror.hh, out: 10 },
+        housing: { depth: c.mirror.depth, carbon: false, stalk: c.mirror.stalk },
         inside: null,
         screen: null,
-        rear: { y: 1.04 * fk, fromTail: 0.15, pitch: 2 },
+        rear: { y: c.rear.y, fromTail: c.rear.fromTail, pitch: 2 },
       };
     }
     default:

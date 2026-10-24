@@ -248,7 +248,7 @@ export interface CarData {
 }
 
 export function buildWheels(spec: CarVisualSpec, quality: QualityLevel): WheelData {
-  const style = styleForBody(spec.style);
+  const style = styleForBody(spec.style, spec.formulaEra);
   const mk = (R: number, W: number, rimR: number): WheelParams => ({ R, W, rimR, style, quality });
   const pf = mk(spec.wheelRadiusFront, spec.tireWidthFront, spec.rimRadiusFront);
   const pr = mk(spec.wheelRadiusRear, spec.tireWidthRear, spec.rimRadiusRear);

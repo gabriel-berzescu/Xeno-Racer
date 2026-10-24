@@ -12,6 +12,9 @@
  *   inside the wheels (wheels.ts, style 'formula'): static, as they would barely move over 6 cm of travel;
  * - the mirrors on their stalks, the rain light, the tailpipe, the T-camera on the roll hoop and a small fin;
  * - and what the far LOD keeps of all that (`addFormulaFarParts`).
+ *
+ * The toolkit the pieces are built with (a wing element and its edges, plates, rods, a smooth curve) is shared with the Dieci's 2004
+ * body (formula04Parts.ts).
  */
 import type { CarVisualSpec } from '../../core/contracts';
 import { airfoilPoly } from '../aero';
@@ -22,7 +25,7 @@ import { norm3, type Frame, type PartBuilder, type V3 } from '../parts';
 import { roundPoly } from '../shapes';
 
 /** One section of a wing element: where its quarter chord is (body frame), its chord and its incidence (negative: the trailing edge up). */
-interface Section {
+export interface Section {
   x: number;
   y: number;
   z: number;
@@ -31,7 +34,7 @@ interface Section {
 }
 
 /** A wing element: an inverted aerofoil (the camber down, so it makes downforce) lofted across the car through `secs`, capped at the ends. */
-function element(b: PartBuilder, secs: readonly Section[], thick: number, camber: number, n = 12): void {
+export function element(b: PartBuilder, secs: readonly Section[], thick: number, camber: number, n = 12): void {
   const rings: V3[][] = secs.map((sc) => {
     const p = airfoilPoly(sc.chord, thick, camber, sc.inc, n);
     const ring: V3[] = [];
@@ -42,32 +45,32 @@ function element(b: PartBuilder, secs: readonly Section[], thick: number, camber
 }
 
 /** Leading and trailing edge of a section: [z, y] each (the section's quarter chord at its z, y). */
-function edges(sc: Section): { le: [number, number]; te: [number, number] } {
+export function edges(sc: Section): { le: [number, number]; te: [number, number] } {
   const c = Math.cos(sc.inc), s = Math.sin(sc.inc);
   const a = 0.25 * sc.chord, t = 0.75 * sc.chord;
   return { le: [sc.z + a * c, sc.y + a * s], te: [sc.z - t * c, sc.y - t * s] };
 }
 
 /** A flat plate in the (z, y) plane, `poly` its outline as [z, y, ...], from x = `x0` towards -x by `thick`. */
-function plate(b: PartBuilder, poly: readonly number[], x0: number, thick: number, bevel = 0.002): void {
+export function plate(b: PartBuilder, poly: readonly number[], x0: number, thick: number, bevel = 0.002): void {
   const f: Frame = { o: [x0, 0, 0], u: [0, 0, 1], v: [0, 1, 0] };
   b.extrude(poly, f, thick, bevel, 1);
 }
 
 /** The same plate on both sides of the car, its outer face at |x| = `xOut`. */
-function plates(b: PartBuilder, poly: readonly number[], xOut: number, thick: number): void {
+export function plates(b: PartBuilder, poly: readonly number[], xOut: number, thick: number): void {
   plate(b, poly, xOut, thick);
   plate(b, poly, -xOut + thick, thick);
 }
 
 /** A rod between two points and its mirror image across the centre line. */
-function rods(b: PartBuilder, a: V3, c: V3, r: number, segs = 8): void {
+export function rods(b: PartBuilder, a: V3, c: V3, r: number, segs = 8): void {
   b.cylinder(a, c, r, r, segs, true);
   b.cylinder([-a[0], a[1], a[2]], [-c[0], c[1], c[2]], r, r, segs, true);
 }
 
 /** A Catmull-Rom curve through `p`, `k` points per span (the ends kept). */
-function smooth(p: readonly V3[], k: number): V3[] {
+export function smooth(p: readonly V3[], k: number): V3[] {
   const out: V3[] = [];
   const at = (i: number): V3 => p[Math.min(p.length - 1, Math.max(0, i))];
   for (let i = 0; i < p.length - 1; i++) {

@@ -3,12 +3,13 @@
  */
 import { CanvasTexture, LinearFilter, LinearMipmapLinearFilter, RepeatWrapping, ClampToEdgeWrapping } from 'three';
 import type { CarVisualSpec } from '../core/contracts';
+import { isFormula04 } from './layouts';
 
 const tireCache = new Map<string, { tex: CanvasTexture; refs: number }>();
 
 /** Shared (ref-counted) tyre lettering texture. */
 export function acquireTireTextTexture(spec: CarVisualSpec, slick: boolean, accent: string): { tex: CanvasTexture; release(): void } {
-  const key = `${spec.style}|${spec.tireWidthFront}|${spec.wheelRadiusFront}|${spec.rimRadiusFront}|${slick}|${slick ? accent : ''}`;
+  const key = `${spec.style}|${spec.tireWidthFront}|${spec.wheelRadiusFront}|${spec.rimRadiusFront}|${slick}|${slick ? accent : ''}${isFormula04(spec) ? '|2004' : ''}`;
   let e = tireCache.get(key);
   if (!e) {
     e = { tex: createTireTextTexture(spec, slick, accent), refs: 0 };
@@ -64,6 +65,15 @@ export function createTireTextTexture(spec: CarVisualSpec, slick: boolean, accen
       g.lineTo(x0 + 1022, H * 0.64);
       g.closePath();
       g.fill();
+    }
+  } else if (isFormula04(spec)) {
+    // the 2004 single-seater's grooved dry tyre: the brand big and white twice round the sidewall, as the tyres of the time had it, the
+    // size and what the tyre is between (no coloured ring: the compounds were not marked then)
+    for (const x0 of [40, 1064]) {
+      drawText('XENO', x0, 0.6, 60, '900', '#ffffff');
+      drawText('RACING', x0 + 200, 0.6, 60, '700', '#ffffff');
+      drawText(size, x0 + 470, 0.52, 28, '600', '#ffffff');
+      drawText('GROOVED  •  DRY', x0 + 640, 0.52, 28, '600', '#ffffff');
     }
   } else if (slick) {
     // racing slick: big brand + a coloured ring
