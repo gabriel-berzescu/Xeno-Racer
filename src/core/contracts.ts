@@ -473,6 +473,13 @@ export interface EngineSoundProfile {
    */
   shiftDip?: number;
   /**
+   * The torque the traction control or the launch control takes away with the pedal down is cut from the engine by cutting the spark of
+   * whole firing events, the throttle left open (absent: it is heard as a lighter load): the share of the cylinders that miss is the share
+   * of the torque taken, the rest burn at the pedal's load, and now and then a cut charge lights in the pipe. The stuttering rasp of a 2004
+   * single-seater's traction control on a slow exit, and of its launch held at 10,000 rpm.
+   */
+  ignitionCut?: boolean;
+  /**
    * 0..1 how much of the exhaust a turbo's wastegate lets past the turbine when it is wide open (absent: none). A racing turbo's wastegate
    * opens on full boost at full load and high revs, and the pulses that go round the turbine keep their edge where the turbine alone rounds
    * them off above 3.4 kHz: the hard, high rasp of a Formula 1 car flat out, its firing harmonics heard up to 10 kHz.

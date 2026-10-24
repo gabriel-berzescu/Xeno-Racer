@@ -39,8 +39,9 @@
  *
  * A racing engine (the Volta's, the Dieci's) can also give its own revs (limiterRpm: its loudness measured over them, on boost; idleLiftTo:
  * the lift of a high idle kept near the idle), a turbo with no blow-off valve (blowOff) and a wastegate that lets part of every pulse past the
- * turbine flat out (wastegate), a shift of its own (shiftDip: the Volta's seamless flick, the Dieci's short ignition cut); and a car with an
- * open cockpit is heard from it through a helmet (EngineVoice.helmet).
+ * turbine flat out (wastegate), a shift of its own (shiftDip: the Volta's seamless flick, the Dieci's short ignition cut), a traction control
+ * that cuts the spark of whole firing events rather than the load (ignitionCut, the Dieci's); and a car with an open cockpit is heard from
+ * it through a helmet (EngineVoice.helmet).
  *
  * No allocation after construction; process() is safe to call from an AudioWorklet.
  */
@@ -210,6 +211,12 @@ export interface Voicing {
    * frames show for a whole frame or two, is bridged (EngineVoice.block, CUT_BRIDGE). false for an engine that does not say.
    */
   bridgeCut: boolean;
+  /**
+   * The torque the traction control or the launch control takes away with the pedal down is cut from whole firing events, with the
+   * throttle left open (EngineSoundProfile.ignitionCut): the stutter of a 2004 single-seater on a slow exit. false: it is heard as a
+   * lighter load.
+   */
+  ignitionCut: boolean;
   // supercharger: a positive-displacement blower, its whine locked to the crank
   blower: boolean;
   /** Whine fundamental per rpm (Hz): pulley ratio x lobes / 60. */
@@ -338,6 +345,7 @@ export function deriveVoicing(p: EngineSoundProfile, layout: EngineLayout): Voic
     liteGain: dual ? 1.35 * 1.7 : 1.35,
     shiftDip: p.shiftDip !== undefined ? clamp(p.shiftDip, 0.005, 0.2) : 0.07,
     bridgeCut: p.shiftDip !== undefined,
+    ignitionCut: p.ignitionCut === true,
     blower: sc !== undefined && sc.ratio > 0 && lobes > 0,
     blowerHzPerRpm: sc ? (sc.ratio * lobes) / 60 : 0,
     blowerLobes: lobes,
@@ -520,7 +528,12 @@ export class EngineVoice {
   // an upshift's cut bridged (Voicing.bridgeCut): the throttle and the load before it, and how long it has been held
   private preCutThr = 0;
   private preCutLoad = 0;
+  private preCutFire = 0;
   private cutHeld = 0;
+  // a torque cut heard as an ignition cut (Voicing.ignitionCut): the share of the firing events cut, smoothed, and which cylinders are
+  // cut this cycle (decided at each one's combustion, heard again at its exhaust)
+  private sFireCut = 0;
+  private readonly cylCut: Uint8Array;
 
   // crank clock
   private ph: number;
@@ -759,6 +772,7 @@ export class EngineVoice {
     this.lopeH = mk(B);
     this.lopeT = mk(B);
     this.cylBurn = mk(this.N).fill(1);
+    this.cylCut = new Uint8Array(this.N);
     for (let g = 0; g < G; g++) {
       this.grpCnt[g] = L.groups[g].count;
       this.grpBank[g] = L.groups[g].bank;
@@ -864,6 +878,8 @@ export class EngineVoice {
     this.lpHelmet.y = 0;
     // (nothing held from before a sleep: a cut seen first after it is heard)
     this.cutHeld = CUT_BRIDGE;
+    this.sFireCut = 0;
+    this.cylCut.fill(0);
     this.lopeH.fill(0);
     for (const r of this.blk) r.reset();
     this.clunkR1.reset();
@@ -1042,19 +1058,30 @@ export class EngineVoice {
     // what it was before for CUT_BRIDGE at most; the shift counter that follows starts the dip that is the shift
     let thrIn = I.throttle;
     let loadIn = I.load;
+    // a torque cut heard as an ignition cut (Voicing.ignitionCut): the throttle the traction control or the launch control leaves under the
+    // pedal is the share of the firing events that still burn; the throttle stays open, so the rest are heard at the pedal's load
+    let fireCut = 0;
+    if (V.ignitionCut && I.pedal >= 0.25 && I.throttle >= 0.05 && I.throttle < 0.97 * I.pedal && I.limiter < 0.5) {
+      fireCut = 1 - I.throttle / I.pedal;
+      thrIn = I.pedal;
+      loadIn = Math.min(1, (I.load * I.pedal) / I.throttle);
+    }
     if (V.bridgeCut) {
       if (I.pedal >= 0.25 && I.throttle < 0.05 && I.clutch > 0 && I.limiter < 0.5) {
         if (this.cutHeld < CUT_BRIDGE) {
           this.cutHeld += dt;
           thrIn = this.preCutThr;
           loadIn = this.preCutLoad;
+          fireCut = this.preCutFire;
         }
       } else {
         this.cutHeld = 0;
-        this.preCutThr = I.throttle;
-        this.preCutLoad = I.load;
+        this.preCutThr = thrIn;
+        this.preCutLoad = loadIn;
+        this.preCutFire = fireCut;
       }
     }
+    if (V.ignitionCut) this.sFireCut += smoothCoef(0.03, dt) * (fireCut - this.sFireCut);
     this.sThr += smoothCoef(0.03, dt) * (thrIn - this.sThr);
     this.sPlate += smoothCoef(0.03, dt) * ((I.pedal >= 0 ? I.pedal : I.throttle) - this.sPlate);
     this.sLoad += smoothCoef(0.035, dt) * (loadIn - this.sLoad);
@@ -1170,6 +1197,8 @@ export class EngineVoice {
     this.heat += smoothCoef(this.heatTarget(loadE, rpmN) > this.heat ? 0.3 : 3.0, dt) * (this.heatTarget(loadE, rpmN) - this.heat);
     let popRate = V.crackle * 16 * ovr * this.heat * smoothstep(1800, 4500, rpm);
     if (this.cutActive) popRate += V.crackle * 28;
+    // (the charge of a cylinder whose spark is cut lights now and then in the hot pipe)
+    if (V.ignitionCut) popRate += V.crackle * 24 * this.sFireCut;
     if (this.burstLeft > 0) {
       this.burstGap -= dt;
       if (this.burstGap <= 0) {
@@ -1501,6 +1530,9 @@ export class EngineVoice {
     const kS = this.kS;
     const kP = this.kP;
     const cutActive = this.cutActive;
+    const igCut = V.ignitionCut;
+    const fireCutP = this.sFireCut;
+    const cylCut = this.cylCut;
     const sIntNow = sI;
     const lopeOn = V.lope > 0;
     const burbleP = this.burbleP;
@@ -1543,7 +1575,9 @@ export class EngineVoice {
             } else this.burbleRun = 0;
           }
           amp *= 1 + burb;
-          if (cutActive) amp *= 0.07;
+          // (a cylinder whose spark was cut this cycle pushes out its unburnt charge: as weak a pulse as under the limiter's cut)
+          const sparkCut = cylCut[cy] === 1;
+          if (cutActive || sparkCut) amp *= 0.07;
           const g = L.cylGroup[cy];
           const aF = amp * pFast;
           const aS = amp - aF;
@@ -1551,7 +1585,7 @@ export class EngineVoice {
           accFn[g] += aF * (1 - frac);
           accS[g] += aS * frac;
           accSn[g] += aS * (1 - frac);
-          if (!cutActive) {
+          if (!cutActive && !sparkCut) {
             // (the rasp of a weak pulse is weak, and the rasp of the tailpipe the listener is nearer to is the stronger)
             const ca = (crackAmp + burb * V.crackAbs * 0.12) * cs.gain * (0.6 + 0.8 * rng.u()) * pf * (dualOn ? tails[cs.bank].gain : 1);
             crackIn += ca * frac;
@@ -1560,7 +1594,9 @@ export class EngineVoice {
         } else if (ty === EV_COMBUSTION) {
           // (a cylinder that burns weakly thumps weakly, and its exhaust pulse, 130 degrees later, is as weak)
           if (lopeOn) this.cylBurn[cy] = this.burnFactor(L.cyl[cy].bank);
-          const a = combAmp * L.cyl[cy].gain * (cutActive ? 0.05 : 1) * (1 + 0.3 * rng.s2()) * (lopeOn ? this.cylBurn[cy] : 1);
+          // (an ignition cut: each cylinder's spark is cut with the share of the torque taken away, at random, so the cut has no tone of its own)
+          if (igCut) cylCut[cy] = fireCutP > 0.005 && rng.u() < fireCutP ? 1 : 0;
+          const a = combAmp * L.cyl[cy].gain * (cutActive || cylCut[cy] === 1 ? 0.05 : 1) * (1 + 0.3 * rng.s2()) * (lopeOn ? this.cylBurn[cy] : 1);
           blkIn += a * frac;
           blkInN += a * (1 - frac);
         } else {
