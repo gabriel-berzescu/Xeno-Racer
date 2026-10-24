@@ -9,6 +9,7 @@ import { DENT_SETTLE_S, lampOutput, packDamage, settleDentDepth } from '../src/c
 import { createBodyMaterials, createBodyUniforms } from '../src/carvis/materials';
 import { BODY_FRAG_NORMAL, BODY_FRAG_ZONES, BODY_VERT_BEGIN, BODY_VERT_PARS } from '../src/carvis/shaders';
 import { makeInterior } from '../src/carvis/interior';
+import { isFormula04 } from '../src/carvis/layouts';
 import { CarDamage, MAX_CRACKS, MAX_DENTS, MAX_MARKS, hullOf, hullSurfaceDistance, type HitEvent, type V3 } from '../src/core/damage';
 
 const bodies = new Map<string, BodyData>();
@@ -26,10 +27,11 @@ describe('damage geometry read off the sculpted body', () => {
   for (const def of CARS) {
     const spec = def.visual;
     const hull = hullOf(spec);
-    // (an open-wheeler: its headlamps are two LEDs in the nose, its tail lamps the LED strips on the rear wing's endplates; the corners of
-    // its collision box are the tips of its wings and the tyres, parts and wheels the damage model does not dent: a hit there lands on the
-    // nose or a sidepod)
+    // (an open-wheeler: its headlamps are two LEDs in the nose, its tail lamps the LED strips on the rear wing's endplates, or on the 2004
+    // car, which has no other rear light, the two halves of its rain light on the centre line; the corners of its collision box are the
+    // tips of its wings and the tyres, parts and wheels the damage model does not dent: a hit there lands on the nose or a sidepod)
     const open = spec.style === 'formula';
+    const rainTail = isFormula04(spec);
 
     it(`${def.id}: finds the four lamps, mirrored, on the nose and the tail`, () => {
       const b = body(def.id);
@@ -39,8 +41,15 @@ describe('damage geometry read off the sculpted body', () => {
       expect(hl.c[0]).toBeGreaterThan(open ? 0.05 : 0.3);
       expect(hr.c[0]).toBeLessThan(open ? -0.05 : -0.3);
       expect(hl.c[0] + hr.c[0]).toBeCloseTo(0, 1);
-      expect(tl.c[0]).toBeGreaterThan(open ? 0.4 : 0.2);
-      expect(tr.c[0]).toBeLessThan(open ? -0.4 : -0.2);
+      if (rainTail) {
+        // the rain light's two halves, side by side within 10 cm of the centre line (the rules of the time)
+        expect(tl.c[0]).toBeGreaterThan(0);
+        expect(tr.c[0]).toBeLessThan(0);
+        expect(tl.c[0] - tr.c[0]).toBeLessThan(0.1);
+      } else {
+        expect(tl.c[0]).toBeGreaterThan(open ? 0.4 : 0.2);
+        expect(tr.c[0]).toBeLessThan(open ? -0.4 : -0.2);
+      }
       // the headlights sit in the front quarter of the car, the tail lights in the rear quarter, above the bumper
       const zMid = (hull.front + hull.rear) / 2;
       const half = (hull.front - hull.rear) / 2;

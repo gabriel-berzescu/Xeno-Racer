@@ -64,6 +64,39 @@ export function formulaPoints(s: CarVisualSpec): { noseLed: V3; beam: V3; rainLi
   };
 }
 
+/** The single-seater of the V10 years (CarVisualSpec.formulaEra 2004, the Dieci); every other spec, the Volta's 2026 car among them, is not. */
+export function isFormula04(s: CarVisualSpec): boolean {
+  return s.style === 'formula' && s.formulaEra === 2004;
+}
+
+/**
+ * Where the 2004 single-seater (isFormula04) carries its lights and its exhausts (body frame, +x the left), for its body
+ * (bodies/formula04.ts), its headlamp spots, the lamps the damage model knows and the exhaust effects:
+ *   - noseLed: the left of its two LED lamps, in the rounded tip of its high nose (the right one is mirrored; the body finds the face);
+ *   - beam: where the left lamp's beam starts, 2 cm ahead of the tip and as high as the lamp (the spots cast no shadow: from further back
+ *     they lit the front wing hung under the nose);
+ *   - rainLight: the centre of the rain light on the tip of the crash structure, 35.5 cm over the floor and 48 cm behind the rear axle
+ *     (the rules of the time: within 10 cm of the centre line, at least 35 cm up, at least 45 cm behind the axle), its block 1 cm deep
+ *     standing on the tip's face;
+ *   - periscope: the mouth of the left periscope on top of the sidepod, 60 cm ahead of the rear axle (the right one is mirrored), and the
+ *     way its gas leaves it, up and 40 degrees back, a little outward (src/render/effects.ts buildTips blows the flames there: a test keeps
+ *     the two the same).
+ */
+export function formula04Points(s: CarVisualSpec): { noseLed: V3; beam: V3; rainLight: V3; periscope: { at: V3; dir: V3 } } {
+  const zF = s.wheelbase / 2;
+  const zR = -s.wheelbase / 2;
+  const zNose = zF + s.frontOverhang;
+  const zTail = -(s.wheelbase / 2 + (s.length - s.wheelbase - s.frontOverhang));
+  const hk = s.height / 0.95;
+  const d = Math.hypot(0.12, 0.77, 0.63);
+  return {
+    noseLed: [0.052, 0.335 * hk, zNose - 0.02],
+    beam: [0.052, 0.335 * hk, zNose + 0.02],
+    rainLight: [0, s.rideHeight + 0.355, zTail - 0.002],
+    periscope: { at: [0.25, 0.585 * hk, zR + 0.6], dir: [0.12 / d, 0.77 / d, -0.63 / d] },
+  };
+}
+
 export function computeLayout(s: CarVisualSpec): CarLayout {
   const zF = s.wheelbase / 2;
   const zR = -s.wheelbase / 2;
@@ -117,7 +150,24 @@ export function computeLayout(s: CarVisualSpec): CarLayout {
     steerTilt: 0.38,
     livery: lay,
   };
-  if (style === 'formula') {
+  if (isFormula04(s)) {
+    // the 2004 single-seater: the roundel on the sidepod's flank, the number on the top of the high nose ahead of the front axle, a split
+    // at its sidepods' height; the hood camera is the T-camera on the airbox, over the helmet; the bumper camera a nose camera on the
+    // high nose 45 cm ahead of the front axle, 12 cm over it; the chase anchor (where the look back from the hood, the bumper and the
+    // centre seat is filmed, and the roof the cameras size the car by) on the airbox behind the T-camera; the headlamp spots are its two
+    // LED lamps in the tip of the nose, the rain light the tail light (formula04Points)
+    const p = formula04Points(s);
+    const hk = s.height / 0.95;
+    lay.door = { z: eye[2] - 0.6, y: 0.37 * hk, r: 0.11 };
+    lay.hood = { z: zF + 0.25, r: 0.07 };
+    lay.belt = 0.5;
+    lay.trueRound = true;
+    layout.hood = [0, s.height + 0.08, eye[2] - 0.36];
+    layout.bumper = [0, 0.635 * hk, zF + 0.45];
+    layout.chase = [0, s.height, eye[2] - 0.72];
+    layout.headlight = [p.beam[0], p.beam[1], p.beam[2]];
+    layout.taillight = [p.rainLight[0], p.rainLight[1], p.rainLight[2]];
+  } else if (style === 'formula') {
     // the single-seater: the roundel on the sidepod's flank, the number on the nose behind its step, a split at its sidepods' height;
     // the hood camera is the T-camera over the airbox; the bumper camera a nose camera 70 cm ahead of the front axle, just past the
     // nose's step and 12 cm over its lower stage, which runs on to its tip in the bottom of the picture; the chase anchor (where the look
