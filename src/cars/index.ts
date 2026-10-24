@@ -845,7 +845,7 @@ const dieci: CarDefinition = {
       engineBraking: 110,
       inertia: 0.05,
       turbo: null,
-      // the launch control holds it at 10,000 rpm off the line
+      // the launch control holds it at 10,000 rpm off the line (on a winter circuit at 4900, as a road car)
       launchRpm: 10000,
     },
     drivetrain: {
