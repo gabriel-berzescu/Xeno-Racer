@@ -776,7 +776,7 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
     rec.nitroAcc -= n;
     if (n > 3) n = 3;
     const v = rec.def.visual;
-    _v1.set(0, v.cgHeight, v.cgToFrontAxle - v.wheelbase / 2).applyQuaternion(s.quaternion);
+    _v1.set(0, v.cgHeight, bodyCgZ(v)).applyQuaternion(s.quaternion);
     const ox = s.position.x - _v1.x, oy = s.position.y - _v1.y, oz = s.position.z - _v1.z;
     for (let j = 0; j < n; j++) {
       for (let i = 0; i < rec.tips.length; i++) {

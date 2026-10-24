@@ -385,6 +385,38 @@ describe('createEffects', () => {
     fx.dispose();
   });
 
+  it("lights a nitro shot's flames at the mouths of the tailpipes, where a backfire's flame starts, on every car with a nitro that burns", () => {
+    // (the car's origin for the flames is its body's, the centre of the wheelbase, bodyCgZ ahead of the centre of mass: the nitro once took
+    // it bodyCgZ behind instead, so its flames started 2 x bodyCgZ from the pipes, 63 cm inside the Kestrel's body)
+    const first = (id: string, nitro: boolean): number[] => {
+      seedRandom(13);
+      const { render, particles } = mockRender();
+      const fx = createEffects(render, makeRingTrack(), 'high');
+      const def = getCar(id);
+      const s = stateOnAsphalt(12, def);
+      fx.registerCar(12, def);
+      fx.update(1 / 60, [s], cam);
+      if (nitro) {
+        s.nitro = 1;
+        // (the jet is a steady 34 flames a second: the first comes on the second frame)
+        fx.update(1 / 60, [s], cam);
+        fx.update(1 / 60, [s], cam);
+      } else {
+        s.backfireCount++;
+        fx.update(1 / 60, [s], cam);
+      }
+      const flames = particles.children.find((c) => c.name === 'xr.fx.flames') as Mesh;
+      const P = flames.geometry.getAttribute('aP').array as Float32Array;
+      const out = [P[0], P[1], P[2]];
+      fx.dispose();
+      return out;
+    };
+    for (const id of ['vanta-gt', 'kestrel-r', 'ronin-86', 'lmp-x', 'mammoth', 'dieci']) {
+      const a = first(id, false), b = first(id, true);
+      for (let k = 0; k < 3; k++) expect(b[k], `${id} ${'xyz'[k]}`).toBeCloseTo(a[k], 4);
+    }
+  });
+
   it('survives resets, unknown cars, zero and huge dt and clear()', () => {
     const { render, particles } = mockRender();
     const fx = createEffects(render, makeRingTrack(), 'low');
