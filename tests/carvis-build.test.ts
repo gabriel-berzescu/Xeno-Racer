@@ -27,8 +27,15 @@ describe('carvis geometry build (headless)', () => {
         expect(maxZ).toBeLessThan(spec.wheelbase / 2 + spec.frontOverhang + 0.04);
         expect(minZ).toBeLessThan(-(spec.wheelbase / 2 + rear) + 0.06);
         expect(minZ).toBeGreaterThan(-(spec.wheelbase / 2 + rear) - 0.05);
-        expect(maxX - minX).toBeGreaterThan(spec.width - 0.1);
-        expect(maxX - minX).toBeLessThan(spec.width + 0.08); // the prototype's fenders must cover tyres wider than the nominal body width
+        if (spec.style === 'formula') {
+          // an open-wheeler: the sculpted body (the tub, the sidepods) runs between the front tyres; the tyres make the width, the wings are parts
+          expect(maxX).toBeLessThan(spec.trackFront / 2 - spec.tireWidthFront / 2 - 0.05);
+          expect(maxX - minX).toBeGreaterThan(0.8);
+          expect(2 * Math.max(spec.trackFront / 2 + spec.tireWidthFront / 2, spec.trackRear / 2 + spec.tireWidthRear / 2)).toBeCloseTo(spec.width, 1);
+        } else {
+          expect(maxX - minX).toBeGreaterThan(spec.width - 0.1);
+          expect(maxX - minX).toBeLessThan(spec.width + 0.08); // the prototype's fenders must cover tyres wider than the nominal body width
+        }
         expect(maxY).toBeGreaterThan(spec.height - 0.05);
         expect(maxY).toBeLessThan(spec.height + 0.03);
         expect(minY).toBeGreaterThan(spec.rideHeight - 0.1);
@@ -65,7 +72,9 @@ describe('carvis geometry build (headless)', () => {
           for (let i = 0; i < arr.length; i += 7) if (!Number.isFinite(arr[i])) bad++;
           expect(bad).toBe(0);
         }
-        expect(data.lod0.glassIndex.length).toBeGreaterThan(300);
+        // (an open cockpit has no glass at all: nothing for the glass pass to draw)
+        if (spec.openCockpit) expect(data.lod0.glassIndex.length).toBe(0);
+        else expect(data.lod0.glassIndex.length).toBeGreaterThan(300);
         expect(data.lod2.colors?.length).toBe((data.lod2.vertices.length / VERTEX_STRIDE) * 3);
       });
     });

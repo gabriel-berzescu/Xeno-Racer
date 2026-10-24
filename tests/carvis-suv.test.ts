@@ -94,8 +94,10 @@ describe('Mammoth body', () => {
   });
 
   it('keeps flares, hooks, bars and the light bar rigid in a crash: only body, carbon, accent and dark paint crumple', () => {
-    expect(DMG_VERT_PARS).toMatch(/\(pr < 0\.5 \|\| pr == 1\.0 \|\| pr == 5\.0 \|\| pr == 10\.0\) \? 1\.0 : 0\.0/);
+    // (17 and 18 are the single-seater's lamps, which crumple with what carries them; the SUV has neither)
+    expect(DMG_VERT_PARS).toMatch(/\(pr < 0\.5 \|\| pr == 1\.0 \|\| pr == 5\.0 \|\| pr == 10\.0 \|\| pr == 17\.0 \|\| pr == 18\.0\) \? 1\.0 : 0\.0/);
     const { byPart } = partsOf();
+    expect(byPart.has(PART.ledRed) || byPart.has(PART.rainLight)).toBe(false);
     // the orange recovery hooks are the signal colour (rigid), at both ends of the car
     const signal = byPart.get(PART.signal) ?? [];
     expect(signal.some((v) => v[2] > zNose - 0.1 && Math.abs(v[0] - 0.56) < 0.08)).toBe(true);

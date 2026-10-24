@@ -979,6 +979,12 @@ export interface HudState {
   spotter?: { left: number; right: number; leftAt: number; rightAt: number } | null;
   /** The HUD mirror strip is on screen at the top centre: toasts and banners step below it. */
   mirror?: boolean;
+  /**
+   * The view is the cockpit of an open-cockpit car (CarVisualSpec.openCockpit): its mirrors stand on stalks low on either side, where
+   * the nitro gauge and the shift lights would cover the right one, and its steering wheel has shift lights of its own. The gauge moves
+   * up over the mirror and the HUD's shift lights stand down. Absent: false.
+   */
+  openCockpitView?: boolean;
   /** The conditions of a race whose weather changes (null or absent: stable weather, nothing to show). */
   weather?: HudWeather | null;
   /** The player's mechanical damage (Damage: Full), or null when the car is sound or the mode is not Full. */

@@ -75,6 +75,8 @@ uniform float uTail;
 uniform float uHead;
 uniform float uDrl;
 uniform float uRev;
+uniform float uErs;       // the electric boost deploying (0: it rests): the single-seater's endplate LEDs pulse at this light
+uniform float uPillarGhost; // 1: the halo's central pillar is drawn by a faint copy of its own (the cockpit view), so the body leaves it out
 uniform float uInterior;
 uniform float uInteriorCarbon;
 uniform float uGlassAlpha;
@@ -203,6 +205,7 @@ float winSd = vZ0.x;
 
 bool zBack = !gl_FrontFacing;
 int zPart = int(vZ3.y + 0.5);
+if (uPillarGhost > 0.5 && zPart == 16 && vZ3.z < 0.0) discard;
 vec3 zCol = vec3(0.5);
 float zRough = 0.4;
 float zMetal = 0.0;
@@ -337,8 +340,26 @@ float zPx = length(fwidth(vObjPos));
       zMetal = 0.0;
       zCC = 0.0;
       zFlake = 0.0;
+    } else if (zPart == 17) {    // red LED strip (the single-seater's rear-wing endplates): a rear light, pulsing while the electric boost deploys
+      float ledOut = vObjPos.x >= 0.0 ? uLampOut.z : uLampOut.w;
+      zCol = vec3(0.3, 0.0, 0.0);
+      zRough = 0.08;
+      zMetal = 0.0;
+      zCC = 1.0;
+      zFlake = 0.0;
+      // (a deep red held near the other cars' rear lights: driven much harder, the tone mapping turns it peach-white; the boost swings
+      // it from dim to bright instead of adding to it)
+      zEmis = vec3(1.0, 0.025, 0.01) * (uErs > 0.0 ? uErs : uTail * 1.2) * ledOut;
+    } else if (zPart == 18) {    // the single-seater's rain light: a red lamp block, steady in the wet and in the dark, never a brake light
+      zCol = vec3(0.3, 0.0, 0.0);
+      zRough = 0.1;
+      zMetal = 0.0;
+      zCC = 1.0;
+      zFlake = 0.0;
+      // (it dims with each broken tail lamp, the endplate LEDs either side of it, as its light on the road does: render/effects.ts)
+      zEmis = vec3(1.0, 0.025, 0.01) * uTail * 1.4 * 0.5 * (uLampOut.z + uLampOut.w);
     }
-    if (zPart == 1 || zPart == 2 || zPart == 3 || zPart == 4 || zPart == 6 || zPart == 7 || zPart == 8 || zPart == 9 || zPart == 11 || zPart == 12 || zPart == 13 || zPart == 14 || zPart == 15) zIsPaint = 0.0;
+    if (zPart == 1 || zPart == 2 || zPart == 3 || zPart == 4 || zPart == 6 || zPart == 7 || zPart == 8 || zPart == 9 || zPart == 11 || zPart == 12 || zPart == 13 || zPart == 14 || zPart == 15 || zPart == 17 || zPart == 18) zIsPaint = 0.0;
   } else {
     // ---------- sculpted-body zones ----------
     float mTrim = zmask(vZ0.y);

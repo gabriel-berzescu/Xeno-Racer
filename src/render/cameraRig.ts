@@ -501,6 +501,8 @@ class CameraRigImpl implements CameraRig {
   private szRadius = 2.6; // bounding radius
   private anchorsOk = false;
   private seatSide = 1; // +1 = driver on the left (LHD)
+  /** The driver sits on the centre line (a single-seater): no shoulder to look over, so the cockpit looks back through the rear camera. */
+  private seatCentre = false;
 
   // ── track queries ──
   private readonly gs: GroundSample = { height: 0, normal: new Vector3(0, 1, 0), surface: 'asphalt' };
@@ -794,12 +796,16 @@ class CameraRigImpl implements CameraRig {
     const posed = _v1.lengthSq() < 36 && Math.abs(_q1.dot(this.qCar)) > 0.995;
     if (posed && _v1.y + below > 0.5 && _v1.y + below < 2.8) roof = _v1.y;
     this.anchorsOk = posed;
-    // Seat side from the cockpit anchor (x > 0 = left-hand drive).
+    // Seat side from the cockpit anchor (x > 0 = left-hand drive), and whether it is on the centre line.
     if (posed) {
       anchors.cockpit.getWorldPosition(_v1);
       _v1.sub(P).applyQuaternion(qi);
       this.seatSide = _v1.x < -0.05 ? -1 : 1;
-    } else this.seatSide = anchors.cockpit.position.x < -0.05 ? -1 : 1;
+      this.seatCentre = Math.abs(_v1.x) < 0.05;
+    } else {
+      this.seatSide = anchors.cockpit.position.x < -0.05 ? -1 : 1;
+      this.seatCentre = Math.abs(anchors.cockpit.position.x) < 0.05;
+    }
     const height = roof + below;
     const scale = clamp((0.6 * wheelbase) / T.refWheelbase + (0.4 * height) / T.refRoofHeight, 0.7, 1.6);
     const len = wheelbase * 1.7;
@@ -1238,13 +1244,19 @@ class CameraRigImpl implements CameraRig {
     const mode = this._mode;
     const cockpit = mode === 'cockpit';
     // hood / bumper: look.back cuts to a rear-facing camera on the roof, the tail in the bottom of the picture (the bumper
-    // anchor mirrored to the tail sat under the rear deck, behind the diffuser: most of the frame was the car's own body)
-    const rear = !cockpit && back;
+    // anchor mirrored to the tail sat under the rear deck, behind the diffuser: most of the frame was the car's own body);
+    // the cockpit of a driver on the centre line too, who has no shoulder to look over (a head turned 160 degrees from the middle
+    // of a single-seater looks into the headrest)
+    const rear = back && (!cockpit || this.seatCentre);
+    // (the driver's head: its look into corners, its steadied horizon and its sway; not on the rear camera)
+    const head = cockpit && !rear;
     let mcut = cut;
     if (rear !== this.rearActive) {
       this.rearActive = rear;
       mcut = true;
     }
+    // (back from the rear camera, a driver on the centre line has the head settled where the forces put it now, not where it was before)
+    const hcut = cut || (mcut && this.seatCentre);
     const anchor = mode === 'hood' ? anchors.hood : mode === 'bumper' ? anchors.bumper : anchors.cockpit;
     this.anchorPose(rear ? anchors.chase : anchor, st, _aPos, _aQuat);
     if (rear) {
@@ -1258,11 +1270,11 @@ class CameraRigImpl implements CameraRig {
     this.mountPos(_aPos, h, mcut, _mPos);
 
     // Stick (+ cockpit look-back head turn).
-    this.stepLook(h, cut, lx, ly, cockpit && back, T.cockpitLookYaw, T.cockpitLookPitch, T.cockpitLookPitch);
+    this.stepLook(h, cut, lx, ly, cockpit && back && !rear, T.cockpitLookYaw, T.cockpitLookPitch, T.cockpitLookPitch);
     const eb = ease(this.backBlend);
     let yaw = this.lkYaw.x;
     const pitch = this.lkPitch.x * (1 - eb);
-    if (cockpit) {
+    if (head) {
       // Look into corners: steering intent, yaw rate and slip (toward where the car is going).
       const aSlip = Math.abs(this.slip);
       const slipW = smoothstep(T.slipSpeedMin, T.slipSpeedFull, this.hSpeed) * (1 - smoothstep(T.slipBackStart, T.slipBackEnd, aSlip));
@@ -1271,7 +1283,7 @@ class CameraRigImpl implements CameraRig {
         -T.cornerLookMax,
         T.cornerLookMax,
       );
-      if (cut) springReset(this.swCorner, cT);
+      if (hcut) springReset(this.swCorner, cT);
       else springStep(this.swCorner, cT, T.cornerLookOmega, 0, h);
       yaw += this.swCorner.x * (1 - Math.min(1, Math.abs(this.lkYaw.x) / (20 * DEG)));
       // over the inside shoulder: right shoulder for a left-hand-drive seat
@@ -1283,7 +1295,7 @@ class CameraRigImpl implements CameraRig {
     _q1.setFromAxisAngle(AX_Y, Math.PI + yaw);
     _q2.setFromAxisAngle(AX_X, pitch);
     this.outQuat.copy(_mQuat).multiply(_q1).multiply(_q2);
-    if (cockpit) {
+    if (head) {
       // Partial horizon stabilisation against roll (relative to gravity), faded out past 45°.
       _v1.set(1, 0, 0).applyQuaternion(this.outQuat);
       _v2.set(0, 1, 0).applyQuaternion(this.outQuat);
@@ -1296,12 +1308,12 @@ class CameraRigImpl implements CameraRig {
 
     // Position: filtered anchor + cockpit head motion (against the G-force) + look-back head shift.
     this.outPos.copy(_mPos);
-    if (cockpit) {
+    if (head) {
       const g = T.headGain;
       const tx = clamp(-fin(st.localAccel.x) * g, -T.headMaxLat, T.headMaxLat);
       const ty = clamp(-fin(st.localAccel.y) * g * 0.6, -T.headMaxVert, T.headMaxVert);
       const tz = clamp(-fin(st.localAccel.z) * g, -T.headMaxLong, T.headMaxLong);
-      if (cut) {
+      if (hcut) {
         springReset(this.hdX, tx);
         springReset(this.hdY, ty);
         springReset(this.hdZ, tz);
@@ -1314,7 +1326,7 @@ class CameraRigImpl implements CameraRig {
       this.outPos.add(_v1);
     }
     this.outFov = this.fovBase + T.interiorFovDeg + T.interiorSpeedFovDeg * this.fovSpd.x + 0.5 * T.nitroFovDeg * this.fovNitro.x;
-    this.outNear = cockpit ? T.nearCockpit : T.near;
+    this.outNear = head ? T.nearCockpit : T.near;
     this.outShake = T.shakeByMode[mode];
   }
 

@@ -8,12 +8,17 @@
  *
  * The 'beadlock' style (the 4x4's) has an all-terrain tyre built differently: instead of one radius per ring (a smooth tread the shader
  * grooves) its carcass is smooth and the tread blocks are real geometry swept on it (part 21), so the silhouette is cut like a saw.
+ *
+ * The 'formula' style (the single-seater's) is a wheel no air passes through, as the 2026 rules want: a closing panel over the face of the
+ * rim instead of spokes (it never blurs: there is nothing to see turn but the centre-lock nut), and on the inboard side a drum closing the
+ * rim round the brake, carried with the caliper so it steers but does not spin. Its wheels are seen from every side, so the tyre's inner
+ * sidewall is as fine as its outer one.
  */
 import type { QualityLevel } from '../core/contracts';
 import { PART } from './blueprint';
 import { PartBuilder, frameFromAxis, type Frame, type V3 } from './parts';
 
-export type WheelStyle = 'multi' | 'split5' | 'six' | 'centerlock' | 'beadlock';
+export type WheelStyle = 'multi' | 'split5' | 'six' | 'centerlock' | 'beadlock' | 'formula';
 
 export interface WheelParams {
   R: number; // tire outer radius
@@ -37,7 +42,7 @@ const SEGS: Record<QualityLevel, number> = { low: 32, medium: 48, high: 64, ultr
 
 export function wheelLayout(p: WheelParams): WheelLayout {
   const xo = 0.43 * p.W;
-  const dish = p.style === 'centerlock' ? 0.016 : p.style === 'six' ? 0.045 : p.style === 'multi' ? 0.03 : p.style === 'beadlock' ? 0.04 : 0.026;
+  const dish = p.style === 'centerlock' ? 0.016 : p.style === 'six' ? 0.045 : p.style === 'multi' ? 0.03 : p.style === 'beadlock' ? 0.04 : p.style === 'formula' ? 0.01 : 0.026;
   const xOut = xo - dish;
   const discOuter = Math.min(p.rimR - 0.04, 0.215);
   return { xOut, xDisc: xOut - 0.062, discInner: 0.1, discOuter, discHalf: 0.014 };
@@ -301,9 +306,9 @@ export function buildWheel(p: WheelParams): PartBuilder {
       half.push([x, r]);
     }
     const prof: Array<[number, number]> = [];
-    // inner side: a coarse sidewall (hidden behind the rim from almost every angle) + the tread edge
+    // inner side: a coarse sidewall (hidden behind the rim from almost every angle) + the tread edge; on an open wheel, the whole sidewall
     const sw0 = 4; // first sidewall index in `half`
-    const inner = [half[half.length - 1], half[Math.min(sw0 + 4, half.length - 1)], half[sw0]];
+    const inner = p.style === 'formula' ? half.slice(sw0).reverse() : [half[half.length - 1], half[Math.min(sw0 + 4, half.length - 1)], half[sw0]];
     for (const [x, r] of inner) prof.push([-x, r]);
     for (let i = 3; i >= 1; i--) prof.push([-half[i][0], half[i][1]]);
     for (let i = 0; i < half.length; i++) prof.push(half[i]);
@@ -349,7 +354,7 @@ export function buildWheel(p: WheelParams): PartBuilder {
 
   // ── spokes ────────────────────────────────────────────────────────────────
   const xOut = lay.xOut;
-  const dpt = p.style === 'centerlock' ? 0.026 : p.style === 'beadlock' ? 0.032 : 0.021;
+  const dpt = p.style === 'centerlock' ? 0.026 : p.style === 'beadlock' ? 0.032 : p.style === 'formula' ? 0.012 : 0.021;
   const frame: Frame = { o: [xOut - dpt, 0, 0], u: [0, 1, 0], v: [0, 0, 1] };
   const rIn = 0.05;
   const rEnd = rimR - 0.006;
@@ -411,6 +416,19 @@ export function buildWheel(p: WheelParams): PartBuilder {
       }
       break;
     }
+    case 'formula': {
+      // the closing panel: a shallow dished carbon disc from the hub out to the lip, in place of the spokes (it does not blur)
+      const prof: Array<[number, number]> = [
+        [xOut - 0.006, 0.068],
+        [xOut - 0.01, 0.12],
+        [xOut - 0.009, rimR * 0.75],
+        [xOut - 0.005, rimR - 0.007],
+      ];
+      const v0 = revolveX(pb, prof, segs);
+      setZ(pb, v0, v0 + prof.length * segs, 13, PART.discHat);
+      setZ(pb, v0, v0 + prof.length * segs, 12, 0.85);
+      break;
+    }
   }
   // rim lip ring: thin annulus at the spoke tips so the lip reads as a polished edge
   {
@@ -463,7 +481,7 @@ export function buildWheel(p: WheelParams): PartBuilder {
     // (the beadlock's centre cap is satin black like its spokes: a polished one only reflected the white of the studio)
     setZ(pb, v0, v0 + prof.length * 40, 13, p.style === 'beadlock' ? PART.rimFace : PART.hub);
     setZ(pb, v0, v0 + prof.length * 40, 12, 0.9);
-    if (p.style === 'centerlock') {
+    if (p.style === 'centerlock' || p.style === 'formula') {
       // big knurled centre-lock nut
       const nProf: Array<[number, number]> = [
         [xOut + 0.001, 0.05],
@@ -489,8 +507,8 @@ export function buildWheel(p: WheelParams): PartBuilder {
     }
   }
 
-  // ── brake disc + hat ──────────────────────────────────────────────────────
-  {
+  // ── brake disc + hat (none behind a closing panel: nothing would see them) ─
+  if (p.style !== 'formula') {
     const { xDisc, discInner, discOuter, discHalf } = lay;
     const discSegs = Math.max(40, Math.floor(segs * 0.7));
     for (const sgn of [-1, 1]) {
@@ -519,8 +537,8 @@ export function buildWheel(p: WheelParams): PartBuilder {
     setZ(pb, v0, v0 + 4 * 40, 12, 0.4);
   }
 
-  // ── motion-blur disc (visible only when the wheel is spinning fast) ───────
-  {
+  // ── motion-blur disc (visible only when the wheel is spinning fast; a closing panel has no spokes to smear) ─
+  if (p.style !== 'formula') {
     const v0 = revolveX(pb, [[xOut + 0.0045, 0.0], [xOut + 0.0015, rimR - 0.012], [xo - 0.002, rimR + 0.004]], 32);
     setZ(pb, v0, v0 + 3 * 32, 13, PART.blurDisc);
     for (let r = 0; r < 3; r++) for (let s = 0; s < 32; s++) pb.zon[(v0 + r * 32 + s) * 16 + 1] = r === 0 ? 0 : r === 1 ? (rimR - 0.012) / rimR : 1;
@@ -532,6 +550,19 @@ export function buildWheel(p: WheelParams): PartBuilder {
 /** Non-spinning brake caliper + dust shield. In the wheel frame (+X outward), unrotated. */
 export function buildCaliper(p: WheelParams, trailing: boolean): PartBuilder {
   const pb = new PartBuilder();
+  if (p.style === 'formula') {
+    // the closed wheel's inboard side: a disc over the rim at its inner bead, the brake drum standing in from it and the duct's scoop at
+    // the front of the drum (the caliper and the disc are inside, never seen)
+    const xi = -0.43 * p.W;
+    const v0 = pb.vertexCount;
+    pb.lathe([xi + 0.003, 0, 0], [1, 0, 0], [0.0, 0.0, p.rimR + 0.004, 0.0], 40);
+    pb.lathe([xi + 0.003, 0, 0], [1, 0, 0], [p.rimR * 0.72, 0.0, p.rimR * 0.72, -0.055, p.rimR * 0.6, -0.065, 0.0, -0.065], 32);
+    pb.box([xi - 0.035, 0.04, p.rimR * 0.62], 0.028, 0.05, 0.05);
+    setZ(pb, v0, pb.vertexCount, 13, PART.shield);
+    setZ(pb, v0, pb.vertexCount, 12, 0.5);
+    void trailing;
+    return pb;
+  }
   const lay = wheelLayout(p);
   const { xDisc, discOuter, discHalf } = lay;
   // dust shield: dark plate behind the disc
@@ -577,6 +608,8 @@ export function styleForBody(style: string): WheelStyle {
       return 'six';
     case 'suv':
       return 'beadlock';
+    case 'formula':
+      return 'formula';
     default:
       return 'centerlock';
   }

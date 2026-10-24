@@ -24,12 +24,13 @@ export function inGlassFrame(m: MirrorPose, a: number, b: number, t: number): V3
 /** Both door mirrors of a car. */
 export function addDoorMirrors(b: PartBuilder, spec: CarVisualSpec): void {
   const L = mirrorLayout(spec);
-  addDoorMirror(b, L.left, L.housing.depth, L.housing.carbon, L.housing.black);
-  addDoorMirror(b, L.right, L.housing.depth, L.housing.carbon, L.housing.black);
+  const st = L.housing.stalk;
+  addDoorMirror(b, L.left, L.housing.depth, L.housing.carbon, L.housing.black, st);
+  addDoorMirror(b, L.right, L.housing.depth, L.housing.carbon, L.housing.black, st && [-st[0], st[1], st[2]]);
 }
 
-/** One housing + stalk + glass face. `depth` is how far the housing reaches forward of the glass. */
-export function addDoorMirror(b: PartBuilder, m: MirrorPose, depth: number, carbon: boolean, black = false): void {
+/** One housing + stalk + glass face. `depth` is how far the housing reaches forward of the glass; `stalk` where the stalk stands (absent: the door). */
+export function addDoorMirror(b: PartBuilder, m: MirrorPose, depth: number, carbon: boolean, black = false, stalk?: V3): void {
   const side = m.pos[0] >= 0 ? 1 : -1;
   const hw = m.halfW;
   const hh = m.halfH;
@@ -55,7 +56,7 @@ export function addDoorMirror(b: PartBuilder, m: MirrorPose, depth: number, carb
 
   // stalk from the door to the housing
   b.setPart(PART.plastic);
-  const door: V3 = [side * (Math.abs(m.pos[0]) - 0.155), m.pos[1] - 0.075, m.pos[2] - depth * 0.25];
+  const door: V3 = stalk ?? [side * (Math.abs(m.pos[0]) - 0.155), m.pos[1] - 0.075, m.pos[2] - depth * 0.25];
   const base = inGlassFrame(m, 0, -hh * 0.8, -depth * 0.35);
   b.cylinder(door, base, 0.011, 0.015, 10, false);
 }

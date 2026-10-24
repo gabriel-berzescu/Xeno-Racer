@@ -72,6 +72,7 @@ export function createHud(ctx: UiCtx): HudView {
   let clean = false;
   let standingsOn = true;
   let mirrorShown = false;
+  let openCockpit = false;
   // split screen: a pane's HUD is scaled (canvases are sized for it), has no telemetry and no mirror strip
   let split = false;
   let scale = 1;
@@ -93,6 +94,12 @@ export function createHud(ctx: UiCtx): HudView {
       if (mirror !== mirrorShown) {
         mirrorShown = mirror;
         el.classList.toggle('has-mirror', mirror);
+      }
+      // (an open cockpit's mirrors stand where the nitro gauge and the shift lights sit: hud.css and nitro.css move them out of the way)
+      const open = s.openCockpitView === true;
+      if (open !== openCockpit) {
+        openCockpit = open;
+        el.classList.toggle('open-cockpit', open);
       }
       center.update(s);
       weather.update(s);

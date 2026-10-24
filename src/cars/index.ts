@@ -593,7 +593,8 @@ const voltaVisual: CarVisualSpec = {
   wing: 1,
   engine: 'mid',
   exhaust: { count: 1, side: 'center' },
-  seat: { x: 0, y: 0.22, z: 0.2 },
+  // (the driver lies back: the seat reference is at the hips, 37 cm ahead of the eye, which sits 1.45 m behind the front axle)
+  seat: { x: 0, y: 0.22, z: 0.62 },
   openCockpit: true,
 };
 

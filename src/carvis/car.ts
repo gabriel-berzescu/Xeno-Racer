@@ -41,16 +41,17 @@ import { bodyCgZ, type CarDefinition, type DamageMode, type EnvironmentState, ty
 import { CarDamage, ImpactObserver, MAX_DENTS, hullOf, type CarDamageControl, type DamageEvent } from '../core/damage';
 import { mechanicalEffects, mechanicalProfile, neutralEffects } from '../core/mechanical';
 import type { CarVisual } from '../core/systems';
-import { VERTEX_STRIDE, type BodyData, type PartData } from './build';
+import { VERTEX_STRIDE, type BodyData, type MovingPartData, type PartData } from './build';
 import { makeDamageGeometry, partBounds } from './damageGeometry';
 import { anyLampFlickers, packDamage, settleDentDepth } from './damageUniforms';
+import { PART } from './blueprint';
 import { loadCarData } from './dataSource';
 import { createInteriorMaterial } from './interiorMaterial';
 import { computeLayout, wheelLook } from './layouts';
 import { createMirrorRig, type MirrorRig } from './mirrors';
 import { paintLivery, type LiveryTextures, type LiveryTier } from './livery';
 import { acquireTireTextTexture } from './textures';
-import { createBodyMaterials, createFarMaterial, type BodyMaterials } from './materials';
+import { createBodyMaterials, createFarMaterial, createPillarMaterial, type BodyMaterials } from './materials';
 import { createWheelMaterial } from './wheelMaterial';
 
 /** Tunables the render/game side may want to adjust. */
@@ -79,6 +80,10 @@ interface GeoSet {
   driver: BufferGeometry;
   driverLite: BufferGeometry;
   steer: BufferGeometry;
+  /** the parts that move with the car's state (the active aero's flaps), each with its hinge */
+  moving: Array<{ geo: BufferGeometry; m: MovingPartData }>;
+  /** the halo's central pillar out of paint0 (null: the body has none), drawn faint in the cockpit view */
+  pillar: BufferGeometry | null;
   refs: number;
 }
 const geoCache = new Map<string, GeoSet>();
@@ -105,6 +110,24 @@ function bodyGeos(d: BodyData): { paint: BufferGeometry; glass: BufferGeometry }
     return g;
   };
   return { paint: mk(d.paintIndex), glass: mk(d.glassIndex) };
+}
+
+/** The paint triangles of the halo's central pillar (PART.halo, zone channel 14 < 0), over paint0's own vertices; null when there are none. */
+function pillarGeo(d: BodyData, paint: BufferGeometry): BufferGeometry | null {
+  const v = d.vertices;
+  const idx = d.paintIndex;
+  const out: number[] = [];
+  for (let t = 0; t < idx.length; t += 3) {
+    const o = idx[t] * VERTEX_STRIDE + 6;
+    if (Math.round(v[o + 13]) === PART.halo && v[o + 14] < 0) out.push(idx[t], idx[t + 1], idx[t + 2]);
+  }
+  if (out.length === 0) return null;
+  const g = new BufferGeometry();
+  for (const k of ['position', 'normal', 'aZ0', 'aZ1', 'aZ2', 'aZ3']) g.setAttribute(k, paint.getAttribute(k));
+  g.setIndex(new BufferAttribute(Uint32Array.from(out), 1));
+  g.boundingBox = paint.boundingBox;
+  g.boundingSphere = paint.boundingSphere;
+  return g;
 }
 
 function farGeo(d: BodyData): BufferGeometry {
@@ -163,13 +186,27 @@ function buildGeoSet(data: Awaited<ReturnType<typeof loadCarData>>): GeoSet {
     driver: partGeometry(data.interior.driver),
     driverLite: partGeometry(data.interior.driverLite),
     steer: partGeometry(data.interior.wheel),
+    moving: (data.moving ?? []).map((m) => ({ geo: movingGeometry(m.data, data.lod0), m })),
+    pillar: pillarGeo(data.lod0, b0.paint),
     refs: 0,
   };
 }
 
+/** A moving part's mesh: in the body frame, culled with the body (a flap turns a few degrees about a hinge inside the body's box). */
+function movingGeometry(d: PartData, body: BodyData): BufferGeometry {
+  const ib = new InterleavedBuffer(d.vertices, VERTEX_STRIDE);
+  const g = new BufferGeometry();
+  attachAttrs(g, ib);
+  g.setIndex(new BufferAttribute(d.index, 1));
+  const box = new Box3().setFromArray([...body.bounds.min, ...body.bounds.max]);
+  g.boundingBox = box;
+  g.boundingSphere = box.getBoundingSphere(new Sphere());
+  return g;
+}
+
 function disposeGeoSet(s: GeoSet): void {
   const seen = new Set<BufferGeometry>();
-  for (const g of [s.paint0, s.glass0, s.paint1, s.glass1, s.far, ...s.wheel0, ...s.cal0, ...s.wheel1, ...s.cal1, s.cabin, s.driver, s.driverLite, s.steer]) {
+  for (const g of [s.paint0, s.glass0, s.paint1, s.glass1, s.far, ...s.wheel0, ...s.cal0, ...s.wheel1, ...s.cal1, s.cabin, s.driver, s.driverLite, s.steer, ...s.moving.map((m) => m.geo), ...(s.pillar ? [s.pillar] : [])]) {
     if (seen.has(g)) continue;
     seen.add(g);
     g.dispose();
@@ -224,6 +261,31 @@ const AX_X = new Vector3(1, 0, 0);
 const AX_Z = new Vector3(0, 0, 1);
 const ONE = new Vector3(1, 1, 1);
 
+const _mq = new Quaternion();
+const _mp = new Vector3();
+const _mt = new Vector3();
+/**
+ * Where a moving part stands (Blueprint.moving), as its matrix in the body frame: turned by its angle times `drive` (0..1, clamped)
+ * about the axis through its pivot. At 0 it is the identity: the part as it was built.
+ */
+export function poseMoving(m: Pick<MovingPartData, 'pivot' | 'axis' | 'angle'>, drive: number, out: Matrix4): Matrix4 {
+  _mq.setFromAxisAngle(_mt.set(m.axis[0], m.axis[1], m.axis[2]), m.angle * Math.min(1, Math.max(0, drive)));
+  _mp.set(m.pivot[0], m.pivot[1], m.pivot[2]);
+  // p' = pivot + R (p - pivot)
+  _mt.copy(_mp).applyQuaternion(_mq).negate().add(_mp);
+  return out.compose(_mt, _mq, ONE);
+}
+
+/**
+ * How far the steering wheel turns each way at full lock (rad): the front wheels' lock times the steering ratio of the body style, at most
+ * one and a quarter turns. (The single-seater's yoke turns 120 degrees each way: hands on its grips never cross.)
+ */
+export function steeringLock(def: CarDefinition): number {
+  const style = def.visual.style;
+  const steerRatio = style === 'prototype' ? 7 : style === 'coupe' ? 12.5 : style === 'suv' ? 15 : style === 'formula' ? 5 : 13;
+  return Math.min(Math.PI * 2.5, def.physics.chassis.maxSteer * steerRatio);
+}
+
 export async function createCarVisual(def: CarDefinition, livery: Livery, quality: QualityLevel): Promise<CarVisual> {
   const spec = def.visual;
   const dbgCell = (globalThis as { __CARVIS_CELL__?: number }).__CARVIS_CELL__;
@@ -258,6 +320,8 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
     U.uGlassAlpha.value = 0.42;
     U.uInteriorCarbon.value = 1;
   }
+  // (the single-seater has no glass; the inside of its tub is carbon)
+  if (spec.style === 'formula') U.uInteriorCarbon.value = 1;
 
   const farMat = createFarMaterial(U);
   let farBaseRough = farMat.roughness;
@@ -304,6 +368,8 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
   WU.uTread.value = look.tread;
   const tireText = acquireTireTextTexture(spec, look.slick > 0.5, livery.accent);
   WU.uTireText.value = tireText.tex;
+  // (the single-seater's slicks carry their lettering in the colour of their compound, the medium's yellow)
+  if (spec.style === 'formula') WU.uAccent.value.setRGB(1.0, 0.62, 0.0);
   const mkInst = (g: BufferGeometry, mat: Mesh['material'], shadow: boolean): InstancedMesh => {
     const m = new InstancedMesh(g, mat, 2);
     m.instanceMatrix.setUsage(DynamicDrawUsage);
@@ -338,14 +404,14 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
   const driverLiteMesh = mkStatic(gs.driverLite, interiorMat.material, false);
   const steerMesh = new Mesh(gs.steer, interiorMat.material);
   const steerGroup = new Group();
+  steerGroup.name = 'steer';
   steerGroup.position.set(...data.interior.wheelPos);
   const wn = data.interior.wheelNormal;
   const tiltAng = Math.atan2(wn[1], -wn[2]);
   const qBase = new Quaternion().setFromAxisAngle(AX_X, tiltAng).multiply(new Quaternion().setFromAxisAngle(AX_Y, Math.PI));
   steerGroup.quaternion.copy(qBase);
   steerGroup.add(steerMesh);
-  const steerRatio = spec.style === 'prototype' ? 7 : spec.style === 'coupe' ? 12.5 : spec.style === 'suv' ? 15 : 13;
-  const steerLock = Math.min(Math.PI * 2.5, def.physics.chassis.maxSteer * steerRatio);
+  const steerLock = steeringLock(def);
   const qSteer = new Quaternion();
 
   // ── assemble levels ────────────────────────────────────────────────────────
@@ -355,6 +421,14 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
   const g0 = new Group();
   g0.name = 'lod0';
   g0.add(paint0, glass0, ...wheels0, ...cal0, cabinMesh, driverMesh, steerGroup);
+  // the halo's central pillar in the cockpit view: 35 % of itself, as a driver's two eyes see past it (the body leaves it out meanwhile)
+  const pillarMat = gs.pillar ? createPillarMaterial(U, 0.35) : null;
+  const pillar0 = gs.pillar && pillarMat ? mkStatic(gs.pillar, pillarMat, false) : null;
+  if (pillar0) {
+    pillar0.name = 'pillar';
+    pillar0.receiveShadow = false;
+    g0.add(pillar0);
+  }
 
   const paint1 = mkStatic(gs.paint1, mats.paint, true);
   const glass1 = mkStatic(gs.glass1, mats.glass, false);
@@ -362,6 +436,16 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
   const g1 = new Group();
   g1.name = 'lod1';
   g1.add(paint1, glass1, ...wheels1, ...cal1, driverLiteMesh);
+
+  // the parts that move (the active aero's flaps): a mesh each in both near LODs, turned about its hinge by update()
+  const moving = gs.moving.map(({ geo, m }) => {
+    const near = mkStatic(geo, mats.paint, true);
+    const ai = mkStatic(geo, mats.paint, false);
+    near.name = ai.name = 'moving:' + m.name;
+    g0.add(near);
+    g1.add(ai);
+    return { m, near, ai, shown: 0 };
+  });
 
   const farBody = mkStatic(gs.far, farMat, false);
   const g2 = new Group();
@@ -469,7 +553,11 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
   /** every event the car took in live play, so a replay can hand the race's own damage back when it ends */
   const liveLog: DamageEvent[] = [];
   const lampsNow = new Float32Array([1, 1, 1, 1]);
-  if (spec.style === 'prototype') U.uDmgBase.value = 1;
+  // (carbon under the paint: the prototype, the single-seater)
+  if (spec.style === 'prototype' || spec.style === 'formula') U.uDmgBase.value = 1;
+  /** The single-seater's rear lights: no brake light, a rain light lit in the wet and in the dark; its endplate LEDs pulse with the electric boost. */
+  const rainLight = spec.style === 'formula';
+  const electric = !!def.physics.engine.electric;
   {
     const [lo, hi] = partBounds(data.interior.cabin.vertices);
     U.uCabinMin.value.set(lo[0], lo[1], lo[2]);
@@ -548,6 +636,10 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
     shadowProxy.visible = !playerMode;
     proxyWheels.visible = !playerMode;
     driverMesh.visible = playerMode && !cockpitMode && !hideList.includes('driver');
+    if (pillar0) {
+      pillar0.visible = playerMode && cockpitMode && paint0.visible;
+      U.uPillarGhost.value = pillar0.visible ? 1 : 0;
+    }
     mirrorRig?.setCockpit(playerMode && cockpitMode);
     steerGroup.visible = playerMode && !hideList.includes('steer');
     for (const s of spots) s.visible = playerMode && spotsOn && beamsOn;
@@ -555,14 +647,15 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
   applyVisibility();
 
   const tri = (g: BufferGeometry): number => (g.index ? g.index.count / 3 : 0);
+  const movingTris = gs.moving.reduce((n, m) => n + tri(m.geo), 0);
   root.userData.carvis = {
     triangles: {
-      lod0: tri(gs.paint0) + tri(gs.glass0) + tri(gs.wheel0[0]) * 2 + tri(gs.wheel0[1]) * 2 + tri(gs.cal0[0]) * 2 + tri(gs.cal0[1]) * 2 + tri(gs.cabin) + tri(gs.driver) + tri(gs.steer),
-      lod1: tri(gs.paint1) + tri(gs.glass1) + tri(gs.wheel1[0]) * 2 + tri(gs.wheel1[1]) * 2 + tri(gs.cal1[0]) * 2 + tri(gs.cal1[1]) * 2 + tri(gs.driverLite),
+      lod0: tri(gs.paint0) + tri(gs.glass0) + tri(gs.wheel0[0]) * 2 + tri(gs.wheel0[1]) * 2 + tri(gs.cal0[0]) * 2 + tri(gs.cal0[1]) * 2 + tri(gs.cabin) + tri(gs.driver) + tri(gs.steer) + movingTris,
+      lod1: tri(gs.paint1) + tri(gs.glass1) + tri(gs.wheel1[0]) * 2 + tri(gs.wheel1[1]) * 2 + tri(gs.cal1[0]) * 2 + tri(gs.cal1[1]) * 2 + tri(gs.driverLite) + movingTris,
       lod2: tri(gs.far) + 4 * 20,
-      parts0: { paint: tri(gs.paint0), glass: tri(gs.glass0), wheels: tri(gs.wheel0[0]) * 2 + tri(gs.wheel0[1]) * 2, cabin: tri(gs.cabin), driver: tri(gs.driver) },
+      parts0: { paint: tri(gs.paint0), glass: tri(gs.glass0), wheels: tri(gs.wheel0[0]) * 2 + tri(gs.wheel0[1]) * 2, cabin: tri(gs.cabin), driver: tri(gs.driver), moving: movingTris },
     },
-    drawCalls: { lod0: 1 + 1 + 2 + 2 + 1 + 1 + 1, lod1: 1 + 1 + 2 + 2 + 1, lod2: 2 },
+    drawCalls: { lod0: 1 + 1 + 2 + 2 + 1 + 1 + 1 + moving.length, lod1: 1 + 1 + 2 + 2 + 1 + moving.length, lod2: 2 },
   };
 
   const anchors = {
@@ -650,12 +743,24 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
         cm[a].instanceMatrix.needsUpdate = true;
       }
       if (!full) farWheels.instanceMatrix.needsUpdate = true;
+      // the active aero: each flap turned about its hinge by where the aero stands (0 corner mode .. 1 straight mode)
+      for (const mv of moving) {
+        const open = Math.min(1, Math.max(0, state.aeroOpen ?? 0));
+        if (open === mv.shown) continue;
+        mv.shown = open;
+        poseMoving(mv.m, open, mv.near.matrix);
+        mv.ai.matrix.copy(mv.near.matrix);
+        mv.near.matrixWorldNeedsUpdate = true;
+        mv.ai.matrixWorldNeedsUpdate = true;
+      }
       if (full) {
         qSteer.setFromAxisAngle(AX_Z, -state.steer * steerLock);
         steerGroup.quaternion.copy(qBase).multiply(qSteer);
         const cl = IU.uCluster.value;
         const span = state.limiterRpm > 0 ? state.limiterRpm : 8000;
         cl.set(Math.min(1, Math.max(0, state.rpm / span)), state.gear, state.speed * 3.6, state.revLimiter ? 1 : 0);
+        // (the single-seater's yoke also shows where its active aero stands and its electric boost deploying)
+        IU.uYoke.value.set(Math.min(1, Math.max(0, state.aeroOpen ?? 0)), electric ? Math.min(1, Math.max(0, state.nitro ?? 0)) : 0, 0, 0);
       }
 
       // the light through the glass: the sun rarely reaches the dash and wheel under the roof, and with the black trim
@@ -696,6 +801,15 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
       U.uDrl.value = 1 - 0.5 * head;
       U.uTail.value = 0.12 + 0.88 * head;
       U.uBrake.value = state.brake > 0.05 ? 1 : 0;
+      if (rainLight) {
+        // (steady once the road is wet or the night falls, off on a dry day; about as bright as the other cars' rear lights, a little
+        // brighter by day, through the spray, than at night: driven harder, the tone mapping turns the red peach-white. The endplate
+        // LEDs pulse three times a second while the electric boost deploys, from a quarter of their brightest to all of it.)
+        const on = Math.max(head, Math.min(1, Math.max(0, (wet - 0.08) / 0.22)));
+        U.uTail.value = on * (1.1 - 0.4 * head);
+        U.uBrake.value = 0;
+        U.uErs.value = electric && (state.nitro ?? 0) > 0.05 ? (1.5 - 0.5 * head) * (0.25 + 0.75 * (0.5 + 0.5 * Math.sin(dmgClock * Math.PI * 6))) : 0;
+      }
       U.uRev.value = state.gear === -1 ? 1 : 0;
       // (the spotlights are fitted for the darkest this race gets: switching one on changes what every lit material is built from)
       const wantSpots = Math.max(dark, env.peakDarkness ?? 0) > CARVIS_TUNING.headlightOnDarkness;
@@ -728,8 +842,8 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
       if (on && !mirrorRig) {
         mirrorRig = createMirrorRig(spec);
         // in a mirror the player's body is the coarse one (its wheels stay the full-detail ones: only they are posed in player mode)
-        mirrorRig.api.hide.push(cabinMesh, driverMesh, steerGroup, driverLiteMesh, ...wheels1, ...cal1);
-        mirrorRig.api.lowDetail.hide.push(paint0, glass0);
+        mirrorRig.api.hide.push(cabinMesh, driverMesh, steerGroup, driverLiteMesh, ...wheels1, ...cal1, ...(pillar0 ? [pillar0] : []));
+        mirrorRig.api.lowDetail.hide.push(paint0, glass0, ...moving.map((m) => m.near));
         mirrorRig.api.lowDetail.show.push(lodAI);
         g0.add(mirrorRig.group);
       }
@@ -765,6 +879,7 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
       textures.dispose();
       wheelMat.material.dispose();
       interiorMat.material.dispose();
+      pillarMat?.dispose();
       farMat.dispose();
       proxyMat.dispose();
       farWheelMat.dispose();

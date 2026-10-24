@@ -18,7 +18,8 @@ const STEPS = 24;
  * The car from above, in an 80 x 142 box, nose up: the plan of its body and of its cabin, where its wheels stand (x, y, width and height
  * of FL FR RL RR) and where the four zones divide (the nose ends at y `front`, the tail begins at `rear`, a flank is the strip `side` wide
  * at either edge between them). A grand tourer is a teardrop, the Mammoth a brick with flared arches, a flat nose and a flat tail, the
- * LMP-X a front wing, a nose cone, fat pods over the wheels, a waist, an engine cover and a rear wing: the drawing says whose car it is,
+ * LMP-X a front wing, a nose cone, fat pods over the wheels, a waist, an engine cover and a rear wing, the Volta a front wing, a narrow
+ * nose, its wheels out in the air on their arms, sidepods narrowing to a gearbox and a rear wing: the drawing says whose car it is,
  * and the zones lie where that car's parts are (the wings are in the nose and the tail zones, as the downforce they carry is).
  */
 export interface Shape {
@@ -55,12 +56,22 @@ export const SHAPES = {
     rear: 96,
     side: 31,
   },
+  // (the single-seater: the front wing ahead of the front wheels, the arms out to the wheels at their middles, the cockpit between the
+  // sidepods, the rear wing inboard of the rear wheels; the wings are in the nose and the tail zones, the suspension in the flanks)
+  formula: {
+    body: 'M40 4 L70 4 C72.5 4 74 5.5 74 7.5 L74 10.5 C74 12 73 12.5 71.5 12.5 L44 12.5 L45 22 L67 23.5 L67 26.5 L45.5 28.5 L47 40 C47.5 43 48.5 45.5 50 47.5 L62 52.5 C64.5 53.5 66 55 66 57.5 L66 88 C66 94 60 100 54 104 L51 108 L66 115 L66 119 L49 121 L48 128 L61 128 C63 128 64 129 64 131 L64 137 C64 138.5 63 139.5 61.5 139.5 L40 139.5 L18.5 139.5 C17 139.5 16 138.5 16 137 L16 131 C16 129 17 128 19 128 L32 128 L31 121 L14 119 L14 115 L29 108 L26 104 C20 100 14 94 14 88 L14 57.5 C14 55 15.5 53.5 18 52.5 L30 47.5 C31.5 45.5 32.5 43 33 40 L34.5 28.5 L13 26.5 L13 23.5 L35 22 L36 12.5 L8.5 12.5 C7 12.5 6 12 6 10.5 L6 7.5 C6 5.5 7.5 4 10 4 L40 4 Z',
+    cabin: 'M40 50 C43.5 50 45 53 45 57 L45 68 C45 70.5 43 72 40 72 C37 72 35 70.5 35 68 L35 57 C35 53 36.5 50 40 50 Z',
+    wheels: [[1, 14, 12, 24], [67, 14, 12, 24], [0, 104, 14, 27], [66, 104, 14, 27]],
+    front: 46,
+    rear: 100,
+    side: 26,
+  },
 } as const satisfies Record<string, Shape>;
 
 export type ShapeId = keyof typeof SHAPES;
 
-/** The shape each body style is drawn in: the three road cars share the grand tourer's (and the Volta the prototype's, until it has its own). */
-export const SHAPE_OF: Record<BodyStyle, ShapeId> = { gt: 'gt', coupe: 'gt', hatch: 'gt', suv: 'suv', prototype: 'prototype', formula: 'prototype' };
+/** The shape each body style is drawn in: the three road cars share the grand tourer's. */
+export const SHAPE_OF: Record<BodyStyle, ShapeId> = { gt: 'gt', coupe: 'gt', hatch: 'gt', suv: 'suv', prototype: 'prototype', formula: 'formula' };
 
 /** The four zones of a shape, as the rectangles that are cut to its body. */
 const zonePaths = (s: Shape): Record<'front' | 'rear' | 'left' | 'right', string> => ({

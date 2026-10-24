@@ -26,17 +26,21 @@ describe('damage geometry read off the sculpted body', () => {
   for (const def of CARS) {
     const spec = def.visual;
     const hull = hullOf(spec);
+    // (an open-wheeler: its headlamps are two LEDs in the nose, its tail lamps the LED strips on the rear wing's endplates; the corners of
+    // its collision box are the tips of its wings and the tyres, parts and wheels the damage model does not dent: a hit there lands on the
+    // nose or a sidepod)
+    const open = spec.style === 'formula';
 
     it(`${def.id}: finds the four lamps, mirrored, on the nose and the tail`, () => {
       const b = body(def.id);
-      const lamps = findLamps(b.vertices, b.stats.bodyVertices, spec);
+      const lamps = findLamps(b.vertices, b.stats.bodyVertices, spec, b.info?.lamps);
       expect(lamps.length).toBe(4);
       const [hl, hr, tl, tr] = lamps;
-      expect(hl.c[0]).toBeGreaterThan(0.3);
-      expect(hr.c[0]).toBeLessThan(-0.3);
+      expect(hl.c[0]).toBeGreaterThan(open ? 0.05 : 0.3);
+      expect(hr.c[0]).toBeLessThan(open ? -0.05 : -0.3);
       expect(hl.c[0] + hr.c[0]).toBeCloseTo(0, 1);
-      expect(tl.c[0]).toBeGreaterThan(0.2);
-      expect(tr.c[0]).toBeLessThan(-0.2);
+      expect(tl.c[0]).toBeGreaterThan(open ? 0.4 : 0.2);
+      expect(tr.c[0]).toBeLessThan(open ? -0.4 : -0.2);
       // the headlights sit in the front quarter of the car, the tail lights in the rear quarter, above the bumper
       const zMid = (hull.front + hull.rear) / 2;
       const half = (hull.front - hull.rear) / 2;
@@ -57,8 +61,8 @@ describe('damage geometry read off the sculpted body', () => {
       for (const a of [20, 50, 85].map((d) => (d * Math.PI) / 180)) {
         const push: V3 = [-Math.cos(a), 0, -Math.sin(a)]; // from the barrier into the car
         const c = bodySurfacePoint(b.vertices, n, [hull.hw, hull.top, hull.front], push, band);
-        // on the body, inside the collision box, in the damage band, towards the front left
-        expect(c[0]).toBeGreaterThan(0.3 * hull.hw);
+        // on the body, inside the collision box, in the damage band, towards the front left (on an open-wheeler, the nose's left flank)
+        expect(c[0]).toBeGreaterThan(open ? 0 : 0.3 * hull.hw);
         expect(c[2]).toBeGreaterThan(hull.front * 0.35);
         expect(c[1]).toBeGreaterThanOrEqual(band[0] - 1e-6);
         expect(c[1]).toBeLessThanOrEqual(band[1] + 1e-6);
@@ -84,10 +88,16 @@ describe('damage geometry read off the sculpted body', () => {
       d.apply(ev);
       expect(d.dents.length).toBe(1);
       const c = d.dents[0].c;
-      expect(c[0]).toBeGreaterThan(0.3 * hull.hw);
+      expect(c[0]).toBeGreaterThan(open ? 0 : 0.3 * hull.hw);
       expect(c[2]).toBeGreaterThan(hull.front - 0.9);
-      expect(d.lamps[0].out).toBe(0); // the front left lamp
-      expect(d.lamps[1].out).toBe(1);
+      if (open) {
+        // the nose takes it, and both its LEDs, side by side in it; the tail lamps are untouched
+        expect(d.lamps[0].out).toBeLessThan(1);
+        expect(d.lamps[1].out).toBeLessThan(1);
+      } else {
+        expect(d.lamps[0].out).toBe(0); // the front left lamp
+        expect(d.lamps[1].out).toBe(1);
+      }
       expect(d.lamps[2].out).toBe(1);
       expect(d.lamps[3].out).toBe(1);
     });
@@ -95,6 +105,11 @@ describe('damage geometry read off the sculpted body', () => {
     it(`${def.id}: finds the glass, the windscreen ahead of the rear glass and a side window each side`, () => {
       const b = body(def.id);
       const g = findGlass(b.vertices, b.stats.bodyVertices);
+      if (spec.openCockpit) {
+        // an open cockpit: no glass anywhere
+        for (const k of ['front', 'rear', 'left', 'right'] as const) expect(g[k].pts.length, k).toBe(0);
+        return;
+      }
       for (const k of ['front', 'rear', 'left', 'right'] as const) expect(g[k].pts.length, k).toBeGreaterThan(0);
       const meanZ = (pts: number[]): number => {
         let z = 0;
@@ -116,6 +131,17 @@ describe('damage geometry read off the sculpted body', () => {
       const b = body(def.id);
       const g = findGlass(b.vertices, b.stats.bodyVertices);
       const mid = (hull.front + hull.rear) / 2;
+      if (spec.openCockpit) {
+        // no glass to shake: no hit from any side cracks anything
+        expect(glassPointsOf(g, [0.5, hull.top, hull.front], [0, 0, -1])).toEqual([]);
+        expect(glassPointsOf(g, [0, hull.top, hull.rear], [0, 0, 1])).toEqual([]);
+        expect(glassPointsOf(g, [hull.hw, 0.6, mid], [-1, 0, 0])).toEqual([]);
+        const d = new CarDamage(hull, makeDamageGeometry(b, spec));
+        d.apply({ type: 'hit', kind: 'wall', strength: 14, p: [0, hull.top, hull.front], n: [0, 0, -1], slide: [0, 0, 4] });
+        expect(d.cracks).toEqual([]);
+        expect(d.lastHit?.glass).toBeNull();
+        return;
+      }
       // from the front: the windscreen, on the side the hit came in, low down
       const front = glassPointsOf(g, [0.5, hull.top, hull.front], [0, 0, -1]);
       expect(front.map((s) => s.id)).toEqual([0]);
@@ -145,7 +171,8 @@ describe('damage geometry read off the sculpted body', () => {
     for (const def of CARS) {
       const [lo, hi] = partBounds(makeInterior(def.visual, 'low').cabin.vertices);
       const hull = hullOf(def.visual);
-      expect(hi[0] - lo[0]).toBeGreaterThan(0.8);
+      // (an open cockpit's cabin is the seat in a narrow tub)
+      expect(hi[0] - lo[0]).toBeGreaterThan(def.visual.openCockpit ? 0.3 : 0.8);
       expect(hi[0]).toBeLessThan(hull.hw - 0.05); // inside the body's width
       expect(lo[0]).toBeGreaterThan(-hull.hw + 0.05);
       expect(hi[1]).toBeLessThan(def.visual.height);

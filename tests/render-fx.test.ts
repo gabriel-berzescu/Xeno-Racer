@@ -1,7 +1,7 @@
 import { Mesh, PerspectiveCamera, Scene, ShaderMaterial, Vector3 } from 'three';
 import { describe, expect, it } from 'vitest';
 import { getCar } from '../src/cars';
-import type { GraphicsSettings, VehicleState } from '../src/core/contracts';
+import { bodyCgZ, type GraphicsSettings, type VehicleState } from '../src/core/contracts';
 import type { RenderSystem } from '../src/core/systems';
 import { createEffects } from '../src/render/effects';
 import { ContactShadows } from '../src/render/fx/contactShadow';
@@ -346,6 +346,42 @@ describe('createEffects', () => {
     expect(bang.flames).toBeGreaterThanOrEqual(4);
     expect(bang.glows).toBeGreaterThanOrEqual(4); // and a round flash per flame
     expect(bang.sparks).toBe(0); // a flame, not sparks: those read as the car grinding on something
+    fx.dispose();
+  });
+
+  it("throws no flame for an electric boost, and backfires out of the single-seater's one tailpipe over its crash structure", () => {
+    seedRandom(11);
+    // a nitro shot: flames out of the LMP-X's pipes, none out of the Volta's (its boost is its electric motor, EngineSpec.electric)
+    const shot = (id: string): number => {
+      const { render, particles } = mockRender();
+      const fx = createEffects(render, makeRingTrack(), 'high');
+      const s = stateOnAsphalt(6, getCar(id));
+      fx.registerCar(6, getCar(id));
+      fx.update(1 / 60, [s], cam);
+      s.nitro = 1;
+      for (let i = 0; i < 20; i++) fx.update(1 / 60, [s], cam);
+      const n = instanceCounts(particles).flames;
+      fx.dispose();
+      return n;
+    };
+    expect(shot('lmp-x')).toBeGreaterThan(2);
+    expect(shot('volta')).toBe(0);
+    // a backfire still flames, from the one tip: on the centre line, 41 cm over the ride height, half a metre behind the rear axle
+    const { render, particles } = mockRender();
+    const fx = createEffects(render, makeRingTrack(), 'high');
+    const volta = getCar('volta');
+    const v = volta.visual;
+    const s = stateOnAsphalt(8, volta);
+    fx.registerCar(8, volta);
+    fx.update(1 / 60, [s], cam);
+    s.backfireCount++;
+    fx.update(1 / 60, [s], cam);
+    const flames = particles.children.find((c) => c.name === 'xr.fx.flames') as Mesh;
+    expect(instanceCounts(particles).flames).toBe(1);
+    const P = flames.geometry.getAttribute('aP').array as Float32Array;
+    expect(P[0]).toBeCloseTo(0, 6);
+    expect(P[1]).toBeCloseTo(v.rideHeight + 0.41, 2);
+    expect(P[2]).toBeCloseTo(-v.wheelbase / 2 - 0.5 - bodyCgZ(v) + s.velocity.z / 60, 2);
     fx.dispose();
   });
 

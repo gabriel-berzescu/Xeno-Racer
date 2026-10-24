@@ -1,7 +1,11 @@
 /**
- * Car showroom. Query: ?car=vanta-gt|kestrel-r|ronin-86|lmp-x|mammoth &view=front34|side|rear34|top|front|rear|chase|cockpit|low|lowrear|wheelF|wheelR|sheet
+ * Car showroom. Query: ?car=vanta-gt|kestrel-r|ronin-86|lmp-x|mammoth|volta &view=front34|side|rear34|top|front|rear|chase|cockpit|low|lowrear|wheelF|wheelR|sheet
  *   &anim=0|1 &night=0|1 &q=low|medium|high &primary=%23hex &pattern=… &number=7 &metallic=0|1 &finish=0..1 &player=0|1
  *   &wet=0..1 (wet paint, beading, glass drops: env.wetness)  &rain=0..1 (env.rain; > 0 also marks the weather as rain)
+ *   &aero=0..1 where the active aero stands (VehicleState.aeroOpen: the Volta's wing flaps open with it; with anim=1 it opens and
+ *        closes by itself)  &nitro=0..1 a nitro shot burning (state.nitro: the Volta's endplate lights pulse with it)
+ *   &rpm=5200 &gear=3 &kmh=101 &limiter=1 what the cockpit's displays read (the limiter: the car's own, from its engine)
+ *   &view=yoke the steering wheel from the driver's eye through a long lens
  *   &dmg=fl:14:wall:25,sl:5:car   crash damage, applied straight to the model: zone:closing speed (m/s):wall|car:angle (deg to the
  *        barrier). Zones: fl fr f (front corners / centre), bl br b (rear), sl sr (flanks). &rub=sl:3 adds a scrape along a flank.
  *        window.__CAR__.hit('fl:14:wall:25') does the same from a script.
@@ -173,9 +177,16 @@ function makeState(d: CarDefinition): VehicleState {
   } as VehicleState;
   const cgZ = bodyCgZ(v);
   st.position.set(0, v.cgHeight, cgZ);
-  st.speed = 28;
-  st.forwardSpeed = 28;
-  st.rpm = 5200;
+  st.aeroOpen = Math.min(1, Math.max(0, parseFloat(q.get('aero') ?? '0') || 0));
+  st.nitro = Math.min(1, Math.max(0, parseFloat(q.get('nitro') ?? '0') || 0));
+  st.speed = q.get('kmh') ? parseFloat(q.get('kmh')!) / 3.6 : 28;
+  st.forwardSpeed = st.speed;
+  st.rpm = q.get('rpm') ? parseFloat(q.get('rpm')!) : 5200;
+  st.limiterRpm = d.physics.engine.limiterRpm;
+  st.redlineRpm = d.physics.engine.redlineRpm;
+  st.idleRpm = d.physics.engine.idleRpm;
+  if (q.get('gear')) st.gear = parseInt(q.get('gear')!, 10);
+  st.revLimiter = q.get('limiter') === '1';
   const zs = [v.wheelbase / 2, v.wheelbase / 2, -v.wheelbase / 2, -v.wheelbase / 2];
   const xs = [v.trackFront / 2, -v.trackFront / 2, v.trackRear / 2, -v.trackRear / 2];
   for (let i = 0; i < 4; i++) {
@@ -205,6 +216,8 @@ function animate(st: VehicleState, d: CarDefinition, t: number, dt: number): voi
   st.steer = Math.sin(t * 0.8);
   st.brake = Math.sin(t * 0.55) > 0.55 ? 1 : 0;
   st.gear = Math.sin(t * 0.2) > 0.9 ? -1 : 3;
+  // (the active aero opens on the straights, closes on the brakes)
+  st.aeroOpen = Math.min(1, Math.max(0, 0.5 + 1.5 * Math.sin(t * 0.7)));
   for (let i = 0; i < 4; i++) {
     const r = i < 2 ? v.wheelRadiusFront : v.wheelRadiusRear;
     const w = st.wheels[i];
@@ -237,7 +250,8 @@ function viewFor(name: string, d: CarDefinition): ViewDef {
   const L = v.length;
   // a tall body (the 4x4, 1.84 m) is framed higher and from a little further back, so its roof and the light bar stay in the picture
   const ky = v.height > 1.5 ? v.height / 1.3 : 1;
-  const s = (L / 4.6) * (v.style === 'prototype' ? 1.22 : 1) * (ky > 1 ? 1.12 : 1);
+  // (the single-seater's wings reach out over its tyres: it is framed as the prototype is)
+  const s = (L / 4.6) * (v.style === 'prototype' || v.style === 'formula' ? 1.22 : 1) * (ky > 1 ? 1.12 : 1);
   const table: Record<string, ViewDef> = {
     front34: { pos: [3.7 * s, 1.25 * ky, 5.1 * s], look: [0, 0.52 * ky, 0.15], fov: 26 },
     rear34: { pos: [-3.7 * s, 1.35 * ky, -5.1 * s], look: [0, 0.55 * ky, -0.15], fov: 26 },
@@ -249,6 +263,7 @@ function viewFor(name: string, d: CarDefinition): ViewDef {
     lowrear: { pos: [-2.6 * s, 0.5, -3.6 * s], look: [0, 0.5 * ky, -0.2], fov: 32 },
     chase: { pos: [0, 1.8, -6.0], look: [0, v.height, -0.2], fov: 62, carRelative: true },
     cockpit: { pos: [0, 0, 0], look: [0, 0, 0], fov: 75, carRelative: true },
+    yoke: { pos: [0, 0, 0], look: [0, 0, 0], fov: 24, carRelative: true },
     wheelF: { pos: [3.0, 0.45, 1.4 + (v.wheelbase / 2 - 1.35)], look: [v.trackFront / 2, 0.36, v.wheelbase / 2], fov: 28 },
     wheelR: { pos: [-3.0, 0.45, -1.4 - (v.wheelbase / 2 - 1.35)], look: [-v.trackRear / 2, 0.36, -v.wheelbase / 2], fov: 28 },
   };
@@ -327,6 +342,10 @@ function aim(cam: THREE.PerspectiveCamera, name: string, aspect: number): void {
   if (name === 'cockpit') {
     carVisual.anchors.cockpit.getWorldPosition(cam.position);
     cam.lookAt(cam.position.x, cam.position.y - 0.04, cam.position.z + 10);
+  } else if (name === 'yoke') {
+    carVisual.anchors.cockpit.getWorldPosition(cam.position);
+    const w = (carVisual.root.getObjectByName('steer') ?? carVisual.root).getWorldPosition(tmpV);
+    cam.lookAt(w);
   } else if (name === 'chase') {
     cam.position.set(...vd.pos);
     carVisual.anchors.chase.getWorldPosition(tmpV);
@@ -365,12 +384,15 @@ function render(): void {
   }
 }
 
-/** ?lineup=12 : a grid of AI cars (all four models, varied liveries) plus the player car, to test sharing, LOD and cost. */
+/** ?lineup=12 : a grid of AI cars (every model, varied liveries) plus the player car, to test sharing, LOD and cost. */
 async function lineup(count: number): Promise<void> {
   const { CARS } = await import('../../src/cars');
   const side = q.get('row') === 'side';
-  /** nose-to-tail spacing of the profile lineup (m), and how far the camera stands off it */
-  const SIDE_PITCH = 5.5;
+  /**
+   * nose-to-tail spacing of the profile lineup (m; the Volta is 5.3 m from wing to wing: at 5.5 its rear wing met the next car's nose),
+   * and how far the camera stands off it
+   */
+  const SIDE_PITCH = 6.2;
   const SIDE_DIST = 44;
   const row = q.get('row') === '1' || side;
   const picks = q.get('cars') ? q.get('cars')!.split(',').map((id) => CARS.findIndex((c) => c.id === id)).filter((i) => i >= 0) : null;
@@ -406,7 +428,7 @@ async function lineup(count: number): Promise<void> {
   for (const c of cars) c.visual.update(c.state, 0, env);
   const cw = innerWidth, ch = innerHeight;
   cam.aspect = cw / ch;
-  // (the row modes fix the horizontal field of view, so any window shape frames the five cars alike: 50 degrees across for the quarter
+  // (the row modes fix the horizontal field of view, so any window shape frames the cars alike: 50 degrees across for the quarter
   // view, 12 for the profile through a long lens)
   const vfov = (hDeg: number): number => (2 * Math.atan(Math.tan((hDeg * Math.PI) / 360) / cam.aspect) * 180) / Math.PI;
   cam.fov = side ? vfov((2 * Math.atan(((count - 1) * SIDE_PITCH + 6.5) / 2 / SIDE_DIST) * 180) / Math.PI) : row ? vfov(50) : 40;
@@ -508,7 +530,7 @@ async function main(): Promise<void> {
     const lod = carVisual.root.children.find((c) => (c as THREE.LOD).isLOD) as THREE.LOD | undefined;
     if (lod) lod.levels[1].distance = 0;
   }
-  carVisual.setCockpitView(view === 'cockpit');
+  carVisual.setCockpitView(view === 'cockpit' || view === 'yoke');
   scene.add(carVisual.root);
   (window as unknown as Record<string, unknown>).__CAR__ = {
     visual: carVisual,

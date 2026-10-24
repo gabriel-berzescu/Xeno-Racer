@@ -1268,6 +1268,27 @@ describe('hood / bumper / cockpit', () => {
       expect(forwardOf(rig).dot(F)).toBeGreaterThan(0.95);
     }
   });
+
+  it('look.back from a seat on the centre line (a single-seater) cuts to the rear camera over the car, and comes back to the eye', () => {
+    const car = makeCar();
+    car.target.anchors.cockpit.position.set(0, 0.77, 0.25);
+    const rig = createCameraRig(null, []);
+    rig.setShake(0);
+    rig.setMode('cockpit');
+    drive(rig, car, straight(20), 60, 1);
+    const { F, U, L } = carAxes(car);
+    const eye = rig.camera.position.clone().sub(car.state.position);
+    expect(Math.abs(eye.dot(L))).toBeLessThan(0.06);
+    drive(rig, car, straight(20), 60, 0.3, { t0: 1, look: () => ({ x: 0, y: 0, back: true }) });
+    const off = rig.camera.position.clone().sub(car.state.position);
+    // over the car on the chase anchor, as hood and bumper look back, not a head turned 160 degrees into the headrest
+    expect(off.dot(U) - eye.dot(U)).toBeCloseTo(ANCHOR_LAYOUT.chase[1] + 0.14 - 0.77, 1);
+    expect(Math.abs(off.dot(L))).toBeLessThan(0.02);
+    expect(forwardOf(rig).dot(F)).toBeLessThan(-0.95);
+    drive(rig, car, straight(20), 60, 0.3, { t0: 1.3 });
+    expect(forwardOf(rig).dot(F)).toBeGreaterThan(0.95);
+    expect(rig.camera.position.clone().sub(car.state.position).distanceTo(eye)).toBeLessThan(0.1);
+  });
 });
 
 describe('orbit', () => {

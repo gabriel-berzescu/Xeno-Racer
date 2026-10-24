@@ -27,7 +27,7 @@ self.onmessage = async (e: MessageEvent<Req>) => {
         set.add(w.index.buffer);
       }
     }
-    for (const w of [data.interior.cabin, data.interior.driver, data.interior.driverLite, data.interior.wheel]) {
+    for (const w of [data.interior.cabin, data.interior.driver, data.interior.driverLite, data.interior.wheel, ...(data.moving ?? []).map((m) => m.data)]) {
       set.add(w.vertices.buffer);
       set.add(w.index.buffer);
     }

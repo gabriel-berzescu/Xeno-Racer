@@ -3,7 +3,7 @@
  */
 import type { CarVisualSpec, QualityLevel } from '../core/contracts';
 import { BLUEPRINTS } from './bodies';
-import { PART, ZONE_STRIDE, type Blueprint, type BlueprintInfo } from './blueprint';
+import { PART, ZONE_STRIDE, type Blueprint, type BlueprintInfo, type MovingPart } from './blueprint';
 import { VERTEX_STRIDE, partToData, type PartData } from './build-shared';
 import { makeInterior, type InteriorData } from './interior';
 import { PartBuilder } from './parts';
@@ -33,10 +33,12 @@ export const LOD2_CELL = 0.085;
 
 /**
  * A 4.9 x 2 x 1.8 m slab-sided box has half as much surface again as the 4.3 m coupes the budgets (110k triangles near, 10k far) were set
- * for, and nearly all of it is flat: its meshes are a little coarser so the same budgets hold. (1 for every other body: exact.)
+ * for, and nearly all of it is flat: its meshes are a little coarser so the same budgets hold. The single-seater goes the other way: its
+ * sculpted surface is the smallest of all (its wings and its floor are parts), and its nose (12 cm across at the tip) and the blade of its
+ * airbox need finer cells. (1 for every other body: exact.)
  */
 export function cellScale(style: CarVisualSpec['style']): number {
-  return style === 'suv' ? 1.13 : 1;
+  return style === 'suv' ? 1.13 : style === 'formula' ? 0.85 : 1;
 }
 
 const AO_H = [0.035, 0.1, 0.2, 0.36];
@@ -47,6 +49,8 @@ export interface BodyBuildOptions {
   parts: boolean;
   /** bake per-vertex colours instead of relying on the zone shader (far LOD) */
   colors?: boolean;
+  /** the far LOD: the blueprint's far parts (Blueprint.farParts) in place of its parts, when it has them */
+  far?: boolean;
 }
 
 export function buildBody(bp: Blueprint, spec: CarVisualSpec, o: BodyBuildOptions): BodyData {
@@ -88,6 +92,9 @@ export function buildBody(bp: Blueprint, spec: CarVisualSpec, o: BodyBuildOption
   if (o.parts && bp.parts) {
     parts = new PartBuilder();
     bp.parts(parts);
+  } else if (!o.parts && o.far && bp.farParts) {
+    parts = new PartBuilder();
+    bp.farParts(parts);
   }
   const np = parts ? parts.vertexCount : 0;
   const total = nb + np;
@@ -180,8 +187,10 @@ export function buildBody(bp: Blueprint, spec: CarVisualSpec, o: BodyBuildOption
       colors[i * 3 + 1] = g * (0.4 + 0.6 * ao);
       colors[i * 3 + 2] = b * (0.4 + 0.6 * ao);
     }
+    // (a far part takes the livery when it is painted, the body's or the halo's, and is dark otherwise: carbon, plastic)
     for (let i = nb; i < total; i++) {
-      colors[i * 3] = colors[i * 3 + 1] = colors[i * 3 + 2] = 0.05;
+      const part = Math.round(vertices[i * VERTEX_STRIDE + 6 + 13]);
+      colors[i * 3] = colors[i * 3 + 1] = colors[i * 3 + 2] = part === PART.body || part === PART.halo ? 1 : 0.05;
     }
   }
 
@@ -219,6 +228,11 @@ export interface WheelData {
   caliperRear: PartData;
 }
 
+/** A moving part's mesh (body frame, at rest) and its hinge (Blueprint.moving). */
+export interface MovingPartData extends Omit<MovingPart, 'build'> {
+  data: PartData;
+}
+
 export interface CarData {
   /** player / close-up */
   lod0: BodyData;
@@ -229,6 +243,8 @@ export interface CarData {
   wheels0: WheelData;
   wheels1: WheelData;
   interior: InteriorData;
+  /** parts that move with the car's state, near LODs only (absent: none) */
+  moving?: MovingPartData[];
 }
 
 export function buildWheels(spec: CarVisualSpec, quality: QualityLevel): WheelData {
@@ -250,9 +266,17 @@ export async function buildCarData(spec: CarVisualSpec, quality: QualityLevel, c
   const cell0 = (cellOverride ?? CELL_SIZE[quality]) * k;
   const lod0 = buildBody(bp, spec, { cell: cell0, parts: true });
   const lod1 = buildBody(bp, spec, { cell: Math.max(cell0 * 1.3, 0.036), parts: true });
-  const lod2 = buildBody(bp, spec, { cell: LOD2_CELL * k, parts: false, colors: true });
+  const lod2 = buildBody(bp, spec, { cell: LOD2_CELL * k, parts: false, colors: true, far: true });
   const wheels0 = buildWheels(spec, quality);
   const wheels1 = buildWheels(spec, 'low');
   const interior = makeInterior(spec, quality);
-  return { lod0, lod1, lod2, wheels0, wheels1, interior };
+  const data: CarData = { lod0, lod1, lod2, wheels0, wheels1, interior };
+  if (bp.moving) data.moving = bp.moving.map(buildMoving);
+  return data;
+}
+
+function buildMoving(m: MovingPart): MovingPartData {
+  const pb = new PartBuilder();
+  m.build(pb);
+  return { name: m.name, drive: m.drive, pivot: m.pivot, axis: m.axis, angle: m.angle, data: partToData(pb) };
 }

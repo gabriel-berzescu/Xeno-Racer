@@ -93,6 +93,8 @@
 .sp-glow { left: 92px; top: -24px; width: 460px; height: 460px; background: radial-gradient(closest-side, rgba(4, 5, 8, 0.8), rgba(4, 5, 8, 0.6) 58%, rgba(4, 5, 8, 0)); pointer-events: none; }
 .rev-canvas { left: 0; top: 0; }
 .sp-leds { left: 322px; top: -4px; transform: translateX(-50%); display: flex; gap: 5px; }
+/* an open cockpit's steering wheel has its own shift lights, and the strip would cross the right mirror on its stalk */
+.xr-hud.open-cockpit .sp-leds { visibility: hidden; }
 .led { display: block; width: 27px; height: 13px; background: rgba(238, 240, 243, 0.16); clip-path: polygon(5px 0, 100% 0, calc(100% - 5px) 100%, 0 100%); }
 .led.on.g { background: var(--good); box-shadow: 0 0 14px var(--good); }
 .led.on.a { background: var(--warn); }

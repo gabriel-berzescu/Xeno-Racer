@@ -10,6 +10,7 @@ import { eyePoint } from './layouts';
 import { PartBuilder, type V3 } from './parts';
 import { polygonize } from './polygonize';
 import { sdCapsule, sdEllipsoid, sdRoundBox, smin, type FieldFn } from './sdf';
+import { roundPoly } from './shapes';
 
 /** Interior part ids (zone z3.y). */
 export const IPART = {
@@ -32,6 +33,20 @@ export const IPART = {
   metal: 3,
   shoe: 55,
   wheelScreen: 56,
+  /** the single-seater's yoke: its live display (gear, speed, revs) and the row of shift lights over it (interiorMaterial.ts) */
+  wheelDisplay: 57,
+  shiftLights: 58,
+} as const;
+
+/**
+ * The single-seater's yoke, in the wheel's own frame (+x the driver's right, +y up the wheel, the driver looking at its +z face): the
+ * display's centre and half sizes, the shift lights' row (the first light's x, the step between lights, their count and height) and
+ * where the grips are across. The interior material draws the display and lights from the same numbers (YOKE_GLSL).
+ */
+export const YOKE = {
+  display: { x: 0, y: 0.016, hw: 0.05, hh: 0.031 },
+  lights: { x0: -0.07, step: 0.01, n: 15, y: 0.06 },
+  gripX: 0.124,
 } as const;
 
 export interface InteriorData {
@@ -151,6 +166,12 @@ function styleFor(style: BodyStyle): IStyle {
         doorBack: 1.95,
         rearDoor: true,
       };
+    case 'formula':
+      // the single-seater: lying back in a narrow tub, the back 60 degrees from upright (the shoulders under the helmet, below the
+      // cockpit's rim), no cage (the roll hoop and the halo are the body's), the yoke right over the hips, 8 cm inside the front end of
+      // the cockpit's opening (5 cm further on, its gloves were in the opening's rounded corners, and its grips went into the chassis as
+      // it turned); the cabin box reaches from behind the headrest to the footwell (cowlZ: the front bulkhead)
+      return { twoSeats: false, rearBench: false, cage: false, doorCards: false, bucket: true, seatTilt: 1.05, cowlZ: 1.2, cowlY: 0.6, floorY: 0.08, ...LOW_CABIN, wheelUp: 0.33, wheelFwd: 0, wheelTilt: 0.4, halfW: 0.24, top: 0.82 };
     default:
       return { twoSeats: false, rearBench: false, cage: true, doorCards: false, bucket: true, seatTilt: 0.62, cowlZ: 0.9, cowlY: 0.64, floorY: 0.14, ...LOW_CABIN, wheelUp: 0.34, wheelFwd: 0.6, wheelTilt: 0.9 };
   }
@@ -160,6 +181,8 @@ export function makeInterior(spec: CarVisualSpec, quality: QualityLevel): Interi
   const st = styleFor(spec.style);
   const sx = spec.seat.x, sy = spec.seat.y, sz = spec.seat.z;
   const proto = spec.style === 'prototype';
+  // (an open cockpit: the body's tub is all there is round the driver, so the cabin is only the seat and the headrest)
+  const open = spec.style === 'formula';
   const tilt = st.seatTilt;
   const ct = Math.cos(tilt), sn = Math.sin(tilt);
   const floorY = st.floorY;
@@ -214,6 +237,15 @@ export function makeInterior(spec: CarVisualSpec, quality: QualityLevel): Interi
 
   const cabin: FieldFn = (x, y, z) => {
     const ax = x < 0 ? -x : x;
+    if (open) {
+      // (no floor: the opening is cut down to 34 cm off the ground in a solid tub, and the seat and the legs below that are inside it)
+      // the headrest: a pad behind the helmet and one either side of it on the cockpit's rim, as one U (the rules' padding)
+      const pads = Math.min(
+        sdRoundBox(ax, y - (head[1] - 0.08), z - (head[2] - 0.185), 0.16, 0.06, 0.04, 0.03),
+        sdRoundBox(ax - 0.165, y - (head[1] - 0.11), z - (head[2] - 0.025), 0.035, 0.045, 0.145, 0.025),
+      );
+      return smin(seat(x, y, z, sx), pads, 0.05);
+    }
     // floor tub
     let d = sdRoundBox(ax, y - floorY, z - (sz - 0.1 + st.cowlZ * 0.5), proto ? 0.4 : st.floorHalfW, 0.025, (st.cowlZ - sz + 1.2) * 0.5 + 0.2, 0.015);
     d = Math.min(d, smin(seat(x, y, z, sx), headrest(ax, y, z, sx), 0.05));
@@ -244,8 +276,10 @@ export function makeInterior(spec: CarVisualSpec, quality: QualityLevel): Interi
   };
 
   // ── driver field ─────────────────────────────────────────────────────────
-  const handL: V3 = [wheelPos[0] + 0.17, wheelPos[1] + 0.02, wheelPos[2]];
-  const handR: V3 = [wheelPos[0] - 0.17, wheelPos[1] + 0.02, wheelPos[2]];
+  // (the single-seater's hands hold its yoke's grips, where the wheel's own gloves are)
+  const gripX = open ? YOKE.gripX : 0.17;
+  const handL: V3 = [wheelPos[0] + gripX, wheelPos[1] + 0.02, wheelPos[2]];
+  const handR: V3 = [wheelPos[0] - gripX, wheelPos[1] + 0.02, wheelPos[2]];
 
   // spine direction (leans back by the seat tilt); hips at the seat reference point
   const ux = 0, uy = ct, uz = -sn;
@@ -254,6 +288,8 @@ export function makeInterior(spec: CarVisualSpec, quality: QualityLevel): Interi
   const chest = at(0.34);
   const shoulderC = at(0.5);
   const neck = at(0.55);
+  // (the single-seater's tub is 56 cm across outside at the shoulders: its driver's are 47 cm, not 55)
+  const shoulderW = open ? 0.16 : 0.2;
   void ux;
   const driver: FieldFn = (x, y, z) => {
     // helmet + neck
@@ -261,9 +297,9 @@ export function makeInterior(spec: CarVisualSpec, quality: QualityLevel): Interi
     d = smin(d, sdCapsule(x, y, z, head[0], head[1] - 0.1, head[2] - 0.02, neck[0], neck[1], neck[2], 0.055), 0.04);
     // torso: capsule along the spine, shoulders as a cross capsule
     d = smin(d, sdCapsule(x, y, z, hip[0], hip[1] + 0.06, hip[2] + 0.02, chest[0], chest[1], chest[2], 0.17), 0.06);
-    d = smin(d, sdCapsule(x, y, z, shoulderC[0] - 0.2, shoulderC[1], shoulderC[2], shoulderC[0] + 0.2, shoulderC[1], shoulderC[2], 0.075), 0.05);
+    d = smin(d, sdCapsule(x, y, z, shoulderC[0] - shoulderW, shoulderC[1], shoulderC[2], shoulderC[0] + shoulderW, shoulderC[1], shoulderC[2], 0.075), 0.05);
     for (const sgn of [-1, 1]) {
-      const sh: V3 = [sx + sgn * 0.21, shoulderC[1] - 0.02, shoulderC[2] + 0.02];
+      const sh: V3 = [sx + sgn * (shoulderW + 0.01), shoulderC[1] - 0.02, shoulderC[2] + 0.02];
       const hd: V3 = sgn > 0 ? handL : handR;
       // elbow: halfway to the hand, dropped and pushed out
       const el: V3 = [(sh[0] + hd[0]) * 0.5 + sgn * 0.07, Math.min(sh[1], hd[1]) - 0.08, (sh[2] + hd[2]) * 0.5 - 0.02];
@@ -279,10 +315,19 @@ export function makeInterior(spec: CarVisualSpec, quality: QualityLevel): Interi
     return d;
   };
 
+  /**
+   * The single-seater's helmet as a zone (channel 14 < 0), not a part: in an open cockpit its lower edge is on show, and a part changes
+   * only from one triangle to the next (a jagged edge round the neck), where a zone is cut smooth across them. Its rim is level, 12.5 cm
+   * under the helmet's centre: below is the suit (and the shoulders, which reach the chin of a driver lying back).
+   */
+  const helmetZone = (x: number, y: number, z: number): number => {
+    const e = Math.hypot((x - head[0]) / 0.124, (y - head[1]) / 0.152, (z - head[2]) / 0.165) - 1;
+    return Math.max(e * 0.14, head[1] - 0.125 - y);
+  };
   const driverKind = (x: number, y: number, z: number, nz: number): number => {
     const hx = x - head[0], hy = y - head[1], hz = z - head[2];
     const inHelmet = (hx * hx) / (0.13 * 0.13) + (hy * hy) / (0.155 * 0.155) + (hz * hz) / (0.17 * 0.17) < 1.15;
-    if (inHelmet) return IPART.helmet;
+    if (inHelmet && !open) return IPART.helmet;
     if (y < floorY + 0.2 && z > sz + 0.6) return IPART.shoe;
     if (Math.hypot(x - handL[0], y - handL[1], z - handL[2]) < 0.07 || Math.hypot(x - handR[0], y - handR[1], z - handR[2]) < 0.07) return IPART.glove;
     return IPART.suit;
@@ -290,6 +335,7 @@ export function makeInterior(spec: CarVisualSpec, quality: QualityLevel): Interi
 
   const cabinKind = (x: number, y: number, z: number, _nx: number, _ny: number, nz: number): number => {
     const ax = Math.abs(x);
+    if (open) return y < floorY + 0.045 ? IPART.floor : IPART.seat;
     if (y < floorY + 0.045 && !(Math.abs(x - sx) < 0.25 && z > sz - 0.35 && z < sz + 0.4)) return IPART.floor;
     if (st.doorCards && !proto && ax > st.doorCut && z > st.cowlZ - st.doorBack) return IPART.doorCard;
     if (!proto && z > wheelPos[2] - 0.05 && y > floorY + 0.2 && ax > 0.15) return IPART.dash;
@@ -305,6 +351,8 @@ export function makeInterior(spec: CarVisualSpec, quality: QualityLevel): Interi
   const dcell = quality === 'low' ? 0.05 : quality === 'medium' ? 0.036 : 0.03;
   const dashMid = dc;
   const cabinZones = (x: number, y: number, z: number, _nx: number, ny: number, _nz: number, out: Float32Array): void => {
+    // (no cluster in the open cockpit's cabin: its display is on the steering wheel)
+    if (open) return;
     // cluster face: a thin slab at the binnacle's rear face (bounded behind too, or the seatback behind it gets the display)
     out[1] = Math.max(Math.abs(x - sx) - 0.178, Math.abs(y - binY) - 0.048, z - (binZ - 0.081), binZ - 0.15 - z);
     if (!proto) {
@@ -323,13 +371,15 @@ export function makeInterior(spec: CarVisualSpec, quality: QualityLevel): Interi
     }
   };
   const cabinMesh = meshField(cabin, [-st.halfW, floorY - 0.05, sz - 1.25], [st.halfW, st.top, st.cowlZ + 0.3], cell, cabinKind, cabinZones);
-  const dMin: [number, number, number] = [sx - 0.5, floorY, sz - 0.3];
+  // (a driver lying back has the head well behind the hips: the box reaches back to the helmet)
+  const dMin: [number, number, number] = [sx - 0.5, floorY, Math.min(sz - 0.3, head[2] - 0.25)];
   const dMax: [number, number, number] = [sx + 0.5, head[1] + 0.25, sz + 1.05];
   const dk = (x: number, y: number, z: number, _nx: number, _ny: number, nz: number): number => driverKind(x, y, z, nz);
   const driverZones = (x: number, y: number, z: number, _nx: number, _ny: number, _nz: number, out: Float32Array): void => {
     const hx = x - head[0], hy = y - head[1], hz = z - head[2];
     // visor: a wide slot on the front of the helmet, rounded at the ends
     out[0] = Math.max(0.035 - hz, Math.abs(hy - 0.012) - 0.045, Math.abs(hx) - 0.098) + 0.0;
+    if (open) out[14] = helmetZone(x, y, z);
   };
   const driverMesh = meshField(driver, dMin, dMax, dcell, dk, driverZones);
   const driverLite = meshField(driver, dMin, dMax, 0.05, dk, driverZones);
@@ -373,6 +423,8 @@ function meshField(
       zbuf.fill(1);
       zones(x, y, z, nx, ny, nz, zbuf);
       for (let k = 0; k < 4; k++) vertices[o + 6 + k] = zbuf[k];
+      // (channel 14: the helmet of a driver whose helmet is a zone; 1, as before, on every other mesh)
+      vertices[o + 6 + 14] = zbuf[14];
     }
     let occ = 0;
     for (let k = 0; k < hs.length; k++) {
@@ -388,6 +440,10 @@ function meshField(
 
 /** Steering wheel around the origin, wheel plane XY, the driver sees the +Z side. */
 function buildSteeringWheel(pb: PartBuilder, style: BodyStyle): void {
+  if (style === 'formula') {
+    buildYoke(pb);
+    return;
+  }
   if (style === 'prototype') {
     // formula-style wheel: rounded body with two grips and a screen
     pb.setPart(IPART.carbon);
@@ -438,4 +494,53 @@ function buildSteeringWheel(pb: PartBuilder, style: BodyStyle): void {
   pb.box([0, R, 0.0], 0.007, 0.012, tube * 1.15);
   pb.setPart(IPART.glove);
   for (const sg of [-1, 1]) pb.ellipsoid([sg * R, 0.01, -0.005], 0.05, 0.062, 0.042, 14, 9);
+}
+
+/**
+ * The single-seater's yoke (2026), around the origin as the other wheels are: a carbon plate 28 cm across and 16 cm tall with a grip at
+ * either end, the display in the middle (IPART.wheelDisplay: gear, speed and revs, live), the row of fifteen shift lights over it
+ * (IPART.shiftLights), rotary switches and buttons round it, the shift paddles and the quick release behind, and the gloves on the grips.
+ */
+function buildYoke(pb: PartBuilder): void {
+  const D = YOKE.display, Ls = YOKE.lights, gx = YOKE.gripX;
+  // the plate: straight across the top, the grips' ends standing a little proud of it, the bottom cut away between them for the knees
+  const half: number[] = [0.05, -0.04, 0.085, -0.056, 0.104, -0.078, 0.13, -0.08, 0.142, -0.06, 0.142, 0.055, 0.13, 0.08, 0.1, 0.072];
+  const outline: number[] = [0, -0.034, ...half];
+  for (let i = half.length - 2; i >= 0; i -= 2) outline.push(-half[i], half[i + 1]);
+  pb.setPart(IPART.carbon);
+  pb.extrude(roundPoly(outline, 0.012, 4), { o: [0, 0, -0.012], u: [1, 0, 0], v: [0, 1, 0] }, 0.024, 0.004, 2);
+  // the grips: thick, rubber-covered, a little forward at their ends
+  pb.setPart(IPART.wheelRim);
+  for (const sg of [-1, 1]) {
+    pb.tube([[sg * (gx + 0.004), 0.07, -0.004], [sg * gx, 0.04, 0.002], [sg * gx, -0.02, 0.003], [sg * (gx - 0.004), -0.066, -0.002]], 0.019, 12, true);
+  }
+  // the display in a black bezel, and the shift lights in a strip over it
+  pb.setPart(IPART.wheelRim);
+  pb.box([D.x, D.y, 0.0125], D.hw + 0.006, D.hh + 0.006, 0.0006);
+  pb.setPart(IPART.wheelDisplay);
+  pb.box([D.x, D.y, 0.0135], D.hw, D.hh, 0.0006);
+  pb.setPart(IPART.carbon);
+  pb.box([0, Ls.y, 0.0128], -Ls.x0 + 0.008, 0.0065, 0.001);
+  pb.setPart(IPART.shiftLights);
+  for (let i = 0; i < Ls.n; i++) pb.box([Ls.x0 + i * Ls.step, Ls.y, 0.0142], 0.0034, 0.0034, 0.0006);
+  // black rotary switches low on the plate, coloured buttons beside the display
+  pb.setPart(IPART.wheelRim);
+  for (const [bx, by] of [[-0.078, -0.036], [0.078, -0.036], [-0.034, -0.05], [0.034, -0.05]] as Array<[number, number]>) {
+    pb.cylinder([bx, by, 0.011], [bx, by, 0.022], 0.0105, 0.0095, 12, true);
+  }
+  pb.setPart(IPART.seatAccent);
+  for (const [bx, by] of [[-0.075, 0.038], [0.075, 0.038], [-0.075, 0.008], [0.075, 0.008]] as Array<[number, number]>) {
+    pb.cylinder([bx, by, 0.011], [bx, by, 0.017], 0.0075, 0.0075, 10, true);
+  }
+  // the paddles behind the grips, and the quick release on the column
+  pb.setPart(IPART.carbon);
+  for (const sg of [-1, 1]) pb.box([sg * 0.085, 0.01, -0.024], 0.032, 0.03, 0.003);
+  pb.setPart(IPART.metal);
+  pb.cylinder([0, 0, -0.012], [0, 0, -0.05], 0.022, 0.018, 16, true);
+  // the gloves: the fingers round the grips, the thumbs on the plate's face beside the display
+  pb.setPart(IPART.glove);
+  for (const sg of [-1, 1]) {
+    pb.ellipsoid([sg * (gx + 0.004), 0.004, -0.004], 0.031, 0.05, 0.034, 14, 9);
+    pb.ellipsoid([sg * (gx - 0.026), 0.028, 0.014], 0.017, 0.009, 0.008, 10, 6);
+  }
 }
