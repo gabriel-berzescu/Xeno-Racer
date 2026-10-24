@@ -54,8 +54,8 @@ vHelm = aZ3.z;
 `;
 /** A number as a GLSL float literal. */
 const glf = (v: number): string => (Number.isInteger(v) ? v.toFixed(1) : String(v));
-/** The body of w4Button (the colour of the 2004 wheel's button nearest a point, WHEEL04.buttons): one test per button. */
-const W4_BUTTONS = WHEEL04.buttons
+/** The body of w4Button (the colour of the 2004 wheel's button or rotary switch nearest a point, WHEEL04): one test for each. */
+const W4_BUTTONS = [...WHEEL04.buttons, ...WHEEL04.rotaries]
   .map(([x, y, k]) => `  d = distance(p, vec2(${glf(x)}, ${glf(y)})); if (d < best) { best = d; c = vec3(${WHEEL04.colours[k].map(glf).join(', ')}); }`)
   .join('\n');
 const FRAG_PARS = /* glsl */ `
@@ -133,7 +133,7 @@ float yokeBox(vec2 q, vec2 lo, vec2 hi) {
   vec2 a = smoothstep(lo - aa, lo + aa, q) * (1.0 - smoothstep(hi - aa, hi + aa, q));
   return a.x * a.y;
 }
-// the colour of the 2004 wheel's button (or rotary switch's pointer) nearest p, in the wheel's own frame (WHEEL04.buttons)
+// the colour of the 2004 wheel's button (or rotary switch's pointer) nearest p, in the wheel's own frame (WHEEL04.buttons, .rotaries)
 vec3 w4Button(vec2 p) {
   vec3 c = vec3(0.5);
   float best = 1.0;
@@ -284,7 +284,7 @@ else if (ip == 60) {
   iEmis = lc * (0.03 + 1.3 * on) * uScreen;
 }
 else if (ip == 61) {
-  // the 2004 wheel's buttons and its rotary switches' pointers, each in its own colour (WHEEL04.buttons)
+  // the 2004 wheel's buttons and its rotary switches' pointers, each in its own colour (WHEEL04.buttons, .rotaries)
   iCol = w4Button(vObjPos.xy);
   iRough = 0.32;
   iCC = 0.5;

@@ -442,10 +442,11 @@ describe('Dieci cockpit', () => {
     const top = Math.max(...w.filter((v) => v.part !== IPART.glove).map((v) => v.p[1]));
     for (const v of lights) expect(v.p[1]).toBeGreaterThan(D.y + D.hh);
     expect(top - Math.max(...lights.map((v) => v.p[1]))).toBeLessThan(0.03);
-    // every button and pointer near one of the buttons the shader colours, and every one of those there
+    // every button and pointer near one of the buttons or rotary switches the shader colours, and every one of those there
     const buttons = w.filter((v) => v.part === IPART.wheelButtons04);
-    for (const v of buttons) expect(Math.min(...WHEEL04.buttons.map(([x, y]) => Math.hypot(v.p[0] - x, v.p[1] - y)))).toBeLessThan(0.0085);
-    for (const [x, y] of WHEEL04.buttons) expect(buttons.some((v) => Math.hypot(v.p[0] - x, v.p[1] - y) < 0.0085)).toBe(true);
+    const coloured = [...WHEEL04.buttons, ...WHEEL04.rotaries];
+    for (const v of buttons) expect(Math.min(...coloured.map(([x, y]) => Math.hypot(v.p[0] - x, v.p[1] - y)))).toBeLessThan(0.0085);
+    for (const [x, y] of coloured) expect(buttons.some((v) => Math.hypot(v.p[0] - x, v.p[1] - y) < 0.0085)).toBe(true);
     // the wheel (its gloves aside) is 26-28 cm across and under 18 cm tall; no yoke on it, and no other car has these parts
     const bare = w.filter((v) => v.part !== IPART.glove);
     const span = (k: 0 | 1): number => Math.max(...bare.map((v) => v.p[k])) - Math.min(...bare.map((v) => v.p[k]));

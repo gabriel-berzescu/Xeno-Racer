@@ -57,8 +57,8 @@ export const YOKE = {
  * The 2004 single-seater's steering wheel, in the wheel's own frame as YOKE: the backlit display's centre and half sizes; the shift lights'
  * row along the top edge (the first light's x, the step between lights, their count, the height of the middle of the row and how much
  * higher its ends are, and the share of the limiter's revs at which the first light comes on and the step to the next); where the grips
- * are across; and the coloured buttons and the rotary switches' pointers (x, y and colour: red, yellow, blue, green, white, orange). The
- * interior material draws the display, the lights and the buttons from the same numbers.
+ * are across; the coloured buttons and the rotary switches, whose pointers are coloured (each x, y and colour: red, yellow, blue, green,
+ * white, orange). The interior material draws the display, the lights, the buttons and the pointers from the same numbers.
  */
 export const WHEEL04 = {
   display: { x: 0, y: 0.012, hw: 0.03, hh: 0.016 },
@@ -74,6 +74,8 @@ export const WHEEL04 = {
     [-0.076, 0.002, 2],
     [0.076, 0.002, 0],
     [0, -0.019, 3],
+  ],
+  rotaries: [
     [-0.045, -0.026, 5],
     [0.045, -0.026, 3],
     [-0.08, -0.034, 0],
@@ -88,8 +90,6 @@ export const WHEEL04 = {
     [0.85, 0.22, 0.01],
   ],
 } as const;
-/** How many of WHEEL04.buttons are buttons; the rest are the rotary switches, whose pointers are coloured. */
-const W4_PUSH = 9;
 
 export interface InteriorData {
   cabin: PartData;
@@ -640,16 +640,13 @@ function buildWheel04(pb: PartBuilder): void {
   pb.box([D.x, D.y, 0.0135], D.hw, D.hh, 0.0006);
   // the buttons, and the rotary switches: black knobs with a coloured pointer on each
   pb.setPart(IPART.wheelButtons04);
-  WHEEL04.buttons.forEach(([bx, by], i) => {
-    if (i < W4_PUSH) pb.cylinder([bx, by, 0.011], [bx, by, 0.0165], 0.0055, 0.005, 12, true);
-  });
-  WHEEL04.buttons.forEach(([bx, by], i) => {
-    if (i < W4_PUSH) return;
+  for (const [bx, by] of WHEEL04.buttons) pb.cylinder([bx, by, 0.011], [bx, by, 0.0165], 0.0055, 0.005, 12, true);
+  for (const [bx, by] of WHEEL04.rotaries) {
     pb.setPart(IPART.wheelRim);
     pb.cylinder([bx, by, 0.011], [bx, by, 0.021], 0.0085, 0.0078, 14, true);
     pb.setPart(IPART.wheelButtons04);
     pb.box([bx, by + 0.004, 0.0212], 0.0012, 0.0035, 0.0004);
-  });
+  }
   // the thumbwheel in the bottom's cut-out
   pb.setPart(IPART.wheelRim);
   pb.cylinder([-0.009, -0.043, 0.003], [0.009, -0.043, 0.003], 0.011, 0.011, 16, true);
