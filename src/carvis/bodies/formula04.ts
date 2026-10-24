@@ -1,6 +1,6 @@
 /**
  * Dieci — a 2004-rules single-seater (CarVisualSpec.formulaEra 2004): a narrow monocoque under high cockpit sides, rising into a high
- * pointed nose the front wing hangs from; undercut sidepods with rounded inlets, chimneys and the periscope exhausts on their tops; a tall
+ * pointed nose the front wing hangs from; undercut sidepods with rounded inlets and the periscope exhausts on their tops; a tall
  * airbox over the driver's head, the roll hoop round its mouth, flowing into a deep engine cover with no fin; a gearbox ending in the
  * crash structure. Only the solid shapes are sculpted here; the wings, the bargeboards, the floor and the suspension and everything else
  * thin are parts (formula04Parts.ts), since the sculpted mesh holds nothing under two cells.
@@ -8,7 +8,7 @@
  * The cockpit is a real opening in the tub (no glass: the glass index is empty), its walls bare carbon; the two LED lamps sit in the tip
  * of the nose; the rain light is a part, so the four lamps the damage model knows are given to it (info.lamps): the LEDs, and the rain
  * light's two halves as the tail lamps (the car has no other rear light). The periscopes are sculpted with the sidepods they stand on,
- * so a dent moves the two alike.
+ * so a dent moves the two alike; the chimneys are parts.
  */
 import type { BlueprintFactory } from '../blueprint';
 import { curve } from '../curve';
@@ -153,11 +153,8 @@ export const makeFormula04: BlueprintFactory = (s) => {
     },
     zero,
   );
-  // the periscopes: a stack each side on the sidepod's top next to the engine cover, its oval mouth facing up and back (formula04Points);
-  // and a chimney further forward on each sidepod's shoulder, angled out
+  // the periscopes: a stack each side on the sidepod's top next to the engine cover, its oval mouth facing up and back (formula04Points)
   const per = stack(pts.periscope.at, pts.periscope.dir, 0.17, 0.068, 0.05, 0.03);
-  const cd = Math.hypot(0.32, 0.9, -0.28);
-  const chim = stack([0.405, 0.585 * hk, sz - 0.55], [0.32 / cd, 0.9 / cd, -0.28 / cd], 0.12, 0.05, 0.036, 0.018);
 
   // the cockpit opening: a rounded slot in plan from just ahead of the steering wheel to behind the helmet, cut down to the seat
   const wellZ = sz + 0.19;
@@ -175,7 +172,6 @@ export const makeFormula04: BlueprintFactory = (s) => {
     d = smin(d, sdLoft(pod, px, y, z), 0.1);
     d = smin(d, sdLoft(gearbox, ax, y, z), 0.06);
     d = smin(d, per.field(ax, y, z), 0.07);
-    d = smin(d, chim.field(ax, y, z), 0.04);
     // clip to the overall length
     d = smax(d, z - zNose, 0.02);
     d = smax(d, zTail - z, 0.02);
@@ -197,12 +193,12 @@ export const makeFormula04: BlueprintFactory = (s) => {
 
   const zones = (x: number, y: number, z: number, _nx: number, ny: number, nz: number, out: Float32Array, o: number): void => {
     const ax = x < 0 ? -x : x;
-    const pm = Math.min(per.mouth(ax, y, z), chim.mouth(ax, y, z));
-    // black: the underside at the floor, and the soot round the mouths of the periscopes and the chimneys
+    const pm = per.mouth(ax, y, z);
+    // black: the underside at the floor, and the soot round the mouths of the periscopes
     out[o + 1] = Math.min(y - (s.rideHeight + 0.055), Math.max(y - 0.16, ny + 0.6), pm - 0.014);
     // bare carbon: the cockpit's walls and floor, and the undercut below the sidepods and the chassis behind the front wheels
     out[o + 2] = Math.min(well(ax, y, z) - 0.012, Math.max(y - 0.18, z - (zF - 0.35)));
-    // the dark mouths of the inlets, the airbox, the periscopes and the chimneys
+    // the dark mouths of the inlets, the airbox and the periscopes
     out[o + 3] = Math.min(inlet(ax, y, z) - 0.01, mouth(ax, y, z) - 0.01, pm);
     out[o + 4] = lamp(ax, y, z);
     // shut lines: the nose cone's joint ahead of the front bulkhead, the engine cover's front edge round the airbox over the sidepods

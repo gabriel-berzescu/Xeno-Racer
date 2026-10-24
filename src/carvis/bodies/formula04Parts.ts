@@ -10,6 +10,7 @@
  * - a flat floor with the large diffuser of the years before 2005, five strakes under it;
  * - pushrod suspension at both ends (wishbones, pushrods, track rods and toe links, the driveshafts), its arms ending inside the 13-inch
  *   rims at the drums there (wheels.ts, style 'formula04');
+ * - the chimneys on the sidepods' shoulders;
  * - the mirrors on their stalks from the sidepods, the rain light, the T-camera on the airbox;
  * - and what the far LOD keeps of all that (`addFormula04FarParts`).
  *
@@ -19,7 +20,7 @@ import type { CarVisualSpec } from '../../core/contracts';
 import { PART } from '../blueprint';
 import { eyePoint, formula04Points } from '../layouts';
 import { addDoorMirrors } from '../mirrorParts';
-import { norm3, type PartBuilder, type V3 } from '../parts';
+import { cross, dot3, norm3, sub3, type PartBuilder, type V3 } from '../parts';
 import { roundPoly } from '../shapes';
 import { edges, element, plate, plates, rods, type Section } from './formulaParts';
 
@@ -34,6 +35,51 @@ export function frame04(s: CarVisualSpec) {
   // (the cockpit's reference: 5 cm behind the driver's eye)
   const sz = eye[2] - 0.05;
   return { zF, zR, zNose, zTail, hk, eye, sz, pts: formula04Points(s) };
+}
+
+/** The mouth of a chimney: the middle of the left one (the right one is mirrored), its axis, and two ways square to it. */
+export interface Mouth04 {
+  at: V3;
+  dir: V3;
+  /** across the mouth (the short half-axis of an oval mouth) */
+  u: V3;
+  /** along the car in the mouth's plane (the long half-axis) */
+  v: V3;
+  /** the half-axes along v and along u */
+  a: number;
+  b: number;
+}
+
+function mouthFrame(at: V3, dir: V3, a: number, b: number): Mouth04 {
+  const v = norm3([-dir[0] * dir[2], -dir[1] * dir[2], 1 - dir[2] * dir[2]]);
+  return { at, dir, u: cross(dir, v), v, a, b };
+}
+
+/**
+ * The mouth of the left chimney (the right one is mirrored), on the sidepod's shoulder 40 cm out and 55 cm behind the cockpit's
+ * reference: 6.8 cm across inside its lip, facing up, out and a little back.
+ */
+export function chimney04(s: CarVisualSpec): Mouth04 {
+  const { hk, sz } = frame04(s);
+  const d = Math.hypot(0.32, 0.9, 0.28);
+  return mouthFrame([0.405, 0.585 * hk, sz - 0.55], [0.32 / d, 0.9 / d, -0.28 / d], 0.034, 0.034);
+}
+
+/** A ring round a mouth (`sg` +1 the left one, -1 the right one), its half-axes grown by `grow`, `t` along the axis from the mouth's plane. */
+function mouthRing(m: Mouth04, grow: number, t: number, sg: number): V3[] {
+  const out: V3[] = [];
+  for (let i = 0; i < 24; i++) {
+    const c = Math.cos((i / 24) * Math.PI * 2) * (m.b + grow), sn = Math.sin((i / 24) * Math.PI * 2) * (m.a + grow);
+    const x = m.at[0] + m.dir[0] * t + m.u[0] * c + m.v[0] * sn;
+    out.push([sg * x, m.at[1] + m.dir[1] * t + m.u[1] * c + m.v[1] * sn, m.at[2] + m.dir[2] * t + m.u[2] * c + m.v[2] * sn]);
+  }
+  return out;
+}
+
+/** A flat disc through a ring of points, facing `n`. */
+function disc(b: PartBuilder, ring: V3[], n: V3): void {
+  const w = cross(sub3(ring[1], ring[0]), sub3(ring[2], ring[0]));
+  b.polygon3(dot3(w, n) > 0 ? ring : ring.slice().reverse(), n);
 }
 
 /**
@@ -251,6 +297,19 @@ export function addFormula04Parts(b: PartBuilder, s: CarVisualSpec): void {
     rods(b, [0.09, 0.3, zR - 0.22], [xr, 0.31, zR - 0.1], 0.01);
     b.setPart(PART.plastic);
     rods(b, [0.08, Rr, zR], [xr, Rr, zR], 0.022, 12);
+  }
+
+  // the chimneys on the sidepods' shoulders, angled out: a short stack painted with the sidepod, from 9 cm down in it to an open top,
+  // a grille 15 mm down inside the lip (it is a part, as the sculpted mesh holds nothing under two cells)
+  {
+    const m = chimney04(s);
+    for (const sg of [1, -1]) {
+      b.setPart(PART.body);
+      b.loft([mouthRing(m, 0.012, -0.09, sg), mouthRing(m, 0.008, -0.04, sg), mouthRing(m, 0.004, -0.003, sg), mouthRing(m, 0.002, 0, sg), mouthRing(m, 0, -0.002, sg), mouthRing(m, 0, -0.015, sg)]);
+      b.setZone(3, -1);
+      disc(b, mouthRing(m, 0, -0.015, sg), [sg * m.dir[0], m.dir[1], m.dir[2]]);
+      b.clearZones();
+    }
   }
 
   // mirrors on their stalks from the front of the sidepods (carvis/mirrorLayout.ts)

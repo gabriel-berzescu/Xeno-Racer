@@ -3,6 +3,7 @@ import { getCar, CARS } from '../src/cars';
 import { PART, ZONE_STRIDE } from '../src/carvis/blueprint';
 import { BLUEPRINTS } from '../src/carvis/bodies';
 import { makeFormula } from '../src/carvis/bodies/formula';
+import { chimney04 } from '../src/carvis/bodies/formula04Parts';
 import { frontZ, sideX, topY } from '../src/carvis/bodies/probe';
 import { buildCarData, VERTEX_STRIDE, type CarData } from '../src/carvis/build';
 import { steeringLock } from '../src/carvis/car';
@@ -165,6 +166,38 @@ describe('Dieci body', () => {
     const rim: V = [at[0] + 0.036, at[1], at[2]];
     bp.zones(rim[0], rim[1], rim[2], dir[0], dir[1], dir[2], zb, 0);
     expect(zb[1]).toBeLessThan(0);
+  });
+
+  it("stands a chimney on each sidepod's shoulder: a part painted with the sidepod, rising out of it, open at the top over a grille", () => {
+    const m = chimney04(spec);
+    const { pb } = partsOf((b) => bp.parts!(b));
+    // (the sculpted body has none: the air 3 cm under the mouth)
+    expect(bp.body(m.at[0] - m.dir[0] * 0.03, m.at[1] - m.dir[1] * 0.03, m.at[2] - m.dir[2] * 0.03)).toBeGreaterThan(0.01);
+    // up, out and a little back, 55 cm behind the cockpit's reference and 40 cm out
+    expect(m.dir[1]).toBeGreaterThan(0.9);
+    expect(m.dir[0]).toBeGreaterThan(0.25);
+    expect(m.dir[2]).toBeLessThan(0);
+    for (const sg of [1, -1]) {
+      const near: { p: V; part: number; grille: number }[] = [];
+      for (let i = 0; i < pb.vertexCount; i++) {
+        const p: V = [pb.pos[i * 3], pb.pos[i * 3 + 1], pb.pos[i * 3 + 2]];
+        if (Math.sign(p[0]) === sg && dist([Math.abs(p[0]), p[1], p[2]], m.at) < 0.11) near.push({ p, part: pb.zon[i * ZONE_STRIDE + 13], grille: pb.zon[i * ZONE_STRIDE + 3] });
+      }
+      const t = (p: V): number => (Math.abs(p[0]) - m.at[0]) * m.dir[0] + (p[1] - m.at[1]) * m.dir[1] + (p[2] - m.at[2]) * m.dir[2];
+      const stack = near.filter((v) => v.part === PART.body);
+      expect(stack.length).toBeGreaterThan(100);
+      // its foot inside the sidepod, its top at the mouth, clear of the sidepod by more than 4 cm there
+      for (const v of stack.filter((q) => t(q.p) < -0.08)) expect(bp.body(...v.p)).toBeLessThan(-0.01);
+      expect(Math.max(...stack.map((v) => t(v.p)))).toBeCloseTo(0, 6);
+      expect(bp.body(sg * m.at[0], m.at[1], m.at[2])).toBeGreaterThan(0.04);
+      // the grille: a disc 15 mm down inside the lip, 6.8 cm across
+      const grille = stack.filter((v) => v.grille < 0);
+      expect(grille.length).toBeGreaterThan(20);
+      for (const v of grille) expect(t(v.p)).toBeCloseTo(-0.015, 6);
+      const r = Math.max(...grille.map((v) => dist([Math.abs(v.p[0]), v.p[1], v.p[2]], m.at)));
+      expect(r).toBeGreaterThan(0.033);
+      expect(r).toBeLessThan(0.038);
+    }
   });
 
   it('keeps its wings, its far LOD and the helmet in the far LOD (and so in the shadow an AI car casts), coloured by the paint they wear', async () => {
