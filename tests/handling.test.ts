@@ -84,8 +84,9 @@ describe('the stability control on a car with wings', () => {
   // and its reference takes less understeer for a car the downforce presses down. With the weight alone the default aids held the LMP-X
   // to 2.67 g at 250 km/h where its tyres hold 3.02, and the Volta to 2.27 g at 225 km/h where they hold 3.71 at 241. With the downforce
   // counted as the weight is, a ceiling that knew nothing of the water, the two slid 40-60 degrees in a stop at full lock from 250 km/h in
-  // standing water and the Volta spun in a lane change there.
-  const winged = [getCar('lmp-x'), getCar('volta')];
+  // standing water and the Volta spun in a lane change there. (The Dieci, with the most downforce for its weight, holds 4.08 g at 240 km/h
+  // with the default aids and 4.01 without them.)
+  const winged = [getCar('lmp-x'), getCar('volta'), getCar('dieci')];
   const aids = DEFAULT_SETTINGS.assists;
 
   it('lets it turn at 250 km/h as hard as its tyres hold it', () => {

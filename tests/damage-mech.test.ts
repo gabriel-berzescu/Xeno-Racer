@@ -317,11 +317,14 @@ describe('what each car can lose', () => {
 
   it('is read off the car: the downforce it really has, the radiator in its nose', () => {
     // the Vanta GT: real downforce and an engine in front; the Kestrel R and the Ronin 86: a lip and a ducktail, an engine in front; the LMP-X:
-    // wings, and the radiators of a mid-engined car in its side pods; the Mammoth: lift, and an engine in front
+    // wings, and the radiators of a mid-engined car in its side pods, as the two single-seaters, the Volta and the Dieci; the Mammoth: lift, and
+    // an engine in front
     expect(byId('vanta-gt')).toEqual({ frontAero: true, rearAero: true, noseEngine: true });
     expect(byId('kestrel-r')).toEqual({ frontAero: false, rearAero: false, noseEngine: true });
     expect(byId('ronin-86')).toEqual({ frontAero: false, rearAero: false, noseEngine: true });
     expect(byId('lmp-x')).toEqual({ frontAero: true, rearAero: true, noseEngine: false });
+    expect(byId('volta')).toEqual({ frontAero: true, rearAero: true, noseEngine: false });
+    expect(byId('dieci')).toEqual({ frontAero: true, rearAero: true, noseEngine: false });
     expect(byId('mammoth')).toEqual({ frontAero: false, rearAero: false, noseEngine: true });
     // a record kept without a car is a car that has all of it, which is what the tests above are about
     expect(FULL_CAR).toEqual({ frontAero: true, rearAero: true, noseEngine: true });
