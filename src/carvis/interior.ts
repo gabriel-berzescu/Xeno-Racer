@@ -6,7 +6,7 @@
 import type { BodyStyle, CarVisualSpec, QualityLevel } from '../core/contracts';
 import { ZONE_STRIDE } from './blueprint';
 import { VERTEX_STRIDE, type PartData, partToData } from './build-shared';
-import { eyePoint } from './layouts';
+import { eyePoint, formulaCockpit } from './layouts';
 import { PartBuilder, type V3 } from './parts';
 import { polygonize } from './polygonize';
 import { sdCapsule, sdEllipsoid, sdRoundBox, smin, type FieldFn } from './sdf';
@@ -125,8 +125,8 @@ const LOW_CABIN = {
   rearDoor: false,
 };
 
-function styleFor(style: BodyStyle): IStyle {
-  switch (style) {
+function styleFor(spec: CarVisualSpec): IStyle {
+  switch (spec.style) {
     case 'gt':
       return { twoSeats: true, rearBench: false, cage: false, doorCards: true, bucket: false, seatTilt: 0.3, cowlZ: 0.45, cowlY: 0.88, floorY: 0.27, ...LOW_CABIN };
     case 'hatch':
@@ -166,19 +166,22 @@ function styleFor(style: BodyStyle): IStyle {
         doorBack: 1.95,
         rearDoor: true,
       };
-    case 'formula':
-      // the single-seater: lying back in a narrow tub, the back 60 degrees from upright (the shoulders under the helmet, below the
-      // cockpit's rim), no cage (the roll hoop and the halo are the body's), the yoke right over the hips, 8 cm inside the front end of
-      // the cockpit's opening (5 cm further on, its gloves were in the opening's rounded corners, and its grips went into the chassis as
-      // it turned); the cabin box reaches from behind the headrest to the footwell (cowlZ: the front bulkhead)
-      return { twoSeats: false, rearBench: false, cage: false, doorCards: false, bucket: true, seatTilt: 1.05, cowlZ: 1.2, cowlY: 0.6, floorY: 0.08, ...LOW_CABIN, wheelUp: 0.33, wheelFwd: 0, wheelTilt: 0.4, halfW: 0.24, top: 0.82 };
+    case 'formula': {
+      // the single-seater: lying back in a narrow tub (the shoulders under the helmet, below the cockpit's rim), no cage (the roll hoop
+      // and the halo are the body's), its posture and its steering wheel its cockpit's (formulaCockpit: on the 2026 car the yoke right over
+      // the hips, 8 cm inside the front end of the cockpit's opening, where 5 cm further on its gloves were in the opening's rounded
+      // corners and its grips went into the chassis as it turned); the cabin box reaches from behind the headrest to the footwell (cowlZ:
+      // the front bulkhead)
+      const c = formulaCockpit(spec);
+      return { twoSeats: false, rearBench: false, cage: false, doorCards: false, bucket: true, seatTilt: c.seatTilt, cowlZ: 1.2, cowlY: 0.6, floorY: 0.08, ...LOW_CABIN, wheelUp: c.wheel.up, wheelFwd: c.wheel.fwd, wheelTilt: c.wheel.tilt, halfW: 0.24, top: 0.82 };
+    }
     default:
       return { twoSeats: false, rearBench: false, cage: true, doorCards: false, bucket: true, seatTilt: 0.62, cowlZ: 0.9, cowlY: 0.64, floorY: 0.14, ...LOW_CABIN, wheelUp: 0.34, wheelFwd: 0.6, wheelTilt: 0.9 };
   }
 }
 
 export function makeInterior(spec: CarVisualSpec, quality: QualityLevel): InteriorData {
-  const st = styleFor(spec.style);
+  const st = styleFor(spec);
   const sx = spec.seat.x, sy = spec.seat.y, sz = spec.seat.z;
   const proto = spec.style === 'prototype';
   // (an open cockpit: the body's tub is all there is round the driver, so the cabin is only the seat and the headrest)
