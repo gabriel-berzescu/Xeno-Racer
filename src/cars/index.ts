@@ -747,8 +747,160 @@ const volta: CarDefinition = {
   },
 };
 
-// (the newest cars last, the Mammoth and then the Volta: tests take CARS[3] for the LMP-X)
-export const CARS: CarDefinition[] = [vanta, kestrel, ronin, lmp, mammoth, volta];
+// ─────────────────────────────────────────────────────────────────────────────
+// Dieci — a 2004-style single-seater. A 3.0 L V10 screaming to 19,300 rpm, fixed wings, grooved tyres, and nothing electric.
+// ─────────────────────────────────────────────────────────────────────────────
+// A first pass, to be tuned. What it does on a flat plane (tests/physics.test.ts, .cache/physics-metrics.txt): 0-100 km/h in 2.55 s with the
+// traction control on, 0-200 in 4.62 s and 328 km/h flat out in seventh; it stops from 100 in 19.0 m with ABS and holds 2.54 g on the skidpad.
+// It leaves the line as a road car does for now, held at 4900 rpm: nothing reads its launchRpm yet.
+
+// The Dieci's body: 4.55 m long, 1.8 m wide over the tyres, 0.95 m to the top of the airbox, an open cockpit with the driver on the centre
+// line. It is drawn with the Volta's body at these sizes for now: nothing reads formulaEra or the periscopes yet.
+const dieciVisual: CarVisualSpec = {
+  style: 'formula',
+  formulaEra: 2004,
+  length: 4.55,
+  width: 1.8,
+  height: 0.95,
+  wheelbase: 3.1,
+  trackFront: 1.46,
+  trackRear: 1.41,
+  frontOverhang: 0.97,
+  // (13-inch rims in 660 mm tyres)
+  wheelRadiusFront: 0.33,
+  wheelRadiusRear: 0.33,
+  tireWidthFront: 0.325,
+  tireWidthRear: 0.375,
+  rimRadiusFront: 0.1651,
+  rimRadiusRear: 0.1651,
+  rideHeight: 0.05,
+  cgHeight: 0.275,
+  cgToFrontAxle: 1.674,
+  wing: 1,
+  engine: 'mid',
+  exhaust: { count: 2, side: 'periscope' },
+  // (the eye 1.42 m behind the front axle, at the Volta's height for now)
+  seat: { x: 0, y: 0.22, z: 0.5 },
+  openCockpit: true,
+};
+
+// The Dieci's voice: a 3.0 L V10 with a flat crank (even firing, five pulses a turn) to 19,300 rpm, no turbo, and two short open
+// periscopes (heard as the merged exhaust until the voice gives 'short' pipes of its own).
+const dieciSound: EngineSoundProfile = {
+  cylinders: 10, layout: 'v', crankType: 'flat', displacement: 3.0, turbo: false, exhaustOpenness: 1, brightness: 0.95, gearWhine: 0.75, crackle: 0.35,
+  exhaustSystem: 'short',
+  // its loudness measured over its own revs, and the lift of its 4000 rpm idle gone by 5600 rpm (not 8800)
+  limiterRpm: 19300,
+  idleLiftTo: 1.4,
+  // an upshift that cuts the ignition, heard for 40 ms (not seamless: the Volta's is a 20 ms flick, a road car's a 70 ms gap)
+  shiftDip: 0.04,
+};
+
+// The Dieci itself: 640 kg with the driver and an average fuel load (the 600 kg rule and 40 kg of fuel), 46 % of it on the front axle.
+const dieci: CarDefinition = {
+  id: 'dieci',
+  name: 'Dieci',
+  maker: 'Xeno Racing',
+  description:
+    'A 2004-style single-seater: 640 kg, a 3.0 L V10 screaming to 19,300 rpm, grooved tyres on 13-inch rims, and nothing electric. The quickest car here, and the loudest.',
+  class: 'Formula',
+  drivetrain: 'RWD',
+  // (measured, a first pass: 0-100 in 2.55 s with the traction control on, 328.2 km/h flat out; the curve gives 911.9 hp at 18,500 rpm and
+  // 375 Nm at 16,500)
+  stats: { powerHp: 912, torqueNm: 375, massKg: 640, topSpeedKmh: 328, zeroTo100: 2.5 },
+  visual: dieciVisual,
+  sound: dieciSound,
+  defaultLivery: { primary: '#e2541b', secondary: '#23262b', accent: '#f4f4f2', pattern: 'split', number: 19, driver: 'You', finish: 0, metallic: false },
+  physics: {
+    chassis: {
+      mass: 640,
+      inertia: { x: 1100, y: 1050, z: 170 },
+      cgHeight: 0.275,
+      wheelbase: 3.1,
+      cgToFrontAxle: 1.674,
+      trackFront: 1.46,
+      trackRear: 1.41,
+      maxSteer: 24 * DEG,
+      ackermann: 0.15,
+      ...hullFromVisual(dieciVisual, 1.674),
+    },
+    engine: {
+      idleRpm: 4000,
+      redlineRpm: 19000,
+      limiterRpm: 19300,
+      // the 2004 V10: 375 Nm at 16,500 rpm and 680 kW at 18,500, a flat top (674 kW at 17,500, 672.5 at 19,000)
+      torqueCurve: [
+        [0, 50], [4000, 110], [6000, 175], [8000, 235], [10000, 288], [12000, 325], [14000, 355], [15500, 370], [16500, 375],
+        [17500, 368], [18500, 351], [19000, 338], [19300, 330], [20000, 295],
+      ],
+      // (about half the 95 Nm a bare V10 drags at 18,000 rpm with the throttle shut, as the engine-braking maps of the period gave)
+      engineBraking: 50,
+      inertia: 0.05,
+      turbo: null,
+      // the launch control holds it at 10,000 rpm off the line
+      launchRpm: 10000,
+    },
+    drivetrain: {
+      layout: 'RWD',
+      // (19,000 rpm is 116 / 148 / 182 / 216 / 253 / 295 / 344 km/h)
+      gears: [5.09, 3.98, 3.25, 2.73, 2.34, 2.0, 1.72],
+      reverse: 3.0,
+      finalDrive: 4.0,
+      efficiency: 0.94,
+      // (an ignition cut, not a seamless shift)
+      shiftTime: 0.03,
+      upshiftRpm: 19000,
+      downshiftRpm: 12500,
+      diff: { type: 'lsd', preload: 120, powerLock: 0.45, coastLock: 0.3 },
+      frontSplit: 0,
+    },
+    brakes: { frontTorque: 2600, rearTorque: 1750, handbrakeTorque: 1500, discHeatCapacity: 2400 },
+    // fixed wings of medium downforce: 4.1 m^2 of downforce area, 44 % of it at the front, and a CdA of 1.3
+    aero: { dragArea: 1.3, liftAreaFront: 1.8, liftAreaRear: 2.3 },
+    // grooved dry tyres: four grooves cost the contact patch some grip (1.62 against the Volta's 1.75, 1.78 on the load a wheel carries at
+    // rest) and leave no tread for grass, dirt or gravel, so they take the slick's table of surfaces
+    tireFront: {
+      ...roadTire(325, 51, 13, 1.62),
+      radius: dieciVisual.wheelRadiusFront,
+      inertia: 1.0,
+      loadSensitivity: 0.15,
+      nominalLoad: 4500,
+      peakSlipAngle: 6.5 * DEG,
+      peakSlipRatio: 0.09,
+      slideRatio: 0.74,
+      relaxationLength: 0.4,
+      optimalTemp: 90,
+      tempWindow: 45,
+      coldGrip: 0.74,
+      heatScale: 0.9,
+      // (wet-weather compound fitted when it rains)
+      wetGrip: 0.64,
+      slick: 1,
+    },
+    tireRear: {
+      ...roadTire(375, 44, 13, 1.62),
+      radius: dieciVisual.wheelRadiusRear,
+      inertia: 1.15,
+      loadSensitivity: 0.15,
+      nominalLoad: 4500,
+      peakSlipAngle: 6.5 * DEG,
+      peakSlipRatio: 0.09,
+      slideRatio: 0.74,
+      relaxationLength: 0.4,
+      optimalTemp: 90,
+      tempWindow: 45,
+      coldGrip: 0.74,
+      heatScale: 1.3,
+      wetGrip: 0.64,
+      slick: 1,
+    },
+    suspFront: { travel: 0.06, spring: 250000, bump: 4500, rebound: 7500, antiRoll: 60000, camber: -3 * DEG },
+    suspRear: { travel: 0.06, spring: 300000, bump: 5000, rebound: 8700, antiRoll: 70000, camber: -1.8 * DEG },
+  },
+};
+
+// (the newest cars last, the Mammoth, the Volta and then the Dieci: tests take CARS[3] for the LMP-X)
+export const CARS: CarDefinition[] = [vanta, kestrel, ronin, lmp, mammoth, volta, dieci];
 
 export function getCar(id: string): CarDefinition {
   const c = CARS.find((c) => c.id === id);

@@ -1,5 +1,6 @@
 /**
- * The racing slick (TireSpec.slick, the tyres of the two racing cars, the LMP-X and the Volta), held to the promises made for it:
+ * The racing slick (TireSpec.slick, the tyres of the three racing cars, the LMP-X, the Volta and the Dieci, whose grooved tyres have no
+ * more tread for loose ground than a slick), held to the promises made for it:
  *   - it is a trait of the tyre with a table of surfaces of its own (src/physics/surfaces.ts, SLICK_LOSS): on grass, dirt, gravel, sand and
  *     deep snow it keeps a good deal less grip than a road tyre, far less on wet turf and dirt, and digs into gravel and sand; paved ground,
  *     packed snow and ice are the same for every tyre. It is the other end of the scale from the all-terrain tyre (TireSpec.offroad);
@@ -22,8 +23,8 @@ import { aiLap, brakeRun, dragRun, freeRoll, gripAtSpeed, launch, skidpad } from
 const lmp = getCar('lmp-x');
 const mammoth = getCar('mammoth');
 const roadCars = ['vanta-gt', 'kestrel-r', 'ronin-86'].map(getCar);
-/** The two racing cars, on slicks, and every car that is not one. */
-const racingCars = ['lmp-x', 'volta'].map(getCar);
+/** The three racing cars, on slicks (the Dieci's grooved), and every car that is not one. */
+const racingCars = ['lmp-x', 'volta', 'dieci'].map(getCar);
 const otherCars = CARS.filter((c) => !racingCars.includes(c));
 const LOOSE: SurfaceType[] = ['grass', 'dirt', 'gravel', 'sand', 'deepsnow'];
 const NOT_LOOSE: SurfaceType[] = ['asphalt', 'curb', 'concrete', 'snow', 'ice'];
@@ -37,7 +38,7 @@ const withoutSlick: CarDefinition = (() => {
 })();
 
 describe('the racing slick is a trait of the tyre', () => {
-  it('is on the two racing cars, the LMP-X and the Volta, front and rear, and on no other car', () => {
+  it('is on the three racing cars, the LMP-X, the Volta and the Dieci, front and rear, and on no other car', () => {
     for (const c of racingCars) {
       expect(c.physics.tireFront.slick, c.id).toBe(1);
       expect(c.physics.tireRear.slick, c.id).toBe(1);
@@ -154,7 +155,7 @@ describe('on asphalt, kerbs and concrete the LMP-X is what it was', () => {
     expect(dragRun(lmp, 20).t100).toBe(dragRun(withoutSlick, 20).t100);
   });
 
-  it('is still the king of the asphalt, with the Volta: the two racing cars have far more grip than any other car at 60 and at 120 km/h, dry and wet', () => {
+  it('is still the king of the asphalt, with the Volta and the Dieci: the three racing cars have far more grip than any other car at 60 and at 120 km/h, dry and wet', () => {
     for (const wetness of [0, 0.75]) {
       for (const kmh of [60, 120]) {
         for (const r of racingCars) {

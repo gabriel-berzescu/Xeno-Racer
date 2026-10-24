@@ -92,6 +92,12 @@ export interface EngineSpec {
    * 1800 - 5 v kW with v in km/h, cut at 345; electricPower says where the rule itself differs).
    */
   electric?: { powerKw: number; torqueNm: number; fullToKmh: number; zeroAtKmh: number };
+  /**
+   * The engine speed the launch control holds a standing start at on a full throttle, rpm (absent: half the redline, at most 4600 and at
+   * least 900 over the idle, a road car's). That would hold a racing V10 that idles at 4000 at 4900, barely off its idle; a 2004
+   * single-seater left the line at about 10,000.
+   */
+  launchRpm?: number;
 }
 
 export interface DifferentialSpec {

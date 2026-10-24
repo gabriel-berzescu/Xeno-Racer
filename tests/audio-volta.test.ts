@@ -80,12 +80,12 @@ function whineOverMix(out: Float32Array, whine: Float32Array, rpm: number, from 
 const db = (x: number): number => 20 * Math.log10(x + 1e-12);
 
 describe('what the profile asks for is all the shared voice does for the Volta', () => {
-  it('only the Volta has an electric motor and a racing engine\'s fields; it has no blower, no dual exhaust and none of the cross-plane lumpiness', () => {
+  it('only the Volta has an electric motor, and only the two single-seaters a racing engine\'s fields; the Volta has no blower, no dual exhaust and none of the cross-plane lumpiness', () => {
     for (const c of CARS) {
       const V = deriveVoicing(c.sound, buildLayout(c.sound));
       expect(V.electric > 0, c.id).toBe(c.id === 'volta');
-      if (c.id === 'volta') continue;
-      // (the five other engines take the old path everywhere: none of the fields is there)
+      if (c.id === 'volta' || c.id === 'dieci') continue;
+      // (the five engines that are not a single-seater's take the old path everywhere: none of the fields is there)
       const s = c.sound;
       expect([s.electric, s.electricTaper, s.limiterRpm, s.idleLiftTo, s.blowOff, s.shiftDip, s.wastegate], c.id).toEqual([undefined, undefined, undefined, undefined, undefined, undefined, undefined]);
       expect([V.wastegate, V.blowOff, V.shiftDip, V.bridgeCut, V.idleLiftTo], c.id).toEqual([0, true, 0.07, false, 2.2]);
@@ -509,8 +509,8 @@ describe("the MGU-K's whine", () => {
 });
 
 describe('the open cockpit: the driver hears the car through a helmet, not a closed cabin', () => {
-  it('the Volta has an open cockpit, and no other car of the roster does', () => {
-    for (const c of CARS) expect(c.visual.openCockpit === true, c.id).toBe(c.id === 'volta');
+  it('the Volta has an open cockpit, as the Dieci does, and no other car of the roster', () => {
+    for (const c of CARS) expect(c.visual.openCockpit === true, c.id).toBe(c.id === 'volta' || c.id === 'dieci');
   });
 
   /** The engine at `rpm` flat out from outside (interior 0), from a closed cabin and from the helmet (interior 1). */

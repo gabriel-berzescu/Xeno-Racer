@@ -290,7 +290,7 @@ export interface VehicleState {
 // Cars (owner: game/physics — data lives in src/cars)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** The body a car is drawn with ('formula': an open-wheeled single-seater, the Volta). */
+/** The body a car is drawn with ('formula': an open-wheeled single-seater, the Volta and the Dieci; CarVisualSpec.formulaEra says of which era). */
 export type BodyStyle = 'gt' | 'hatch' | 'coupe' | 'prototype' | 'suv' | 'formula';
 
 /** Everything the car-visual builder needs. Body geometry origin: on the ground, centered
@@ -318,7 +318,8 @@ export interface CarVisualSpec {
   wing: number;
   /** Engine position (affects intakes, vents, cockpit placement). */
   engine: 'front' | 'mid' | 'rear';
-  exhaust: { count: 1 | 2 | 4; side: 'center' | 'split' | 'side' };
+  /** The tailpipes and where they come out ('periscope': two pipes pointing up and back out of the top of the sidepods, a 2004 single-seater's). */
+  exhaust: { count: 1 | 2 | 4; side: 'center' | 'split' | 'side' | 'periscope' };
   /** Seat position relative to body origin, for cockpit camera / driver (x > 0: on the left, a left-hand drive; 0: on the centre line, a single-seater). */
   seat: { x: number; y: number; z: number };
   /**
@@ -326,6 +327,8 @@ export interface CarVisualSpec {
    * the driver hears the car through a helmet instead of a cabin.
    */
   openCockpit?: boolean;
+  /** The era of a single-seater (style 'formula'; absent: 2026, the Volta's): 2004, a car of the V10 years. */
+  formulaEra?: 2004;
 }
 
 /**
@@ -425,9 +428,11 @@ export interface EngineSoundProfile {
    * heard from one point: a cross-plane V8's banks, which fire 90 / 180 / 270 / 180 degrees apart, come out as the burble (energy at the half
    * orders of the crank, rpm/120), strongest below 3000 rpm and fading as the pulses crowd into the roar. Absent or 'merged': the banks meet
    * in an X-pipe and one pipe goes on, which throws that difference away, so the same engine is smoother. The pipes are run in full quality;
-   * a lite voice has the same lope as per-pulse strengths.
+   * a lite voice has the same lope as per-pulse strengths. 'short': each collector straight out through a short open pipe with no muffler
+   * (the periscopes of a 2004 single-seater), whose ends reflect little: the pipe resonances that ripple a long exhaust's note through the
+   * top of a 19,000 rpm engine's revs are damped.
    */
-  exhaustSystem?: 'merged' | 'dual';
+  exhaustSystem?: 'merged' | 'dual' | 'short';
   /**
    * 0..1 how loud the whine of an electric motor geared to the crankshaft is (absent: none), the Volta's MGU-K (EngineSpec.electric):
    * locked to the engine speed, faint while it harvests under braking and strong while it deploys, which is only while a nitro shot burns,
