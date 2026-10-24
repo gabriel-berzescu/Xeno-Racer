@@ -780,7 +780,7 @@ const dieciVisual: CarVisualSpec = {
   wing: 1,
   engine: 'mid',
   exhaust: { count: 2, side: 'periscope' },
-  // (the eye 1.42 m behind the front axle, at the Volta's height for now)
+  // (the hips 1.05 m behind the front axle: the eye 1.42 m behind it and 73 cm up, as the build sheet has it, formulaCockpit)
   seat: { x: 0, y: 0.22, z: 0.5 },
   openCockpit: true,
 };
