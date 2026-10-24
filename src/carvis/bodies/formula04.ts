@@ -8,31 +8,23 @@
  * The cockpit is a real opening in the tub (no glass: the glass index is empty), its walls bare carbon; the two LED lamps sit in the tip
  * of the nose; the rain light is a part, so the four lamps the damage model knows are given to it (info.lamps): the LEDs, and the rain
  * light's two halves as the tail lamps (the car has no other rear light). The periscopes are sculpted with the sidepods they stand on,
- * so a dent moves the two alike; the chimneys are parts.
+ * so a dent moves the two alike; the lips of their mouths and the chimneys are parts.
  */
 import type { BlueprintFactory } from '../blueprint';
 import { curve } from '../curve';
 import { defaultLoft, sdLoft } from '../loft';
 import { sdRoundBox, sdRoundCone, sdRoundRect2, smax, smin, ssub } from '../sdf';
-import { addFormula04FarParts, addFormula04Parts, frame04 } from './formula04Parts';
+import { addFormula04FarParts, addFormula04Parts, frame04, periscopeMouth04, periscopeMouthSd } from './formula04Parts';
 import { frontZ } from './probe';
 
 type V3 = [number, number, number];
 
-/** An exhaust stack sculpted on the body: a round cone from inside the bodywork up to a flat mouth facing `dir`, and how far a point is from its mouth's rim. */
-function stack(at: V3, dir: V3, len: number, r0: number, r1: number, mouthR: number) {
+/** An exhaust stack sculpted on the body: a round cone from inside the bodywork up to a flat top facing `dir`, its mouth's plane. */
+function stack(at: V3, dir: V3, len: number, r0: number, r1: number) {
   const b: V3 = [at[0] - dir[0] * len, at[1] - dir[1] * len, at[2] - dir[2] * len];
-  return {
-    field: (ax: number, y: number, z: number): number => {
-      const d = sdRoundCone(ax, y, z, b[0], b[1], b[2], r0, at[0], at[1], at[2], r1);
-      return smax(d, (ax - at[0]) * dir[0] + (y - at[1]) * dir[1] + (z - at[2]) * dir[2], 0.012);
-    },
-    mouth: (ax: number, y: number, z: number): number => {
-      const px = ax - at[0], py = y - at[1], pz = z - at[2];
-      const t = px * dir[0] + py * dir[1] + pz * dir[2];
-      const rx = px - dir[0] * t, ry = py - dir[1] * t, rz = pz - dir[2] * t;
-      return Math.max(Math.sqrt(rx * rx + ry * ry + rz * rz) - mouthR, -t - 0.02);
-    },
+  return (ax: number, y: number, z: number): number => {
+    const d = sdRoundCone(ax, y, z, b[0], b[1], b[2], r0, at[0], at[1], at[2], r1);
+    return smax(d, (ax - at[0]) * dir[0] + (y - at[1]) * dir[1] + (z - at[2]) * dir[2], 0.012);
   };
 }
 
@@ -153,8 +145,10 @@ export const makeFormula04: BlueprintFactory = (s) => {
     },
     zero,
   );
-  // the periscopes: a stack each side on the sidepod's top next to the engine cover, its oval mouth facing up and back (formula04Points)
-  const per = stack(pts.periscope.at, pts.periscope.dir, 0.17, 0.068, 0.05, 0.03);
+  // the periscopes: a stack each side on the sidepod's top next to the engine cover, 12 cm across its top, which carries the oval mouth
+  // facing up and back (formula04Points, periscopeMouth04: the lip round it is a part)
+  const per = stack(pts.periscope.at, pts.periscope.dir, 0.17, 0.075, 0.062);
+  const pm04 = periscopeMouth04(s);
 
   // the cockpit opening: a rounded slot in plan from just ahead of the steering wheel to behind the helmet, cut down to the seat
   const wellZ = sz + 0.19;
@@ -171,7 +165,7 @@ export const makeFormula04: BlueprintFactory = (s) => {
     const px = ax > podX ? ax - podX : podX - ax;
     d = smin(d, sdLoft(pod, px, y, z), 0.1);
     d = smin(d, sdLoft(gearbox, ax, y, z), 0.06);
-    d = smin(d, per.field(ax, y, z), 0.07);
+    d = smin(d, per(ax, y, z), 0.07);
     // clip to the overall length
     d = smax(d, z - zNose, 0.02);
     d = smax(d, zTail - z, 0.02);
@@ -193,13 +187,13 @@ export const makeFormula04: BlueprintFactory = (s) => {
 
   const zones = (x: number, y: number, z: number, _nx: number, ny: number, nz: number, out: Float32Array, o: number): void => {
     const ax = x < 0 ? -x : x;
-    const pm = per.mouth(ax, y, z);
-    // black: the underside at the floor, and the soot round the mouths of the periscopes
-    out[o + 1] = Math.min(y - (s.rideHeight + 0.055), Math.max(y - 0.16, ny + 0.6), pm - 0.014);
+    // black: the underside at the floor, and the periscopes' mouths, the pipe inside the lip and 14 mm of soot round it
+    const pm = periscopeMouthSd(pm04, ax, y, z, 0.014);
+    out[o + 1] = Math.min(y - (s.rideHeight + 0.055), Math.max(y - 0.16, ny + 0.6), pm);
     // bare carbon: the cockpit's walls and floor, and the undercut below the sidepods and the chassis behind the front wheels
     out[o + 2] = Math.min(well(ax, y, z) - 0.012, Math.max(y - 0.18, z - (zF - 0.35)));
-    // the dark mouths of the inlets, the airbox and the periscopes
-    out[o + 3] = Math.min(inlet(ax, y, z) - 0.01, mouth(ax, y, z) - 0.01, pm);
+    // the dark mouths of the inlets and the airbox
+    out[o + 3] = Math.min(inlet(ax, y, z) - 0.01, mouth(ax, y, z) - 0.01);
     out[o + 4] = lamp(ax, y, z);
     // shut lines: the nose cone's joint ahead of the front bulkhead, the engine cover's front edge round the airbox over the sidepods
     out[o + 8] = z - (zF - 0.05);

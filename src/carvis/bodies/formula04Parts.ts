@@ -10,11 +10,11 @@
  * - a flat floor with the large diffuser of the years before 2005, five strakes under it;
  * - pushrod suspension at both ends (wishbones, pushrods, track rods and toe links, the driveshafts), its arms ending inside the 13-inch
  *   rims at the drums there (wheels.ts, style 'formula04');
- * - the chimneys on the sidepods' shoulders;
+ * - the lips of the periscopes' mouths and the chimneys on the sidepods' shoulders;
  * - the mirrors on their stalks from the sidepods, the rain light, the T-camera on the airbox;
  * - and what the far LOD keeps of all that (`addFormula04FarParts`).
  *
- * The periscope exhausts are not here: they are sculpted with the sidepods (bodies/formula04.ts), so they dent with them.
+ * The periscope exhausts themselves are not here: they are sculpted with the sidepods (bodies/formula04.ts), so they dent with them.
  */
 import type { CarVisualSpec } from '../../core/contracts';
 import { PART } from '../blueprint';
@@ -37,7 +37,7 @@ export function frame04(s: CarVisualSpec) {
   return { zF, zR, zNose, zTail, hk, eye, sz, pts: formula04Points(s) };
 }
 
-/** The mouth of a chimney: the middle of the left one (the right one is mirrored), its axis, and two ways square to it. */
+/** The mouth of a periscope or a chimney: the middle of the left one (the right one is mirrored), its axis, and two ways square to it. */
 export interface Mouth04 {
   at: V3;
   dir: V3;
@@ -53,6 +53,25 @@ export interface Mouth04 {
 function mouthFrame(at: V3, dir: V3, a: number, b: number): Mouth04 {
   const v = norm3([-dir[0] * dir[2], -dir[1] * dir[2], 1 - dir[2] * dir[2]]);
   return { at, dir, u: cross(dir, v), v, a, b };
+}
+
+/**
+ * The mouth of the left periscope (the right one is mirrored): an oval 10 x 7 cm, the build sheet's, in the plane square to its axis
+ * round the point the flames leave from (formula04Points), its long axis along the car.
+ */
+export function periscopeMouth04(s: CarVisualSpec): Mouth04 {
+  const { at, dir } = formula04Points(s).periscope;
+  return mouthFrame(at, dir, 0.05, 0.035);
+}
+
+/**
+ * How far a point on the left (x >= 0) is outside the periscope's mouth grown by `grow` (metres, near enough; negative inside), counted
+ * only within 2 cm under the mouth's plane.
+ */
+export function periscopeMouthSd(m: Mouth04, x: number, y: number, z: number, grow: number): number {
+  const p: V3 = [x - m.at[0], y - m.at[1], z - m.at[2]];
+  const a = m.a + grow, b = m.b + grow;
+  return Math.max((Math.hypot(dot3(p, m.u) / b, dot3(p, m.v) / a) - 1) * b, -dot3(p, m.dir) - 0.02);
 }
 
 /**
@@ -299,6 +318,15 @@ export function addFormula04Parts(b: PartBuilder, s: CarVisualSpec): void {
     rods(b, [0.08, Rr, zR], [xr, Rr, zR], 0.022, 12);
   }
 
+  // the periscopes' mouths, an open pipe's end in each: an oval lip of carbon standing 12 mm proud of the stack's top, the pipe black inside
+  // it (the body's zone, bodies/formula04.ts), so the mouth reads as a hole and not as a cooling vent's grille
+  {
+    const m = periscopeMouth04(s);
+    b.setPart(PART.carbon);
+    for (const sg of [1, -1]) {
+      b.loft([mouthRing(m, 0, -0.025, sg), mouthRing(m, 0, 0.009, sg), mouthRing(m, -0.002, 0.012, sg), mouthRing(m, -0.0045, 0.012, sg), mouthRing(m, -0.0065, 0.009, sg), mouthRing(m, -0.0065, -0.01, sg)]);
+    }
+  }
   // the chimneys on the sidepods' shoulders, angled out: a short stack painted with the sidepod, from 9 cm down in it to an open top,
   // a grille 15 mm down inside the lip (it is a part, as the sculpted mesh holds nothing under two cells)
   {

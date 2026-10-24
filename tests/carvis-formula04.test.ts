@@ -3,7 +3,7 @@ import { getCar, CARS } from '../src/cars';
 import { PART, ZONE_STRIDE } from '../src/carvis/blueprint';
 import { BLUEPRINTS } from '../src/carvis/bodies';
 import { makeFormula } from '../src/carvis/bodies/formula';
-import { chimney04 } from '../src/carvis/bodies/formula04Parts';
+import { chimney04, periscopeMouth04 } from '../src/carvis/bodies/formula04Parts';
 import { frontZ, sideX, topY } from '../src/carvis/bodies/probe';
 import { buildCarData, VERTEX_STRIDE, type CarData } from '../src/carvis/build';
 import { steeringLock } from '../src/carvis/car';
@@ -143,7 +143,7 @@ describe('Dieci body', () => {
     expect(fin.length).toBe(0);
   });
 
-  it('sculpts the periscopes on the sidepods, their mouths where the exhaust effects blow the flames, facing up and back', () => {
+  it('sculpts the periscopes on the sidepods, their mouths where the exhaust effects blow the flames, facing up and back, each an open pipe', () => {
     const { at, dir } = pts.periscope;
     // on the surface, the stack under it solid, the air over it clear
     expect(Math.abs(bp.body(...at))).toBeLessThan(0.006);
@@ -157,15 +157,39 @@ describe('Dieci body', () => {
     expect(dir[2]).toBeLessThan(0);
     expect(dir[0]).toBeGreaterThan(0);
     expect(at[2] - zR).toBeCloseTo(0.6, 6);
-    // the mouth is dark (the mouths' zone channel), soot round it
-    const zb = new Float32Array(ZONE_STRIDE);
-    zb.fill(1);
-    bp.zones(at[0], at[1], at[2], dir[0], dir[1], dir[2], zb, 0);
-    expect(zb[3]).toBeLessThan(0);
-    zb.fill(1);
-    const rim: V = [at[0] + 0.036, at[1], at[2]];
-    bp.zones(rim[0], rim[1], rim[2], dir[0], dir[1], dir[2], zb, 0);
-    expect(zb[1]).toBeLessThan(0);
+    // the mouth an oval 10 x 7 cm round that point, its long axis along the car, square to the axis
+    const m = periscopeMouth04(spec);
+    expect(m.at).toEqual(at);
+    expect(m.dir).toEqual(dir);
+    expect([m.a * 2, m.b * 2]).toEqual([0.1, 0.07]);
+    for (const w of [m.u, m.v]) {
+      expect(Math.hypot(...w)).toBeCloseTo(1, 9);
+      expect(w[0] * dir[0] + w[1] * dir[1] + w[2] * dir[2]).toBeCloseTo(0, 9);
+    }
+    expect(m.v[2]).toBeGreaterThan(0.75);
+    // black inside, the pipe, and in the 14 mm of soot round the lip; no grille (the mouths of the cooling vents have it)
+    const zoneAt = (p: readonly number[]): Float32Array => {
+      const zb = new Float32Array(ZONE_STRIDE).fill(1);
+      bp.zones(p[0], p[1], p[2], dir[0], dir[1], dir[2], zb, 0);
+      return zb;
+    };
+    const across = (r: number): V => [at[0] + m.u[0] * r, at[1] + m.u[1] * r, at[2] + m.u[2] * r];
+    for (const r of [0, 0.02, m.b + 0.008]) {
+      expect(zoneAt(across(r))[1], `${r} m across`).toBeLessThan(0);
+      expect(zoneAt(across(r))[3], `${r} m across`).toBeGreaterThan(0);
+    }
+    expect(zoneAt(across(m.b + 0.03))[1]).toBeGreaterThan(0);
+    // the lip: carbon round the mouth, from inside the stack to 12 mm over its top, on both periscopes
+    const { byPart } = partsOf((b) => bp.parts!(b));
+    const lip = byPart.get(PART.carbon)!.filter((p) => dist([Math.abs(p[0]), p[1], p[2]], at) < m.a + 0.005);
+    const t = (p: V): number => (Math.abs(p[0]) - at[0]) * dir[0] + (p[1] - at[1]) * dir[1] + (p[2] - at[2]) * dir[2];
+    for (const sg of [1, -1]) {
+      const side = lip.filter((p) => Math.sign(p[0]) === sg);
+      expect(side.length).toBeGreaterThan(100);
+      expect(Math.max(...side.map(t))).toBeCloseTo(0.012, 6);
+      expect(Math.min(...side.map(t))).toBeLessThan(-0.02);
+      for (const p of side.filter((q) => t(q) < -0.02)) expect(bp.body(...p)).toBeLessThan(-0.005);
+    }
   });
 
   it("stands a chimney on each sidepod's shoulder: a part painted with the sidepod, rising out of it, open at the top over a grille", () => {
