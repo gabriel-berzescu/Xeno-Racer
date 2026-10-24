@@ -124,7 +124,7 @@ export function frontFlaps04(s: CarVisualSpec, sg: number): [Section[], Section[
 export function rearWing04(s: CarVisualSpec): [Section[], Section[]] {
   const { zR, hk } = frame04(s);
   const xs = [-0.494, -0.3, 0, 0.3, 0.494];
-  const main: Section[] = xs.map((x) => ({ x, y: 0.69 * hk, z: zR - 0.19, chord: 0.24, inc: -0.12 }));
+  const main: Section[] = xs.map((x) => ({ x, y: 0.71 * hk, z: zR - 0.19, chord: 0.24, inc: -0.12 }));
   const flap: Section[] = main.map((m) => {
     const e = edges(m);
     const a: Section = { x: m.x, y: 0, z: 0, chord: 0.15, inc: -0.6 };
@@ -145,7 +145,7 @@ function beamWing04(s: CarVisualSpec): Section[] {
   });
 }
 
-/** The rear-wing endplate's outline in (z, y): a flat plate from the diffuser's side up past the flap, 44 cm long and 54 tall. */
+/** The rear-wing endplate's outline in (z, y): a flat plate from the diffuser's side up past the flap, 42 cm long and 54.5 tall. */
 function rearEndplate04(s: CarVisualSpec): number[] {
   const { zR, zTail, hk } = frame04(s);
   const zb = zTail - 0.008;
@@ -279,8 +279,8 @@ export function addFormula04FarParts(b: PartBuilder, s: CarVisualSpec): void {
   for (const sg of [1, -1]) b.box([sg * 0.48, 0.2, zNose - 0.37], 0.2, 0.025, 0.07);
   // one pylon up into the nose where the near car has two, or the wing hangs under it in the air side-on
   b.box([0, 0.2, zNose - 0.19], 0.012, 0.11, 0.12);
-  b.box([0, 0.69 * hk, zR - 0.23], 0.494, 0.025, 0.12);
-  b.box([0, 0.77 * hk, zR - 0.4], 0.494, 0.025, 0.07);
+  b.box([0, 0.71 * hk, zR - 0.23], 0.494, 0.025, 0.12);
+  b.box([0, 0.79 * hk, zR - 0.4], 0.494, 0.025, 0.07);
   b.box([0, 0.43 * hk, zR - 0.13], 0.488, 0.02, 0.1);
   b.extrude([zF - 0.33, 0.26, zF - 0.7, 0.58, zR + 0.85, 0.64, zR + 0.33, 0.48, zR + 0.33, -0.48, zR + 0.85, -0.64, zF - 0.7, -0.58, zF - 0.33, -0.26], { o: [0, s.rideHeight + 0.002, 0], u: [0, 0, 1], v: [1, 0, 0] }, 0.014);
   b.setPart(PART.body);

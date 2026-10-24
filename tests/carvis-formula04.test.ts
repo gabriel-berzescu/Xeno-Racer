@@ -118,10 +118,11 @@ describe('Dieci body', () => {
       expect(Math.max(...side.map((v) => v[1]))).toBeGreaterThan(0.3);
     }
     for (const v of pylon.filter((p) => p[1] > 0.3)) expect(bp.body(...v)).toBeLessThan(0.002);
-    // the rear wing: a metre across, its top 83-85 cm up, its trailing edge no more than half a metre behind the rear axle
+    // the rear wing: a metre across, its flap's top 83 cm up under its endplates' 84.5, its trailing edge no more than half a metre behind
+    // the rear axle
     const rw = all(byPart).filter((v) => v[2] < zR - 0.05 && v[1] > 0.6 && Math.abs(v[0]) < 0.49);
-    expect(Math.max(...rw.map((v) => v[1]))).toBeGreaterThan(0.8);
-    expect(Math.max(...rw.map((v) => v[1]))).toBeLessThan(0.86);
+    expect(Math.max(...rw.map((v) => v[1]))).toBeGreaterThan(0.82);
+    expect(Math.max(...rw.map((v) => v[1]))).toBeLessThan(0.845);
     expect(Math.min(...rw.map((v) => v[2]))).toBeGreaterThan(zR - 0.5);
     // (the bodywork behind the rear axle no wider than a metre: the wing's elements and its endplates)
     const behind = [...(byPart.get(PART.body) ?? []), ...(byPart.get(PART.accent) ?? []), ...carbon.filter((v) => v[1] > 0.6)].filter((v) => v[2] < zR - 0.05);
