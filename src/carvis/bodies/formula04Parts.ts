@@ -222,7 +222,9 @@ export function addFormula04Parts(b: PartBuilder, s: CarVisualSpec): void {
     plates(b, rearEndplate04(s), 0.506, 0.012);
   }
 
-  // suspension: pushrod at both ends, each arm ending at the drum inside its 13-inch rim (the ball joints 11.5 cm over and under the axle)
+  // suspension: pushrod at both ends, each arm ending at the drum inside its 13-inch rim (the ball joints 11.5 cm over and under the axle,
+  // the track rod's end 6 cm ahead of it and the toe link's 10 cm behind: the arms do not steer, and further out the track rod's stood in
+  // the front tyre at full lock and the toe link's in the rear one)
   b.setPart(PART.carbon);
   {
     const R = s.wheelRadiusFront;
@@ -235,7 +237,7 @@ export function addFormula04Parts(b: PartBuilder, s: CarVisualSpec): void {
     rods(b, up, [0.13, 0.47 * hk, zF + 0.24], 0.012);
     rods(b, up, [0.15, 0.47 * hk, zF - 0.26], 0.012);
     rods(b, [xf - 0.025, R - k + 0.02, zF + 0.02], [0.1, 0.56 * hk, zF - 0.14], 0.013);
-    rods(b, [0.12, 0.39 * hk, zF + 0.16], [xf, 0.39 * hk, zF + 0.13], 0.01);
+    rods(b, [0.12, 0.37 * hk, zF + 0.1], [xf, 0.36 * hk, zF + 0.06], 0.01);
     const Rr = s.wheelRadiusRear;
     const kr = 0.7 * s.rimRadiusRear;
     const xr = s.trackRear / 2 - 0.43 * s.tireWidthRear - 0.014;
@@ -246,7 +248,7 @@ export function addFormula04Parts(b: PartBuilder, s: CarVisualSpec): void {
     rods(b, rup, [0.08, 0.42 * hk, zR + 0.28], 0.012);
     rods(b, rup, [0.08, 0.41 * hk, zR - 0.22], 0.012);
     rods(b, [xr - 0.02, Rr - kr + 0.02, zR + 0.02], [0.07, 0.45 * hk, zR - 0.1], 0.013);
-    rods(b, [0.09, 0.3, zR - 0.25], [xr, 0.31, zR - 0.18], 0.01);
+    rods(b, [0.09, 0.3, zR - 0.22], [xr, 0.31, zR - 0.1], 0.01);
     b.setPart(PART.plastic);
     rods(b, [0.08, Rr, zR], [xr, Rr, zR], 0.022, 12);
   }
