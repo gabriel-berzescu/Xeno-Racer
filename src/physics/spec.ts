@@ -95,7 +95,8 @@ export interface EngineSpec {
   /**
    * The engine speed the launch control holds a standing start at on a full throttle, rpm (absent: half the redline, at most 4600 and at
    * least 900 over the idle, a road car's). That would hold a racing V10 that idles at 4000 at 4900, barely off its idle; a 2004
-   * single-seater left the line at about 10,000.
+   * single-seater left the line at about 10,000. On a part throttle it is as much less as a road car's, and on a winter circuit, on studs,
+   * every car is held at a road car's (Vehicle.launchRpm).
    */
   launchRpm?: number;
 }
