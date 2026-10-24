@@ -103,7 +103,7 @@ export interface EngineSpec {
    * The engine's throttle map (absent: none, the throttle is the pedal). A pedal p opens the throttle to p^throttleGamma, as a racing
    * engine's drive-by-wire map opens it less for a small pedal: with 1.3 a third of the pedal is a quarter of the throttle, and half of it
    * four tenths. The traction control, the stability control and the limiter cut what it opens; VehicleState.throttle reads that, and
-   * VehicleState.throttlePedal the pedal.
+   * VehicleState.throttlePedal what the map opens for the pedal before they cut it.
    */
   throttleGamma?: number;
 }

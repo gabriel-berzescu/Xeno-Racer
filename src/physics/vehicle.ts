@@ -626,7 +626,11 @@ export class Vehicle {
     const rpm = this.rpm();
     const red = this.spec.engine.redlineRpm;
     const thrIn = this.gear === -1 && this.assists.autoShift ? c.brake : c.throttle;
-    this.state.throttlePedal = thrIn;
+    // (the throttle body follows the pedal through the engine's throttle map, if it has one, as solveDrivetrain opens it: what the
+    // traction control, the stability control, a shift, the launch control and the limiter then cut is all that VehicleState.throttle
+    // has less, so a voice that hears a cut as missed firings hears only those)
+    const tg = this.spec.engine.throttleGamma;
+    this.state.throttlePedal = tg === undefined ? thrIn : Math.pow(clamp01(thrIn), tg);
     if (this.prevThrottleIn > 0.6 && thrIn < 0.08 && rpm > 0.55 * red && crackle > 0.05) {
       this.popBudget = Math.floor(crackle * (2 + this.rand() * 5));
       this.popTimer = 0.04 + this.rand() * 0.12;

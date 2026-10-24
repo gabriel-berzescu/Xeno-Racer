@@ -9,7 +9,8 @@
  *    a close-ratio 7-speed keeps the engine, steady and through every gear of a drive through the real physics.
  *  - the gearbox as the game drives it (the real physics, whose gearbox shuts the throttle for a shift and blips it for a downshift): a
  *    short ignition cut on an upshift, not the Volta's seamless flick; the blipped downshifts under braking; the pops of the overrun; the
- *    traction control's cut heard as missed firings at the pedal's load (EngineSoundProfile.ignitionCut), a stutter and not a lull.
+ *    traction control's cut heard as missed firings at the pedal's load (EngineSoundProfile.ignitionCut), a stutter and not a lull; the
+ *    throttle map (EngineSpec.throttleGamma) heard as a smaller throttle, not as a cut.
  *  - the open cockpit's helmet, as the Volta has it, and the ordinary nitro, which the voice does not hear.
  */
 import { Quaternion, Vector3 } from 'three';
@@ -387,6 +388,17 @@ describe('through the real physics, as the game drives it', () => {
       return 10 * Math.log10(s / cutting.length);
     };
     expect(power(hear(frames, hz)) - power(hear(frames, hz, 1, false, true))).toBeGreaterThan(3);
+  });
+
+  it('hears its throttle map as a smaller throttle, not as a cut: at 0.3, 0.5 and 0.7 of the pedal in 4th from 150 km/h, with nothing cutting, the voice is told the pedal through the map and is the same to the bit as heard without the ignition cut', () => {
+    const hz = 60;
+    for (const p of [0.3, 0.5, 0.7]) {
+      const frames = drive(hz, 2, () => ({ thr: p, brk: 0 }), 150, 4);
+      for (const fr of frames.slice(30)) expect(fr.vec[CTL.PEDAL], `pedal ${p}`).toBeCloseTo(Math.pow(p, E.throttleGamma!), 5);
+      const out = hear(frames, hz);
+      const asLoad = hear(frames, hz, 1, false, true);
+      expect(out.every((x, i) => x === asLoad[i]), `pedal ${p}`).toBe(true);
+    }
   });
 
   it("upshifts with a short ignition cut, not the Volta's seamless flick: from 4th on each upshift is under -3 dB for 20 to 40 ms and 6 dB deep or more, at 60 and 144 frames a second (held as the frames come, 36 ms and more at 60)", () => {
