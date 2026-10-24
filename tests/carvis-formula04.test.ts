@@ -197,7 +197,9 @@ describe('Dieci body', () => {
     const { pb } = partsOf((b) => bp.parts!(b));
     // (the sculpted body has none: the air 3 cm under the mouth)
     expect(bp.body(m.at[0] - m.dir[0] * 0.03, m.at[1] - m.dir[1] * 0.03, m.at[2] - m.dir[2] * 0.03)).toBeGreaterThan(0.01);
-    // up, out and a little back, 55 cm behind the cockpit's reference and 40 cm out
+    // up, out and a little back, 55 cm behind the cockpit's reference (5 cm behind the eye) and 40 cm out
+    expect(m.at[2]).toBeCloseTo(eyePoint(spec)[2] - 0.6, 6);
+    expect(m.at[0]).toBeCloseTo(0.405, 6);
     expect(m.dir[1]).toBeGreaterThan(0.9);
     expect(m.dir[0]).toBeGreaterThan(0.25);
     expect(m.dir[2]).toBeLessThan(0);
