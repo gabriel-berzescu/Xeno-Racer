@@ -97,9 +97,8 @@ function gearFor(def: CarDefinition, kmh: number): number {
 
 /**
  * What a car holds sideways at a steady `kmh`, as car-metrics' gripAtSpeed has it (no aids, the wheel wound on over 18 s), but in the gear
- * for the speed from the start and with the speed held by a quicker integral. gripAtSpeed starts in first gear: the Dieci is 25 km/h short
- * of 250 by the time its gearbox has climbed to fifth, and flat out to win them back at 3.5 g, with no traction control, it spins (the most
- * that reads is 3.7 g at 230 km/h).
+ * for the speed from the start and with the speed held by a quicker integral. gripAtSpeed starts in first gear, and the Dieci is still short
+ * of 250 km/h by the time its gearbox has climbed to fifth: the most it reads there is 4.15 g at 245 km/h.
  */
 function latAt(def: CarDefinition, kmh: number): number {
   const world = new PhysicsWorld(createFlatTrack({ wall: 6000, halfWidth: 6000 }));
@@ -171,7 +170,7 @@ describe('the Dieci is what its stats say', () => {
 
   it('does 0-100 in 2.6 s, 200 in 4.6 s and 332 km/h flat out, a second and more ahead of the Volta past 100', () => {
     // (the brief: about 2.5 s, 4.5 s, 8.8 s to 300 and 330 km/h. The probe floors it from the idle, and the engine first revs past 8700 rpm
-    // before the clutch bites: from a grid start, held at 10,000 rpm against the clutch as the game's countdown does, it is 2.47 s and 4.47 s.
+    // before the clutch bites: from a grid start, held at 10,000 rpm against the clutch as the game's countdown does, it is 2.48 s and 4.50 s.
     // To 300 it takes 9.4 s: the brief's drag, which sets the 332 km/h, leaves no more at 250-300 km/h; 8.8 s would want an eighth less of
     // it, a CdA of 1.1, and 345 km/h flat out)
     const d = dragRun(dieci, 70);
@@ -256,9 +255,9 @@ describe('the Dieci corners and stops like a single-seater of 2004', () => {
   });
 
   it('stops from 100 km/h in 17.5-19 m, from 200 in 52-57 m, and from 300 at 4.6-5.0 g', () => {
-    // (the brief: 18-20 m, 58-60 m and 4.5-5 g. The grip that pulls 3.4 g sideways at 200 km/h stops the car from there in 54 m, at 4.2 g as it
+    // (the brief: 18-20 m, 58-60 m and 4.5-5 g. The grip that pulls 3.4 g sideways at 200 km/h stops the car from there in 55 m, at 4.2 g as it
     // passes 200, drag included: a tyre model whose braking and cornering share one friction circle, with ABS at each wheel's own limit. From
-    // 300 the brakes, not the tyres, have the last word: a full pedal asks for 4.05 g, the drag adds the rest)
+    // 300 the brakes, not the tyres, have the last word: a full pedal asks for 4.2 g, the drag adds the rest)
     const b100 = brakeRun(dieci, true, {}, 100);
     const b200 = brakeRun(dieci, true, {}, 200);
     expect(b100.distance).toBeGreaterThan(17.5);
@@ -325,8 +324,8 @@ describe('the Dieci on a lap', () => {
 
   it('is 4-7 % quicker than the Volta on the road circuits, dry and in a storm, and quicker than the LMP-X everywhere', () => {
     // (the brief: about 0.945 of the Volta's lap, a 2004 car against a 2026 one on its engine alone. 0.94 on these laps, dry and in a storm:
-    // 0.92-0.93 on the fast Aurelia and Brennwald, 0.97 on the tight Kuroyama. On the studded tyres of Isvik grip, not power, sets the pace,
-    // and the three cars are within 2 % of each other)
+    // 0.92-0.93 on the fast Aurelia and Brennwald, 0.96 on the tight Kuroyama. On the studded tyres of Isvik grip, not power, sets the pace,
+    // and the three cars are within 3.5 % of each other)
     for (const wetness of [0, 1]) {
       let mine = 0;
       let theirs = 0;
@@ -353,12 +352,11 @@ describe('the Dieci on a lap', () => {
 });
 
 describe('a whole grid of Diecis', () => {
-  // The one-make race the game sets up, single-seaters of 900 hp wheel to wheel at 300 km/h: no reset in 48 races of twelve on Aurelia,
-  // Kuroyama and Brennwald, dry and wet, and no wall hit but two scrapes at the narrow corner of Kuroyama on the first lap that Voltas know
-  // too, at 822 m, 3-4 m/s (PACKSEEDS=1 CAR=dieci SEEDS=0..7 tests/probes/pack.test.ts)
+  // The one-make race the game sets up, single-seaters of 900 hp wheel to wheel at 300 km/h: no wall hit and no reset in 48 races of twelve
+  // on Aurelia, Kuroyama and Brennwald, dry and wet (PACKSEEDS=1 CAR=dieci SEEDS=0..7 tests/probes/pack.test.ts)
   it('races Aurelia dry and Brennwald in a storm without a wall hit or a reset, and its brake pumps in traffic held where they are', () => {
-    // (a brake pump: a brake of 0.3 or more let off and taken back up within a quarter of a second. Alone on a lap the Dieci has none; in
-    // traffic it has more than the Volta, 18 and 172 in these two races where twelve Voltas have 1 and 102, 5-19 and 172-210 over seeds 0-3
+    // (a brake pump: a brake of 0.3 or more let off and taken back up within a quarter of a second. Alone on these laps the Dieci has none; in
+    // traffic it has more than the Volta, 20 and 121 in these two races where twelve Voltas have 1 and 102, 6-20 and 118-138 over seeds 0-3
     // where they have 1-11 and 86-114)
     for (const [trackId, seed, wetness, pumps] of [['aurelia', 0, 0, 36], ['brennwald', 1, 1, 300]] as const) {
       const r = runPack(trackId, 'dieci', 'pro', 12, 1, false, { seed, wetness });

@@ -751,12 +751,12 @@ const volta: CarDefinition = {
 // Dieci — a 2004-style single-seater. A 3.0 L V10 screaming to 19,300 rpm, fixed wings, grooved tyres, and nothing electric.
 // ─────────────────────────────────────────────────────────────────────────────
 // What it does on a flat plane (tests/physics.test.ts, .cache/physics-metrics.txt; tests/dieci.test.ts holds the bounds and measures the grip
-// at speed): 0-100 km/h in 2.63 s with the traction control on, 200 in 4.63 s, 300 in 9.4 s and 332 km/h flat out in seventh; from a grid start,
-// the engine already held at 10,000 rpm against the clutch, 2.47 and 4.47 s. A nitro shot, the ordinary bottle, takes 200 to 3.6 s and the top
-// speed to seventh's limiter at 345. It stops from 100 in 18.1 m with ABS and from 200 in 54 m, at up to 4.9 g from 300 km/h, and holds 2.64 g
-// on the skidpad, 2.7 g at 150 km/h, 3.4 at 200 and 4.3 at 250. In the wet it keeps 67 % of that (56 % in standing water) and stops from 100
-// in 24 m (27). On a lap the AI drivers are 5.7 % quicker in it than in the Volta on the four road circuits, dry, and 5.5 % in a storm (7-8 % on
-// the fast Aurelia and Brennwald, 3.5-4 % on the tight Kuroyama), and 1-2 % on the studded tyres of Isvik (tests/ai.test.ts).
+// at speed): 0-100 km/h in 2.63 s with the traction control on, 200 in 4.67 s, 300 in 9.4 s and 332 km/h flat out in seventh; from a grid start,
+// the engine already held at 10,000 rpm against the clutch, 2.48 and 4.50 s. A nitro shot, the ordinary bottle, takes 200 to 3.65 s and the top
+// speed to seventh's limiter at 345. It stops from 100 in 18.3 m with ABS and from 200 in 55 m, at 4.65 g from 300 km/h, and holds 2.64 g on
+// the skidpad, 2.7 g at 150 km/h, 3.4 at 200 and 4.3 at 250. In the wet it keeps 66 % of that (56 % in standing water) and stops from 100 in
+// 24 m (27). On a lap the AI drivers are 5.8 % quicker in it than in the Volta on the four road circuits, dry, and 5.6 % in a storm (7-8 % on
+// the fast Aurelia and Brennwald, 3.5-4 % on the tight Kuroyama), and 1-3 % on the studded tyres of Isvik (tests/ai.test.ts).
 // It leaves the line at 10,000 rpm, its launchRpm: 0.15 s slower to 100 on the flat than at the 4900 a road car is held at, since the engine
 // first revs past 8700 before the clutch bites and the clutch then slips up to 56 km/h, not 27, at what the tyres take at rest.
 
@@ -838,11 +838,14 @@ const dieci: CarDefinition = {
         [0, 50], [4000, 110], [6000, 175], [8000, 235], [10000, 288], [12000, 325], [14000, 355], [15500, 370], [16500, 375],
         [17500, 368], [18500, 351], [19000, 338], [19300, 330], [20000, 295],
       ],
-      // (108 Nm at 18,000 rpm with the throttle shut, about what a bare V10 drags, 95, and not the half of it the engine-braking maps of the
-      // period left: in this model the same term is what every part throttle loses, and with 50 Nm 35 % of the throttle gave 26 % of the
-      // torque at 17,000 rpm (17 % now), which in first gear on snow spun the rears at once: the power slide of tests/winter-handling.test.ts
-      // went from 10 to 30 degrees of body slip in 0.17 s, and now takes 0.30)
-      engineBraking: 110,
+      // (52 Nm at 18,000 rpm with the throttle shut, about half what a bare V10 drags, 95, as the engine-braking maps of the period left it.
+      // With 110, a bare V10's, the engine held the rears locked in a stop on a wet road with the wheel turned once ABS had let their brakes
+      // go, and in standing water the car spun in two of eight such stops from 250 and 180 km/h with the AI's aids; with 50 in none)
+      engineBraking: 50,
+      // (a throttle map: in this model a part throttle also loses what the engine drags, and with 50 Nm and no map 35 % of the pedal gave 26 %
+      // of the torque at 17,000 rpm, which in first gear on snow spun the rears at once: the power slide of tests/winter-handling.test.ts went
+      // from 10 to 30 degrees of body slip in 0.17 s. With the map it gives 16 %, and the slide takes 0.37 s)
+      throttleGamma: 1.3,
       inertia: 0.05,
       turbo: null,
       // the launch control holds it at 10,000 rpm off the line (on a winter circuit at 4900, as a road car)
@@ -863,9 +866,10 @@ const dieci: CarDefinition = {
       diff: { type: 'lsd', preload: 120, powerLock: 0.45, coastLock: 0.3 },
       frontSplit: 0,
     },
-    // (a full pedal asks for 4.05 g, 60 % of it at the front: above about 185 km/h the brakes are the limit, below it the tyres and ABS, so a
-    // stop from 300 km/h peaks at 4.9 g over a tenth of a second, drag included, as the period's carbon brakes did, and passes 200 at 4.2 g)
-    brakes: { frontTorque: 2500, rearTorque: 1700, handbrakeTorque: 1500, discHeatCapacity: 2400 },
+    // (a full pedal asks for 4.2 g, 60 % of it at the front: above about 195 km/h the brakes are the limit, below it the tyres and ABS, so a
+    // stop from 300 km/h peaks at 4.65 g over a tenth of a second, drag included, as the period's carbon brakes did (4.5 with 2500 / 1700 Nm),
+    // and passes 200 at 4.2 g)
+    brakes: { frontTorque: 2600, rearTorque: 1750, handbrakeTorque: 1500, discHeatCapacity: 2400 },
     // fixed wings of medium downforce: 3.95 m^2 of downforce area, 44 % of it at the front, and a CdA of 1.25. (The period's estimates, 4.1 and
     // 1.30, were worked out in air of 1.18 kg/m^3; in this air, 1.225, these give the same forces.)
     aero: { dragArea: 1.25, liftAreaFront: 1.738, liftAreaRear: 2.212 },
