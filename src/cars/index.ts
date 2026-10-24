@@ -755,7 +755,8 @@ const volta: CarDefinition = {
 // It leaves the line as a road car does for now, held at 4900 rpm: nothing reads its launchRpm yet.
 
 // The Dieci's body: 4.55 m long, 1.8 m wide over the tyres, 0.95 m to the top of the airbox, an open cockpit with the driver on the centre
-// line. It is drawn with the Volta's body at these sizes for now: nothing reads formulaEra or the periscopes yet.
+// line. formulaEra 2004 draws it with a body of its own (src/carvis/bodies/formula04.ts: the high nose, the periscopes, the beam wing) on
+// 13-inch grooved wheels, and its flames come out of the periscopes (src/render/effects.ts).
 const dieciVisual: CarVisualSpec = {
   style: 'formula',
   formulaEra: 2004,
