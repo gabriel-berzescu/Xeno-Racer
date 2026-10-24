@@ -197,10 +197,20 @@ export interface WheelLook {
   caliper: [number, number, number];
   slick: number;
   tread: number;
+  /**
+   * A grooved racing tyre's grooves (absent: none), metres across the tread from its centre line: the inner and the outer groove's
+   * centres, their half width at the surface and their depth (wheelMaterial.ts, uGrooves).
+   */
+  grooves?: [number, number, number, number];
 }
 
-/** Linear-space colours. */
-export function wheelLook(style: CarVisualSpec['style']): WheelLook {
+/** Linear-space colours. `era`: a single-seater's (CarVisualSpec.formulaEra); 2004, its grooved tyres on 13-inch forged rims. */
+export function wheelLook(style: CarVisualSpec['style'], era?: 2004): WheelLook {
+  if (style === 'formula' && era === 2004) {
+    // dark forged magnesium spokes and a polished lip, a silver centre-lock nut, a dry tyre of the grooved years: four grooves 14 mm wide
+    // and 2.5 mm deep, 50 mm apart (the rules of 1999-2008), white lettering as the time had it (no compound colours)
+    return { rimColor: [0.032, 0.033, 0.036], rimMetal: 0.85, rimRough: 0.34, rimCC: 0.2, nutColor: [0.62, 0.62, 0.64], caliper: [0.05, 0.05, 0.05], slick: 1, tread: 0, grooves: [0.025, 0.075, 0.007, 0.0025] };
+  }
   switch (style) {
     case 'gt':
       return { rimColor: [0.085, 0.09, 0.1], rimMetal: 1, rimRough: 0.3, rimCC: 0.5, nutColor: [0.75, 0.75, 0.78], caliper: [0.85, 0.5, 0.02], slick: 0, tread: 1 };

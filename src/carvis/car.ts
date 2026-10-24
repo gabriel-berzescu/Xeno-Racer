@@ -47,7 +47,7 @@ import { anyLampFlickers, packDamage, settleDentDepth } from './damageUniforms';
 import { PART } from './blueprint';
 import { loadCarData } from './dataSource';
 import { createInteriorMaterial } from './interiorMaterial';
-import { computeLayout, wheelLook } from './layouts';
+import { computeLayout, isFormula04, wheelLook } from './layouts';
 import { createMirrorRig, type MirrorRig } from './mirrors';
 import { paintLivery, type LiveryTextures, type LiveryTier } from './livery';
 import { acquireTireTextTexture } from './textures';
@@ -355,9 +355,11 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
   };
 
   // ── wheels ─────────────────────────────────────────────────────────────────
-  const look = wheelLook(spec.style);
-  const wheelMat = createWheelMaterial();
+  const look = wheelLook(spec.style, spec.formulaEra);
+  // (a grooved racing tyre has a program of its own with its grooves in it; every other car's is the one it always was)
+  const wheelMat = createWheelMaterial(undefined, look.grooves ? { grooves: true } : undefined);
   const WU = wheelMat.uniforms;
+  if (look.grooves) WU.uGrooves.value.set(...look.grooves);
   WU.uRimColor.value.setRGB(...look.rimColor);
   WU.uRimMetal.value = look.rimMetal;
   WU.uRimRough.value = look.rimRough;
@@ -368,8 +370,9 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
   WU.uTread.value = look.tread;
   const tireText = acquireTireTextTexture(spec, look.slick > 0.5, livery.accent);
   WU.uTireText.value = tireText.tex;
-  // (the single-seater's slicks carry their lettering in the colour of their compound, the medium's yellow)
-  if (spec.style === 'formula') WU.uAccent.value.setRGB(1.0, 0.62, 0.0);
+  // (the 2026 single-seater's slicks carry their lettering in the colour of their compound, the medium's yellow; the 2004 car's grooved
+  // tyres keep the white every tyre had then)
+  if (spec.style === 'formula' && !isFormula04(spec)) WU.uAccent.value.setRGB(1.0, 0.62, 0.0);
   const mkInst = (g: BufferGeometry, mat: Mesh['material'], shadow: boolean): InstancedMesh => {
     const m = new InstancedMesh(g, mat, 2);
     m.instanceMatrix.setUsage(DynamicDrawUsage);
