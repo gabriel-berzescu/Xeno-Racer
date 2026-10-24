@@ -3,7 +3,7 @@
  * and polygonized like the body, plus a steering wheel built from the PartBuilder.
  * Pure numeric / worker-safe.
  */
-import type { BodyStyle, CarVisualSpec, QualityLevel } from '../core/contracts';
+import type { CarVisualSpec, QualityLevel } from '../core/contracts';
 import { ZONE_STRIDE } from './blueprint';
 import { VERTEX_STRIDE, type PartData, partToData } from './build-shared';
 import { eyePoint, formulaCockpit } from './layouts';
@@ -36,6 +36,10 @@ export const IPART = {
   /** the single-seater's yoke: its live display (gear, speed, revs) and the row of shift lights over it (interiorMaterial.ts) */
   wheelDisplay: 57,
   shiftLights: 58,
+  /** the 2004 single-seater's wheel: its backlit display (revs, gear, speed), its shift lights along the top edge, its coloured buttons */
+  wheelDisplay04: 59,
+  shiftLights04: 60,
+  wheelButtons04: 61,
 } as const;
 
 /**
@@ -48,6 +52,44 @@ export const YOKE = {
   lights: { x0: -0.07, step: 0.01, n: 15, y: 0.06 },
   gripX: 0.124,
 } as const;
+
+/**
+ * The 2004 single-seater's steering wheel, in the wheel's own frame as YOKE: the backlit display's centre and half sizes; the shift lights'
+ * row along the top edge (the first light's x, the step between lights, their count, the height of the middle of the row and how much
+ * higher its ends are, and the share of the limiter's revs at which the first light comes on and the step to the next); where the grips
+ * are across; and the coloured buttons and the rotary switches' pointers (x, y and colour: red, yellow, blue, green, white, orange). The
+ * interior material draws the display, the lights and the buttons from the same numbers.
+ */
+export const WHEEL04 = {
+  display: { x: 0, y: 0.012, hw: 0.03, hh: 0.016 },
+  lights: { x0: -0.063, step: 0.014, n: 10, y: 0.05, rise: 0.008, on0: 0.85, onStep: 0.0145 },
+  gripX: 0.114,
+  buttons: [
+    [-0.047, 0.026, 0],
+    [0.047, 0.026, 2],
+    [-0.047, 0.004, 1],
+    [0.047, 0.004, 4],
+    [-0.076, 0.046, 4],
+    [0.076, 0.046, 5],
+    [-0.076, 0.002, 2],
+    [0.076, 0.002, 0],
+    [0, -0.019, 3],
+    [-0.045, -0.026, 5],
+    [0.045, -0.026, 3],
+    [-0.08, -0.034, 0],
+    [0.08, -0.034, 1],
+  ],
+  colours: [
+    [0.62, 0.02, 0.015],
+    [0.8, 0.5, 0.01],
+    [0.02, 0.1, 0.62],
+    [0.03, 0.42, 0.06],
+    [0.7, 0.7, 0.68],
+    [0.85, 0.22, 0.01],
+  ],
+} as const;
+/** How many of WHEEL04.buttons are buttons; the rest are the rotary switches, whose pointers are coloured. */
+const W4_PUSH = 9;
 
 export interface InteriorData {
   cabin: PartData;
@@ -279,8 +321,8 @@ export function makeInterior(spec: CarVisualSpec, quality: QualityLevel): Interi
   };
 
   // ── driver field ─────────────────────────────────────────────────────────
-  // (the single-seater's hands hold its yoke's grips, where the wheel's own gloves are)
-  const gripX = open ? YOKE.gripX : 0.17;
+  // (the single-seater's hands hold its steering wheel's grips, where the wheel's own gloves are)
+  const gripX = open ? (formulaCockpit(spec).wheel.kind === 'wheel04' ? WHEEL04.gripX : YOKE.gripX) : 0.17;
   const handL: V3 = [wheelPos[0] + gripX, wheelPos[1] + 0.02, wheelPos[2]];
   const handR: V3 = [wheelPos[0] - gripX, wheelPos[1] + 0.02, wheelPos[2]];
 
@@ -388,7 +430,7 @@ export function makeInterior(spec: CarVisualSpec, quality: QualityLevel): Interi
   const driverLite = meshField(driver, dMin, dMax, 0.05, dk, driverZones);
 
   const wheelPb = new PartBuilder();
-  buildSteeringWheel(wheelPb, spec.style);
+  buildSteeringWheel(wheelPb, spec);
   return {
     cabin: cabinMesh,
     driver: driverMesh,
@@ -442,9 +484,11 @@ function meshField(
 }
 
 /** Steering wheel around the origin, wheel plane XY, the driver sees the +Z side. */
-function buildSteeringWheel(pb: PartBuilder, style: BodyStyle): void {
+function buildSteeringWheel(pb: PartBuilder, spec: CarVisualSpec): void {
+  const style = spec.style;
   if (style === 'formula') {
-    buildYoke(pb);
+    if (formulaCockpit(spec).wheel.kind === 'wheel04') buildWheel04(pb);
+    else buildYoke(pb);
     return;
   }
   if (style === 'prototype') {
@@ -545,5 +589,82 @@ function buildYoke(pb: PartBuilder): void {
   for (const sg of [-1, 1]) {
     pb.ellipsoid([sg * (gx + 0.004), 0.004, -0.004], 0.031, 0.05, 0.034, 14, 9);
     pb.ellipsoid([sg * (gx - 0.026), 0.028, 0.014], 0.017, 0.009, 0.008, 10, 6);
+  }
+}
+
+/**
+ * The 2004 single-seater's steering wheel, around the origin as the other wheels are: a carbon butterfly 27 cm across and 17 cm tall,
+ * its top dipping between two wings over the grips and its bottom cut away for the knees; ten round shift lights in a black strip along
+ * the top edge (IPART.shiftLights04), a small backlit display in the middle (IPART.wheelDisplay04: the revs, the gear and the speed,
+ * live), coloured buttons round it and four rotary switches with coloured pointers under it (IPART.wheelButtons04), a thumbwheel in the
+ * bottom's cut-out; the shift and clutch paddles and the quick release behind, and the gloves on the grips.
+ */
+function buildWheel04(pb: PartBuilder): void {
+  const D = WHEEL04.display, Ls = WHEEL04.lights, gx = WHEEL04.gripX;
+  // the plate: half its outline from the top's middle round the right wing, the grip's side and the lower wing to the bottom's middle
+  const half: number[] = [
+    0.035, 0.0625, 0.063, 0.069, 0.085, 0.078, 0.1, 0.086, 0.118, 0.084, 0.13, 0.07, 0.134, 0.03, 0.134, -0.05, 0.126, -0.075, 0.108, -0.084,
+    0.088, -0.072, 0.06, -0.052, 0.03, -0.045,
+  ];
+  const outline: number[] = [0, 0.061, ...half, 0, -0.043];
+  for (let i = half.length - 2; i >= 0; i -= 2) outline.push(-half[i], half[i + 1]);
+  pb.setPart(IPART.carbon);
+  pb.extrude(roundPoly(outline, 0.006, 3), { o: [0, 0, -0.012], u: [1, 0, 0], v: [0, 1, 0] }, 0.024, 0.004, 2);
+  // the grips: thick, rubber-covered, their tops leaning out a little into the wings
+  pb.setPart(IPART.wheelRim);
+  for (const sg of [-1, 1]) {
+    pb.tube([[sg * (gx + 0.006), 0.074, -0.003], [sg * (gx + 0.003), 0.04, 0.002], [sg * gx, -0.02, 0.003], [sg * (gx - 0.002), -0.07, -0.002]], 0.019, 12, true);
+  }
+  // the shift lights: round, in a black strip that follows the top edge
+  const ly = (x: number): number => Ls.y + Ls.rise * (x / Ls.x0) ** 2;
+  const strip: number[] = [];
+  const ends = -Ls.x0 + 0.007;
+  for (let i = 0; i <= 8; i++) {
+    const x = -ends + (2 * ends * i) / 8;
+    strip.push(x, ly(x) - 0.0065);
+  }
+  for (let i = 8; i >= 0; i--) {
+    const x = -ends + (2 * ends * i) / 8;
+    strip.push(x, ly(x) + 0.0065);
+  }
+  pb.extrude(roundPoly(strip, 0.003, 2), { o: [0, 0, 0.012], u: [1, 0, 0], v: [0, 1, 0] }, 0.0012);
+  pb.setPart(IPART.shiftLights04);
+  for (let i = 0; i < Ls.n; i++) {
+    const x = Ls.x0 + i * Ls.step;
+    pb.cylinder([x, ly(x), 0.0128], [x, ly(x), 0.0146], 0.0042, 0.0038, 12, true);
+  }
+  // the display in a black bezel
+  pb.setPart(IPART.wheelRim);
+  pb.box([D.x, D.y, 0.0125], D.hw + 0.004, D.hh + 0.004, 0.0006);
+  pb.setPart(IPART.wheelDisplay04);
+  pb.box([D.x, D.y, 0.0135], D.hw, D.hh, 0.0006);
+  // the buttons, and the rotary switches: black knobs with a coloured pointer on each
+  pb.setPart(IPART.wheelButtons04);
+  WHEEL04.buttons.forEach(([bx, by], i) => {
+    if (i < W4_PUSH) pb.cylinder([bx, by, 0.011], [bx, by, 0.0165], 0.0055, 0.005, 12, true);
+  });
+  WHEEL04.buttons.forEach(([bx, by], i) => {
+    if (i < W4_PUSH) return;
+    pb.setPart(IPART.wheelRim);
+    pb.cylinder([bx, by, 0.011], [bx, by, 0.021], 0.0085, 0.0078, 14, true);
+    pb.setPart(IPART.wheelButtons04);
+    pb.box([bx, by + 0.004, 0.0212], 0.0012, 0.0035, 0.0004);
+  });
+  // the thumbwheel in the bottom's cut-out
+  pb.setPart(IPART.wheelRim);
+  pb.cylinder([-0.009, -0.043, 0.003], [0.009, -0.043, 0.003], 0.011, 0.011, 16, true);
+  // the shift paddles behind the upper grips, the clutch paddles under them, and the quick release on the column
+  pb.setPart(IPART.carbon);
+  for (const sg of [-1, 1]) {
+    pb.box([sg * 0.09, 0.022, -0.024], 0.03, 0.026, 0.003);
+    pb.box([sg * 0.07, -0.04, -0.022], 0.026, 0.016, 0.003);
+  }
+  pb.setPart(IPART.metal);
+  pb.cylinder([0, 0, -0.012], [0, 0, -0.05], 0.022, 0.018, 16, true);
+  // the gloves: the fingers round the grips, the thumbs on the plate's face between the outer buttons
+  pb.setPart(IPART.glove);
+  for (const sg of [-1, 1]) {
+    pb.ellipsoid([sg * (gx + 0.004), 0.006, -0.004], 0.031, 0.05, 0.034, 14, 9);
+    pb.ellipsoid([sg * (gx - 0.024), 0.024, 0.014], 0.017, 0.009, 0.008, 10, 6);
   }
 }

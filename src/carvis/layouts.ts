@@ -45,8 +45,9 @@ export interface FormulaCockpit {
   eye: V3;
   /** how far the driver lies back (rad from upright: the spine from the hips, the neck at its top under the helmet behind the eye) */
   seatTilt: number;
-  /** the steering wheel's centre over the seat reference (up, forward), and its tilt back from upright (rad) */
-  wheel: { up: number; fwd: number; tilt: number };
+  /** the steering wheel's centre over the seat reference (up, forward), its tilt back from upright (rad), and which wheel it is: the
+   * 2026 yoke or the 2004 butterfly wheel (interior.ts, YOKE and WHEEL04) */
+  wheel: { up: number; fwd: number; tilt: number; kind: 'yoke' | 'wheel04' };
   /** the T-camera (the hood camera), the nose camera (the bumper camera) and the chase anchor (where the look back from those and from
    * the centre seat is filmed, and the roof the cameras size the car by) */
   hood: V3;
@@ -64,17 +65,17 @@ export function formulaCockpit(s: CarVisualSpec): FormulaCockpit {
   if (s.formulaEra === 2004) {
     // the 2004 car: the eye 51 cm over the seat reference and 37 cm behind it (73 cm up and 1.42 m behind the front axle, as the build
     // sheet has it), 10 cm over the tub's sides beside the helmet, which are set from it (bodies/formula04.ts); the back 63 degrees from
-    // upright, the neck under the helmet about as long as the Volta driver's and the shoulders under the rim; holding the Volta's yoke;
-    // the T-camera on the airbox over the helmet; the nose camera 45 cm ahead of the front axle,
-    // 12 cm over the high nose; the chase anchor on the airbox behind the T-camera; the mirrors on stalks from the front of the sidepods,
-    // the glass 15 x 5 cm (the rules of the time: at least 12 x 5) placed where the Volta's is on the screen, 40 degrees off the driver's
-    // line of sight and 8 under it, 55 cm ahead of the eye, so the cockpit's HUD fits round them as it does round the Volta's; the rear
-    // camera 11 cm over the rear wing, lower than the Volta's
+    // upright, the neck under the helmet about as long as the Volta driver's and the shoulders under the rim; the butterfly wheel of the
+    // time right over the hips; the T-camera on the airbox over the helmet; the nose camera 45 cm ahead of the front axle, 12 cm over the
+    // high nose; the chase anchor on the airbox behind the T-camera; the mirrors on stalks from the front of the sidepods, the glass 15 x 5
+    // cm (the rules of the time: at least 12 x 5) placed where the Volta's is on the screen, 40 degrees off the driver's line of sight and
+    // 8 under it, 55 cm ahead of the eye, so the cockpit's HUD fits round them as it does round the Volta's; the rear camera 11 cm over
+    // the rear wing, lower than the Volta's
     const eye: V3 = [s.seat.x, s.seat.y + 0.51, s.seat.z - 0.37];
     return {
       eye,
       seatTilt: 1.1,
-      wheel: { up: 0.33, fwd: 0, tilt: 0.4 },
+      wheel: { up: 0.33, fwd: 0, tilt: 0.4, kind: 'wheel04' },
       hood: [0, s.height + 0.08, eye[2] - 0.36],
       bumper: [0, 0.635 * hk, zF + 0.45],
       chase: [0, s.height, eye[2] - 0.72],
@@ -93,7 +94,7 @@ export function formulaCockpit(s: CarVisualSpec): FormulaCockpit {
   return {
     eye,
     seatTilt: 1.05,
-    wheel: { up: 0.33, fwd: 0, tilt: 0.4 },
+    wheel: { up: 0.33, fwd: 0, tilt: 0.4, kind: 'yoke' },
     hood: [0, s.height + 0.08, eye[2] - 0.5],
     bumper: [0, 0.45 * hk, zF + 0.7],
     chase: [0, s.height, eye[2] - 0.72],
