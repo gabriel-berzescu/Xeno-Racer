@@ -31,14 +31,15 @@
  * disagree about it:
  *
  *   downforce  an axle loses it only if it has some worth the name (MECH_TUNING.aeroMin: 0.1 m^2 of lift area per tonne of car, 3 % of its
- *              weight pressed down at 250 km/h). The Vanta GT (0.22 and 0.32 m^2), the LMP-X (1.55 and 2.05) and the Volta (1.64 and 2.16 in
- *              corner mode, 1.18 and 1.56 with its flaps open; the profile reads the corner mode) have; the Kestrel R and the
- *              Ronin 86 (0.02 to 0.08: a splitter lip and a ducktail, 6 to 24 kgf at 250 km/h) do not, there is nothing there to lose; and the
- *              Mammoth's is not downforce at all but lift (-0.10 and -0.06 m^2: a brick with a light bar), which damage must not touch, since
- *              60 % of a lift is less lift, a car that gets better in a crash (it used to: 180 N less lift at 250 km/h, 1 % more peak grip
- *              on its front tyres)
+ *              weight pressed down at 250 km/h). The Vanta GT (0.22 and 0.32 m^2), the LMP-X (1.55 and 2.05), the Volta (1.64 and 2.16 in
+ *              corner mode, 1.18 and 1.56 with its flaps open; the profile reads the corner mode) and the Dieci (1.74 and 2.21) have; the
+ *              Kestrel R and the Ronin 86 (0.02 to 0.08: a splitter lip and a ducktail, 6 to 24 kgf at 250 km/h) do not, there is nothing there
+ *              to lose; and the Mammoth's is not downforce at all but lift (-0.10 and -0.06 m^2: a brick with a light bar), which damage must
+ *              not touch, since 60 % of a lift is less lift, a car that gets better in a crash (it used to: 180 N less lift at 250 km/h, 1 % more
+ *              peak grip on its front tyres)
  *   engine     a tired engine comes with a smashed nose where the radiator is in it: the front-engined cars (Vanta GT, Kestrel R, Ronin 86,
- *              Mammoth). The LMP-X and the Volta are mid-engined, their radiators in their sidepods, so a nose hit leaves the engine alone
+ *              Mammoth). The LMP-X, the Volta and the Dieci are mid-engined, their radiators in their sidepods, so a nose hit leaves the engine
+ *              alone
  *   wheels     toe and camber: every car has wheels, all of it
  *
  * The HUD keeps to the same rule (mechanicalReport): a zone lights for what a hit cost this car there, each loss as a share of the worst it can be. The
@@ -65,8 +66,8 @@ export const MECH_TUNING = {
   aeroRear: 0.4,
   /**
    * the lift area per tonne of car (m^2/t) from which an axle has downforce worth losing (mechanicalProfile): 0.1 presses 3 % of the weight
-   * down at 250 km/h. The roster sits well to either side of it: 0.15 to 2.7 for the Vanta GT, the LMP-X and the Volta (the Volta's corner mode;
-   * 1.5 to 2 with its flaps open), 0.02 to 0.06 for the Kestrel R and the Ronin 86, below zero (lift) for the Mammoth.
+   * down at 250 km/h. The roster sits well to either side of it: 0.15 to 3.5 for the Vanta GT, the LMP-X, the Volta and the Dieci (the Volta's
+   * corner mode; 1.5 to 2 with its flaps open), 0.02 to 0.06 for the Kestrel R and the Ronin 86, below zero (lift) for the Mammoth.
    */
   aeroMin: 0.1,
   /** engine power lost at full front damage, which only starts to cost power from `powerFrom` (a share of the way to wrecked) */
