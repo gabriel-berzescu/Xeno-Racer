@@ -429,8 +429,9 @@ export interface EngineSoundProfile {
    * orders of the crank, rpm/120), strongest below 3000 rpm and fading as the pulses crowd into the roar. Absent or 'merged': the banks meet
    * in an X-pipe and one pipe goes on, which throws that difference away, so the same engine is smoother. The pipes are run in full quality;
    * a lite voice has the same lope as per-pulse strengths. 'short': each collector straight out through a short open pipe with no muffler
-   * (the periscopes of a 2004 single-seater), whose ends reflect little: the pipe resonances that ripple a long exhaust's note through the
-   * top of a 19,000 rpm engine's revs are damped.
+   * (the periscopes of a 2004 single-seater; the two pipes of an even-firing engine, heard from one point, are the merged one): the pipes
+   * 0.65 of a merged exhaust's length and their ends reflecting little, so that the pipe resonances which ripple a long exhaust's note
+   * through the top of a 19,000 rpm engine's revs are damped and the note rises to the limiter.
    */
   exhaustSystem?: 'merged' | 'dual' | 'short';
   /**
@@ -471,6 +472,13 @@ export interface EngineSoundProfile {
    * its 17 ms (two frames at times), and the voice bridges it, 40 ms at most; without it the frames are played as they come.
    */
   shiftDip?: number;
+  /**
+   * The torque the traction control or the launch control takes away with the pedal down is cut from the engine by cutting the spark of
+   * whole firing events, the throttle left open (absent: it is heard as a lighter load): the share of the cylinders that miss is the share
+   * of the torque taken, the rest burn at the pedal's load, and now and then a cut charge lights in the pipe. The stuttering rasp of a 2004
+   * single-seater's traction control on a slow exit, and of its launch control holding the revs on the grid.
+   */
+  ignitionCut?: boolean;
   /**
    * 0..1 how much of the exhaust a turbo's wastegate lets past the turbine when it is wide open (absent: none). A racing turbo's wastegate
    * opens on full boost at full load and high revs, and the pulses that go round the turbine keep their edge where the turbine alone rounds

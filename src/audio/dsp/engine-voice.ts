@@ -17,13 +17,16 @@
  *   + turbo (spool whistle / flutter / blow-off), gear whine, shift clunk, backfire pops, rev limiter
  *   + interior / exterior mix (cabin resonance, muffled exhaust path; or, in an open cockpit, the helmet)
  *
- * Three things a profile can ask for beyond that (all off, and costing nothing, for every other engine):
+ * Four things a profile can ask for beyond that (all off, and costing nothing, for every other engine):
  *
  *   `exhaustSystem: 'dual'`  the secondaries do not meet: each bank goes on through a main pipe, muffler and tailpipe of its own (TailChain)
  *        and the listener hears the sum, a little nearer one tailpipe than the other. Through twin pipes the sum of a cross-plane V8's banks
  *        (which fire 90 / 180 / 270 / 180 degrees apart, copies of each other 360 degrees apart) is the same even train as a flat-plane's:
  *        a linear system cannot tell them apart. The lope is the difference between the two pipes, small in level, length and delay and
  *        fading with the rpm as the pulses crowd into the roar; an X-pipe throws that difference away, which is why a merged exhaust is smoother.
+ *   `exhaustSystem: 'short'`  the same merged chain, short and open (a 2004 single-seater's periscopes): its pipes after the collectors
+ *        0.65 of their length and both its ends reflecting little, so that the pipe resonances do not ripple the note through the top of a
+ *        19,000 rpm engine's revs and it rises to the limiter in every gear (see deriveVoicing).
  *   `supercharger`  a positive-displacement blower: a whine locked to the crank (rpm/60 x pulley ratio x lobes) with its harmonics, the rotor's
  *        own turn and the hiss of the air, following the pedal through the bypass valve (a whirr off the throttle, a whine on it).
  *   `electric`  an electric motor geared to the crankshaft (a 2026 MGU-K): a whine on the 14th order of the crank with its harmonics, a
@@ -34,9 +37,11 @@
  * idle's cycle-to-cycle spread and weak cylinders, a bank that runs richer for a while, and a burble of unburnt charge on a lift-off
  * (see pulseFactor, burnFactor, and the burble in block()). These are events, so the lite voice has them too.
  *
- * A racing engine (the Volta's) can also give its own revs (limiterRpm: its loudness measured over them, on boost; idleLiftTo: the lift of a
- * high idle kept near the idle), a turbo with no blow-off valve (blowOff) and a wastegate that lets part of every pulse past the turbine
- * flat out (wastegate), a seamless shift (shiftDip); and a car with an open cockpit is heard from it through a helmet (EngineVoice.helmet).
+ * A racing engine (the Volta's, the Dieci's) can also give its own revs (limiterRpm: its loudness measured over them, on boost; idleLiftTo:
+ * the lift of a high idle kept near the idle), a turbo with no blow-off valve (blowOff) and a wastegate that lets part of every pulse past the
+ * turbine flat out (wastegate), a shift of its own (shiftDip: the Volta's seamless flick, the Dieci's short ignition cut), a traction control
+ * that cuts the spark of whole firing events rather than the load (ignitionCut, the Dieci's); and a car with an open cockpit is heard from
+ * it through a helmet (EngineVoice.helmet).
  *
  * No allocation after construction; process() is safe to call from an AudioWorklet.
  */
@@ -206,6 +211,12 @@ export interface Voicing {
    * frames show for a whole frame or two, is bridged (EngineVoice.block, CUT_BRIDGE). false for an engine that does not say.
    */
   bridgeCut: boolean;
+  /**
+   * The torque the traction control or the launch control takes away with the pedal down is cut from whole firing events, with the
+   * throttle left open (EngineSoundProfile.ignitionCut): the stutter of a 2004 single-seater on a slow exit. false: it is heard as a
+   * lighter load.
+   */
+  ignitionCut: boolean;
   // supercharger: a positive-displacement blower, its whine locked to the crank
   blower: boolean;
   /** Whine fundamental per rpm (Hz): pulley ratio x lobes / 60. */
@@ -267,24 +278,31 @@ export function deriveVoicing(p: EngineSoundProfile, layout: EngineLayout): Voic
   // a cross-plane V8: its banks fire unevenly, so each bank's pipe sees pulses 90, 180, 270 and 180 degrees apart
   const cross = p.crankType === 'crossplane' && p.cylinders === 8 && layout.banks === 2;
   const dual = p.exhaustSystem === 'dual' && layout.banks === 2;
+  // a short open exhaust (a 2004 single-seater's periscopes): every pipe after the collectors 0.65 of the length the openness gives it
+  // (x 1 for every other engine, which is exact)
+  const short = p.exhaustSystem === 'short';
+  const kLen = short ? 0.65 : 1;
   const sc = p.supercharger;
   const lobes = sc ? Math.max(1, Math.round(sc.lobes)) : 0;
   const et = p.electricTaper;
   return {
-    Ls: lerp(0.62, 0.4, o),
-    Lm: lerp(1.0, 0.55, o),
-    Lc: lerp(0.52, 0.3, o),
-    Lq: lerp(0.34, 0.2, o),
-    Lt: lerp(0.62, 0.3, o),
+    Ls: lerp(0.62, 0.4, o) * kLen,
+    Lm: lerp(1.0, 0.55, o) * kLen,
+    Lc: lerp(0.52, 0.3, o) * kLen,
+    Lq: lerp(0.34, 0.2, o) * kLen,
+    Lt: lerp(0.62, 0.3, o) * kLen,
     gS: 2.0,
     gM: layout.banks === 2 ? 1.5 : 1.0,
     rc: lerp(5.2, 1.18, Math.pow(o, 0.8)),
     rq: lerp(0.45, 0.06, o),
     // (a dual exhaust is two separate pipes with the big mufflers of a truck and nothing to scatter the energy of a resonance into, as the junction
     // of a merged system does: damped a little more, so that the exhaust does not surge as the firing harmonics sweep a pipe resonance: 2 dB
-    // between two 66 ms windows of a rev sweep, where it was 4.7)
-    Rc: dual ? 0.66 : 0.78,
-    Ro: lerp(0.95, 0.88, o) * (dual ? 0.88 : 1),
+    // between two 66 ms windows of a rev sweep, where it was 4.7. A short open exhaust's ends reflect little: steady flat out over the top of
+    // a 19,000 rpm V10's revs (14,500..19,300 rpm) its note rises 0.7 dB every 1000 rpm, 0.3 dB either side of that and every step up of
+    // 1500 rpm louder, where through the merged exhaust it rises 0.3 dB, 2.5 dB either side, and a step up can be 6 dB quieter: a close-ratio
+    // box keeps the engine there, so each gear would come out quieter at its top than at its bottom)
+    Rc: dual ? 0.66 : short ? 0.2 : 0.78,
+    Ro: lerp(0.95, 0.88, o) * (dual ? 0.88 : short ? 0.45 : 1),
     Rq: 0.85,
     fcP: 5200 + 3500 * b,
     fcS: 6000 + 3000 * b,
@@ -327,6 +345,7 @@ export function deriveVoicing(p: EngineSoundProfile, layout: EngineLayout): Voic
     liteGain: dual ? 1.35 * 1.7 : 1.35,
     shiftDip: p.shiftDip !== undefined ? clamp(p.shiftDip, 0.005, 0.2) : 0.07,
     bridgeCut: p.shiftDip !== undefined,
+    ignitionCut: p.ignitionCut === true,
     blower: sc !== undefined && sc.ratio > 0 && lobes > 0,
     blowerHzPerRpm: sc ? (sc.ratio * lobes) / 60 : 0,
     blowerLobes: lobes,
@@ -509,7 +528,14 @@ export class EngineVoice {
   // an upshift's cut bridged (Voicing.bridgeCut): the throttle and the load before it, and how long it has been held
   private preCutThr = 0;
   private preCutLoad = 0;
+  private preCutFire = 0;
   private cutHeld = 0;
+  // a torque cut heard as an ignition cut (Voicing.ignitionCut): the share of the firing events cut, smoothed, and which cylinders are
+  // cut this cycle (decided at each one's combustion, heard again at its exhaust), and the hazard left until a cut charge next pops in the
+  // pipe (-1: none drawn yet)
+  private sFireCut = 0;
+  private readonly cylCut: Uint8Array;
+  private cutPopHaz = -1;
 
   // crank clock
   private ph: number;
@@ -748,6 +774,7 @@ export class EngineVoice {
     this.lopeH = mk(B);
     this.lopeT = mk(B);
     this.cylBurn = mk(this.N).fill(1);
+    this.cylCut = new Uint8Array(this.N);
     for (let g = 0; g < G; g++) {
       this.grpCnt[g] = L.groups[g].count;
       this.grpBank[g] = L.groups[g].bank;
@@ -853,6 +880,9 @@ export class EngineVoice {
     this.lpHelmet.y = 0;
     // (nothing held from before a sleep: a cut seen first after it is heard)
     this.cutHeld = CUT_BRIDGE;
+    this.sFireCut = 0;
+    this.cylCut.fill(0);
+    this.cutPopHaz = -1;
     this.lopeH.fill(0);
     for (const r of this.blk) r.reset();
     this.clunkR1.reset();
@@ -1031,19 +1061,30 @@ export class EngineVoice {
     // what it was before for CUT_BRIDGE at most; the shift counter that follows starts the dip that is the shift
     let thrIn = I.throttle;
     let loadIn = I.load;
+    // a torque cut heard as an ignition cut (Voicing.ignitionCut): the throttle the traction control or the launch control leaves under the
+    // pedal is the share of the firing events that still burn; the throttle stays open, so the rest are heard at the pedal's load
+    let fireCut = 0;
+    if (V.ignitionCut && I.pedal >= 0.25 && I.throttle >= 0.05 && I.throttle < 0.97 * I.pedal && I.limiter < 0.5) {
+      fireCut = 1 - I.throttle / I.pedal;
+      thrIn = I.pedal;
+      loadIn = Math.min(1, (I.load * I.pedal) / I.throttle);
+    }
     if (V.bridgeCut) {
       if (I.pedal >= 0.25 && I.throttle < 0.05 && I.clutch > 0 && I.limiter < 0.5) {
         if (this.cutHeld < CUT_BRIDGE) {
           this.cutHeld += dt;
           thrIn = this.preCutThr;
           loadIn = this.preCutLoad;
+          fireCut = this.preCutFire;
         }
       } else {
         this.cutHeld = 0;
-        this.preCutThr = I.throttle;
-        this.preCutLoad = I.load;
+        this.preCutThr = thrIn;
+        this.preCutLoad = loadIn;
+        this.preCutFire = fireCut;
       }
     }
+    if (V.ignitionCut) this.sFireCut += smoothCoef(0.03, dt) * (fireCut - this.sFireCut);
     this.sThr += smoothCoef(0.03, dt) * (thrIn - this.sThr);
     this.sPlate += smoothCoef(0.03, dt) * ((I.pedal >= 0 ? I.pedal : I.throttle) - this.sPlate);
     this.sLoad += smoothCoef(0.035, dt) * (loadIn - this.sLoad);
@@ -1176,6 +1217,18 @@ export class EngineVoice {
         this.nextPopIn = -Math.log(Math.max(rng.u(), 1e-6)) / popRate;
       }
     } else this.nextPopIn = 1e9;
+    // (the charge of a cylinder whose spark is cut lights now and then in the hot pipe: crackle x 24 pops a second times the share of the
+    // sparks cut, on a hazard of its own that is spent as the cut comes and goes; a timer drawn at the rate of one block would keep the
+    // rate of the cut's first block, a tenth of it or less, or the overrun's of an earlier lift-off)
+    if (V.ignitionCut && this.sFireCut > 0.005) {
+      if (this.cutPopHaz < 0) this.cutPopHaz = -Math.log(Math.max(rng.u(), 1e-6));
+      this.cutPopHaz -= V.crackle * 24 * this.sFireCut * dt;
+      if (this.cutPopHaz <= 0) {
+        const big = rng.u() < 0.03 * V.crackle;
+        this.firePop(big ? 0.8 + 0.4 * rng.u() : 0.18 + 0.4 * rng.u() * rng.u());
+        this.cutPopHaz = -Math.log(Math.max(rng.u(), 1e-6));
+      }
+    }
     // the burble of a cross-plane V8 that is being lifted off: unburnt charge lights in the pipe on some of the exhaust events (see below), a
     // dozen to thirty a second through the middle of the rev range while the exhaust is hot, and none at idle or near the limiter
     if (V.burble > 0) {
@@ -1490,6 +1543,9 @@ export class EngineVoice {
     const kS = this.kS;
     const kP = this.kP;
     const cutActive = this.cutActive;
+    const igCut = V.ignitionCut;
+    const fireCutP = this.sFireCut;
+    const cylCut = this.cylCut;
     const sIntNow = sI;
     const lopeOn = V.lope > 0;
     const burbleP = this.burbleP;
@@ -1532,7 +1588,9 @@ export class EngineVoice {
             } else this.burbleRun = 0;
           }
           amp *= 1 + burb;
-          if (cutActive) amp *= 0.07;
+          // (a cylinder whose spark was cut this cycle pushes out its unburnt charge: as weak a pulse as under the limiter's cut)
+          const sparkCut = cylCut[cy] === 1;
+          if (cutActive || sparkCut) amp *= 0.07;
           const g = L.cylGroup[cy];
           const aF = amp * pFast;
           const aS = amp - aF;
@@ -1540,7 +1598,7 @@ export class EngineVoice {
           accFn[g] += aF * (1 - frac);
           accS[g] += aS * frac;
           accSn[g] += aS * (1 - frac);
-          if (!cutActive) {
+          if (!cutActive && !sparkCut) {
             // (the rasp of a weak pulse is weak, and the rasp of the tailpipe the listener is nearer to is the stronger)
             const ca = (crackAmp + burb * V.crackAbs * 0.12) * cs.gain * (0.6 + 0.8 * rng.u()) * pf * (dualOn ? tails[cs.bank].gain : 1);
             crackIn += ca * frac;
@@ -1549,7 +1607,9 @@ export class EngineVoice {
         } else if (ty === EV_COMBUSTION) {
           // (a cylinder that burns weakly thumps weakly, and its exhaust pulse, 130 degrees later, is as weak)
           if (lopeOn) this.cylBurn[cy] = this.burnFactor(L.cyl[cy].bank);
-          const a = combAmp * L.cyl[cy].gain * (cutActive ? 0.05 : 1) * (1 + 0.3 * rng.s2()) * (lopeOn ? this.cylBurn[cy] : 1);
+          // (an ignition cut: each cylinder's spark is cut with the share of the torque taken away, at random, so the cut has no tone of its own)
+          if (igCut) cylCut[cy] = fireCutP > 0.005 && rng.u() < fireCutP ? 1 : 0;
+          const a = combAmp * L.cyl[cy].gain * (cutActive || cylCut[cy] === 1 ? 0.05 : 1) * (1 + 0.3 * rng.s2()) * (lopeOn ? this.cylBurn[cy] : 1);
           blkIn += a * frac;
           blkInN += a * (1 - frac);
         } else {

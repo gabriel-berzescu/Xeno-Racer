@@ -785,15 +785,19 @@ const dieciVisual: CarVisualSpec = {
 };
 
 // The Dieci's voice: a 3.0 L V10 with a flat crank (even firing, five pulses a turn) to 19,300 rpm, no turbo, and two short open
-// periscopes (heard as the merged exhaust until the voice gives 'short' pipes of its own).
+// periscopes whose ends reflect little, so that its scream rises to the limiter in every gear (tests/audio-dieci.test.ts).
 const dieciSound: EngineSoundProfile = {
   cylinders: 10, layout: 'v', crankType: 'flat', displacement: 3.0, turbo: false, exhaustOpenness: 1, brightness: 0.95, gearWhine: 0.75, crackle: 0.35,
   exhaustSystem: 'short',
   // its loudness measured over its own revs, and the lift of its 4000 rpm idle gone by 5600 rpm (not 8800)
   limiterRpm: 19300,
   idleLiftTo: 1.4,
-  // an upshift that cuts the ignition, heard for 40 ms (not seamless: the Volta's is a 20 ms flick, a road car's a 70 ms gap)
+  // an upshift that cuts the ignition: through the physics' 30 ms shift the note is 3 dB and more down for 28 ms, 10 to 12 dB at its deepest (not
+  // seamless: the Volta's is a flick of 8 to 16 ms; a road car's gearbox leaves a gap of 70 ms)
   shiftDip: 0.04,
+  // its traction control and its launch control cut the spark, not the throttle: in 1st gear flat out from rest it stutters 3 dB and more
+  // louder than the same torque heard as a lighter load (tests/audio-dieci.test.ts)
+  ignitionCut: true,
 };
 
 // The Dieci itself: 640 kg with the driver and an average fuel load (the 600 kg rule and 40 kg of fuel), 46 % of it on the front axle.
@@ -802,7 +806,7 @@ const dieci: CarDefinition = {
   name: 'Dieci',
   maker: 'Xeno Racing',
   description:
-    'A 2004-style single-seater: 640 kg, a 3.0 L V10 screaming to 19,300 rpm, grooved tyres on 13-inch rims, and nothing electric. The quickest car here, and the loudest.',
+    'A 2004-style single-seater: 640 kg, a 3.0 L V10 screaming to 19,300 rpm, grooved tyres on 13-inch rims, and nothing electric. The quickest car here, and an octave above the rest.',
   class: 'Formula',
   drivetrain: 'RWD',
   // (measured, a first pass: 0-100 in 2.55 s with the traction control on, 328.2 km/h flat out; the curve gives 911.9 hp at 18,500 rpm and
