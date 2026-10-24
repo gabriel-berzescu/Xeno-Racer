@@ -1290,10 +1290,13 @@ export class Vehicle {
     if (this.omegaE < 0) this.omegaE = 0;
   }
 
-  /** Engine speed held by launch control for a given throttle. */
+  /**
+   * Engine speed held by launch control for a given throttle: the engine's own launch speed on a full throttle if it names one
+   * (EngineSpec.launchRpm), else half the redline, at most 4600; on a part throttle as much less, and never under 900 over the idle.
+   */
   private launchRpm(throttle: number): number {
     const e = this.spec.engine;
-    return Math.max(e.idleRpm + 900, Math.min(0.5 * e.redlineRpm, 4600) * (0.55 + 0.45 * throttle));
+    return Math.max(e.idleRpm + 900, (e.launchRpm ?? Math.min(0.5 * e.redlineRpm, 4600)) * (0.55 + 0.45 * throttle));
   }
 
   /** Locking torque capacity of a differential for a given input torque. */

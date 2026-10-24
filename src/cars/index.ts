@@ -750,9 +750,10 @@ const volta: CarDefinition = {
 // ─────────────────────────────────────────────────────────────────────────────
 // Dieci — a 2004-style single-seater. A 3.0 L V10 screaming to 19,300 rpm, fixed wings, grooved tyres, and nothing electric.
 // ─────────────────────────────────────────────────────────────────────────────
-// A first pass, to be tuned. What it does on a flat plane (tests/physics.test.ts, .cache/physics-metrics.txt): 0-100 km/h in 2.55 s with the
-// traction control on, 0-200 in 4.62 s and 328 km/h flat out in seventh; it stops from 100 in 19.0 m with ABS and holds 2.54 g on the skidpad.
-// It leaves the line as a road car does for now, held at 4900 rpm: nothing reads its launchRpm yet.
+// A first pass, to be tuned. What it does on a flat plane (tests/physics.test.ts, .cache/physics-metrics.txt): 0-100 km/h in 2.70 s with the
+// traction control on, 0-200 in 4.77 s and 328 km/h flat out in seventh; it stops from 100 in 19.0 m with ABS and holds 2.54 g on the skidpad.
+// It leaves the line at 10,000 rpm, its launchRpm: 0.15 s slower to 100 than at the 4900 a road car is held at, since the engine first revs
+// past 8700 before the clutch bites and the clutch then slips up to 56 km/h, not 27, at what the tyres take at rest.
 
 // The Dieci's body: 4.55 m long, 1.8 m wide over the tyres, 0.95 m to the top of the airbox, an open cockpit with the driver on the centre
 // line. It is drawn with the Volta's body at these sizes for now: nothing reads formulaEra or the periscopes yet.
@@ -805,9 +806,9 @@ const dieci: CarDefinition = {
     'A 2004-style single-seater: 640 kg, a 3.0 L V10 screaming to 19,300 rpm, grooved tyres on 13-inch rims, and nothing electric. The quickest car here, and the loudest.',
   class: 'Formula',
   drivetrain: 'RWD',
-  // (measured, a first pass: 0-100 in 2.55 s with the traction control on, 328.2 km/h flat out; the curve gives 911.9 hp at 18,500 rpm and
+  // (measured, a first pass: 0-100 in 2.70 s with the traction control on, 328.2 km/h flat out; the curve gives 911.9 hp at 18,500 rpm and
   // 375 Nm at 16,500)
-  stats: { powerHp: 912, torqueNm: 375, massKg: 640, topSpeedKmh: 328, zeroTo100: 2.5 },
+  stats: { powerHp: 912, torqueNm: 375, massKg: 640, topSpeedKmh: 328, zeroTo100: 2.7 },
   visual: dieciVisual,
   sound: dieciSound,
   defaultLivery: { primary: '#e2541b', secondary: '#23262b', accent: '#f4f4f2', pattern: 'split', number: 19, driver: 'You', finish: 0, metallic: false },
