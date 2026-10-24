@@ -8,7 +8,8 @@
  *  - the short open exhaust (EngineSoundProfile.exhaustSystem 'short'): its ends reflect little, so the scream rises to the limiter where
  *    a close-ratio 7-speed keeps the engine, steady and through every gear of a drive through the real physics.
  *  - the gearbox as the game drives it (the real physics, whose gearbox shuts the throttle for a shift and blips it for a downshift): a
- *    short ignition cut on an upshift, not the Volta's seamless flick; the blipped downshifts under braking; the pops of the overrun.
+ *    short ignition cut on an upshift, not the Volta's seamless flick; the blipped downshifts under braking; the pops of the overrun; the
+ *    traction control's cut heard as missed firings at the pedal's load (EngineSoundProfile.ignitionCut), a stutter and not a lull.
  *  - the open cockpit's helmet, as the Volta has it, and the ordinary nitro, which the voice does not hear.
  */
 import { Quaternion, Vector3 } from 'three';
@@ -48,7 +49,7 @@ function steady(v: EngineVoice, rpm: number, thr: number, load: number, secs: nu
   return { out, dbg };
 }
 
-/** One control frame of a drive through the real physics: the control vector the game makes, and whether the traction control is cutting. */
+/** One control frame of a drive through the real physics: the control vector the game makes, and the road speed. */
 interface Frame {
   vec: Float32Array;
   kmh: number;
@@ -86,10 +87,14 @@ function drive(hz: number, secs: number, pedal: (t: number, kmh: number) => { th
   return frames;
 }
 
-/** The voice fed the frames of a drive as the worklet is, one frame's worth of samples at a time; `held`: the shift's cut not bridged. */
-function hear(frames: Frame[], hz: number, seed = 1, held = false): Float32Array {
+/**
+ * The voice fed the frames of a drive as the worklet is, one frame's worth of samples at a time; `held`: the shift's cut not bridged;
+ * `asLoad`: the traction control's cut heard as a lighter load, not as missed firings.
+ */
+function hear(frames: Frame[], hz: number, seed = 1, held = false, asLoad = false): Float32Array {
   const v = voice(P, seed);
   if (held) v.V.bridgeCut = false;
+  if (asLoad) v.V.ignitionCut = false;
   const spf = Math.round(SR / hz);
   const out = new Float32Array(frames.length * spf);
   frames.forEach((fr, f) => {
@@ -115,11 +120,13 @@ describe('what the profile asks for is all the shared voice does for the Dieci',
     expect(dieci.physics.drivetrain.shiftTime).toBeLessThanOrEqual(0.04);
     const V = deriveVoicing(P, buildLayout(P));
     expect([V.turbo, V.blower, V.electric, V.dual, V.lope, V.burble, V.idleWobble]).toEqual([false, false, 0, false, 0, 0, 0.03]);
-    expect([V.shiftDip, V.bridgeCut, V.idleLiftTo]).toEqual([0.04, true, 1.4]);
+    expect([V.shiftDip, V.bridgeCut, V.idleLiftTo, V.ignitionCut]).toEqual([0.04, true, 1.4, true]);
   });
 
-  it("only the Dieci has the short exhaust: its pipes 0.65 of the merged exhaust's, its ends reflecting little, and nothing else of its voicing changed", () => {
+  it("only the Dieci has the short exhaust and the ignition cut: its pipes 0.65 of the merged exhaust's, its ends reflecting little, and nothing else of its voicing changed", () => {
     for (const c of CARS) expect(c.sound.exhaustSystem === 'short', c.id).toBe(c.id === 'dieci');
+    // (and only the Dieci's traction control cuts the spark: every other engine hears it as a lighter load)
+    for (const c of CARS) expect(deriveVoicing(c.sound, buildLayout(c.sound)).ignitionCut, c.id).toBe(c.id === 'dieci');
     const L = buildLayout(P);
     const s = deriveVoicing(P, L);
     const m = deriveVoicing({ ...P, exhaustSystem: undefined }, L);
@@ -262,6 +269,36 @@ describe('the 2004 V10', () => {
       expect(db(peakAbs(after) / rms(before, Math.floor(0.05 * SR))), `seed ${seed}`).toBeGreaterThan(7);
     }
   });
+
+  it("its traction control cuts the spark: with the pedal down and 0.6 of the torque left it is 3 dB or less under flat out, where heard as a lighter load it is 4.5 dB and more under; the missed firings rasp between the lines and leave no tone of their own", () => {
+    // (the pedal down, the throttle after the traction control, and the load the controls.ts mapping gives near the torque peak)
+    const at = (rpm: number, thr: number, cut: boolean): { out: Float32Array; dbg: EngineDebug } => {
+      const v = voice(P, 5);
+      v.V.ignitionCut = cut;
+      Object.assign(v.inp, { rpm, throttle: thr, load: thr * (0.5 * 0.95 + 0.5), pedal: 1, boost: 0 });
+      const n = 3 * SR;
+      const out = new Float32Array(n);
+      const dbg = createEngineDebug(n);
+      v.debug = dbg;
+      v.process(out, n);
+      return { out, dbg };
+    };
+    for (const rpm of [8000, 12000, 16000]) {
+      const level = (r: { out: Float32Array }): number => db(rms(r.out, SR));
+      const flat = level(at(rpm, 1, true));
+      const cut = at(rpm, 0.6, true);
+      expect(flat - level(cut), `@${rpm}`).toBeLessThan(3);
+      expect(flat - level(at(rpm, 0.6, false)), `@${rpm}`).toBeGreaterThan(4.5);
+      // a third and more of the exhaust's power between the firing lines, where flat out nine tenths and more is on them
+      const f0 = rpm / 120;
+      let nfft = 1 << 15;
+      while (SR / nfft > f0 / 9 && nfft < 1 << 18) nfft <<= 1;
+      const of = orderFamilies(welch(cut.dbg.exhaust, nfft, SR, cut.dbg.exhaust.length), SR, f0, 10, 40, 12000);
+      expect(of.fire / (of.fire + of.half + of.whole + of.between), `@${rpm}`).toBeLessThan(0.8);
+      const off = offGridLines(welch(cut.out, 65536, SR, cut.out.length), SR, f0, { fLo: 1000, prominenceDb: 14, floorDb: 60 });
+      expect(off.count, `@${rpm}: ${JSON.stringify(off.lines.slice(0, 4))}`).toBeLessThanOrEqual(2);
+    }
+  });
 });
 
 describe('through the real physics, as the game drives it', () => {
@@ -301,6 +338,24 @@ describe('through the real physics, as the game drives it', () => {
         }
       }
     }
+  });
+
+  it('stutters on the traction control, not into a lull: flat out from rest, the frames of 1st gear in which it cuts are 3 dB and more louder than the same frames heard as a lighter load', () => {
+    const hz = 60;
+    const frames = runs.get(hz)!;
+    const spf = Math.round(SR / hz);
+    // the frames in 1st with the pedal down, the clutch in and the throttle under it: the traction control (or the launch control) cutting
+    const cutting = frames.map((_, f) => f).filter((f) => {
+      const x = frames[f].vec;
+      return x[CTL.GEAR] === 1 && x[CTL.PEDAL] > 0.95 && x[CTL.CLUTCH] < 0.05 && x[CTL.THROTTLE] >= 0.05 && x[CTL.THROTTLE] < 0.97 * x[CTL.PEDAL];
+    });
+    expect(cutting.length).toBeGreaterThanOrEqual(30);
+    const power = (out: Float32Array): number => {
+      let s = 0;
+      for (const f of cutting) s += rms(out, f * spf, (f + 1) * spf) ** 2;
+      return 10 * Math.log10(s / cutting.length);
+    };
+    expect(power(hear(frames, hz)) - power(hear(frames, hz, 1, false, true))).toBeGreaterThan(3);
   });
 
   it("upshifts with a short ignition cut, not the Volta's seamless flick: from 4th on each upshift is under -3 dB for 20 to 40 ms and 6 dB deep or more, at 60 and 144 frames a second (held as the frames come, 36 ms and more at 60)", () => {
