@@ -5,10 +5,13 @@ import { BLUEPRINTS } from '../src/carvis/bodies';
 import { makeFormula } from '../src/carvis/bodies/formula';
 import { frontZ, sideX, topY } from '../src/carvis/bodies/probe';
 import { buildCarData, VERTEX_STRIDE, type CarData } from '../src/carvis/build';
+import { steeringLock } from '../src/carvis/car';
 import { makeDamageGeometry } from '../src/carvis/damageGeometry';
 import { DENT_PARTS } from '../src/carvis/damageShader';
-import { computeLayout, eyePoint, formula04Points, isFormula04, wheelLook } from '../src/carvis/layouts';
-import { mirrorLayout } from '../src/carvis/mirrorLayout';
+import { IPART, makeInterior, WHEEL04, YOKE } from '../src/carvis/interior';
+import { computeLayout, eyePoint, formula04Points, formulaCockpit, isFormula04, wheelLook } from '../src/carvis/layouts';
+import { glassOutline, mirrorLayout } from '../src/carvis/mirrorLayout';
+import { inGlassFrame } from '../src/carvis/mirrorParts';
 import { PartBuilder } from '../src/carvis/parts';
 import { buildCaliper, buildWheel, styleForBody, type WheelParams } from '../src/carvis/wheels';
 import { createWheelMaterial } from '../src/carvis/wheelMaterial';
@@ -301,8 +304,17 @@ describe('Dieci body', () => {
     expect(bp.body(-root[0], root[1], root[2])).toBeLessThan(0);
     // the root on the sidepod, ahead of the cockpit's rim
     expect(root[0]).toBeGreaterThan(0.33);
-    // the glass out in the air, 15 x 5 cm (the rules of the time: at least 12 x 5), 40 degrees off the driver's line of sight, 8 under it
-    expect(bp.body(...L.left.pos)).toBeGreaterThan(0.1);
+    // the housing and its glass out in the air, 7 cm clear of the sidepod's lip under them at their nearest (the half egg behind the
+    // glass, mirrorParts.ts); the glass 15 x 5 cm (the rules of the time: at least 12 x 5), 40 degrees off the driver's line of sight, 8
+    // under it
+    let near = Infinity;
+    for (let i = 0; i <= 8; i++) {
+      const phi = (i / 8) * (Math.PI / 2);
+      for (const [gx, gy] of glassOutline(1.07 * L.left.halfW * Math.cos(phi), 1.14 * L.left.halfH * Math.cos(phi))) {
+        near = Math.min(near, bp.body(...inGlassFrame(L.left, gx, gy, -L.housing.depth * Math.sin(phi))));
+      }
+    }
+    expect(near).toBeGreaterThan(0.07);
     expect(L.left.halfW * 2).toBeCloseTo(0.15, 6);
     expect(L.left.halfH * 2).toBeCloseTo(0.05, 6);
     const az = (Math.atan2(L.left.pos[0] - eye[0], L.left.pos[2] - eye[2]) * 180) / Math.PI;
@@ -356,6 +368,173 @@ describe('Dieci body', () => {
     expect(lay.chase[1]).toBe(spec.height);
     expect(bp.body(...eyePoint(spec))).toBeGreaterThan(0.08);
   });
+});
+
+describe('Dieci cockpit', () => {
+  const eye = eyePoint(spec);
+  const inside = makeInterior(spec, 'high');
+  const L = WHEEL04.lights;
+  /** A point of the steering wheel's own frame (+x the driver's right, the driver looking at +z) in the body frame, the wheel straight. */
+  const onWheel = (p: V): V => {
+    const t = Math.atan2(inside.wheelNormal[1], -inside.wheelNormal[2]);
+    const c = Math.cos(t), s = Math.sin(t);
+    const w = inside.wheelPos;
+    return [w[0] - p[0], w[1] + p[1] * c + p[2] * s, w[2] + p[1] * s - p[2] * c];
+  };
+  /** The vertices of a mesh, with their part ids and zone channel 14. */
+  const verts = (d: { vertices: Float32Array }): Array<{ p: V; part: number; z14: number }> => {
+    const out: Array<{ p: V; part: number; z14: number }> = [];
+    for (let o = 0; o < d.vertices.length; o += VERTEX_STRIDE) {
+      out.push({ p: [d.vertices[o], d.vertices[o + 1], d.vertices[o + 2]], part: Math.round(d.vertices[o + 6 + 13]), z14: d.vertices[o + 6 + 14] });
+    }
+    return out;
+  };
+  /** The body's field along the segment from a to b, short of its last `stop` metres (the thing looked at), at its lowest. */
+  const bodyClearance = (a: V, b: V, stop: number): number => {
+    const len = dist(a, b);
+    let low = Infinity;
+    for (let k = 0; k <= 200; k++) {
+      const t = (k / 200) * (1 - stop / len);
+      low = Math.min(low, bp.body(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t));
+    }
+    return low;
+  };
+
+  it("seats the driver as the build sheet has it: the eye 73 cm up and 1.42 m behind the front axle, just over the cockpit's sides, on the centre line", () => {
+    expect(eye[1]).toBeCloseTo(0.73, 6);
+    expect(zF - eye[2]).toBeCloseTo(1.42, 6);
+    // (a seat on the centre line: looking back, the camera rig cuts to the rear camera over the car, render/cameraRig.ts)
+    expect(Math.abs(computeLayout(spec).eye[0])).toBeLessThan(0.05);
+    expect(spec.openCockpit).toBe(true);
+    // the helmet's top 80-85 cm up, the rim beside it 62-68 cm (the build sheet's)
+    expect(inside.head[1] + 0.138).toBeGreaterThan(0.8);
+    expect(inside.head[1] + 0.138).toBeLessThan(0.85);
+    expect(topY(bp.body, 0.22, eye[2])).toBeGreaterThan(0.62);
+    expect(topY(bp.body, 0.22, eye[2])).toBeLessThan(0.68);
+    // the cockpit is its era's: the 2004 wheel and its own posture, where the Volta keeps its 2026 numbers
+    const c = formulaCockpit(spec);
+    expect(c.wheel.kind).toBe('wheel04');
+    const v = formulaCockpit(getCar('volta').visual);
+    expect(v.wheel.kind).toBe('yoke');
+    expect(v.seatTilt).toBe(1.05);
+    expect(v.eye[1] - getCar('volta').visual.seat.y).toBeCloseTo(0.55, 9);
+  });
+
+  it("holds a 2004 butterfly wheel 27 cm across, its display, its ten shift lights along the top edge and its buttons live parts of their own, the driver's hands on its grips", () => {
+    const w = verts(inside.wheel);
+    const D = WHEEL04.display;
+    const display = w.filter((v) => v.part === IPART.wheelDisplay04);
+    expect(display.length).toBeGreaterThan(0);
+    // (the display's corners are where the shader draws it from: WHEEL04)
+    for (const v of display) {
+      expect(Math.abs(v.p[0] - D.x)).toBeLessThanOrEqual(D.hw + 1e-6);
+      expect(Math.abs(v.p[1] - D.y)).toBeLessThanOrEqual(D.hh + 1e-6);
+    }
+    // ten round lights, each where the shader's count puts it, along the top edge (its ends higher than its middle)
+    const lights = w.filter((v) => v.part === IPART.shiftLights04);
+    const slot = (x: number): number => Math.round((x - L.x0) / L.step);
+    expect([...new Set(lights.map((v) => slot(v.p[0])))].sort((a, b) => a - b)).toEqual(Array.from({ length: L.n }, (_, i) => i));
+    for (const v of lights) {
+      const x = L.x0 + slot(v.p[0]) * L.step;
+      expect(Math.abs(v.p[0] - x)).toBeLessThan(0.005);
+      expect(Math.abs(v.p[1] - (L.y + L.rise * (x / L.x0) ** 2))).toBeLessThan(0.005);
+    }
+    const top = Math.max(...w.filter((v) => v.part !== IPART.glove).map((v) => v.p[1]));
+    for (const v of lights) expect(v.p[1]).toBeGreaterThan(D.y + D.hh);
+    expect(top - Math.max(...lights.map((v) => v.p[1]))).toBeLessThan(0.03);
+    // every button and pointer near one of the buttons the shader colours, and every one of those there
+    const buttons = w.filter((v) => v.part === IPART.wheelButtons04);
+    for (const v of buttons) expect(Math.min(...WHEEL04.buttons.map(([x, y]) => Math.hypot(v.p[0] - x, v.p[1] - y)))).toBeLessThan(0.0085);
+    for (const [x, y] of WHEEL04.buttons) expect(buttons.some((v) => Math.hypot(v.p[0] - x, v.p[1] - y) < 0.0085)).toBe(true);
+    // the wheel (its gloves aside) is 26-28 cm across and under 18 cm tall; no yoke on it, and no other car has these parts
+    const bare = w.filter((v) => v.part !== IPART.glove);
+    const span = (k: 0 | 1): number => Math.max(...bare.map((v) => v.p[k])) - Math.min(...bare.map((v) => v.p[k]));
+    expect(span(0)).toBeGreaterThan(0.26);
+    expect(span(0)).toBeLessThan(0.28);
+    expect(span(1)).toBeLessThan(0.18);
+    expect(w.some((v) => v.part === IPART.wheelDisplay || v.part === IPART.shiftLights)).toBe(false);
+    const mine = [IPART.wheelDisplay04, IPART.shiftLights04, IPART.wheelButtons04] as number[];
+    for (const c of CARS.filter((c) => c.id !== 'dieci')) {
+      expect(verts(makeInterior(c.visual, 'low').wheel).some((v) => mine.includes(v.part)), c.id).toBe(false);
+    }
+    // the driver's hands (seen from outside, on the T-camera) are on the grips, where the wheel's own gloves are
+    const gloves = verts(inside.driver).filter((v) => v.part === IPART.glove);
+    for (const sg of [1, -1]) {
+      const g = gloves.filter((v) => Math.sign(v.p[0]) === sg);
+      expect(g.length).toBeGreaterThan(5);
+      const mx = g.reduce((s, v) => s + Math.abs(v.p[0]), 0) / g.length;
+      expect(Math.abs(mx - WHEEL04.gripX)).toBeLessThan(0.03);
+      expect(Math.abs(mx - YOKE.gripX)).toBeGreaterThan(0.005);
+    }
+  });
+
+  it("lights the last shift light before the Dieci's upshift, the first in its last 3000 rpm", () => {
+    const lim = dieci.physics.engine.limiterRpm;
+    const up = dieci.physics.drivetrain.upshiftRpm;
+    expect((L.on0 + (L.n - 1) * L.onStep) * lim).toBeLessThan(up);
+    expect(L.on0 * lim).toBeGreaterThan(up - 3000);
+  });
+
+  it('turns its wheel to the lock either way (120 degrees) with its grips and gloves clear of the chassis', () => {
+    const lock = steeringLock(dieci);
+    expect(lock).toBeCloseTo((120 * Math.PI) / 180, 2);
+    const w = inside.wheel.vertices;
+    for (const a of [-lock, -lock / 2, 0, lock / 2, lock]) {
+      let into = 0;
+      for (let o = 0; o < w.length; o += VERTEX_STRIDE) {
+        const x = w[o] * Math.cos(a) - w[o + 1] * Math.sin(a);
+        const y = w[o] * Math.sin(a) + w[o + 1] * Math.cos(a);
+        if (bp.body(...onWheel([x, y, w[o + 2]])) < -0.001) into++;
+      }
+      expect(into, `turned ${a.toFixed(2)} rad`).toBe(0);
+    }
+  });
+
+  it("shows the driver the display, the shift lights and both mirrors past the cockpit's rim, in the default cockpit view", () => {
+    for (const [name, p] of [['display', onWheel([WHEEL04.display.x, WHEEL04.display.y, 0.014])], ['lights', onWheel([0, L.y, 0.015])]] as Array<[string, V]>) {
+      expect(bodyClearance(eye, p, 0.02), name).toBeGreaterThan(0);
+      // in the default cockpit view (+-36 degrees up and down)
+      expect(Math.atan2(p[1] - eye[1], p[2] - eye[2]), name).toBeGreaterThan(-34 * (Math.PI / 180));
+    }
+    const M = mirrorLayout(spec);
+    for (const m of [M.left, M.right]) expect(bodyClearance(eye, m.pos, 0.02)).toBeGreaterThan(0.01);
+  });
+
+  it("keeps its cabin in the tub: inside the chassis, or in the cockpit's opening under the helmet's centre (the headrest on the rim)", () => {
+    const base = bp.debug!.base;
+    const well = bp.debug!.well;
+    let out = 0;
+    for (const v of verts(inside.cabin)) {
+      const [x, y, z] = v.p;
+      if (base(x, y, z) < 0.005) continue;
+      if (well(x, 0.6, z) < 0 && y < inside.head[1]) continue;
+      out++;
+    }
+    expect(out).toBe(0);
+    // and no cluster: the display is the wheel's (no cabin vertex is on the cluster's face)
+    for (let o = 0; o < inside.cabin.vertices.length; o += VERTEX_STRIDE) expect(inside.cabin.vertices[o + 6 + 1]).toBe(1);
+  });
+
+  it("draws the helmet as a zone over the cockpit's rim, its own rim round the neck cut smooth, the shoulders under the cockpit's", () => {
+    const d = verts(inside.driver);
+    expect(d.some((v) => v.part === IPART.helmet)).toBe(false);
+    const helmet = d.filter((v) => v.z14 < 0);
+    expect(helmet.length).toBeGreaterThan(100);
+    for (const v of helmet) {
+      expect(dist(v.p, inside.head)).toBeLessThan(0.2);
+      expect(v.p[1]).toBeGreaterThan(inside.head[1] - 0.126);
+    }
+    // nothing of the suit over the cockpit's rim beside the helmet (only the helmet shows over it, as the period's photos have it)
+    for (const v of d.filter((v) => v.z14 >= 0 && v.part === IPART.suit && Math.abs(v.p[0]) > 0.2 && Math.abs(v.p[0]) < 0.28)) {
+      expect(v.p[1]).toBeLessThan(topY(bp.body, Math.abs(v.p[0]), v.p[2]) + 0.005);
+    }
+  });
+
+  it('has no halo and so no faint pillar in the cockpit view', async () => {
+    const data = await high();
+    const v = data.lod0.vertices;
+    for (let o = 0; o < v.length; o += VERTEX_STRIDE) expect(Math.round(v[o + 6 + 13])).not.toBe(PART.halo);
+  }, 120000);
 });
 
 describe('Dieci wheels', () => {
