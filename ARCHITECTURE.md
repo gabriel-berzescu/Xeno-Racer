@@ -392,7 +392,7 @@ its body style, so the other five cars were bit for bit what they were until the
     same to the bit. What it leaves: in three ABS stops at wetness 0.75 (the LMP-X trail-braking at 120 km/h, the Kestrel R at 150, the Vanta GT at 250)
     the car ends 3-6 degrees more sideways than before, because ESC's brake on the outer front wheel goes on past the ABS, which keeps that wheel's lower
     pressure afterwards (a change to ESC's braking under ABS would be one for every car, wet and dry). `tests/handling.test.ts` holds it: the road cars'
-    and the Mammoth's flat-out lane changes at 80 and 120 km/h in standing water stay under 20 degrees (the Vanta GT reached 34 before). In the guard
+    and the Mammoth's flat-out lane changes at 80 and 120 km/h in standing water stay under 20 degrees (the Vanta GT reached 45 before). In the guard
     only the drives with the default aids on wet ground differ.
   - **The AI's braking ahead counts the downforce in clean air** (`brakeReach`, src/ai/driver.ts): the reach of a stop is the exact distance for a
     deceleration of cap·(1 + c u^2 / g), the old sqrt(va^2 + 2 cap d) to the bit where c is nothing; it is the corner mode's for the Volta, the Mammoth's
@@ -409,7 +409,7 @@ its body style, so the other five cars were bit for bit what they were until the
     Brennwald in 1:34.80 (1:37.30) and Aurelia in 1:21.88 (1:22.70), the LMP-X moves by under 0.2 % and the road cars and the Mammoth by under 0.12 %, and
     neither racing car runs more than half a metre past the asphalt's edge on a solo lap of the four road circuits, dry or wet (`tests/volta.test.ts` holds
     Aurelia and Brennwald to no time past it at all). Isvik is bit for bit what it was.
-- **On a lap and in packs**, with all three: the AI drivers lap the road circuits 3.9-5.7 % quicker in the Volta than in the LMP-X dry and 5.1-6.3 % in a
+- **On a lap and in packs**, with all four (the AI drives with ESC off, so the two ESC fixes do not move these): the AI drivers lap the road circuits 3.9-5.7 % quicker in the Volta than in the LMP-X dry and 5.1-6.3 % in a
   storm, and Isvik level with it (0.1 %: `tests/ai.test.ts`). The brief asked 7-12 %, which the engine alone, with the LMP-X's power for its weight (0.71
   against 0.73 hp per kg), does not give. In 48 races of twelve on Aurelia, Kuroyama and Brennwald, dry and wet, as the Mammoth was
   measured (`PACKSEEDS=1 SEEDS=0..7 CAR=volta` or `CAR=mixed npx vitest run tests/probes/pack.test.ts`), no car needs a reset and mixed grids hit no wall; one-make grids of Voltas hit a

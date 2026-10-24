@@ -570,9 +570,9 @@ const mammoth: CarDefinition = {
 // ─────────────────────────────────────────────────────────────────────────────
 // Volta — a 2026-rules turbo-hybrid single-seater. Wings that open on the straights, and an electric motor only the nitro wakes.
 // ─────────────────────────────────────────────────────────────────────────────
-// What it does on a flat plane (tests/probes/mammoth-probe.test.ts with CAR=volta prints the table, tests/volta.test.ts holds the bounds): 0-100 km/h
-// in 2.42 s with the traction control on, the slicks' limit with the nitro or without, 200 in 5.6 s and 330 km/h flat out in eighth with the wings
-// open (303 with them shut); a nitro shot, the 350 kW motor, takes 200 to 4.3 s and the top speed to the cut at 345. It stops from 100 in 18.8 m
+// What it does on a flat plane (MAMMOTH=all CAR=volta npx vitest run tests/probes/mammoth-probe.test.ts prints the table; tests/volta.test.ts
+// holds the bounds and measures the grip at speed): 0-100 km/h in 2.42 s with the traction control on, the slicks' limit with the nitro or
+// without, 200 in 5.6 s and 330 km/h flat out in eighth with the wings open (303 with them shut); a nitro shot, the 350 kW motor, takes 200 to 4.3 s and the top speed to the cut at 345. It stops from 100 in 18.8 m
 // with ABS (2.1 g) and from 200 in 58 m, at up to 4.4 g from 300 km/h, and holds 2.39 g on the skidpad, 2.5 g at 150 km/h, 3.1 at 200 and 3.7 at
 // 240 (where the drag of the wings and of the loaded tyres takes all the engine has). In the wet it keeps 64 % of that (54 % in standing water)
 // and stops from 100 in 26 m (30). On a lap the AI drivers are 3.9-5.7 % quicker in it than in the LMP-X dry and 5.1-6.3 % in a storm

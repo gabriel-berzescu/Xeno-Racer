@@ -319,7 +319,7 @@ export interface CarVisualSpec {
   /** Engine position (affects intakes, vents, cockpit placement). */
   engine: 'front' | 'mid' | 'rear';
   exhaust: { count: 1 | 2 | 4; side: 'center' | 'split' | 'side' };
-  /** Seat position relative to body origin, for cockpit camera / driver (left-hand drive). */
+  /** Seat position relative to body origin, for cockpit camera / driver (x > 0: on the left, a left-hand drive; 0: on the centre line, a single-seater). */
   seat: { x: number; y: number; z: number };
   /**
    * An open cockpit (absent: a closed cabin): no windscreen, no wiper and no roof, so no drops on the glass and no wiper sound, and
