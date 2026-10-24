@@ -919,15 +919,17 @@ export class Vehicle {
     if (as.esc && fwdSpeed > 8 && contacts >= 3) {
       const L = ch.wheelbase;
       const yaw = w.dot(ay);
-      // (the most yaw rate the road can hold: the tyre's friction on the surface it is on, 1 on asphalt, half on packed snow, under the
-      // weight alone; or, while the car is turning harder than that, the lateral acceleration it has: a car the downforce presses down may
-      // turn at speed as hard as its tyres then hold it, and no harder than they hold it on the road it is on, wet or dry)
+      // (the most yaw rate the road can hold: the tyre's friction on the surface it is on, 1 on asphalt, half on packed snow, times what the
+      // water leaves it, as the tyre forces above take it (the wet grip of tyre and surface, the aquaplaning in standing water at speed, the
+      // fresh snow on a winter circuit), under the weight alone; or, while the car is turning harder than that, the lateral acceleration it
+      // has: a car the downforce presses down may turn at speed as hard as its tyres then hold it, and no harder than they hold it on the road
+      // it is on, wet or dry)
       let gripSum = 0;
       let loadSum = 0;
       for (const wh of wheels) {
         if (!wh.contact) continue;
         const sf = wh.surfaces[wh.surface];
-        gripSum += wh.load * sf.grip * (sf.fresh !== undefined ? 1 + (sf.fresh - 1) * this.wetness : 1);
+        gripSum += wh.load * sf.grip * (this.wetness > 0 ? wetGripFactor(this.wetness, wh.tire.wetGrip ?? 0.72, sf, Math.abs(wh.vLong)) : 1);
         loadSum += wh.load;
       }
       const maxYaw = Math.max(tire0.mu * (loadSum > 0 ? gripSum / loadSum : 1) * GRAVITY, Math.abs(this.accelSmoothed.x)) / fwdSpeed;

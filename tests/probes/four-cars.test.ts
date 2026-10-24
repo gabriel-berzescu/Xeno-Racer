@@ -43,6 +43,13 @@
  * differs in the AI laps of Aurelia, every car's from the first second or two (the road cars' and the Mammoth's by up to 23 cm, the
  * LMP-X's by 4.4 m, the Volta's by 61 m: it no longer runs wide in the fast bends), and in the packs of Aurelia and Brennwald; on Isvik, a
  * winter circuit where the steering counts the weight alone, and in the open-loop drives everything is what it was.
+ *
+ * The stability control counts the water (its ceiling under the weight takes what the water leaves the tyres, as the tyre forces do): a
+ * file recorded before that differs in the open-loop drives with the default aids on wet asphalt, every car's, and the Mammoth's on wet
+ * grass, each from the first time ESC steps in (2.5-3.0 s; the Ronin 86 by up to 0.3 m, the others by 2.5-7.7 m over the drive), and in
+ * nothing else: on wet grass and gravel the others' stability control
+ * decides the same to the bit, on snow (whose "water" is fresh snow, which the ceiling counted already) and in every drive with no aids,
+ * every AI lap and every pack (the AI drives with ESC off) everything is what it was.
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { Quaternion, Vector3 } from 'three';

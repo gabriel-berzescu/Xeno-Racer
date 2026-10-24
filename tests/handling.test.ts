@@ -112,3 +112,22 @@ describe('the stability control on a car with wings', () => {
       }
   }, 120000);
 });
+
+describe('the stability control in standing water', () => {
+  // ESC's ceiling counts what the water leaves the tyres, as the tyre forces do. With the dry ceiling a road car on a wet road could turn
+  // at a rate its tyres no longer held before ESC called it a slide: with the default aids the Vanta GT slid 45 degrees in a lane change
+  // flat out from 80 km/h at wetness 1, and 34 at 0.75 (14 and 15 now).
+  const aids = DEFAULT_SETTINGS.assists;
+
+  it('holds a road car in a lane change flat out on a wet road', () => {
+    for (const id of ['vanta-gt', 'kestrel-r', 'ronin-86', 'mammoth']) {
+      const def = getCar(id);
+      for (const wetness of [0.75, 1])
+        for (const kmh of [80, 120])
+          for (const stick of [0.6, 1]) {
+            const lane = run(def, { ...aids }, kmh, (t) => ({ steer: t < 0.5 ? 0 : t < 1.2 ? stick : t < 2.6 ? -stick : t < 3.3 ? stick : 0, throttle: 1, brake: 0 }), 6, wetness);
+            expect(lane.maxBetaDeg, `${id} wet ${wetness} ${kmh} km/h stick ${stick}`).toBeLessThan(20);
+          }
+    }
+  }, 120000);
+});
