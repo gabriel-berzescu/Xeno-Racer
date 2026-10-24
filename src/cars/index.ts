@@ -810,7 +810,9 @@ const dieci: CarDefinition = {
   stats: { powerHp: 912, torqueNm: 375, massKg: 640, topSpeedKmh: 328, zeroTo100: 2.5 },
   visual: dieciVisual,
   sound: dieciSound,
-  defaultLivery: { primary: '#e2541b', secondary: '#23262b', accent: '#f4f4f2', pattern: 'split', number: 19, driver: 'You', finish: 0, metallic: false },
+  // (the big blocks of colour of the time's liveries, without their sponsors: shards of charcoal and white over burnt orange on the nose,
+  // the sidepods, the engine cover and the endplates; the opponents' orange car is split in black, so a field of Diecis tells them apart)
+  defaultLivery: { primary: '#e2541b', secondary: '#23262b', accent: '#f4f4f2', pattern: 'shards', number: 19, driver: 'You', finish: 0, metallic: false },
   physics: {
     chassis: {
       mass: 640,
