@@ -1,0 +1,470 @@
+import { describe, expect, it } from 'vitest';
+import { getCar, CARS } from '../src/cars';
+import { PART, ZONE_STRIDE } from '../src/carvis/blueprint';
+import { BLUEPRINTS } from '../src/carvis/bodies';
+import { makeFormula } from '../src/carvis/bodies/formula';
+import { frontZ, sideX, topY } from '../src/carvis/bodies/probe';
+import { buildCarData, VERTEX_STRIDE, type CarData } from '../src/carvis/build';
+import { makeDamageGeometry } from '../src/carvis/damageGeometry';
+import { DENT_PARTS } from '../src/carvis/damageShader';
+import { computeLayout, eyePoint, formula04Points, isFormula04, wheelLook } from '../src/carvis/layouts';
+import { mirrorLayout } from '../src/carvis/mirrorLayout';
+import { PartBuilder } from '../src/carvis/parts';
+import { buildCaliper, buildWheel, styleForBody, type WheelParams } from '../src/carvis/wheels';
+import { createWheelMaterial } from '../src/carvis/wheelMaterial';
+import { opponentLivery } from '../src/game/liveries';
+
+/** The Dieci's own look: a 2004 single-seater with a high nose, the front wing hung under it, periscopes, a beam wing, 13-inch grooved wheels. */
+const dieci = getCar('dieci');
+const spec = dieci.visual;
+const zF = spec.wheelbase / 2;
+const zR = -spec.wheelbase / 2;
+const zNose = zF + spec.frontOverhang;
+const zTail = -(spec.wheelbase / 2 + (spec.length - spec.wheelbase - spec.frontOverhang));
+const bp = BLUEPRINTS.formula(spec);
+const pts = formula04Points(spec);
+
+type V = [number, number, number];
+/** The static parts as the vertices of each part id. */
+function partsOf(build: (b: PartBuilder) => void): { byPart: Map<number, V[]>; pb: PartBuilder } {
+  const pb = new PartBuilder();
+  build(pb);
+  const byPart = new Map<number, V[]>();
+  for (let i = 0; i < pb.vertexCount; i++) {
+    const id = Math.round(pb.zon[i * ZONE_STRIDE + 13]);
+    if (!byPart.has(id)) byPart.set(id, []);
+    byPart.get(id)!.push([pb.pos[i * 3], pb.pos[i * 3 + 1], pb.pos[i * 3 + 2]]);
+  }
+  return { byPart, pb };
+}
+const dist = (a: readonly number[], b: readonly number[]): number => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+const all = (m: Map<number, V[]>): V[] => [...m.values()].flat();
+
+let dataHigh: Promise<CarData> | null = null;
+const high = (): Promise<CarData> => (dataHigh ??= buildCarData(spec, 'high'));
+
+describe('Dieci body', () => {
+  it("has a 2004 body of its own from the single-seater's blueprint, with parts, far parts and its lamps, and nothing that moves", () => {
+    expect(isFormula04(spec)).toBe(true);
+    // (the era is the Dieci's alone: the Volta, with none, keeps the body it had)
+    for (const c of CARS) expect(isFormula04(c.visual), c.id).toBe(c.id === 'dieci');
+    expect(BLUEPRINTS.formula(getCar('volta').visual).moving?.map((m) => m.name)).toEqual(['frontFlaps', 'rearFlaps']);
+    expect(Object.keys(bp.info!)).toEqual(Object.keys(makeFormula(getCar('volta').visual).info!));
+    expect(typeof bp.parts).toBe('function');
+    expect(typeof bp.farParts).toBe('function');
+    expect(bp.info?.lamps?.length).toBe(4);
+    // no flaps open in 2004: the wings are static parts
+    expect(bp.moving).toBeUndefined();
+  });
+
+  it('keeps its static parts finite, inside the polygonization bounds, and under a triangle budget', () => {
+    const { pb } = partsOf((b) => bp.parts!(b));
+    expect(pb.pos.every(Number.isFinite)).toBe(true);
+    expect(pb.nor.every(Number.isFinite)).toBe(true);
+    expect(pb.idx.every((i) => i >= 0 && i < pb.vertexCount)).toBe(true);
+    for (let i = 0; i < pb.vertexCount; i++) {
+      for (let k = 0; k < 3; k++) {
+        expect(pb.pos[i * 3 + k]).toBeGreaterThan(bp.bounds.min[k] - 0.02);
+        expect(pb.pos[i * 3 + k]).toBeLessThan(bp.bounds.max[k] + 0.02);
+      }
+    }
+    expect(pb.triangleCount).toBeLessThan(12000);
+  });
+
+  it("has the 2004 build sheet's silhouette: the high nose's tip, the airbox, the engine cover falling to the rear axle", () => {
+    // the tip of the nose about 0.97 m ahead of the front axle, 29-38 cm off the ground
+    expect(frontZ(bp.body, 0, 0.33) - zF).toBeGreaterThan(0.93);
+    expect(frontZ(bp.body, 0, 0.33) - zF).toBeLessThan(spec.frontOverhang + 0.01);
+    expect(frontZ(bp.body, 0, 0.27)).toBeLessThan(zF);
+    expect(frontZ(bp.body, 0, 0.29) - zF).toBeGreaterThan(0.9);
+    expect(frontZ(bp.body, 0, 0.38) - zF).toBeGreaterThan(0.9);
+    expect(frontZ(bp.body, 0, 0.41)).toBeLessThan(zNose - 0.08);
+    // the top of the nose 0.58 m over the front axle; the airbox 0.95 m, and the engine cover 0.70-0.75 at 2.6 m behind the front axle
+    // and 0.55 over the rear axle
+    expect(topY(bp.body, 0, zF)).toBeCloseTo(0.585, 1);
+    let top = 0;
+    for (let z = zR; z < zF; z += 0.02) top = Math.max(top, topY(bp.body, 0, z));
+    expect(top).toBeGreaterThan(spec.height - 0.01);
+    expect(top).toBeLessThan(spec.height + 0.01);
+    expect(topY(bp.body, 0, zF - 2.6)).toBeGreaterThan(0.68);
+    expect(topY(bp.body, 0, zF - 2.6)).toBeLessThan(0.76);
+    expect(topY(bp.body, 0, zR)).toBeCloseTo(0.555, 1);
+    // the cockpit's rim under the driver's eye, beside the helmet and at the front of the opening
+    const eye = eyePoint(spec);
+    expect(eye[1] - topY(bp.body, 0.22, eye[2])).toBeGreaterThan(0.05);
+    expect(eye[1] - topY(bp.body, 0.22, eye[2])).toBeLessThan(0.12);
+  });
+
+  it('hangs the front wing under the nose on two pylons, its middle dipped into a spoon, and stands the rear wing over a beam wing', () => {
+    const { byPart } = partsOf((b) => bp.parts!(b));
+    const carbon = byPart.get(PART.carbon)!;
+    const wing = all(byPart).filter((v) => v[2] > zF + spec.wheelRadiusFront + 0.05 && v[1] < 0.36);
+    // 1.40 m across, its endplates' outer faces 70 cm out, ahead of the tyres' outer faces
+    expect(Math.max(...wing.map((v) => v[0]))).toBeCloseTo(0.7, 2);
+    // the outer mainplane 10-30 cm over the floor (the rules of 2004, over a 5 cm ride height), the spoon in the middle lower
+    const outer = carbon.filter((v) => v[2] > zF + 0.45 && Math.abs(v[0]) > 0.32 && Math.abs(v[0]) < 0.6 && v[1] < 0.2);
+    const spoon = carbon.filter((v) => v[2] > zF + 0.45 && Math.abs(v[0]) < 0.04 && v[1] < 0.2);
+    expect(Math.min(...outer.map((v) => v[1]))).toBeGreaterThan(0.1);
+    expect(Math.min(...spoon.map((v) => v[1]))).toBeLessThan(Math.min(...outer.map((v) => v[1])) - 0.04);
+    expect(Math.max(...wing.map((v) => v[1]))).toBeLessThan(spec.rideHeight + 0.31);
+    // the two pylons: carbon plates either side of the centre line, their feet in the spoon and their tops in the nose's underside
+    const pylon = carbon.filter((v) => v[2] > zNose - 0.26 && Math.abs(Math.abs(v[0]) - 0.065) < 0.006);
+    for (const sg of [1, -1]) {
+      const side = pylon.filter((v) => Math.sign(v[0]) === sg);
+      expect(Math.min(...side.map((v) => v[1]))).toBeLessThan(0.1);
+      expect(Math.max(...side.map((v) => v[1]))).toBeGreaterThan(0.3);
+    }
+    for (const v of pylon.filter((p) => p[1] > 0.3)) expect(bp.body(...v)).toBeLessThan(0.002);
+    // the rear wing: a metre across, its top 83-85 cm up, its trailing edge no more than half a metre behind the rear axle
+    const rw = all(byPart).filter((v) => v[2] < zR - 0.05 && v[1] > 0.6 && Math.abs(v[0]) < 0.49);
+    expect(Math.max(...rw.map((v) => v[1]))).toBeGreaterThan(0.8);
+    expect(Math.max(...rw.map((v) => v[1]))).toBeLessThan(0.86);
+    expect(Math.min(...rw.map((v) => v[2]))).toBeGreaterThan(zR - 0.5);
+    // (the bodywork behind the rear axle no wider than a metre: the wing's elements and its endplates)
+    const behind = [...(byPart.get(PART.body) ?? []), ...(byPart.get(PART.accent) ?? []), ...carbon.filter((v) => v[1] > 0.6)].filter((v) => v[2] < zR - 0.05);
+    expect(Math.max(...behind.map((v) => Math.abs(v[0])))).toBeLessThan(0.51);
+    // the beam wing: carbon nearly a metre across 38-48 cm up behind the rear axle (the Volta has none)
+    const beam = carbon.filter((v) => v[2] < zR - 0.02 && v[2] > zR - 0.3 && v[1] > 0.38 && v[1] < 0.48);
+    expect(Math.max(...beam.map((v) => Math.abs(v[0])))).toBeGreaterThan(0.45);
+  });
+
+  it('has no halo, no fin on the engine cover, no LED strips and no moving flaps, and builds its periscopes into the bodywork', () => {
+    const { byPart } = partsOf((b) => bp.parts!(b));
+    expect(byPart.has(PART.halo)).toBe(false);
+    expect(byPart.has(PART.ledRed)).toBe(false);
+    expect(byPart.has(PART.titanium)).toBe(false);
+    // no fin: nothing painted stands on the centre line over the engine cover behind the airbox
+    const fin = (byPart.get(PART.body) ?? []).filter((v) => Math.abs(v[0]) < 0.02 && v[2] < eyePoint(spec)[2] - 0.6 && v[2] > zR);
+    expect(fin.length).toBe(0);
+  });
+
+  it('sculpts the periscopes on the sidepods, their mouths where the exhaust effects blow the flames, facing up and back', () => {
+    const { at, dir } = pts.periscope;
+    // on the surface, the stack under it solid, the air over it clear
+    expect(Math.abs(bp.body(...at))).toBeLessThan(0.006);
+    expect(bp.body(at[0] - dir[0] * 0.05, at[1] - dir[1] * 0.05, at[2] - dir[2] * 0.05)).toBeLessThan(-0.02);
+    expect(bp.body(at[0] + dir[0] * 0.05, at[1] + dir[1] * 0.05, at[2] + dir[2] * 0.05)).toBeGreaterThan(0.03);
+    expect(bp.body(-at[0], at[1] - dir[1] * 0.05, at[2] - dir[2] * 0.05)).toBeLessThan(-0.02);
+    // up and 40 degrees back from the vertical, a little outward; on the sidepod's top beside the engine cover, 60 cm ahead of the axle
+    expect(Math.hypot(...dir)).toBeCloseTo(1, 9);
+    expect((Math.acos(dir[1]) * 180) / Math.PI).toBeGreaterThan(35);
+    expect((Math.acos(dir[1]) * 180) / Math.PI).toBeLessThan(45);
+    expect(dir[2]).toBeLessThan(0);
+    expect(dir[0]).toBeGreaterThan(0);
+    expect(at[2] - zR).toBeCloseTo(0.6, 6);
+    // the mouth is dark (the mouths' zone channel), soot round it
+    const zb = new Float32Array(ZONE_STRIDE);
+    zb.fill(1);
+    bp.zones(at[0], at[1], at[2], dir[0], dir[1], dir[2], zb, 0);
+    expect(zb[3]).toBeLessThan(0);
+    zb.fill(1);
+    const rim: V = [at[0] + 0.036, at[1], at[2]];
+    bp.zones(rim[0], rim[1], rim[2], dir[0], dir[1], dir[2], zb, 0);
+    expect(zb[1]).toBeLessThan(0);
+  });
+
+  it('keeps its wings, its far LOD and the helmet in the far LOD (and so in the shadow an AI car casts), coloured by the paint they wear', async () => {
+    const data = await high();
+    const far = data.lod2;
+    const nb = far.stats.bodyVertices;
+    const n = far.vertices.length / VERTEX_STRIDE;
+    expect(n - nb).toBeGreaterThan(150);
+    let frontWing = 0, rearWing = 0, beam = 0, helmet = 0, halo = 0, pylonTop = 0;
+    const eye = eyePoint(spec);
+    for (let i = nb; i < n; i++) {
+      const o = i * VERTEX_STRIDE;
+      const x = far.vertices[o], y = far.vertices[o + 1], z = far.vertices[o + 2];
+      const part = Math.round(far.vertices[o + 6 + 13]);
+      if (z > zF + 0.4 && y < 0.35 && Math.abs(x) > 0.6) frontWing++;
+      if (z < zR - 0.05 && y > 0.6 && Math.abs(x) > 0.45) rearWing++;
+      if (z < zR && y > 0.38 && y < 0.48 && Math.abs(x) > 0.4) beam++;
+      // the pylon that holds the front wing up to the nose: its top inside the nose
+      if (part === PART.carbon && Math.abs(x) < 0.02 && z > zNose - 0.32 && y > 0.29) {
+        pylonTop++;
+        expect(bp.body(x, y - 0.002, z)).toBeLessThan(0.01);
+      }
+      if (part === PART.halo) halo++;
+      if (part === PART.body && dist([x, y, z], [eye[0], eye[1] - 0.03, eye[2] - 0.07]) < 0.2) helmet++;
+      expect(far.colors![i * 3]).toBeCloseTo(part === PART.body ? 1 : 0.05, 6);
+    }
+    expect(frontWing).toBeGreaterThan(8);
+    expect(rearWing).toBeGreaterThan(8);
+    expect(beam).toBeGreaterThan(4);
+    expect(pylonTop).toBeGreaterThan(2);
+    expect(halo).toBe(0);
+    expect(helmet).toBeGreaterThan(20);
+  }, 120000);
+
+  it("gives the damage model its four lamps: the LEDs in the nose's tip, and the rain light's two halves for its tail lamps", async () => {
+    const data = await high();
+    const lamps = makeDamageGeometry(data.lod0, spec).lamps;
+    expect(lamps.length).toBe(4);
+    const v = data.lod0.vertices;
+    const nb = data.lod0.stats.bodyVertices;
+    const n = v.length / VERTEX_STRIDE;
+    const zb = new Float32Array(ZONE_STRIDE);
+    for (const [i, side] of [[0, 1], [1, -1]] as const) {
+      const l = lamps[i];
+      expect(Math.sign(l.c[0])).toBe(side);
+      // on the sculpted tip of the nose, in its head-lamp zone (z1.x < 0), the body's vertices round it carrying the zone's field
+      expect(Math.abs(bp.body(l.c[0], l.c[1], l.c[2]))).toBeLessThan(0.01);
+      expect(l.c[2]).toBeGreaterThan(zNose - 0.07);
+      zb.fill(1);
+      bp.zones(l.c[0], l.c[1], l.c[2], 0, 0, 1, zb, 0);
+      expect(zb[4]).toBeLessThan(0);
+      let near = 0;
+      for (let k = 0; k < nb; k++) {
+        const o = k * VERTEX_STRIDE;
+        if (v[o + 6 + 4] < 0.03 && dist([v[o], v[o + 1], v[o + 2]], l.c) < l.r) near++;
+      }
+      expect(near).toBeGreaterThan(4);
+    }
+    // the rain light: within 10 cm of the centre line, at least 35 cm over the floor and 45 cm behind the rear axle (the rules of the time),
+    // its block on PART.rainLight, the two tail lamps its halves
+    expect(Math.abs(pts.rainLight[0])).toBeLessThan(0.1);
+    expect(pts.rainLight[1]).toBeGreaterThanOrEqual(spec.rideHeight + 0.35);
+    expect(zR - pts.rainLight[2]).toBeGreaterThanOrEqual(0.45);
+    for (const [i, side] of [[2, 1], [3, -1]] as const) {
+      const l = lamps[i];
+      expect(Math.sign(l.c[0])).toBe(side);
+      expect(dist(l.c, pts.rainLight)).toBeLessThan(0.04);
+      let lit = 0;
+      for (let k = nb; k < n; k++) {
+        const o = k * VERTEX_STRIDE;
+        if (Math.round(v[o + 6 + 13]) === PART.rainLight && dist([v[o], v[o + 1], v[o + 2]], l.c) < l.r + 0.03) lit++;
+      }
+      expect(lit).toBeGreaterThan(8);
+    }
+    // the headlamp spots shine from just ahead of the nose's tip, at the LEDs' height, clear of the car; the tail light is the rain light
+    const lay = computeLayout(spec);
+    expect(lay.headlight[0]).toBeCloseTo(lamps[0].c[0], 6);
+    expect(lay.headlight[1]).toBeCloseTo(lamps[0].c[1], 6);
+    expect(lay.headlight[2]).toBeGreaterThan(zNose);
+    expect(bp.body(lay.headlight[0], lay.headlight[1], lay.headlight[2])).toBeGreaterThan(0.01);
+    expect(lay.taillight).toEqual(pts.rainLight);
+  });
+
+  it('crumples its lamps and its wings with what carries them, the rain light lying on the tip of the crash structure', () => {
+    const { byPart } = partsOf((b) => bp.parts!(b));
+    // (everything on it but the stalks, the suspension's driveshafts and the T-camera dents with the body: carbon, the livery's paint, the rain light)
+    for (const id of byPart.keys()) {
+      if (id === PART.plastic || id === PART.mirrorGlass) continue;
+      expect(DENT_PARTS, `part ${id}`).toContain(id === PART.body ? PART.accent : id);
+    }
+    const rain = byPart.get(PART.rainLight)!;
+    expect(rain.length).toBeGreaterThan(8);
+    for (const v of rain) expect(bp.body(...v)).toBeLessThan(0.012);
+    // an upright block, taller than it is wide
+    const w = Math.max(...rain.map((v) => v[0])) - Math.min(...rain.map((v) => v[0]));
+    const h = Math.max(...rain.map((v) => v[1])) - Math.min(...rain.map((v) => v[1]));
+    expect(h).toBeGreaterThan(w);
+  });
+
+  it('keeps its wings, floor and suspension clear of the tyres, the front ones steered to the lock and beyond', () => {
+    const { pb } = partsOf((b) => bp.parts!(b));
+    const lock = dieci.physics.chassis.maxSteer * 1.15;
+    const wheels: Array<[number, number, number, number, number, number]> = [
+      [spec.trackFront / 2, zF, spec.wheelRadiusFront, spec.tireWidthFront, spec.rimRadiusFront, lock],
+      [spec.trackRear / 2, zR, spec.wheelRadiusRear, spec.tireWidthRear, spec.rimRadiusRear, 0],
+    ];
+    for (const [wx, wz, R, W, rimR, steer] of wheels) {
+      for (const a of steer ? [-steer, 0, steer] : [0]) {
+        const c = Math.cos(a), s = Math.sin(a);
+        let hits = 0;
+        for (let i = 0; i < pb.vertexCount; i++) {
+          const dx = pb.pos[i * 3] - wx, dy = pb.pos[i * 3 + 1] - R, dz = pb.pos[i * 3 + 2] - wz;
+          const lx = dx * c - dz * s, lz = dx * s + dz * c;
+          const r = Math.hypot(dy, lz);
+          if (Math.abs(lx) < W / 2 + 0.005 && r > rimR && r < R + 0.01) hits++;
+        }
+        expect(hits, `wheel at z ${wz}, steer ${a.toFixed(2)}`).toBe(0);
+        let worst = Infinity;
+        for (let k = 0; k < 48; k++) {
+          const t = (k / 48) * Math.PI * 2;
+          for (const lx of [-W / 2, 0, W / 2]) {
+            const ly = Math.sin(t) * R, lz = Math.cos(t) * R;
+            worst = Math.min(worst, bp.body(wx + lx * c + lz * s, R + ly, wz - lx * s + lz * c));
+          }
+        }
+        expect(worst).toBeGreaterThan(0.02);
+      }
+    }
+  });
+
+  it("stands its mirrors on stalks from the front of the sidepods, the glass where the Volta's is on the screen", () => {
+    const L = mirrorLayout(spec);
+    const eye = eyePoint(spec);
+    expect(L.interior).toBeNull();
+    expect(L.screen).toBeNull();
+    const root = L.housing.stalk!;
+    expect(bp.body(root[0], root[1], root[2])).toBeLessThan(0);
+    expect(bp.body(-root[0], root[1], root[2])).toBeLessThan(0);
+    // the root on the sidepod, ahead of the cockpit's rim
+    expect(root[0]).toBeGreaterThan(0.33);
+    // the glass out in the air, 15 x 5 cm (the rules of the time: at least 12 x 5), 40 degrees off the driver's line of sight, 8 under it
+    expect(bp.body(...L.left.pos)).toBeGreaterThan(0.1);
+    expect(L.left.halfW * 2).toBeCloseTo(0.15, 6);
+    expect(L.left.halfH * 2).toBeCloseTo(0.05, 6);
+    const az = (Math.atan2(L.left.pos[0] - eye[0], L.left.pos[2] - eye[2]) * 180) / Math.PI;
+    const el = (Math.atan2(L.left.pos[1] - eye[1], Math.hypot(L.left.pos[0] - eye[0], L.left.pos[2] - eye[2])) * 180) / Math.PI;
+    expect(az).toBeGreaterThan(38);
+    expect(az).toBeLessThan(42);
+    expect(el).toBeGreaterThan(-9);
+    expect(el).toBeLessThan(-7);
+    // the rear camera over the rear wing and its endplates
+    expect(L.rear.pos[1]).toBeGreaterThan(0.845 + 0.08);
+  });
+
+  it('lays its livery out on its own panels: the roundel on the sidepod, the number on the high nose; a default livery no opponent copies', () => {
+    const lay = computeLayout(spec).livery;
+    expect(sideX(bp.body, lay.door.y, lay.door.z)).toBeGreaterThan(0.4);
+    expect(sideX(bp.body, lay.door.y + lay.door.r, lay.door.z)).toBeGreaterThan(0.35);
+    expect(sideX(bp.body, lay.door.y - lay.door.r, lay.door.z)).toBeGreaterThan(0.35);
+    const top = topY(bp.body, 0, lay.hood.z);
+    expect(top).toBeGreaterThan(0.45);
+    expect(sideX(bp.body, top - 0.03, lay.hood.z)).toBeGreaterThan(lay.hood.r);
+    expect(lay.belt).toBe(0.5);
+    expect(lay.trueRound).toBe(true);
+    // no opponent wears its pattern in a colour near its own (a split in orange and black once nearly copied it)
+    const hex = (h: string): number[] => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+    const mine = dieci.defaultLivery;
+    for (let i = 0; i < 12; i++) {
+      const o = opponentLivery(i, dieci);
+      if (o.pattern !== mine.pattern) continue;
+      expect(dist(hex(o.primary), hex(mine.primary)), o.primary).toBeGreaterThan(120);
+    }
+  });
+
+  it('films it from clear of the body: the T-camera on the airbox over the helmet, the nose camera over the high nose, the look back behind the T-camera', () => {
+    const lay = computeLayout(spec);
+    const back: V = [lay.chase[0], lay.chase[1] + 0.14, lay.chase[2]];
+    // the T-camera's pod: black, on top of the airbox, and the hood camera just ahead of it
+    const { byPart } = partsOf((b) => bp.parts!(b));
+    const pod = (byPart.get(PART.plastic) ?? []).filter((v) => v[1] > spec.height);
+    expect(pod.length).toBeGreaterThan(8);
+    const podZ = Math.max(...pod.map((v) => v[2]));
+    expect(lay.hood[2]).toBeGreaterThan(podZ);
+    expect(lay.hood[1]).toBeGreaterThan(Math.max(...pod.map((v) => v[1])));
+    expect(bp.body(...lay.hood)).toBeGreaterThan(0.06);
+    expect(lay.hood[2]).toBeLessThan(eyePoint(spec)[2] - 0.2);
+    // the nose camera ahead of the front axle over the nose (its near plane is 12 cm: nothing of the nose that close in front of it)
+    expect(lay.bumper[2]).toBeGreaterThan(zF + 0.3);
+    expect(bp.body(...lay.bumper)).toBeGreaterThan(0.09);
+    expect(bp.body(lay.bumper[0], lay.bumper[1], lay.bumper[2] + 0.12)).toBeGreaterThan(0.09);
+    expect(bp.body(...back)).toBeGreaterThan(0.12);
+    expect(back[2]).toBeLessThan(podZ - 0.1);
+    expect(lay.chase[1]).toBe(spec.height);
+    expect(bp.body(...eyePoint(spec))).toBeGreaterThan(0.08);
+  });
+});
+
+describe('Dieci wheels', () => {
+  const wheel = (q: WheelParams['quality'], rear = false): WheelParams => ({
+    R: rear ? spec.wheelRadiusRear : spec.wheelRadiusFront,
+    W: rear ? spec.tireWidthRear : spec.tireWidthFront,
+    rimR: rear ? spec.rimRadiusRear : spec.rimRadiusFront,
+    style: styleForBody(spec.style, spec.formulaEra),
+    quality: q,
+  });
+
+  it('rides on 13-inch forged rims with twelve spokes that blur, a centre-lock nut and the tall sidewall of a 660 mm tyre', () => {
+    expect(styleForBody('formula', 2004)).toBe('formula04');
+    expect(styleForBody('formula')).toBe('formula');
+    expect(Math.round((spec.rimRadiusFront * 2) / 0.0254)).toBe(13);
+    expect(Math.round((spec.rimRadiusRear * 2) / 0.0254)).toBe(13);
+    expect(spec.wheelRadiusFront - spec.rimRadiusFront).toBeCloseTo(0.165, 3);
+    const pb = buildWheel(wheel('high'));
+    const ids = new Set<number>();
+    // the spokes: the rim face's vertices between the hub and the lip, counted by their angle round the axle
+    const spokeAt = new Set<number>();
+    for (let i = 0; i < pb.vertexCount; i++) {
+      const id = Math.round(pb.zon[i * ZONE_STRIDE + 13]);
+      ids.add(id);
+      const r = Math.hypot(pb.pos[i * 3 + 1], pb.pos[i * 3 + 2]);
+      if (id === PART.rimFace && r > 0.09 && r < 0.12) spokeAt.add(Math.round((Math.atan2(pb.pos[i * 3 + 2], pb.pos[i * 3 + 1]) / (2 * Math.PI)) * 12 + 12) % 12);
+    }
+    expect(spokeAt.size).toBe(12);
+    expect(ids.has(PART.blurDisc)).toBe(true);
+    expect(ids.has(PART.nut)).toBe(true);
+    expect(ids.has(PART.discHat)).toBe(false);
+    expect(ids.has(PART.disc)).toBe(false);
+  });
+
+  it("closes the rim on its inboard side with the brake duct's drum, out to the tyre's bead", () => {
+    for (const rear of [false, true]) {
+      const p = wheel('high', rear);
+      const pb = buildCaliper(p, true);
+      let maxR = 0;
+      for (let i = 0; i < pb.vertexCount; i++) {
+        expect(Math.round(pb.zon[i * ZONE_STRIDE + 13])).toBe(PART.shield);
+        maxR = Math.max(maxR, Math.hypot(pb.pos[i * 3 + 1], pb.pos[i * 3 + 2]));
+      }
+      expect(maxR).toBeGreaterThan(p.rimR);
+      expect(pb.triangleCount).toBeLessThan(1500);
+    }
+  });
+
+  it('has grooved dry tyres, four grooves 14 mm wide and 50 mm apart, white lettering, and no other car has grooves', () => {
+    const look = wheelLook(spec.style, spec.formulaEra);
+    expect(look.grooves).toEqual([0.025, 0.075, 0.007, 0.0025]);
+    expect(look.slick).toBe(1);
+    expect(look.tread).toBe(0);
+    for (const c of CARS) if (c.id !== 'dieci') expect(wheelLook(c.visual.style, c.visual.formulaEra).grooves, c.id).toBeUndefined();
+    // inside the tread of both tyres
+    for (const W of [spec.tireWidthFront, spec.tireWidthRear]) expect(look.grooves![1] + look.grooves![2]).toBeLessThan(0.3 * W);
+  });
+
+  it("draws the grooves with a wheel material of its own: every other car's wheel program is what it was, word for word", () => {
+    const compile = (grooves: boolean): { vs: string; fs: string; key: string } => {
+      const { material } = createWheelMaterial(undefined, grooves ? { grooves: true } : undefined);
+      const shader = {
+        uniforms: {} as Record<string, { value: unknown }>,
+        vertexShader: '#include <common>\n#include <beginnormal_vertex>\n#include <begin_vertex>',
+        fragmentShader:
+          '#include <common>\n#include <color_fragment>\n#include <roughnessmap_fragment>\n#include <metalnessmap_fragment>\n#include <normal_fragment_maps>\n#include <emissivemap_fragment>\n#include <lights_physical_fragment>\n#include <aomap_fragment>',
+      };
+      material.onBeforeCompile(shader as never, null as never);
+      return { vs: shader.vertexShader, fs: shader.fragmentShader, key: material.customProgramCacheKey() };
+    };
+    const plain = compile(false), grooved = compile(true);
+    expect(plain.key).toBe('xr-wheel-v3');
+    expect(grooved.key).not.toBe(plain.key);
+    expect(plain.fs).not.toContain('uGrooves');
+    expect(grooved.fs).toContain('uniform vec4 uGrooves;');
+    expect(grooved.vs).toBe(plain.vs);
+    // the grooved program is the plain one with the uniform and the grooves' block added, after the road tyre's tread, and nothing else
+    const added = grooved.fs.replace('uniform vec4 uGrooves;\n', '');
+    const at = added.indexOf('wRough = mix(wRough, 0.95, tread * uTread * 0.5);\n') + 'wRough = mix(wRough, 0.95, tread * uTread * 0.5);\n'.length;
+    const end = added.indexOf('\n    }\n', at) + '\n    }\n'.length;
+    expect(added.slice(0, at) + added.slice(end)).toBe(plain.fs);
+    expect(added.slice(at, end)).toContain('uGrooves.w');
+  });
+
+  it("stays inside the wheel triangle budget at every quality, and finishes the tyre's inner sidewall as finely as the outer one", () => {
+    for (const q of ['low', 'medium', 'high', 'ultra'] as const) {
+      for (const rear of [false, true]) expect(buildWheel(wheel(q, rear)).triangleCount, q).toBeLessThan(11000);
+    }
+    const pb = buildWheel(wheel('high'));
+    const sides = { in: new Set<number>(), out: new Set<number>() };
+    for (let i = 0; i < pb.vertexCount; i++) {
+      if (Math.round(pb.zon[i * ZONE_STRIDE + 13]) !== PART.tire || pb.zon[i * ZONE_STRIDE + 2] < 0.5) continue;
+      const x = pb.pos[i * 3];
+      (x < 0 ? sides.in : sides.out).add(Math.round(Math.hypot(pb.pos[i * 3 + 1], pb.pos[i * 3 + 2]) * 1e4));
+    }
+    expect(sides.in.size).toBe(sides.out.size);
+  });
+});
+
+describe('Dieci triangle budgets', () => {
+  it('stays inside the budgets at every quality: near body, AI body, far body', async () => {
+    for (const q of ['low', 'medium', 'high', 'ultra'] as const) {
+      const d = await buildCarData(spec, q);
+      const tri = (n: number): number => n / 3;
+      expect(d.moving, q).toBeUndefined();
+      expect(tri(d.lod0.paintIndex.length), q).toBeLessThan(110000);
+      expect(tri(d.lod1.paintIndex.length), q).toBeLessThan(60000);
+      expect(tri(d.lod2.index.length), q).toBeLessThan(10000);
+      expect(d.lod0.glassIndex.length, q).toBe(0);
+    }
+  }, 120000);
+});
