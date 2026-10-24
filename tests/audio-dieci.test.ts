@@ -299,6 +299,37 @@ describe('the 2004 V10', () => {
       expect(off.count, `@${rpm}: ${JSON.stringify(off.lines.slice(0, 4))}`).toBeLessThanOrEqual(2);
     }
   });
+
+  it('pops now and then in the cut: with the pedal down and 0.6 of the torque left a cut charge lights in the pipe at crackle x 24 a second times the share cut, on the first cut as on one after a lift-off, within 30 % over eight seeds and once at the least in each', () => {
+    // (the pops counted where every pop goes through, the voice's firePop)
+    const pops = (seed: number, lift: boolean, secs: number): number => {
+      const v = voice(P, seed);
+      const spy = v as unknown as { firePop(size: number): void };
+      const fire = spy.firePop.bind(v);
+      let n = 0;
+      spy.firePop = (size) => {
+        n++;
+        fire(size);
+      };
+      steady(v, 12000, 1, 1, 2);
+      if (lift) {
+        steady(v, 12000, 0, 0, 1.5);
+        steady(v, 12000, 1, 1, 0.5);
+      }
+      n = 0;
+      Object.assign(v.inp, { throttle: 0.6, load: 0.6 * (0.5 * 0.95 + 0.5), pedal: 1 });
+      v.process(new Float32Array(secs * SR), secs * SR);
+      return n;
+    };
+    for (const [lift, secs] of [[false, 3], [true, 2]] as const) {
+      const counts = [1, 2, 3, 4, 5, 6, 7, 8].map((seed) => pops(seed, lift, secs));
+      const expected = 8 * P.crackle * 24 * 0.4 * secs;
+      const total = counts.reduce((a, b) => a + b, 0);
+      expect(total / expected, `${lift ? 'after a lift-off' : 'the first cut'}: ${counts.join(', ')}`).toBeGreaterThan(0.7);
+      expect(total / expected, `${lift ? 'after a lift-off' : 'the first cut'}: ${counts.join(', ')}`).toBeLessThan(1.3);
+      expect(Math.min(...counts), `${lift ? 'after a lift-off' : 'the first cut'}: ${counts.join(', ')}`).toBeGreaterThanOrEqual(1);
+    }
+  });
 });
 
 describe('through the real physics, as the game drives it', () => {

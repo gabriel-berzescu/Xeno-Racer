@@ -531,9 +531,11 @@ export class EngineVoice {
   private preCutFire = 0;
   private cutHeld = 0;
   // a torque cut heard as an ignition cut (Voicing.ignitionCut): the share of the firing events cut, smoothed, and which cylinders are
-  // cut this cycle (decided at each one's combustion, heard again at its exhaust)
+  // cut this cycle (decided at each one's combustion, heard again at its exhaust), and the hazard left until a cut charge next pops in the
+  // pipe (-1: none drawn yet)
   private sFireCut = 0;
   private readonly cylCut: Uint8Array;
+  private cutPopHaz = -1;
 
   // crank clock
   private ph: number;
@@ -880,6 +882,7 @@ export class EngineVoice {
     this.cutHeld = CUT_BRIDGE;
     this.sFireCut = 0;
     this.cylCut.fill(0);
+    this.cutPopHaz = -1;
     this.lopeH.fill(0);
     for (const r of this.blk) r.reset();
     this.clunkR1.reset();
@@ -1197,8 +1200,6 @@ export class EngineVoice {
     this.heat += smoothCoef(this.heatTarget(loadE, rpmN) > this.heat ? 0.3 : 3.0, dt) * (this.heatTarget(loadE, rpmN) - this.heat);
     let popRate = V.crackle * 16 * ovr * this.heat * smoothstep(1800, 4500, rpm);
     if (this.cutActive) popRate += V.crackle * 28;
-    // (the charge of a cylinder whose spark is cut lights now and then in the hot pipe)
-    if (V.ignitionCut) popRate += V.crackle * 24 * this.sFireCut;
     if (this.burstLeft > 0) {
       this.burstGap -= dt;
       if (this.burstGap <= 0) {
@@ -1216,6 +1217,18 @@ export class EngineVoice {
         this.nextPopIn = -Math.log(Math.max(rng.u(), 1e-6)) / popRate;
       }
     } else this.nextPopIn = 1e9;
+    // (the charge of a cylinder whose spark is cut lights now and then in the hot pipe: crackle x 24 pops a second times the share of the
+    // sparks cut, on a hazard of its own that is spent as the cut comes and goes; a timer drawn at the rate of one block would keep the
+    // rate of the cut's first block, a tenth of it or less, or the overrun's of an earlier lift-off)
+    if (V.ignitionCut && this.sFireCut > 0.005) {
+      if (this.cutPopHaz < 0) this.cutPopHaz = -Math.log(Math.max(rng.u(), 1e-6));
+      this.cutPopHaz -= V.crackle * 24 * this.sFireCut * dt;
+      if (this.cutPopHaz <= 0) {
+        const big = rng.u() < 0.03 * V.crackle;
+        this.firePop(big ? 0.8 + 0.4 * rng.u() : 0.18 + 0.4 * rng.u() * rng.u());
+        this.cutPopHaz = -Math.log(Math.max(rng.u(), 1e-6));
+      }
+    }
     // the burble of a cross-plane V8 that is being lifted off: unburnt charge lights in the pipe on some of the exhaust events (see below), a
     // dozen to thirty a second through the middle of the rev range while the exhaust is hot, and none at idle or near the limiter
     if (V.burble > 0) {
