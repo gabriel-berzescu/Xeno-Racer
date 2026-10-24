@@ -72,16 +72,17 @@ engine position) and kept with its record (`MechState.profile`; a record made wi
 physics, the AI, the drawn wheels) and `mechanicalReport` (the HUD) both read it, so they cannot disagree: a part of the indicator lights exactly when
 the hit changed how that car drives. `Vehicle.setDamage` also refuses to scale a lift area that is not downforce, whatever it is handed.
 
-| the nose and tail can lose | Vanta GT | Kestrel R | Ronin 86 | LMP-X | Mammoth |
-|---|---|---|---|---|---|
-| front and rear downforce (to 60 %) | yes | no: a lip and a ducktail | no: the same | yes, a great deal | no: its aero is lift |
-| engine power (up to 10 %, heavy nose hits) | yes | yes | yes | no: radiators in the side pods | yes |
-| the rear wheels pushed out of line (a trace, tail hits) | yes | yes | yes | yes | yes |
+| the nose and tail can lose | Vanta GT | Kestrel R | Ronin 86 | LMP-X | Mammoth | Volta |
+|---|---|---|---|---|---|---|
+| front and rear downforce (to 60 %) | yes | no: a lip and a ducktail | no: the same | yes, a great deal | no: its aero is lift | yes, the most, its flaps open or shut |
+| engine power (up to 10 %, heavy nose hits) | yes | yes | yes | no: radiators in the side pods | yes | no: radiators in the sidepods |
+| the rear wheels pushed out of line (a trace, tail hits) | yes | yes | yes | yes | yes | yes |
 
 The wheels are every car's (toe and camber, from the hits along the flank). The indicator shows a nose by its downforce where the car has any and by its
 engine where not (so a Mammoth's stays dark until a hit reaches the radiator), and a tail by its downforce or by the trace of toe (never worse than Light).
 It draws the car in the outline of its body style (`HudDamage.style`, from `CarVisualSpec.style`): a teardrop for the road cars, a brick with flared arches
-for the Mammoth, a prototype with its front and rear wings for the LMP-X, each with its own wheels and zone splits (`SHAPES` in `src/ui/hud/damage.ts`).
+for the Mammoth, a prototype with its front and rear wings for the LMP-X, an open-wheeler for the Volta (a front wing, a narrow nose, its wheels out on their
+arms, sidepods narrowing to the gearbox, a rear wing), each with its own wheels and zone splits (`SHAPES` in `src/ui/hud/damage.ts`).
 
 Track: `loadTrackRuntime(id)` is headless (physics/AI/tests use it); `buildTrackScene()` makes the
 visible world. Physics asks the track `groundAt()` for every wheel every substep and `project()`
@@ -202,7 +203,7 @@ purpose. Nothing else changes for the other four circuits: a road circuit gets t
 - **Tyres** (`src/physics/compound.ts`): `fitCar(def, track)` returns the car itself on a road circuit and a copy on studded winter tyres on
   a winter one; `PhysicsWorld.addVehicle`, `AIDriver` and the steering filter all read the fitted car, so physics, AI and aids agree. A studded
   tyre peaks later (10 degrees, slip ratio 0.16), falls off gently (`slideRatio` 0.9) and hardly minds load: the car slides without letting go.
-  The studded tyre keeps the all-terrain trait of the tyre it replaces (the Mammoth's) and drops the slick one (the LMP-X's), see below. The thermal model runs in air at -6 degrees (`WINTER_AMBIENT_C`). The stick is scaled to the grip of the snow or the ice under the front
+  The studded tyre keeps the all-terrain trait of the tyre it replaces (the Mammoth's) and drops the slick one (the LMP-X's and the Volta's), see below. The thermal model runs in air at -6 degrees (`WINTER_AMBIENT_C`). The stick is scaled to the grip of the snow or the ice under the front
   wheels (`SteeringFilter`): full stick asks for what the tyres can use there, not what they could on asphalt.
 - **Soft barriers:** `BarrierKind` `snowbank` sets `TrackPoint.softLeft/softRight`. `Vehicle.resolveBank` is a spring and a damper that
   stiffens with depth, gives back a fifth of what it took and drags the flank along it, with a hard stop at 3.5 m (the frozen ground under
@@ -263,7 +264,7 @@ it is held to are in `tests/mammoth.test.ts` (the table in `tests/probes/mammoth
 
 ## The racing slick: the LMP-X on loose ground
 
-The LMP-X is the one car on racing slicks (`TireSpec.slick`): smooth, soft rubber with no tread, the stickiest tyre in the game on asphalt, kerb and concrete and the weakest on anything else. It is the other end of
+The LMP-X and the Volta are the two cars on racing slicks (`TireSpec.slick`): smooth, soft rubber with no tread, the stickiest tyre in the game on asphalt, kerb and concrete and the weakest on anything else. It is the other end of
 the scale from the Mammoth's all-terrain tyre, and the numbers it is held to are in `tests/slicks.test.ts` (the tables in `tests/probes/slick-probe.test.ts`).
 
 - **One scale** (`treadOf`, `src/physics/surfaces.ts`): a tyre's place between the slick (-1) and the all-terrain tyre (+1) is `offroad` - `slick`; a road tyre is 0, and so is a tyre with both traits. `tireSurfaces`
@@ -276,12 +277,137 @@ the scale from the Mammoth's all-terrain tyre, and the numbers it is held to are
   table's grip, and the downforce that presses a slick into soft ground gives less back than the model credits it, so grass, dirt and gravel keep **0.40**, sand 0.42, deep snow 0.45. Wet turf and wet dirt keep 0.7
   of their wet factor (a smooth tyre aquaplanes on turf), gravel and sand drain and keep theirs, and a wide smooth tyre digs in: rolling x1.2 and ploughing x1.3 in gravel, x1.15 and x1.25 in sand, x1.1 in turf and dirt.
   Asphalt, kerb, concrete, packed snow and ice are the very same objects in every table, so on a road the LMP-X is bit for bit what it was.
+  The Volta's slicks (a mu of 1.75, 1.5-1.75 times a road tyre's) carry the same trait, so the same table, whose shares are of each tyre's own grip; the
+  figures below are the LMP-X's, and the Volta's on loose ground were not measured.
 - **Winter**: `winterTire` drops the trait (the studded tyre has a tread of its own; the Mammoth's all-terrain trait is kept), so Isvik is unchanged for every car.
 - **What it comes to** on a flat plane (lateral g held at 60 / 120 km/h; the stop from 60 / 120 km/h with ABS; the LMP-X before the rule in brackets): dry grass 0.40 / 0.43 g (0.92 / 1.17) against the road cars' 0.55-0.63 and the
   Mammoth's 0.71-0.74, and 31 / 106 m (13 / 46) against 20-22 / 76-86; wet grass 0.18 / 0.15 g (0.55 / 0.65) against 0.36-0.38, and 63 / 204 m against 33 / 124-128; gravel 0.29 / 0.25 g (0.95 / 1.17) against 0.52-0.62.
   The order Mammoth > road cars > LMP-X holds on every loose surface, dry and wet, in lateral g and in the stop. It is beached, not stuck, on turf, dirt and gravel (20 km/h from a standstill in 2-8 s), and bogged down in sand, where a
   road car is nearly too. The AI keeps its racecraft: in a pack at Brennwald the LMP-X has a wheel on loose ground for a fifth of the lap, yet its solo laps change by under half a percent (no reset, no hit), and in 48 races
   of twelve on Aurelia, Kuroyama and Brennwald, dry and wet, no car hit a wall or needed a reset, with the slicks as without them.
+
+## The Volta: active aero, an electric nitro and an open cockpit
+
+`CARS[5]`, class `Formula`, body style `'formula'`: a 2026-rules single-seater of 800 kg, 565 hp from a 1.6 L turbo V6 alone (380 Nm from 8000 to
+10,500 rpm, 564.5 hp at 12,000), 8 speeds and rear drive, on slicks (280/45R18 front, 375/35R18 rear). It is the one car with active aero, with an electric
+nitro and with an open cockpit, and the numbers it is held to are in `tests/volta.test.ts` (`MAMMOTH=all CAR=volta,lmp-x npx vitest run
+tests/probes/mammoth-probe.test.ts` prints the table; `tests/physics.test.ts` holds the class to a stop from 100 km/h over 17.5 m and a skidpad under 2.5 g),
+its look in `tests/carvis-formula.test.ts` and its voice in `tests/audio-volta.test.ts`. Everything it brought is behind a field of the car's data that no other
+car has (`AeroSpec.straightMode`, `EngineSpec.electric`, `CarVisualSpec.openCockpit`, the new `EngineSoundProfile` fields, the new `Blueprint` hooks) or behind
+its body style, so the other five cars were bit for bit what they were until the three fixes at the end of this section: before them
+`tests/probes/four-cars.test.ts` printed `ALL BIT-IDENTICAL` with the default ids and with `FOURCARS_IDS=mammoth`, and the audio regress-lab
+(`node sandbox/audio/lab/run.mjs regress-lab.ts compare`) `27/27 scenarios identical` for each of the five other voices.
+
+- **Active aero** (`AeroSpec.straightMode`; the rule is `src/physics/aero.ts`): the car's own areas are its corner mode, a CdA of 1.0 and 3.8 m^2 of
+  downforce area, 43 % of it at the front; the straight mode, the front-wing flaps and the rear-wing flap laid flat, is 0.78, 1.18 and 1.56 m^2: 22 % less
+  drag and 28 % less downforce. The flaps open over 0.4 s once the driver has been flat out (the pedal at 0.95 or more, no brake, a forward gear, not held on
+  the grid) at 150 km/h or more, with the wheels on the ground and hardly cornering (the lateral acceleration the car has, and the one its steering asks for,
+  v^2 δ / (L + 0.0022 v^2), both under 1 g), for 0.25 s without a break (`STRAIGHT_MODE_DWELL`: without it a governor pumping the throttle on a wet road had
+  them chattering 10-20 times a second): half open 0.45-0.5 s after the throttle goes to the floor at 250 km/h, fully at 0.64-0.7 s. Open, they stay so
+  through a part-lift to 0.8 and a bend of up to 1.25 g, and they close over 0.2 s on a lift, the brakes, a turn of the wheel, a corner or a jump, so the car
+  always brakes and corners in corner mode. (The real rule opens them in a circuit's activation zones only; a circuit here has none, so the car's own state
+  decides.) `Vehicle.beginFrame` decides the way once a frame; each substep moves the flaps and gives the aero block the areas in between, in a branch no
+  other car enters. `VehicleState.aeroOpen` (0 corner mode .. 1 straight mode, absent for fixed wings) says where they stand: the body turns its flaps by it,
+  the yoke's display shows it, replays record it. Flat out it does 330 km/h with the flaps working and 303 with the wings fixed shut.
+- **The AI and the flaps** (`GripModel.straight` in src/ai/racing-line.ts, and src/ai/driver.ts): the speed profile's forward pass accelerates the car in
+  straight mode where the physics would open the flaps, at 150 km/h or more on a line that asks under 1 g of it and where the engine, not the tyres, is the
+  limit; the corner speeds and the braking pass are in corner mode, as the flaps close for both. On snow the throttle is held to what the tyres take and the
+  flaps stay shut, so the profile at Isvik is the fixed wings' point for point. The driver's grip and drag where the car is (`gripAccel`, the winter throttle
+  limit) follow `aeroOpen`, and everything it looks ahead at is in corner mode. The driving line and the braking assist share the profile.
+  `tests/volta.test.ts`: the profile is never slower than the fixed wings', faster on a fifth of Aurelia and the same in its slowest corner; an AI lap of
+  Aurelia has the flaps open for more than 25 s and shut a quarter of a second into every stop and every corner of 1.5 g.
+- **The electric nitro** (`EngineSpec.electric`, the MGU-K: `{ powerKw: 350, torqueNm: 500, fullToKmh: 290, zeroAtKmh: 345 }`): on a car with the field the
+  nitro is the motor and nothing else, with no push from the bottle (`NITRO_THRUST_G`) and no extra engine torque (`NITRO_POWER`). While a shot burns the
+  motor adds min(500 Nm, P / ω) at the crank, times the shot's level and the throttle, through the clutch and the gearbox, so the traction control, the
+  launch control, a shift and the limiter cut it as they cut the engine (the clutch holds 1.7 times the motor's torque more). P is `electricPower`
+  (src/physics/engine.ts): 350 kW to 290 km/h, then 1800 - 5 v kW, nothing from 345 km/h, the 2026 rule made simpler (the rule's own last 5 km/h are
+  steeper: where it allows 20 kW at 344 km/h this allows 80). The tank, two shots a lap of four seconds each (src/core/nitro.ts), the HUD gauge and the AI's
+  use of it are every car's. A shot held from a standstill leaves 100 km/h where it was (2.4 s: the slicks are the limit), takes 200 to 4.15-4.5 s instead of
+  5.6 and the top speed to 345 km/h, the motor's cut. With the nitro off (Settings) no shot is ever ready and the car is the engine alone, complete without
+  it, as Gabriel asked: every AI lap of `tests/ai.test.ts` is driven so.
+  - **Its voice:** `CTL.NITRO` (slot 64, `CTL_LEN` 65) carries `VehicleState.nitro` to the engine voice, which only a profile with
+    `EngineSoundProfile.electric` reads. The whine is locked to the crank on its 14th order (2.6 kHz at 11,000 rpm): 12-23 dB over the rest of the engine in
+    its band while a shot deploys it, 14-18 dB under that while it harvests on a lift, a murmur on the throttle without a shot. `electricTaper` (kept equal
+    to the physics' field; `tests/audio-volta.test.ts` checks it) scales the deploying share by the motor's power at the road speed (5 dB under at 320 km/h,
+    11 dB at 340, none from 345), and out of a forward gear it deploys nothing.
+  - **Its look:** no flame (`effects.ts` gives none to a car whose `EngineSpec.electric` is set: the data, not the id); the LEDs on the rear-wing endplates
+    pulse three times a second while the boost deploys, from a quarter of their brightest to all of it (`uErs`), and the yoke's display lights its electric bar.
+- **The body** (`src/carvis/bodies/formula.ts` and `formulaParts.ts`, `BLUEPRINTS.formula`): only the solid shapes are sculpted (the monocoque and its
+  two-stage nose, the sidepods, the engine cover with its airbox and roll hoop, the gearbox and the crash structure), on cells 0.85 times the usual
+  (`cellScale`: the nose is 12 cm across at its tip); the wings, the halo, the floor and its floor boards, the pushrod suspension, the mirrors, the rain light
+  and the tailpipe are PartBuilder parts. Three hooks on `Blueprint`, absent for every other body, which builds as it did:
+  - `farParts`, the coarse pieces the far LOD keeps (the wings, the rear one on a pylon, the halo and the helmet), so a Volta far away and the shadow it
+    casts keep their silhouette; they are baked in the livery's colour on `PART.body` and `PART.halo` and dark elsewhere;
+  - `moving`, parts posed every frame about a hinge (`MovingPart`; `poseMoving` in car.ts): the front-wing flaps turn 0.17 rad and the rear-wing flap
+    0.45 rad times `aeroOpen`, each a mesh of its own in both near LODs;
+  - `info.lamps`, the four lamps handed to the damage model where they are not sculpted zones it could find: the LED headlamps in the nose, and the endplate
+    LEDs as the tail lamps.
+
+  Its part ids: `PART.halo` (16: the livery's paint, and it never crumples; its central pillar flagged), `PART.ledRed` (17) and `PART.rainLight` (18),
+  the last two in `DENT_PARTS`, so the lamps crumple with what carries them. Closed wheels (closing panels on 18 in rims, `wheels.ts` style `'formula'`) and carbon under
+  the paint (`uDmgBase` 1). Its lamps: two small LED headlamps in the face of the nose's step, their beams starting at the nose's tip; no brake light; the
+  rain light on the crash structure's tip, about 30 cm up, steady in the wet (from a wetness of 0.08, full at 0.3) and in the dark, the endplate LEDs lit
+  with it, each dark when its lamp is broken and the rain light dimmed by each broken one, its lens and its light on the road alike. One central tailpipe
+  over the crash structure, 41 cm over the floor and half a metre behind the rear axle (`formulaPoints` in layouts.ts and `buildTips` in effects.ts: keep
+  the two the same).
+- **The open cockpit** (`CarVisualSpec.openCockpit`): no windscreen, no wiper and no roof. The game hands the render the cockpit view of such a car as it
+  hands it the hood camera (`setCockpitView(false)`, and the views' specs alike), so the rain beads on the lens, no wiper blade is drawn, and the wiper's
+  sound, which follows the drawn blade, stays silent. `createCarSound(profile, isPlayer, seat, openCockpit)` tells the car's sound once: in its interior
+  views (cockpit, hood, bumper) the engine and chassis voices are heard through a helmet, not a closed cabin (the exhaust within 4 dB of outside where a
+  cabin takes 5.5 dB and more off it, the airbox over the helmet louder, no cabin boom, the wind as loud as outside: `tests/audio-volta.test.ts`), and
+  `CarSoundImpl.cabin` is 0, so the rain ambience hears the open air (half way, in split screen, beside a closed car: `tests/audio-split.test.ts`). In the
+  cockpit view `HudState.openCockpitView` lifts the nitro gauge over the right mirror on its stalk and stands the HUD's shift lights down for the yoke's own.
+- **The cockpit and the cameras:** the driver lies back in a narrow tub, the seat reference at the hips 62 cm ahead of the middle of the wheelbase, the eye
+  55 cm over it, 37 cm behind it and 1.45 m behind the front axle. The 2026 yoke, 28 cm across, turns 120 degrees each way (`steeringLock`: a ratio of 5 to
+  the front wheels' lock), with two live parts the interior shader draws: `IPART.wheelDisplay` (57: the gear, the speed, the electric bar, the flaps' box and
+  the revs) and `IPART.shiftLights` (58: fifteen lights from 62 % to 93 % of the limiter, all blue on it), fed by `uCluster` and `uYoke` (where the flaps
+  stand, and the boost); the cabin's cluster face is off. The halo's central pillar is drawn at 35 % in the cockpit view (the body leaves it out by
+  `uPillarGhost`, and a see-through copy, `createPillarMaterial`, draws it): a driver's two eyes see past it, where a one-eyed camera would show a bar dead
+  centre. Two mirrors stand on stalks from the chassis's shoulders, out past the halo, their glass 19 × 5 cm (`MirrorLayout.housing.stalk`), and there is
+  nothing in the cockpit (`interior` and `screen` are null). The hood view is the T-camera over the airbox, the bumper view a nose camera 70 cm ahead of the
+  front axle and 12 cm over the nose's lower stage, and the chase anchor sits on the airbox behind the T-camera. A driver on the centre line has no shoulder
+  to look over, so the cockpit's look-back cuts to the rear camera, as the hood and bumper views do (`seatCentre` in the `CameraRig`; a seat off the centre
+  line looks back as before).
+- **Damage:** the LMP-X's profile (downforce at both ends, the engine in the middle: the table above), its share of the downforce taken from the areas
+  wherever the flaps stand, and an outline of its own on the HUD (`SHAPES.formula`). Badly bent (everything at 1.0) it laps 1.8-4.6 % slower for an AI
+  driver told of it, the LMP-X 2.2-3.6 % (`DMGCAL=lap npx vitest run tests/probes/damage-calib.test.ts`, Aurelia, Kuroyama, Brennwald and Portovela).
+- **The three fixes that change the other cars**, one commit each, so any can be dropped:
+  - **Stability control counts the downforce** (src/physics/vehicle.ts). ESC's yaw ceiling was mu·g/v, the most a car without wings can turn, so at speed it
+    braked a car with wings back to that: with the Standard aids the LMP-X held 2.67 g where its tyres hold 3.02 at 250 km/h, and the Volta 2.27 g at
+    225 km/h where they hold 3.71 at 241. The ceiling is now the larger of that and the lateral acceleration the car has, over the speed (a car may turn as
+    hard as it is turning while its tyres hold more than the weight alone allows, and no harder than they hold it on the road it is on, wet or dry), and the
+    understeer the reference takes for the steering, 0.0022 v^2, is scaled by g / (g + downforce/m), with the downforce of the last substep (slipstream,
+    damage and the flaps included; the Mammoth's lift gives it a little more). Lateral g held with the Standard aids (ESC off in brackets): the LMP-X
+    3.017 g at 250 km/h (3.015), the Volta 3.140 g at 200 (3.126) and 3.602 g at 235 (3.709 at 241); the road cars and the Mammoth the same to 0.001 g;
+    ESC acts in 7-13 % of the frames above 1 g (26-60 % before). In standing water the Volta spins in none of 70 lane changes at 160-280 km/h. What it
+    gives up: a flick of the wheel flat out on a dry road slides the Volta and the LMP-X up to 12.0 and 10.8 degrees (9.5 and 9.4), and the Volta's dry
+    lift-offs at 120 and 150 km/h 10.4 and 9.7 degrees (3.7 and 2.5). `tests/handling.test.ts` holds it: over 95 % of the grip with ESC off at 250 km/h,
+    and in standing water a stop at full lock from 250 km/h and a flat-out lane change at 240 both under 25 degrees. The AI drives with ESC off, so no AI
+    lap or pack moves; in the guard only the open-loop drives with the default aids differ.
+    <!-- ESC wet: to be filled -->
+  - **The AI's braking ahead counts the downforce in clean air** (`brakeReach`, src/ai/driver.ts): the reach of a stop is the exact distance for a
+    deceleration of cap·(1 + c u^2 / g), the old sqrt(va^2 + 2 cap d) to the bit where c is nothing; it is the corner mode's for the Volta, the Mammoth's
+    lift counts against it, and the nitro's look ahead (`cornerBrakeSpeed`) uses it too. Behind another car (one in the traffic window ahead) it is the old
+    reach of the weight alone: in a wake a car has up to 22 % less downforce than its profile counts, and the car ahead brakes where it brakes. A stop never
+    counts more downforce than it began with (`brakeDown`): a car that left the window and came back into it mid-stop let off the brakes a frame at a time.
+    Measured (`tests/ai.test.ts`, alien, second laps): the LMP-X 0.41 % quicker dry and 0.48 % in the storm, the Volta 0.50 % in both, the road cars and the
+    Mammoth within 0.07 %; the hardest braking over 0.2 s of a solo lap of the four road circuits went to 2.83-3.13 g for the LMP-X (2.04-2.25) and
+    3.37-3.80 g for the Volta (2.29-3.71).
+  - **The AI's steering counts the downforce in clean air** (the front tyres' slip angle in the path follower, src/ai/driver.ts): worked out of the weight
+    alone, it had a car with wings ask its fronts for twice their grip in a bend of 3.2-3.7 g, run wide and be braked off the asphalt. Now the downforce
+    presses them too, in clean air only (behind another car it fades to the weight alone over `STEER_DOWN_TIME`, 0.3 s: counted there too, one-make Volta
+    packs hit the walls of Kuroyama's narrow corners twice as often), and not on a winter circuit, where it gained nothing. Measured: the Volta laps
+    Brennwald in 1:34.80 (1:37.30) and Aurelia in 1:21.88 (1:22.70), the LMP-X moves by under 0.2 % and the road cars and the Mammoth by under 0.12 %, and
+    neither racing car runs more than half a metre past the asphalt's edge on a solo lap of the four road circuits, dry or wet (`tests/volta.test.ts` holds
+    Aurelia and Brennwald to no time past it at all). Isvik is bit for bit what it was.
+- **On a lap and in packs**, with all three: the AI drivers lap the road circuits 3.9-5.7 % quicker in the Volta than in the LMP-X dry and 5.1-6.3 % in a
+  storm, and Isvik level with it (0.1 %: `tests/ai.test.ts`). The brief asked 7-12 %, which the engine alone, with the LMP-X's power for its weight (0.71
+  against 0.73 hp per kg), does not give. In 48 races of twelve on Aurelia, Kuroyama and Brennwald, dry and wet, as the Mammoth was
+  measured (`PACKSEEDS=1 SEEDS=0..7 CAR=volta` or `CAR=mixed npx vitest run tests/probes/pack.test.ts`), no car needs a reset and mixed grids hit no wall; one-make grids of Voltas hit a
+  wall twice, at Kuroyama in the dry, at a narrow corner (8 m of asphalt, the wall 2.2 m past its edge) where they scrape it on the first lap in 3 races of 24
+  seeds: a matter for the traffic planner, left as it is. With the nitro on, one-make and mixed grids hit no wall and need no reset on any circuit
+  (`tests/probes/nitro-probe.test.ts`). The braking assist laps every circuit in it as in every car, though dry its centre is past the asphalt's edge for
+  14.3 s of two laps of Kuroyama (`tests/probes/brake-assist.test.ts`).
 
 ## Driving aids: the driving line and the braking assist
 
@@ -318,9 +444,11 @@ computeRacingLine + ProfileJob ─► DrivingGuide (src/ai/guide.ts) ─┬─�
 Every car has two shots a lap (`src/core/nitro.ts`: `NitroTank`, pure; `NITRO_PER_LAP`, `NITRO_SECONDS`, `NITRO_POWER`, `NITRO_THRUST_G`).
 
 ```
-InputFrame.nitro (E / B) ─┐                                  ┌─► Vehicle.nitro: torque x (1 + NITRO_POWER), a push along the car, both x throttle
-AIDriver.wantNitro ───────┴─► NitroTank.fire ─► .level 0..1 ─┤   (src/physics/vehicle.ts) ─► VehicleState.nitro ─► flames (effects.ts), FOV (cameraRig.ts), replay
-session crossings ─► NitroTank.update (a new lap fills it)   └─► HudState.nitro ─► the NITRO gauge (src/ui/hud/nitro.ts)
+InputFrame.nitro (E / B) ─┐                                  ┌─► Vehicle.nitro: torque x (1 + NITRO_POWER), a push along the car, both x throttle;
+AIDriver.wantNitro ───────┴─► NitroTank.fire ─► .level 0..1 ─┤   with EngineSpec.electric (the Volta) its motor's torque instead (src/physics/vehicle.ts)
+session crossings ─► NitroTank.update (a new lap fills it)   │   ─► VehicleState.nitro ─► flames (effects.ts; none for an electric boost), FOV (cameraRig.ts), replay,
+                                                             │      the voice (CTL.NITRO: the Volta's MGU-K whine), the endplate LEDs and the yoke's electric bar (carvis)
+                                                             └─► HudState.nitro ─► the NITRO gauge (src/ui/hud/nitro.ts)
 ```
 
 - **The game** (`game.ts`) keeps one tank per `RaceCar`, updates it every frame with the car's line crossings (a count above any seen before is a
@@ -333,6 +461,8 @@ session crossings ─► NitroTank.update (a new lap fills it)   └─► HudSt
   capped by the car's own power, so while a shot burns, and after it until the car is back down to the profile, the driver's target speed is what the
   corners ahead and its brakes allow (`cornerBrakeSpeed`, aquaplaning included); the traffic caps still apply. Its random draws come from a stream of
   their own, so a driver without nitro (the tests, the guide, a dev autopilot) behaves exactly as before.
+- **An electric nitro** (`EngineSpec.electric`, the Volta's MGU-K): the same tank, shots and gauge, but a shot is the motor's torque through the gearbox
+  instead of the extra engine torque and the bottle's push, it throws no flame, and the engine voice hears it through `CTL.NITRO`; see the Volta above.
 
 ## Rules for everyone
 

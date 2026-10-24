@@ -277,7 +277,7 @@ describe('the Mammoth in the AI’s hands', () => {
 });
 
 describe('the Mammoth on a lap', () => {
-  // The AI drivers' laps (alien, standing start, the second lap): the character of the car in lap times. tests/ai.test.ts has all five on all five
+  // The AI drivers' laps (alien, standing start, the second lap): the character of the car in lap times. tests/ai.test.ts has all six on all five
   // circuits, dry and in a storm, and holds every one of them to two clean laps; here the order the promise gives.
   it('is slower than a Vanta in the dry, and a long way behind the LMP-X', () => {
     const m = aiLap('aurelia', mammoth);
@@ -305,7 +305,7 @@ describe('the Mammoth on a lap', () => {
 });
 
 describe('a whole grid of Mammoths', () => {
-  // The lap times of the five cars are in tests/ai.test.ts' tables; here the one-make race, 2.45 t cars two abreast. A grid of twelve of them
+  // The lap times of the six cars are in tests/ai.test.ts' tables; here the one-make race, 2.45 t cars two abreast. A grid of twelve of them
   // bumps more than a grid of Vantas does (Isvik, six seeds, dry and in the snow: 8-50 contacts a race and 0-6 "hard" ones, which count a
   // collision twice, once for each car, and are 3-4 m/s a time: a Vanta field has 6-34 and 0-4), but it hits no wall, needs no reset and stays on the road.
   it('races Isvik, dry and in the snow, without a wall hit or a reset', () => {

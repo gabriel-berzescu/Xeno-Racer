@@ -326,7 +326,7 @@ export async function cpuChecks(checks: Checks): Promise<CpuReport> {
   const maxLite = Math.max(...liteVals);
   checks.add('cpu: full engine voice < 100 us per 128-frame quantum (DSP only)', maxFull < 100, maxFull, '< 100 us (3.7 % of the 2.67 ms budget)');
   checks.add('cpu: lite engine voice < 45 us per quantum', maxLite < 45, maxLite, '< 45 us');
-  // realistic mix: the roster cycles through the four cars (player = first car)
+  // realistic mix: the opponents cycle through every car of the roster (player = first car)
   const mix = (list: number[], n: number, from: number): number => {
     let s = 0;
     for (let i = 0; i < n; i++) s += list[(from + i) % list.length];
