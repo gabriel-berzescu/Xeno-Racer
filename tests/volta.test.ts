@@ -659,8 +659,9 @@ describe('the Volta on a lap', () => {
 });
 
 describe('a whole grid of Voltas', () => {
-  // The one-make race the game sets up, single-seaters wheel to wheel at 300 km/h: no wall hit, no reset (48 races of twelve on Aurelia,
-  // Kuroyama and Brennwald, dry and wet, are in the stream's notes: PACKSEEDS=1 CAR=volta tests/probes/pack.test.ts)
+  // The one-make race the game sets up, single-seaters wheel to wheel at 300 km/h: no reset in 48 races of twelve on Aurelia, Kuroyama and
+  // Brennwald, dry and wet, and two scrapes of the wall at one narrow corner of Kuroyama on the first lap (PACKSEEDS=1 CAR=volta
+  // tests/probes/pack.test.ts)
   it('races Aurelia dry and Brennwald in a storm without a wall hit or a reset, and without pumping the brakes', () => {
     // (a brake pump: a brake of 0.3 or more let off and taken back up within a quarter of a second. When the braking ahead counted the
     // downforce afresh at every update, a car whose stop began behind another let off each time it left the traffic window: 27 and 286

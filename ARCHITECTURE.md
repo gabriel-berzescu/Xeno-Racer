@@ -294,7 +294,7 @@ nitro and with an open cockpit, and the numbers it is held to are in `tests/volt
 tests/probes/mammoth-probe.test.ts` prints the table; `tests/physics.test.ts` holds the class to a stop from 100 km/h over 17.5 m and a skidpad under 2.5 g),
 its look in `tests/carvis-formula.test.ts` and its voice in `tests/audio-volta.test.ts`. Everything it brought is behind a field of the car's data that no other
 car has (`AeroSpec.straightMode`, `EngineSpec.electric`, `CarVisualSpec.openCockpit`, the new `EngineSoundProfile` fields, the new `Blueprint` hooks) or behind
-its body style, so the other five cars were bit for bit what they were until the three fixes at the end of this section: before them
+its body style, so the other five cars were bit for bit what they were until the four fixes at the end of this section: before them
 `tests/probes/four-cars.test.ts` printed `ALL BIT-IDENTICAL` with the default ids and with `FOURCARS_IDS=mammoth`, and the audio regress-lab
 (`node sandbox/audio/lab/run.mjs regress-lab.ts compare`) `27/27 scenarios identical` for each of the five other voices.
 
@@ -371,7 +371,7 @@ its body style, so the other five cars were bit for bit what they were until the
 - **Damage:** the LMP-X's profile (downforce at both ends, the engine in the middle: the table above), its share of the downforce taken from the areas
   wherever the flaps stand, and an outline of its own on the HUD (`SHAPES.formula`). Badly bent (everything at 1.0) it laps 1.8-4.6 % slower for an AI
   driver told of it, the LMP-X 2.2-3.6 % (`DMGCAL=lap npx vitest run tests/probes/damage-calib.test.ts`, Aurelia, Kuroyama, Brennwald and Portovela).
-- **The three fixes that change the other cars**, one commit each, so any can be dropped:
+- **The four fixes that change the other cars**, one commit each, so any can be dropped:
   - **Stability control counts the downforce** (src/physics/vehicle.ts). ESC's yaw ceiling was mu·g/v, the most a car without wings can turn, so at speed it
     braked a car with wings back to that: with the Standard aids the LMP-X held 2.67 g where its tyres hold 3.02 at 250 km/h, and the Volta 2.27 g at
     225 km/h where they hold 3.71 at 241. The ceiling is now the larger of that and the lateral acceleration the car has, over the speed (a car may turn as
@@ -384,7 +384,16 @@ its body style, so the other five cars were bit for bit what they were until the
     lift-offs at 120 and 150 km/h 10.4 and 9.7 degrees (3.7 and 2.5). `tests/handling.test.ts` holds it: over 95 % of the grip with ESC off at 250 km/h,
     and in standing water a stop at full lock from 250 km/h and a flat-out lane change at 240 both under 25 degrees. The AI drives with ESC off, so no AI
     lap or pack moves; in the guard only the open-loop drives with the default aids differ.
-    <!-- ESC wet: to be filled -->
+  - **Stability control counts the water** (src/physics/vehicle.ts): the friction in its ceiling is what the tyres hold on the ground under each wheel with
+    the water on it, the same wet grip and aquaplaning the tyre forces use (on a dry road the old sum, and on snow what it was: the fresh snow already
+    counted). In the rain ESC therefore calls a slide what the wet tyres no longer hold. The worst flat-out lane change in standing water with the
+    Standard aids: the Vanta GT 15 degrees (45), the Kestrel R 10 (18), the Ronin 86 15 (19), the LMP-X 11 (17), the Mammoth 11 (12), the Volta 11 (21);
+    over 384 wet runs of lane changes, lift-offs and stops at wetness 0.75 and 1 the worst slide fell for every car, and the dry, snow and ice runs are the
+    same to the bit. What it leaves: in three ABS stops at wetness 0.75 (the LMP-X trail-braking at 120 km/h, the Kestrel R at 150, the Vanta GT at 250)
+    the car ends 3-6 degrees more sideways than before, because ESC's brake on the outer front wheel goes on past the ABS, which keeps that wheel's lower
+    pressure afterwards (a change to ESC's braking under ABS would be one for every car, wet and dry). `tests/handling.test.ts` holds it: the road cars'
+    and the Mammoth's flat-out lane changes at 80 and 120 km/h in standing water stay under 20 degrees (the Vanta GT reached 34 before). In the guard
+    only the drives with the default aids on wet ground differ.
   - **The AI's braking ahead counts the downforce in clean air** (`brakeReach`, src/ai/driver.ts): the reach of a stop is the exact distance for a
     deceleration of cap·(1 + c u^2 / g), the old sqrt(va^2 + 2 cap d) to the bit where c is nothing; it is the corner mode's for the Volta, the Mammoth's
     lift counts against it, and the nitro's look ahead (`cornerBrakeSpeed`) uses it too. Behind another car (one in the traffic window ahead) it is the old

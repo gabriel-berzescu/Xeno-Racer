@@ -575,7 +575,7 @@ const mammoth: CarDefinition = {
 // open (303 with them shut); a nitro shot, the 350 kW motor, takes 200 to 4.3 s and the top speed to the cut at 345. It stops from 100 in 18.8 m
 // with ABS (2.1 g) and from 200 in 58 m, at up to 4.4 g from 300 km/h, and holds 2.39 g on the skidpad, 2.5 g at 150 km/h, 3.1 at 200 and 3.7 at
 // 240 (where the drag of the wings and of the loaded tyres takes all the engine has). In the wet it keeps 64 % of that (54 % in standing water)
-// and stops from 100 in 26 m (30). On a lap the AI drivers are 1.4-5 % quicker in it than in the LMP-X dry and 5-6.5 % in a storm
+// and stops from 100 in 26 m (30). On a lap the AI drivers are 3.9-5.7 % quicker in it than in the LMP-X dry and 5.1-6.3 % in a storm
 // (tests/ai.test.ts), and on the studded tyres of Isvik level with it: the engine alone has the LMP-X's power for its weight.
 
 // The Volta's body: 5.3 m long, 1.9 m wide over the tyres, 0.95 m to the top of the airbox, an open cockpit with the driver on the centre line.
