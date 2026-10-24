@@ -117,6 +117,28 @@ describe.each(CARS.map((c) => [c.id, c.visual] as const))('mirror layout: %s', (
   });
 });
 
+describe('single-seater mirrors', () => {
+  it("land where the open cockpit's HUD leaves room for them, the 2026 car's and the 2004 car's alike: 40 degrees off the line of sight, 8 under it", () => {
+    const open = CARS.filter((c) => c.visual.openCockpit);
+    expect(open.map((c) => c.id)).toEqual(['volta', 'dieci']);
+    const at = open.map((c) => {
+      const L = mirrorLayout(c.visual);
+      const eye = eyePoint(c.visual);
+      const m = L.left.pos;
+      return [(Math.atan2(m[0] - eye[0], m[2] - eye[2]) * 180) / Math.PI, (Math.atan2(m[1] - eye[1], Math.hypot(m[0] - eye[0], m[2] - eye[2])) * 180) / Math.PI];
+    });
+    for (const [az, el] of at) {
+      expect(az).toBeGreaterThan(38);
+      expect(az).toBeLessThan(42);
+      expect(el).toBeGreaterThan(-9);
+      expect(el).toBeLessThan(-7);
+    }
+    // (the nitro gauge goes up over the right mirror in this view, hud.css and nitro.css: one spot for both cars)
+    expect(Math.abs(at[0][0] - at[1][0])).toBeLessThan(1);
+    expect(Math.abs(at[0][1] - at[1][1])).toBeLessThan(1);
+  });
+});
+
 describe('door mirror parts', () => {
   it('builds a housing, a frame, the glass face and a stalk, all finite', () => {
     for (const c of CARS) {
