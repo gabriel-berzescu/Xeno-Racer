@@ -1301,7 +1301,8 @@ export class Vehicle {
    * (EngineSpec.launchRpm), else half the redline, at most 4600; on a part throttle as much less, and never under 900 over the idle.
    * On a winter circuit every car is held where a road car is: on studs on snow and ice the clutch held at the engine's own speed slips
    * until the car is at 50 km/h, the traction control cutting the throttle and the engine sinking to where the clutch barely bites (the
-   * Dieci, held at 10,000 rpm, took 14.9 s to 100 km/h on ice with the traction control and 14.2 without it; held at 4900, 12.6 and 14.0).
+   * Dieci, held at 10,000 rpm, takes 13.7 s to 100 km/h on ice with the traction control and 14.1 without it, and held at 4900 12.5 and
+   * 14.0: car-metrics' launch drive. With 110 Nm of engine braking and no throttle map it took 14.9 and 14.2 at 10,000).
    */
   private launchRpm(throttle: number): number {
     const e = this.spec.engine;

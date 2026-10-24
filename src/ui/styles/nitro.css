@@ -34,6 +34,6 @@
 /* split screen: the cluster is scaled down in a stacked pane, and the gauge steps down with it */
 .xr-hud.split:not(.cols) > .hud-nitro { bottom: 340px; }
 
-/* the cockpit of an open-cockpit car (the Volta): its right mirror stands on its stalk where the gauge sits, so the gauge goes up over
+/* the cockpit of an open-cockpit car (the Volta, the Dieci): its right mirror stands on its stalk where the gauge sits, so the gauge goes up over
    it (from the top, as the mirror is a share of the view's height down: it stays clear on any shape of screen) */
 .xr-hud.open-cockpit:not(.split) > .hud-nitro { top: 560px; bottom: auto; }

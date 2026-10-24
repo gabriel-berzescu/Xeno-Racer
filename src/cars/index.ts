@@ -757,8 +757,9 @@ const volta: CarDefinition = {
 // the skidpad, 2.7 g at 150 km/h, 3.4 at 200 and 4.3 at 250. In the wet it keeps 66 % of that (56 % in standing water) and stops from 100 in
 // 24 m (27). On a lap the AI drivers are 5.8 % quicker in it than in the Volta on the four road circuits, dry, and 5.6 % in a storm (7-8 % on
 // the fast Aurelia and Brennwald, 3.5-4 % on the tight Kuroyama), and 1-3 % on the studded tyres of Isvik (tests/ai.test.ts).
-// It leaves the line at 10,000 rpm, its launchRpm: 0.15 s slower to 100 on the flat than at the 4900 a road car is held at, since the engine
-// first revs past 8700 before the clutch bites and the clutch then slips up to 56 km/h, not 27, at what the tyres take at rest.
+// It leaves the line at 10,000 rpm, its launchRpm: 0.17 s slower to 100 on the flat than at the 4900 a road car is held at (car-metrics'
+// dragRun), since the engine first revs past 8700 before the clutch bites and the clutch then slips up to 54 km/h, not 26, at what the tyres
+// take at rest.
 
 // The Dieci's body: 4.55 m long, 1.8 m wide over the tyres, 0.95 m to the top of the airbox, an open cockpit with the driver on the centre
 // line. formulaEra 2004 draws it with a body of its own (src/carvis/bodies/formula04.ts: the high nose, the periscopes, the beam wing) on
@@ -799,8 +800,9 @@ const dieciSound: EngineSoundProfile = {
   // its loudness measured over its own revs, and the lift of its 4000 rpm idle gone by 5600 rpm (not 8800)
   limiterRpm: 19300,
   idleLiftTo: 1.4,
-  // an upshift that cuts the ignition: through the physics' 30 ms shift the note is 3 dB and more down for 28 ms, 10 to 12 dB at its deepest (not
-  // seamless: the Volta's is a flick of 8 to 16 ms; a road car's gearbox leaves a gap of 70 ms)
+  // an upshift that cuts the ignition: through the physics' 30 ms shift the note is 3 dB and more down for 28 to 32 ms, 9 to 12 dB at its
+  // deepest (not seamless: the Volta's is a flick of 8 to 16 ms; a road car's gearbox leaves a gap of 70 ms). The 1-2 of a standing start is
+  // longer, 84 ms at 60 frames a second: the traction control holds the throttle at a tenth of the pedal just after it (ARCHITECTURE.md)
   shiftDip: 0.04,
   // its traction control and its launch control cut the spark, not the throttle: in 1st gear flat out from rest it stutters 3 dB and more
   // louder than the same torque heard as a lighter load (tests/audio-dieci.test.ts)

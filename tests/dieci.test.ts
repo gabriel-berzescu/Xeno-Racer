@@ -207,8 +207,9 @@ describe('the Dieci is what its stats say', () => {
     const road = launchRpm(plain);
     expect(road.slipping).toBeGreaterThan(4900);
     expect(road.slipping).toBeLessThan(5350);
-    // and so it is on a winter circuit, where on studs a launch at 10,000 rpm only slips the clutch (on ice the traction control was then
-    // worth nothing to 100 km/h, 14.9 s against 14.2 without it; now 12.5 against 14.0)
+    // and so it is on a winter circuit, where on studs a launch at 10,000 rpm mostly slips the clutch (on ice the traction control is worth
+    // 0.5 s to 100 km/h there, 13.7 s against 14.1 without it, and was worth less than nothing with 110 Nm of engine braking, 14.9 against
+    // 14.2; held at 4900 it is worth 1.5 s, 12.5 against 14.0)
     const snow = launchRpm(dieci, { surface: 'snow' });
     expect(snow.held).toBeGreaterThan(4900);
     expect(snow.held).toBeLessThan(5350);

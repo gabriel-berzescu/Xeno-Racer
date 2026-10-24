@@ -623,7 +623,7 @@ describe('the AI knows the flaps', () => {
 // ── the Volta on a lap ───────────────────────────────────────────────────────────
 
 describe('the Volta on a lap', () => {
-  // The AI drivers' laps (alien, standing start): the character of the car in lap times. tests/ai.test.ts has all six cars on all five circuits,
+  // The AI drivers' laps (alien, standing start): the character of the car in lap times. tests/ai.test.ts has all seven cars on all five circuits,
   // dry and in a storm, and holds every one of them to two clean laps; here what the promise gives.
   it('never strikes its floor, hits nothing and needs no reset, on any circuit at full speed', () => {
     // (6 cm of travel at 5 cm off the ground: with 5 cm at 4 cm the floor struck the road in Brennwald's compression at 308 km/h)

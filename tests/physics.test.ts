@@ -153,7 +153,7 @@ describe('vehicle physics', () => {
         // (a 2.45 t 4x4 on all-terrain tyres stops in the length of a good road car, not a sports car's, and must not corner like one: below a g on the
         // skidpad, where a sports car is at 1.0 and over; tests/mammoth.test.ts holds the rest of its numbers)
         // (the two single-seaters, with more downforce than the prototype, stop shorter and corner harder than it: the Volta, 800 kg on slicks,
-        // 18.8 m and 2.39 g, and the Dieci, 640 kg on grooved tyres, 18.1 m and 2.64 g, where the LMP-X does 20.2 m and 1.92 g;
+        // 18.8 m and 2.39 g, and the Dieci, 640 kg on grooved tyres, 18.3 m and 2.64 g, where the LMP-X does 20.2 m and 1.92 g;
         // tests/volta.test.ts and tests/dieci.test.ts hold the rest of their numbers)
         expect(brakeAbs.distance).toBeGreaterThan(def.class === 'Formula' ? 17.5 : def.class === 'Prototype' ? 17 : def.class === 'SUV' ? 34 : 26);
         expect(brakeAbs.distance).toBeLessThan(45);

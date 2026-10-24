@@ -18,8 +18,9 @@ const STEPS = 24;
  * The car from above, in an 80 x 142 box, nose up: the plan of its body and of its cabin, where its wheels stand (x, y, width and height
  * of FL FR RL RR) and where the four zones divide (the nose ends at y `front`, the tail begins at `rear`, a flank is the strip `side` wide
  * at either edge between them). A grand tourer is a teardrop, the Mammoth a brick with flared arches, a flat nose and a flat tail, the
- * LMP-X a front wing, a nose cone, fat pods over the wheels, a waist, an engine cover and a rear wing, the Volta a front wing, a narrow
- * nose, its wheels out in the air on their arms, sidepods narrowing to a gearbox and a rear wing: the drawing says whose car it is,
+ * LMP-X a front wing, a nose cone, fat pods over the wheels, a waist, an engine cover and a rear wing, the two single-seaters (the Volta
+ * and the Dieci share it) a front wing, a narrow nose, the wheels out in the air on their arms, sidepods narrowing to a gearbox and a
+ * rear wing: the drawing says what kind of car it is,
  * and the zones lie where that car's parts are (the wings are in the nose and the tail zones, as the downforce they carry is).
  */
 export interface Shape {

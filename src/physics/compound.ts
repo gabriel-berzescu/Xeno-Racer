@@ -21,8 +21,8 @@
  * deep snow, so the Mammoth keeps its edge on the powder beside the road; on packed snow and ice (the road, the lake) the trait does nothing
  * and every car is on the same footing.
  * What it does not keep is the slick trait (`slick`): a racing slick has no tread, and the studded tyre that takes its place has a tread
- * and studs. The slick's rule for loose ground (src/physics/surfaces.ts) is for the dry circuits, so the LMP-X and the Volta at Isvik meet the deep
- * snow beside the road as any road car on studs does.
+ * and studs. The slick's rule for loose ground (src/physics/surfaces.ts) is for the dry circuits, so the LMP-X, the Volta and the Dieci (whose
+ * grooved tyres carry the trait) at Isvik meet the deep snow beside the road as any road car on studs does.
  */
 import type { CarDefinition, TrackRuntime } from '../core/contracts';
 import type { TireSpec } from './spec';
