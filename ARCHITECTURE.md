@@ -539,9 +539,10 @@ pipes (below), and the car picker's power bar is out of 1000 hp (750), so that t
   - **The short exhaust** (`EngineSoundProfile.exhaustSystem` `'short'`, read in `deriveVoicing`): each collector goes straight out through a short open
     pipe, the pipes after the collectors 0.65 of a merged exhaust's length, the closed end reflecting 0.2 of what reaches it (0.78) and the open end 0.45 of
     what it did. The pipe resonances that ripple a long exhaust's note over the top of a 19,000 rpm engine's revs are damped: steady flat out from 14,500 rpm
-    to the limiter the note rises 0.7 dB every 1000 rpm, within 0.3 dB of that line, where through the merged exhaust it rises 0.3 dB with 2.5 dB either
-    side, and a close-ratio gearbox would leave each gear quieter at its top than at its bottom. Through the physics flat out from rest the 4th, 5th and 6th
-    gears rise 0.9, 0.9 and 0.8 dB, and no gear from the 3rd on sags by more than 0.4 dB.
+    to the limiter the note rises 0.7 dB every 1000 rpm, 0.27 dB rms about that line (0.43 at most), where through the merged exhaust it rises 0.3 dB
+    with 2.4 dB rms about it (4.8 at most: `DIECI_SWEEP_LOG=1` prints them), and a close-ratio gearbox would leave each gear quieter at its top than at
+    its bottom. Through the physics flat out from rest the 4th, 5th and 6th gears rise 0.9, 0.9 and 0.8 dB, and no gear from the 3rd on sags by more
+    than 0.4 dB.
   - **The ignition cut** (`EngineSoundProfile.ignitionCut`): what holds the throttle under the pedal while it is down (the traction control, the
     stability control, the launch control, a downshift's blip with the pedal flat) is cut from whole firing events, each cylinder's spark cut at random
     with the share of the torque taken, the throttle left open. The firings left burn at the

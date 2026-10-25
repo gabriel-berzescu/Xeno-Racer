@@ -298,9 +298,10 @@ export function deriveVoicing(p: EngineSoundProfile, layout: EngineLayout): Voic
     // (a dual exhaust is two separate pipes with the big mufflers of a truck and nothing to scatter the energy of a resonance into, as the junction
     // of a merged system does: damped a little more, so that the exhaust does not surge as the firing harmonics sweep a pipe resonance: 2 dB
     // between two 66 ms windows of a rev sweep, where it was 4.7. A short open exhaust's ends reflect little: steady flat out over the top of
-    // a 19,000 rpm V10's revs (14,500..19,300 rpm) its note rises 0.7 dB every 1000 rpm, 0.3 dB either side of that and every step up of
-    // 1500 rpm louder, where through the merged exhaust it rises 0.3 dB, 2.5 dB either side, and a step up can be 6 dB quieter: a close-ratio
-    // box keeps the engine there, so each gear would come out quieter at its top than at its bottom)
+    // a 19,000 rpm V10's revs (14,500..19,300 rpm) its note rises 0.7 dB every 1000 rpm, 0.27 dB rms about that line (0.43 at most) and every
+    // step up of 1500 rpm louder, where through the merged exhaust it rises 0.3 dB, 2.4 dB rms about its line (4.8 at most), and a step up can
+    // be 6 dB quieter: a close-ratio box keeps the engine there, so each gear would come out quieter at its top than at its bottom;
+    // tests/audio-dieci.test.ts)
     Rc: dual ? 0.66 : short ? 0.2 : 0.78,
     Ro: lerp(0.95, 0.88, o) * (dual ? 0.88 : short ? 0.45 : 1),
     Rq: 0.85,

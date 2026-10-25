@@ -183,7 +183,8 @@ describe('the 2004 V10', () => {
   });
 
   it('rises to the limiter flat out: over 14,500 rpm..the limiter 0.4 dB and more every 1000 rpm, within 0.6 dB of that line and no step up of 1500 rpm quieter by 0.5 dB; through the merged exhaust the same engine ripples by 1.5 dB and more', () => {
-    const band = (profile: EngineSoundProfile): { slope: number; sd: number; worst: number } => {
+    // (the line fitted by least squares: its slope in dB per 1000 rpm, the rms of the levels about it and the furthest one from it)
+    const band = (profile: EngineSoundProfile): { slope: number; sd: number; dev: number; worst: number } => {
       const xs: number[] = [];
       const ys: number[] = [];
       for (let rpm = 14500; rpm <= E.limiterRpm; rpm += 125) {
@@ -201,16 +202,22 @@ describe('the 2004 V10', () => {
       }
       const slope = sxy / sxx;
       let se = 0;
-      for (let i = 0; i < n; i++) se += (ys[i] - (my + slope * (xs[i] - mx))) ** 2;
+      let dev = 0;
+      for (let i = 0; i < n; i++) {
+        const r = ys[i] - (my + slope * (xs[i] - mx));
+        se += r ** 2;
+        dev = Math.max(dev, Math.abs(r));
+      }
       let worst = 99;
       for (let i = 0; i + 12 < n; i++) worst = Math.min(worst, ys[i + 12] - ys[i]);
-      return { slope, sd: Math.sqrt(se / n), worst };
+      return { slope, sd: Math.sqrt(se / n), dev, worst };
     };
     const short = band(P);
     expect(short.slope, JSON.stringify(short)).toBeGreaterThan(0.4);
     expect(short.sd, JSON.stringify(short)).toBeLessThan(0.6);
     expect(short.worst, JSON.stringify(short)).toBeGreaterThan(-0.5);
     const merged = band({ ...P, exhaustSystem: 'merged' });
+    if (process.env.DIECI_SWEEP_LOG) console.log(`dieci sweep 14,500 rpm..limiter: short ${JSON.stringify(short)}; merged ${JSON.stringify(merged)}`);
     expect(merged.sd, JSON.stringify(merged)).toBeGreaterThan(1.5);
     expect(merged.worst, JSON.stringify(merged)).toBeLessThan(-3);
   });
