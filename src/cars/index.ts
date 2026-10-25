@@ -753,7 +753,7 @@ const volta: CarDefinition = {
 // What it does on a flat plane (tests/physics.test.ts, .cache/physics-metrics.txt; tests/dieci.test.ts holds the bounds and measures the grip
 // at speed): 0-100 km/h in 2.63 s with the traction control on, 200 in 4.67 s, 300 in 9.4 s and 332 km/h flat out in seventh; from a grid start,
 // the engine already held at 10,000 rpm against the clutch, 2.48 and 4.50 s. A nitro shot, the ordinary bottle, takes 200 to 3.65 s and the top
-// speed to seventh's limiter at 345. It stops from 100 in 18.3 m with ABS and from 200 in 55 m, at 4.65 g from 300 km/h, and holds 2.64 g on
+// speed to seventh's limiter at 345. It stops from 100 in 18.3 m with ABS and from 200 in 55 m, at 4.7 g from 300 km/h, and holds 2.64 g on
 // the skidpad, 2.7 g at 150 km/h, 3.4 at 200 and 4.3 at 250. In the wet it keeps 66 % of that (56 % in standing water) and stops from 100 in
 // 24 m (27). On a lap the AI drivers are 5.8 % quicker in it than in the Volta on the four road circuits, dry, and 5.6 % in a storm (7-8 % on
 // the fast Aurelia and Brennwald, 3.5-4 % on the tight Kuroyama), and 1-3 % on the studded tyres of Isvik (tests/ai.test.ts).
@@ -878,8 +878,8 @@ const dieci: CarDefinition = {
       frontSplit: 0,
     },
     // (a full pedal asks for 4.2 g, 60 % of it at the front: above about 195 km/h the brakes are the limit, below it the tyres and ABS, so a
-    // stop from 300 km/h peaks at 4.65 g over a tenth of a second, drag included, as the period's carbon brakes did (4.5 with 2500 / 1700 Nm),
-    // and passes 200 at 4.2 g)
+    // stop from 300 km/h peaks at 4.7 g over a tenth of a second, drag included, as the period's carbon brakes did (4.57 with 2500 / 1700 Nm:
+    // tests/dieci.test.ts's stopFrom, after a second flat out in 7th), and passes 200 at 4.2 g)
     brakes: { frontTorque: 2600, rearTorque: 1750, handbrakeTorque: 1500, discHeatCapacity: 2400 },
     // fixed wings of medium downforce: 3.95 m^2 of downforce area, 44 % of it at the front, and a CdA of 1.25. (The period's estimates, 4.1 and
     // 1.30, were worked out in air of 1.18 kg/m^3; in this air, 1.225, these give the same forces.)

@@ -462,11 +462,12 @@ pipes (below), and the car picker's power bar is out of 1000 hp (750), so that t
     smaller throttle, not as a cut (`tests/audio-dieci.test.ts`).
 - **Tuned to the brief**, nitro off (the brief in brackets): 0-100 km/h in 2.63 s, 2.48 from a grid start (2.5); 200 in 4.67 s, 4.50 (4.5); 300 in 9.4 s,
   9.2 (8.8); 332 km/h flat out in 7th at 18,560 rpm (330); 2.64 g on the skidpad (2.6-2.7); 2.7, 3.4 and 4.3 g at 150, 200 and 250 km/h (2.7, 3.3 and 4.1,
-  give or take a tenth); 18.3 m from 100 km/h (18-20) and 55 m from 200 (58-60); 4.65 g at the most braking from 300 km/h, the car settled there first (4.5-5);
-  66 % of its dry grip at a wetness of 0.75 and 56 % in standing water. The tyre is a mu of 1.65 with a load sensitivity of 0.2 (the Volta's slick 1.75 and
-  0.12): a grooved tyre loses more of its grip under load, 1.87 on the 1.4 kN a front wheel carries at rest and 1.47 on the 7 kN of a fast corner. The
-  period's 4.1 m^2 and 1.30 were worked out in air of 1.18 kg/m^3; in the game's 1.225 the same forces are 3.95 and 1.25. Two targets are missed, for
-  reasons in the model rather than in the tune:
+  give or take a tenth); 18.3 m from 100 km/h (18-20) and 55 m from 200 (58-60); 4.7 g at the most braking from 300 km/h (4.5-5: the test's stop,
+  from 309 km/h after a second flat out in 7th; 4.65 with the car held at 300 km/h first); 66 % of its dry grip at a wetness of 0.75 and 56 % in
+  standing water. The tyre is a mu of 1.65 with a load sensitivity of 0.2 (the Volta's slick 1.75 and 0.12): a grooved tyre loses more of its grip
+  under load, 1.87 on the 1.4 kN a front wheel carries at rest and 1.47 on the 7 kN of a fast corner. The period's 4.1 m^2 and 1.30 were worked out
+  in air of 1.18 kg/m^3; in the game's 1.225 the same forces are 3.95 and 1.25. Two targets are missed, for reasons in the model rather than in the
+  tune:
   - **0-300 in 9.4 s, not 8.8.** The drag that sets the brief's 330 km/h leaves too little at 250-300 km/h: at 300 the car has 610 kW at the wheels against
     about 5.6 kN of drag and rolling. The brief's figure is a point-mass model's, in thinner air and without the 60 kg or so of rotating inertia the wheels
     and the engine add in 7th; a CdA of 1.1 gives 8.75 s, but 344.5 km/h flat out.
