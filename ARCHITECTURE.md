@@ -579,7 +579,7 @@ pipes (below), and the car picker's power bar is out of 1000 hp (750), so that t
   - In the wet with the wheel turned, the automatic gearbox chooses its downshifts by the driven wheels' speed, and the engine's drag still acts on a wheel
     that ABS has released: a car with more engine braking than the Dieci's can spin in such a stop.
   - The AI's traffic window has no hysteresis on its entry test: a car ahead drops in and out of it from one frame to the next, and the speed it caps the
-    car at with it, and the Dieci's brake pumps in traffic were traced to that.
+    car at with it; most of the Dieci's extra brake pumps at Aurelia, 16 of 20 in its first braking zone, fit that (`tests/dieci.test.ts`'s pack race).
   - Road cars sometimes run wide at Brennwald in traffic as they move out to pass.
   - Flat out at the limit of a bend from 150 to 240 km/h the Dieci has more power than its rear tyres hold: with the default aids and the stick held at
     0.5 it slides 15.9, 16.3 and 16.5 degrees at 150, 200 and 240 km/h, caught by the stability control and slowed by it (from 200 to 157 km/h in 4.5 s),
