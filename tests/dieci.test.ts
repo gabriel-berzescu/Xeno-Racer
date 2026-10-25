@@ -168,7 +168,7 @@ describe('the Dieci is what its stats say', () => {
     expect(dieci.physics.aero.straightMode).toBeUndefined();
   });
 
-  it('does 0-100 in 2.6 s, 200 in 4.6 s and 332 km/h flat out, a second and more ahead of the Volta past 100', () => {
+  it('does 0-100 in 2.6 s, 200 in 4.7 s and 332 km/h flat out, a second and more ahead of the Volta past 100', () => {
     // (the brief: about 2.5 s, 4.5 s, 8.8 s to 300 and 330 km/h. The probe floors it from the idle, and the engine first revs past 8700 rpm
     // before the clutch bites: from a grid start, held at 10,000 rpm against the clutch as the game's countdown does, it is 2.48 s and 4.50 s.
     // To 300 it takes 9.4 s: the brief's drag, which sets the 332 km/h, leaves no more at 250-300 km/h; 8.8 s would want an eighth less of
