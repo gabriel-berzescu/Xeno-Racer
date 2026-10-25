@@ -801,8 +801,10 @@ const dieciSound: EngineSoundProfile = {
   limiterRpm: 19300,
   idleLiftTo: 1.4,
   // an upshift that cuts the ignition: through the physics' 30 ms shift the note is 3 dB and more down for 28 to 32 ms, 9 to 12 dB at its
-  // deepest (not seamless: the Volta's is a flick of 8 to 16 ms; a road car's gearbox leaves a gap of 70 ms). The 1-2 of a standing start is
-  // longer, 84 ms at 60 frames a second: the traction control holds the throttle at a tenth of the pedal just after it (ARCHITECTURE.md)
+  // deepest (not seamless: the Volta's is a flick of 8 to 16 ms; a road car's gearbox leaves a gap of 70 ms). The 1-2 is longer wherever the
+  // traction control is working, from the grid or flat out in 1st: it clamps the throttle to about a tenth of the pedal for some 50 ms just
+  // after the shift and holds it under half for 150, so from rest the note is 3 dB down for 84 ms of the shift's first 150 at 60 frames a
+  // second (tests/audio-dieci.test.ts, ARCHITECTURE.md)
   shiftDip: 0.04,
   // its traction control and its launch control cut the spark, not the throttle: in 1st gear flat out from rest it stutters 3 dB and more
   // louder than the same torque heard as a lighter load (tests/audio-dieci.test.ts)

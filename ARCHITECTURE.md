@@ -547,11 +547,15 @@ pipes (below), and the car picker's power bar is out of 1000 hp (750), so that t
     (above). Without the field none of it runs and no random number is drawn, so every other voice is what it was to the bit. In 1st gear flat out from rest
     the stutter is 3 dB and more louder than the same torque heard as a lighter load; on the grid with the pedal flat the launch control holds about 10,400
     rpm with nine firings in ten cut, 8.5 dB louder than heard as a lighter load.
-  - **Its shifts:** the physics' 30 ms upshift is an ignition cut (`shiftDip` 0.04, the shut throttle bridged as for the Volta's flick): from the 2-3 on the
-    note is under -3 dB for 28-32 ms and 9-12 dB down at its deepest, at 60 and at 144 frames a second (the Volta's flick is 8-16 ms, a road car's gap 70).
-    **The 1-2 of a standing start is longer**, 84 ms at 60 frames a second and 124 at 144: just after the shift the traction control holds the throttle at
-    0.08-0.17 of the full pedal for about 150 ms, which the voice hears as an ignition cut of nine firings in ten. The physics is left as it is. Every
-    downshift is blipped by the gearbox (a throttle of its own, which the map does not touch): braking from 300 km/h in 7th the car changes down six times in
+  - **Its shifts:** the physics' 30 ms upshift is an ignition cut (`shiftDip` 0.04, the shut throttle bridged as for the Volta's flick): heard from 6 m
+    behind the car flat out from rest, from the 2-3 on the note is under -3 dB for 28-32 ms and 9-12 dB down at its deepest, at 60 and at 144 frames a
+    second (the Volta's flick is 8-16 ms, a road car's gap 70). **The 1-2 is longer** wherever the traction control is working as the car changes up at
+    about 107 km/h: from the grid, and flat out in 1st, as out of a slow corner. The rear tyres slip at 2nd gear's first push, and the traction control
+    clamps the throttle to 0.08-0.17 of the pedal for about 50 ms, which the voice hears as up to nine firings in ten cut, then lets it back past half
+    the pedal after about 150 ms. Flat out from rest the note is under -3 dB for 84 ms of the shift's first 150 ms at 60 frames a second and 124 at 144,
+    and for 156 and 212 ms of its first 300; rolling from 50 km/h in 1st for 88 and 116 ms, and 176 and 200. On a wet road (0.75) the throttle stays
+    under a fifth of the pedal for about 150 ms. The physics is left as it is (`tests/audio-dieci.test.ts` bounds all of this, and `DIECI_SHIFT_LOG=1`
+    prints it). Every downshift is blipped by the gearbox (a throttle of its own, which the map does not touch): braking from 300 km/h in 7th the car changes down six times in
     1.7 s, each blip 5-10.5 dB over the overrun, and a backfire stands 17 dB over the overrun.
   - In its interior views it is heard through the helmet, as the Volta is, and a Vanta and a Dieci side by side in split screen stay within 1.5 dB of one
     Vanta (`tests/audio-split.test.ts`). The nitro has no voice of its own: the bottle only brings the revs and the gears quicker.
