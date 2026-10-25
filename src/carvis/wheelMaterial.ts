@@ -5,7 +5,10 @@
  *
  * A grooved racing tyre (the 2004 single-seater's: layouts.ts WheelLook.grooves) is drawn by a material built with `grooves`: its program
  * has the grooves' code and a cache key of its own, and the setting (uGrooves) is in metres from the tread's centre line, as the front and
- * rear tyres share the material at different widths. Every other wheel's program is the one it always was, word for word.
+ * rear tyres share the material at different widths. Its program also reads the sidewall's lettering the right way round on the inboard
+ * face, which the cockpit and the T-camera see: the other programs map the lettering the same way round on both faces (the far wheel is
+ * the near one turned 180 degrees, so object +x is outboard on both sides), and seen from inboard it is mirror-written. Every other wheel's
+ * program is the one it always was, word for word, so the Volta's inboard lettering stays mirror-written as it was before the Dieci.
  */
 import { Color, DoubleSide, MeshPhysicalMaterial, Vector3, Vector4, type IUniform, type Texture, type WebGLProgramParametersWithUniforms } from 'three';
 
@@ -115,6 +118,9 @@ vec3 perturbNormalH(vec3 surf_pos, vec3 surf_norm, vec2 dHdxy, float faceDirecti
 
 /** The last line of the road tyre's tread, after which a grooved tyre's grooves are drawn. */
 const TREAD_END = '    wRough = mix(wRough, 0.95, tread * uTread * 0.5);\n';
+/** The line that maps the sidewall's lettering round the tyre, after which a grooved tyre mirrors it on the inboard face (object -x). */
+const ANG_LINE = '    float ang = atan(vObjPos.y, vObjPos.z) * 0.15915494 + 0.5;\n';
+const INBOARD_FLIP = '    if (vObjPos.x < 0.0) ang = 1.0 - ang;\n';
 
 const FRAG_ZONES = /* glsl */ `
 int wPart = int(vZ3.y + 0.5);
@@ -283,7 +289,10 @@ export function createWheelMaterial(uniforms: WheelUniforms = createWheelUniform
       .replace('#include <begin_vertex>', VERT_BEGIN);
     let f = shader.fragmentShader;
     f = f.replace('#include <common>', '#include <common>\n' + FRAG_PARS + (opts.grooves ? 'uniform vec4 uGrooves;\n' : ''));
-    f = f.replace('#include <color_fragment>', '#include <color_fragment>\n' + (opts.grooves ? FRAG_ZONES.replace(TREAD_END, TREAD_END + FRAG_GROOVES) : FRAG_ZONES));
+    f = f.replace(
+      '#include <color_fragment>',
+      '#include <color_fragment>\n' + (opts.grooves ? FRAG_ZONES.replace(TREAD_END, TREAD_END + FRAG_GROOVES).replace(ANG_LINE, ANG_LINE + INBOARD_FLIP) : FRAG_ZONES),
+    );
     f = f.replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = wRough * (1.0 - 0.45 * uWet);');
     f = f.replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\nmetalnessFactor = wMetal;');
     f = f.replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\n' + FRAG_NORMAL);

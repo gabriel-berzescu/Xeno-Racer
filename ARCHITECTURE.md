@@ -513,7 +513,9 @@ pipes (below), and the car picker's power bar is out of 1000 hp (750), so that t
   with. Only the Dieci's look has grooves (`WheelLook.grooves`, in metres from the tread's centre line: the inner and the outer groove's centres 25 and 75 mm
   out, 7 mm half width, 2.5 mm deep). A wheel material built with `{ grooves: true }` draws them, its program with a cache key of its own
   (`xr-wheel-v3-grooves`); every other car's wheel program is the text it always was. Its tyres carry white lettering (XENO RACING, the size, GROOVED • DRY),
-  where the 2026 car's are in the medium compound's yellow.
+  where the 2026 car's are in the medium compound's yellow. The same program reads the lettering the right way round on the inboard sidewall, which the
+  cockpit and the T-camera see; every other program maps it the same way round on both faces, so seen from inboard it is mirror-written, and the
+  Volta's stays so, as it was before the Dieci (`tests/carvis-formula04.test.ts` checks both programs' text).
 - **The cockpit and the cameras** (`formulaCockpit(spec)` in layouts.ts: each single-seater's eye, posture, wheel, T-camera, nose camera, chase anchor,
   mirror glass and stalk, and the rear camera of the HUD's mirror strip; `eyePoint`, `computeLayout`, `styleFor` in interior.ts and mirrorLayout.ts read it,
   and the Volta's numbers are the literal ones it had, which `tests/probes/geom-hash.test.ts` shows): the eye 73 cm up and 1.42 m behind the front axle, 10 cm over the tub's sides beside the helmet

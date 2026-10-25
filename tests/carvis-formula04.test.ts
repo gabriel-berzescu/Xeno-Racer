@@ -654,7 +654,7 @@ describe('Dieci wheels', () => {
     for (const W of [spec.tireWidthFront, spec.tireWidthRear]) expect(look.grooves![1] + look.grooves![2]).toBeLessThan(0.3 * W);
   });
 
-  it("draws the grooves with a wheel material of its own: every other car's wheel program is what it was, word for word", () => {
+  it("draws the grooves, and the lettering of the inboard sidewall the right way round, with a wheel material of its own: every other car's wheel program is what it was, word for word", () => {
     const compile = (grooves: boolean): { vs: string; fs: string; key: string } => {
       const { material } = createWheelMaterial(undefined, grooves ? { grooves: true } : undefined);
       const shader = {
@@ -672,8 +672,16 @@ describe('Dieci wheels', () => {
     expect(plain.fs).not.toContain('uGrooves');
     expect(grooved.fs).toContain('uniform vec4 uGrooves;');
     expect(grooved.vs).toBe(plain.vs);
-    // the grooved program is the plain one with the uniform and the grooves' block added, after the road tyre's tread, and nothing else
-    const added = grooved.fs.replace('uniform vec4 uGrooves;\n', '');
+    // the grooved program mirrors the sidewall's lettering on the inboard face (object -x), right after the line that maps it round the
+    // tyre, so that it reads the right way round from the cockpit; the plain one maps it the same way on both faces
+    const ang = '    float ang = atan(vObjPos.y, vObjPos.z) * 0.15915494 + 0.5;\n';
+    const flip = '    if (vObjPos.x < 0.0) ang = 1.0 - ang;\n';
+    expect(plain.fs.split(ang).length).toBe(2);
+    expect(plain.fs).not.toContain(flip);
+    expect(grooved.fs.split(ang + flip).length).toBe(2);
+    // the grooved program is the plain one with the uniform, the grooves' block after the road tyre's tread and that line added, and
+    // nothing else
+    const added = grooved.fs.replace('uniform vec4 uGrooves;\n', '').replace(ang + flip, ang);
     const at = added.indexOf('wRough = mix(wRough, 0.95, tread * uTread * 0.5);\n') + 'wRough = mix(wRough, 0.95, tread * uTread * 0.5);\n'.length;
     const end = added.indexOf('\n    }\n', at) + '\n    }\n'.length;
     expect(added.slice(0, at) + added.slice(end)).toBe(plain.fs);
