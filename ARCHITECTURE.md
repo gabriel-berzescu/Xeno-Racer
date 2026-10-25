@@ -575,6 +575,12 @@ pipes (below), and the car picker's power bar is out of 1000 hp (750), so that t
   - The AI's traffic window has no hysteresis on its entry test: a car ahead drops in and out of it from one frame to the next, and the speed it caps the
     car at with it, and the Dieci's brake pumps in traffic were traced to that.
   - Road cars sometimes run wide at Brennwald in traffic as they move out to pass.
+  - Flat out at the limit of a bend from 150 to 240 km/h the Dieci has more power than its rear tyres hold: with the default aids and the stick held at
+    0.5 it slides 15.9, 16.3 and 16.5 degrees at 150, 200 and 240 km/h, caught by the stability control and slowed by it (from 200 to 157 km/h in 4.5 s),
+    where the Volta holds 2.8 and 2.4 degrees at 200 and 240 (in the same bend at 100 and 150 km/h the Volta drifts 13-14 degrees and the LMP-X 14-15).
+    At 200 km/h 0.8 of the pedal holds it at 5.4 degrees, and at 280 flat out it holds 4.5 (`tests/dieci.test.ts`, `DIECI_BEND_LOG=1`). The traction
+    control reads the rears' slip along the road, not across it, and changing that would change every car; moving the downforce rearward would plant
+    the Dieci, but it is a change to its tune and its numbers, left as it is.
 
 ## Driving aids: the driving line and the braking assist
 

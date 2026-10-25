@@ -3,7 +3,8 @@
  *   - what the stats say is what it does (0-100, top speed, power), and its launch control holds the engine at the speed its data names
  *     (EngineSpec.launchRpm, 10,000 rpm), where every other car is held where it always was;
  *   - it corners harder than anything here, the more the faster it goes (the skidpad, the lateral g at 150, 200 and 250 km/h), stops in the
- *     length of the grip it has, at up to 5 g from 300 km/h, and keeps its share of that in the rain;
+ *     length of the grip it has, at up to 5 g from 300 km/h, and keeps its share of that in the rain; flat out at the limit of a bend from
+ *     150 to 240 km/h it has more power than its rear tyres hold and steps out, and the default aids catch it;
  *   - its nitro is the ordinary bottle: more torque and a push, which the clutch holds and seventh gear's limiter cuts;
  *   - on a lap it never strikes its floor, hits nothing and needs no reset, dry or in a storm, the AI drivers are 4-7 % quicker in it than in
  *     the Volta on the road circuits and quicker than in the LMP-X everywhere, and a whole grid of them races cleanly.
@@ -12,8 +13,10 @@
 import { Quaternion, Vector3 } from 'three';
 import { describe, expect, it } from 'vitest';
 import { getCar } from '../src/cars';
+import { carAssists } from '../src/core/aids';
 import type { Assists, CarDefinition } from '../src/core/contracts';
-import { PhysicsWorld, createFlatTrack, peakPower, peakTorque } from '../src/physics';
+import { DEFAULT_SETTINGS } from '../src/core/settings';
+import { PhysicsWorld, SteeringFilter, createFlatTrack, peakPower, peakTorque } from '../src/physics';
 import { TRACKS } from '../src/track';
 import { DT, G, aiLap, brakeRun, dragRun, setup, skidpad, type Ground } from './probes/car-metrics';
 import { runPack } from './probes/pack-race';
@@ -125,6 +128,39 @@ function latAt(def: CarDefinition, kmh: number): number {
     if (i > 60 && filt > best && Math.abs(s.forwardSpeed - v0) < 0.03 * v0) best = filt;
   }
   return best;
+}
+
+/**
+ * A steady bend at the limit, as a player takes it: the car settled at `kmh` in the gear for it for 1.5 s, then the stick held at 0.5 for
+ * 4.5 s through the SteeringFilter at `pedal`, with the aids a player has by default (Standard: ABS, the traction control low, ESC, the
+ * steering assist at 0.35). The most body slip (degrees), whether it spun, and the speed at the end.
+ */
+function bend(def: CarDefinition, kmh: number, pedal = 1): { slipDeg: number; spun: boolean; endKmh: number } {
+  const world = new PhysicsWorld(createFlatTrack({ wall: 6000, halfWidth: 6000 }));
+  const car = world.addVehicle(def);
+  car.assists = carAssists(DEFAULT_SETTINGS.assists);
+  car.gear = gearFor(def, kmh);
+  car.placeOnGround(new Vector3(), new Quaternion(), kmh / 3.6);
+  car.setTemperatures(1);
+  for (let i = 0; i < 90; i++) {
+    car.controls.throttle = car.state.forwardSpeed < kmh / 3.6 ? 1 : 0.5;
+    world.step(DT);
+  }
+  const filter = new SteeringFilter();
+  const fwd = new Vector3();
+  const left = new Vector3();
+  let slip = 0;
+  for (let i = 0; i < 4.5 * 60; i++) {
+    const st = car.state;
+    car.controls.steer = filter.update(i * DT < 0.3 ? 0 : 0.5, DT, st, def, DEFAULT_SETTINGS.controls);
+    car.controls.throttle = pedal;
+    car.controls.brake = 0;
+    world.step(DT);
+    fwd.set(0, 0, 1).applyQuaternion(st.quaternion);
+    left.set(1, 0, 0).applyQuaternion(st.quaternion);
+    if (st.speed > 5) slip = Math.max(slip, Math.abs(Math.atan2(st.velocity.dot(left), st.velocity.dot(fwd))));
+  }
+  return { slipDeg: (slip * 180) / Math.PI, spun: slip > 1.2, endKmh: car.state.forwardSpeed * 3.6 };
 }
 
 /** Flat out at `kmh` in top gear for a second, then the full pedal to rest: the hardest deceleration over a tenth of a second (g). */
@@ -272,6 +308,32 @@ describe('the Dieci corners and stops like a single-seater of 2004', () => {
     expect(b100.distance).toBeLessThan(brakeRun(volta, true, {}, 100).distance - 0.4);
     expect(b200.distance).toBeLessThan(brakeRun(volta, true, {}, 200).distance - 2);
     expect(peak).toBeGreaterThan(stopFrom(volta, 300) + 0.2);
+  });
+
+  it('flat out at the limit of a steady bend from 150 to 240 km/h it steps out 12-20 degrees with the default aids, caught, where the Volta holds under 5; four fifths of the pedal hold it at 200 km/h, and at 280 it stays planted flat out', () => {
+    // (912 hp at 640 kg, twice the Volta's power for its weight on its engine alone: flat out, the rears give up sideways the grip they
+    // spend pushing the car on. The traction control reads the rears' slip along the road, not across it, and the stability control catches
+    // the slide and takes speed off; changing either would change every car. In the same bend at 100 and 150 km/h the Volta drifts 13-14
+    // degrees and the LMP-X 14-15, the Vanta GT 25-26 and the Ronin 86 29-30)
+    const rows: string[] = [];
+    for (const kmh of [150, 200, 240]) {
+      const d = bend(dieci, kmh);
+      rows.push(`${kmh} km/h flat out ${d.slipDeg.toFixed(1)} (at ${d.endKmh.toFixed(0)} km/h after 4.5 s)`);
+      expect(d.spun, `${kmh} km/h`).toBe(false);
+      expect(d.slipDeg, `${kmh} km/h`).toBeGreaterThan(12);
+      expect(d.slipDeg, `${kmh} km/h`).toBeLessThan(20);
+    }
+    for (const kmh of [200, 240]) {
+      const v = bend(volta, kmh).slipDeg;
+      rows.push(`the Volta at ${kmh} km/h flat out ${v.toFixed(1)}`);
+      expect(v, `the Volta at ${kmh} km/h`).toBeLessThan(5);
+    }
+    const eased = bend(dieci, 200, 0.8).slipDeg;
+    const fast = bend(dieci, 280).slipDeg;
+    rows.push(`200 km/h at 0.8 of the pedal ${eased.toFixed(1)}, 280 km/h flat out ${fast.toFixed(1)}`);
+    expect(eased).toBeLessThan(7);
+    expect(fast).toBeLessThan(6);
+    if (process.env.DIECI_BEND_LOG) console.log(`dieci bend (degrees of body slip): ${rows.join('; ')}`);
   });
 
   it('keeps 60-72 % of its grip on a wet road and 50-60 % in standing water, and stops in 1.25-1.65 times the distance', () => {
