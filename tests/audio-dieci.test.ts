@@ -8,9 +8,10 @@
  *  - the short open exhaust (EngineSoundProfile.exhaustSystem 'short'): its ends reflect little, so the scream rises to the limiter where
  *    a close-ratio 7-speed keeps the engine, steady and through every gear of a drive through the real physics.
  *  - the gearbox as the game drives it (the real physics, whose gearbox shuts the throttle for a shift and blips it for a downshift): a
- *    short ignition cut on an upshift, not the Volta's seamless flick; the blipped downshifts under braking; the pops of the overrun; the
- *    traction control's cut heard as missed firings at the pedal's load (EngineSoundProfile.ignitionCut), a stutter and not a lull; the
- *    throttle map (EngineSpec.throttleGamma) heard as a smaller throttle, not as a cut.
+ *    short ignition cut on an upshift, not the Volta's seamless flick, and a longer stutter through the 1-2, where the traction control
+ *    clamps the throttle just after the shift; the blipped downshifts under braking; the pops of the overrun; the traction control's cut
+ *    heard as missed firings at the pedal's load (EngineSoundProfile.ignitionCut), a stutter and not a lull; the throttle map
+ *    (EngineSpec.throttleGamma) heard as a smaller throttle, not as a cut.
  *  - the open cockpit's helmet, as the Volta has it, and the ordinary nitro, which the voice does not hear.
  */
 import { Quaternion, Vector3 } from 'three';
@@ -58,10 +59,12 @@ interface Frame {
 
 /**
  * The Dieci on a flat plane through the real physics at `hz` frames a second, the gearbox shifting itself, heard from 6 m behind it by a
- * listener that moves with it (the chase camera): `pedal(t, kmh)` gives the throttle and the brake. `startKmh` in `gear` places it rolling.
+ * listener that moves with it (the chase camera): `pedal(t, kmh)` gives the throttle and the brake. `startKmh` in `gear` places it rolling;
+ * `wetness`, the water on the road.
  */
-function drive(hz: number, secs: number, pedal: (t: number, kmh: number) => { thr: number; brk: number }, startKmh = 0, gear = 1): Frame[] {
+function drive(hz: number, secs: number, pedal: (t: number, kmh: number) => { thr: number; brk: number }, startKmh = 0, gear = 1, wetness = 0): Frame[] {
   const world = new PhysicsWorld(createFlatTrack());
+  if (wetness) world.wetness = wetness;
   const car = world.addVehicle(dieci);
   // (the gear before the car is placed, so that the engine is placed at the revs of that gear)
   car.gear = gear;
@@ -401,39 +404,81 @@ describe('through the real physics, as the game drives it', () => {
     }
   });
 
-  it("upshifts with a short ignition cut, not the Volta's seamless flick: from 4th on each upshift is under -3 dB for 20 to 40 ms and 6 dB deep or more, at 60 and 144 frames a second (held as the frames come, 36 ms and more at 60)", () => {
-    // the ms under -3 dB of each upshift (4 ms windows of the voice, against the 60 ms before the cut), and the deepest window; from the
-    // shift into 4th on, where the traction control has nothing to cut around the shift
-    const dips = (frames: Frame[], hz: number, held: boolean): { ms: number; deep: number }[] => {
-      const out = hear(frames, hz, 1, held);
-      const spf = Math.round(SR / hz);
-      const w = Math.floor(0.004 * SR);
-      return shiftsOf(frames)
-        .filter((f) => frames[f].vec[CTL.GEAR] >= 4)
-        .map((f) => {
-          // (the cut is before the counter steps: the shift's frames start up to three frames earlier)
-          const at = (f - 3) * spf;
-          const ref = rms(out, at - Math.floor(0.06 * SR), at);
-          let ms = 0;
-          let deep = 0;
-          for (let i = at; i < at + Math.floor(0.15 * SR); i += w) {
-            const r = rms(out, i, i + w);
-            if (r < 0.708 * ref) ms += 4;
-            deep = Math.min(deep, db(r / ref));
-          }
-          return { ms, deep };
-        });
-    };
+  /**
+   * Each upshift of a drive into `gears` (4 ms windows of the voice, against the 60 ms before the cut): the ms under -3 dB in the `secs`
+   * from the start of the shift, and the deepest window. `held`: the shift's cut not bridged.
+   */
+  const upshifts = (frames: Frame[], hz: number, held: boolean, gears: (g: number) => boolean, secs = 0.15): { gear: number; ms: number; deep: number }[] => {
+    const out = hear(frames, hz, 1, held);
+    const spf = Math.round(SR / hz);
+    const w = Math.floor(0.004 * SR);
+    return shiftsOf(frames)
+      .filter((f) => gears(frames[f].vec[CTL.GEAR]))
+      .map((f) => {
+        // (the cut is before the counter steps: the shift's frames start up to three frames earlier)
+        const at = (f - 3) * spf;
+        const ref = rms(out, at - Math.floor(0.06 * SR), at);
+        let ms = 0;
+        let deep = 0;
+        for (let i = at; i < at + Math.floor(secs * SR); i += w) {
+          const r = rms(out, i, i + w);
+          if (r < 0.708 * ref) ms += 4;
+          deep = Math.min(deep, db(r / ref));
+        }
+        return { gear: frames[f].vec[CTL.GEAR], ms, deep };
+      });
+  };
+
+  it("upshifts with a short ignition cut, not the Volta's seamless flick: from the 2-3 on each upshift is under -3 dB for 20 to 40 ms and 6 dB deep or more, at 60 and 144 frames a second (held as the frames come, 36 ms and more at 60)", () => {
+    // from the shift into 3rd on, where the traction control has nothing to cut around the shift (the 1-2 is the next test's)
     for (const hz of rates) {
       const frames = runs.get(hz)!;
-      const now = dips(frames, hz, false);
-      expect(now.length, `${hz} Hz`).toBe(4);
+      const now = upshifts(frames, hz, false, (g) => g >= 3);
+      expect(now.length, `${hz} Hz`).toBe(5);
       for (const d of now) {
         expect(d.ms, `${hz} Hz: ${JSON.stringify(now)}`).toBeGreaterThanOrEqual(20);
         expect(d.ms, `${hz} Hz: ${JSON.stringify(now)}`).toBeLessThanOrEqual(40);
         expect(d.deep, `${hz} Hz: ${JSON.stringify(now)}`).toBeLessThan(-6);
       }
-      if (hz === 60) for (const d of dips(frames, hz, true)) expect(d.ms, `${hz} Hz, held as the frames come`).toBeGreaterThanOrEqual(36);
+      if (hz === 60) for (const d of upshifts(frames, hz, true, (g) => g >= 3)) expect(d.ms, `${hz} Hz, held as the frames come`).toBeGreaterThanOrEqual(36);
+    }
+  });
+
+  it('stutters longer through the 1-2 wherever the traction control is working: flat out from rest and from 50 km/h in 1st the throttle is under a fifth of the pedal for 30-80 ms after the shift and under half of it for 100-200 ms, and the note under -3 dB for 60-140 ms of the shift\'s first 150 ms and 120-260 ms of its first 300, at 60 and 144 frames a second; on a wet road under a fifth for 120 ms and more', () => {
+    // (the rear tyres slip at the 2nd gear's first push, a slip ratio of up to 0.3, and the traction control clamps the throttle; the voice
+    // hears the share it takes, 1 - throttle / pedal, as missed firings: nine in ten at first. The physics is left as it is)
+    for (const hz of rates)
+      for (const [label, frames] of [
+        ['from rest', runs.get(hz)!],
+        ['from 50 km/h', drive(hz, 3, () => ({ thr: 1, brk: 0 }), 50, 1)],
+      ] as const) {
+        const name = `${label}, ${hz} Hz`;
+        const f = shiftsOf(frames)[0];
+        expect(frames[f].vec[CTL.GEAR], name).toBe(2);
+        // the throttle over the pedal on the frames after the counter steps (the shift's own frame, the gearbox's, left out)
+        const share = frames.slice(f + 1, f + 1 + Math.round(0.5 * hz)).map((fr) => fr.vec[CTL.THROTTLE] / fr.vec[CTL.PEDAL]);
+        const msUnder = (x: number): number => (share.filter((s) => s < x).length * 1000) / hz;
+        expect(Math.min(...share), name).toBeGreaterThan(0.07);
+        expect(msUnder(0.2), name).toBeGreaterThan(30);
+        expect(msUnder(0.2), name).toBeLessThan(80);
+        expect(msUnder(0.5), name).toBeGreaterThan(100);
+        expect(msUnder(0.5), name).toBeLessThan(200);
+        const [d150] = upshifts(frames, hz, false, (g) => g === 2);
+        const [d300] = upshifts(frames, hz, false, (g) => g === 2, 0.3);
+        expect(d150.ms, name).toBeGreaterThanOrEqual(60);
+        expect(d150.ms, name).toBeLessThanOrEqual(140);
+        expect(d300.ms, name).toBeGreaterThanOrEqual(120);
+        expect(d300.ms, name).toBeLessThanOrEqual(260);
+        if (process.env.DIECI_SHIFT_LOG) console.log(`dieci 1-2 ${name}: throttle under 0.2 of the pedal ${msUnder(0.2).toFixed(0)} ms, under 0.5 ${msUnder(0.5).toFixed(0)} ms; under -3 dB ${d150.ms} ms of 150, ${d300.ms} of 300`);
+      }
+    // on a wet road (0.75) the slip lasts: the throttle stays under a fifth of the pedal for 120 ms and more
+    for (const hz of rates) {
+      const frames = drive(hz, 6, () => ({ thr: 1, brk: 0 }), 0, 1, 0.75);
+      const f = shiftsOf(frames)[0];
+      const share = frames.slice(f + 1, f + 1 + Math.round(0.5 * hz)).map((fr) => fr.vec[CTL.THROTTLE] / fr.vec[CTL.PEDAL]);
+      const under = (share.filter((s) => s < 0.2).length * 1000) / hz;
+      expect(under, `wet, ${hz} Hz`).toBeGreaterThan(120);
+      if (process.env.DIECI_SHIFT_LOG) console.log(`dieci 1-2 wet 0.75, ${hz} Hz: throttle under 0.2 of the pedal ${under.toFixed(0)} ms, under 0.5 ${((share.filter((s) => s < 0.5).length * 1000) / hz).toFixed(0)} ms`);
     }
   });
 
