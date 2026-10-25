@@ -436,8 +436,9 @@ prints the table; `tests/physics.test.ts` holds the class to a skidpad under 2.7
 never behind its id, so the six other cars are bit for bit what they were in their physics, AI, geometry and voice: `tests/probes/four-cars.test.ts`
 prints `ALL BIT-IDENTICAL` with the default ids, with `FOURCARS_IDS=mammoth` and with `FOURCARS_IDS=volta`, `tests/probes/geom-hash.test.ts`
 (`GEOMHASH=compare`, against a file recorded on main before the Dieci) `geomhash: 190 entries: ALL IDENTICAL` for the six other cars at every quality
-level, and the audio regress-lab `27/27 scenarios identical` for each of the six other voices. Two things change for every car on purpose, neither in how it drives or sounds: the nitro flames start at the
-pipes (below), and the car picker's power bar is out of 1000 hp (750), so that the Dieci's 912 reads stronger than the Mammoth's 710.
+level, and the audio regress-lab `27/27 scenarios identical` for each of the six other voices. Two things change for every car on purpose, neither in
+how it drives or sounds: the nitro flames start at the pipes (below), and the car picker's power bar is out of 1000 hp (750), so that the Dieci's
+912 reads stronger than the Mammoth's 710.
 
 - **The launch control** (`EngineSpec.launchRpm`, `Vehicle.launchRpm`): the engine speed the launch control holds a standing start at on a full throttle,
   against the clutch on the grid and while it slips; on a part throttle as much less as a road car's. Absent, it is a road car's: half the redline, at most
@@ -481,10 +482,11 @@ pipes (below), and the car picker's power bar is out of 1000 hp (750), so that t
   tyres in their window and the discs at 800 °C at most. In 48 one-make races of twelve on Aurelia, Kuroyama and Brennwald, dry and wet (`PACKSEEDS=1
   SEEDS=0..7 CAR=dieci npx vitest run tests/probes/pack.test.ts`), no car hits a wall or needs a reset. The one-make Voltas' first-lap scrape of
   Kuroyama's narrow corner is rarer in Diecis, not gone: in eight more races there, dry (`TRACK=kuroyama WET=0 SEEDS=30..37`), one Dieci, tenth on the
-  grid, touched its wall once, on the first lap at 820 m and 2.1 m/s, where the Voltas of the same seeds touched a wall there four times. In 48 mixed races of twelve (`CAR=mixed`: two each of the Vanta, Kestrel, Ronin, LMP-X and Mammoth, one Volta and one Dieci) no car
-  needs a reset and the Dieci hits no wall (off the road for 0.11 s a race at Kuroyama dry, and nowhere else), but road cars touched the wall at Brennwald three times,
-  at 2.3-4.7 m/s, each running wide as it moved out to pass the car ahead, with no Dieci within 60 m; the same field at Brennwald with seeds 8-15 touched none, so it
-  reads as the chance of a different race order, not as anything the Dieci does. In traffic it pumps its brakes more than the Volta, which
+  grid, touched its wall once, on the first lap at 820 m and 2.1 m/s, where the Voltas of the same seeds touched a wall there four times. In 48 mixed
+  races of twelve (`CAR=mixed`: two each of the Vanta, Kestrel, Ronin, LMP-X and Mammoth, one Volta and one Dieci) no car needs a reset and the
+  Dieci hits no wall (off the road for 0.11 s a race at Kuroyama dry, and nowhere else), but road cars touched the wall at Brennwald three times, at
+  2.3-4.7 m/s, each running wide as it moved out to pass the car ahead, with no Dieci within 60 m; the same field at Brennwald with seeds 8-15 touched
+  none, so it reads as the chance of a different race order, not as anything the Dieci does. In traffic it pumps its brakes more than the Volta, which
   `tests/dieci.test.ts` holds where it is (see the known limits below). The braking assist (the Beginner aids, the path follower at the wheel) laps every
   circuit in it, dry and wet, without a wall hit or a reset, its centre past the asphalt's edge for 3.0 s of two laps of Kuroyama dry (the Volta's 14.3).
 - **The body** (`src/carvis/bodies/formula04.ts` and `formula04Parts.ts`): `BLUEPRINTS.formula` sends a spec with `formulaEra` 2004 to `makeFormula04` and
@@ -520,8 +522,8 @@ pipes (below), and the car picker's power bar is out of 1000 hp (750), so that t
   Volta's stays so, as it was before the Dieci (`tests/carvis-formula04.test.ts` checks both programs' text).
 - **The cockpit and the cameras** (`formulaCockpit(spec)` in layouts.ts: each single-seater's eye, posture, wheel, T-camera, nose camera, chase anchor,
   mirror glass and stalk, and the rear camera of the HUD's mirror strip; `eyePoint`, `computeLayout`, `styleFor` in interior.ts and mirrorLayout.ts read it,
-  and the Volta's numbers are the literal ones it had, which `tests/probes/geom-hash.test.ts` shows): the eye 73 cm up and 1.42 m behind the front axle, 10 cm over the tub's sides beside the helmet
-  (the body sets them from it), the driver lying back 63 degrees from upright.
+  and the Volta's numbers are the literal ones it had, which `tests/probes/geom-hash.test.ts` shows): the eye 73 cm up and 1.42 m behind the front
+  axle, 10 cm over the tub's sides beside the helmet (the body sets them from it), the driver lying back 63 degrees from upright.
   - **The 2004 steering wheel** (`WHEEL04` in interior.ts): a carbon butterfly 27 cm across with three live parts, drawn by branches of the one interior
     shader built from global constants, as the Volta's yoke is (every interior material shares one program): `IPART.wheelDisplay04` (59: a small backlit
     display, dark figures on yellow-green, a bar graph of the revs, the gear and the speed), `IPART.shiftLights04` (60: ten round lights along the top edge,
