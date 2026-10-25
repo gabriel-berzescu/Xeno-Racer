@@ -278,7 +278,8 @@ export function poseMoving(m: Pick<MovingPartData, 'pivot' | 'axis' | 'angle'>, 
 
 /**
  * How far the steering wheel turns each way at full lock (rad): the front wheels' lock times the steering ratio of the body style, at most
- * one and a quarter turns. (The single-seater's yoke turns 120 degrees each way: hands on its grips never cross.)
+ * one and a quarter turns. (A single-seater's steering wheel, the 2026 car's yoke and the 2004 car's butterfly, turns 120 degrees each way:
+ * hands on its grips never cross.)
  */
 export function steeringLock(def: CarDefinition): number {
   const style = def.visual.style;
@@ -558,7 +559,10 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
   const lampsNow = new Float32Array([1, 1, 1, 1]);
   // (carbon under the paint: the prototype, the single-seater)
   if (spec.style === 'prototype' || spec.style === 'formula') U.uDmgBase.value = 1;
-  /** The single-seater's rear lights: no brake light, a rain light lit in the wet and in the dark; its endplate LEDs pulse with the electric boost. */
+  /**
+   * A single-seater's rear lights: no brake light, a rain light lit in the wet and in the dark; the 2026 car's endplate LEDs pulse with its
+   * electric boost (the 2004 car has none: the two halves of its rain light are its tail lamps).
+   */
   const rainLight = spec.style === 'formula';
   const electric = !!def.physics.engine.electric;
   {

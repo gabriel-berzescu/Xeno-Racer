@@ -36,12 +36,12 @@ export const PART = {
   /** the livery's accent colour on hardware that must not crumple in a crash (tow hooks, the spare's ring, the badge's X): satin, not clearcoat */
   signal: 15,
   /**
-   * the single-seater's halo: titanium under the livery's paint, so it takes the livery like the body but never crumples; its central
+   * the 2026 single-seater's halo: titanium under the livery's paint, so it takes the livery like the body but never crumples; its central
    * pillar is flagged with zone channel 14 < 0 (the cockpit view can tell it from the hoop)
    */
   halo: 16,
   /**
-   * a red LED lens (the single-seater's rear-wing endplate lights): lit as a rear light with the tail lamps, pulsing while the electric
+   * a red LED lens (the 2026 single-seater's rear-wing endplate lights): lit as a rear light with the tail lamps, pulsing while the electric
    * boost deploys, dark when the tail lamp of its side is broken; it crumples with the endplate it is on
    */
   ledRed: 17,
