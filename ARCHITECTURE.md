@@ -556,10 +556,14 @@ pipes (below), and the car picker's power bar is out of 1000 hp (750), so that t
     the pedal after about 150 ms. Flat out from rest the note is under -3 dB for 84 ms of the shift's first 150 ms at 60 frames a second and 124 at 144,
     and for 156 and 212 ms of its first 300; rolling from 50 km/h in 1st for 88 and 116 ms, and 176 and 200. On a wet road (0.75) the throttle stays
     under a fifth of the pedal for about 150 ms. The physics is left as it is (`tests/audio-dieci.test.ts` bounds all of this, and `DIECI_SHIFT_LOG=1`
-    prints it). Every downshift is blipped by the gearbox (a throttle of its own, which the map does not touch): braking from 300 km/h in 7th the car changes down six times in
-    1.7 s, each blip 5-10.5 dB over the overrun, and a backfire stands 17 dB over the overrun.
-  - In its interior views it is heard through the helmet, as the Volta is, and a Vanta and a Dieci side by side in split screen stay within 1.5 dB of one
-    Vanta (`tests/audio-split.test.ts`). The nitro has no voice of its own: the bottle only brings the revs and the gears quicker.
+    prints it). Every downshift is blipped by the gearbox (a throttle of its own, which the map does not touch): braking from 300 km/h in 7th the car
+    changes down six times in 1.7 s, each blip 5-10.5 dB over the overrun, and a backfire stands 17 dB over the overrun.
+  - In its interior views it is heard through the helmet, as the Volta is. In split screen a Vanta and a Dieci side by side are 1.44 dB over one Vanta in
+    `tests/audio-split.test.ts` (`SPLIT_AUDIO_LOG=1`), inside the 1.5 dB it holds every pair to. That test drives the voices with
+    `sandbox/audio/drive-sim.ts`, a stand-in for the game's physics whose revs and gears are not the game's: driven by the real physics (a scratch lab
+    with the test's own mix, seeds and trim), the Vanta's pairs with the three racing cars come out a quarter to half a dB louder, the LMP-X's and the
+    Volta's as well as the Dieci's, which is then 1.69 dB over one Vanta (its loudest second 0.70 dB over). The nitro has no voice of its own: the
+    bottle only brings the revs and the gears quicker.
   - **The bench** (`sandbox/audio/bench.ts`) turns the revs to 20,000 rpm, and its exhaust is a select of merged, dual and short (the toggle it replaces could
     set only dual or merged). **The previews:** `node sandbox/audio/lab/run.mjs dieci-previews.ts` drives the real physics through the game's control mapping
     and writes nine scenes to `previews/dieci/`, each an MP3 and a spectrogram: the idle and blips, a run from rest outside and in the cockpit, a flyby at
