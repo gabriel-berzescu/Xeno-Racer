@@ -434,8 +434,9 @@ prints the table; `tests/physics.test.ts` holds the class to a skidpad under 2.7
 `tests/audio-dieci.test.ts`. Everything it brought is behind a field of the car's data that no other car has (`EngineSpec.launchRpm`,
 `EngineSpec.throttleGamma`, `CarVisualSpec.formulaEra`, the exhaust side `'periscope'`, `EngineSoundProfile.exhaustSystem` `'short'` and `ignitionCut`),
 never behind its id, so the six other cars are bit for bit what they were in their physics, AI, geometry and voice: `tests/probes/four-cars.test.ts`
-prints `ALL BIT-IDENTICAL` with the default ids, with `FOURCARS_IDS=mammoth` and with `FOURCARS_IDS=volta`, and the audio regress-lab `27/27 scenarios
-identical` for each of the six other voices. Two things change for every car on purpose, neither in how it drives or sounds: the nitro flames start at the
+prints `ALL BIT-IDENTICAL` with the default ids, with `FOURCARS_IDS=mammoth` and with `FOURCARS_IDS=volta`, `tests/probes/geom-hash.test.ts`
+(`GEOMHASH=compare`, against a file recorded on main before the Dieci) `geomhash: 190 entries: ALL IDENTICAL` for the six other cars at every quality
+level, and the audio regress-lab `27/27 scenarios identical` for each of the six other voices. Two things change for every car on purpose, neither in how it drives or sounds: the nitro flames start at the
 pipes (below), and the car picker's power bar is out of 1000 hp (750), so that the Dieci's 912 reads stronger than the Mammoth's 710.
 
 - **The launch control** (`EngineSpec.launchRpm`, `Vehicle.launchRpm`): the engine speed the launch control holds a standing start at on a full throttle,
@@ -512,7 +513,7 @@ pipes (below), and the car picker's power bar is out of 1000 hp (750), so that t
   where the 2026 car's are in the medium compound's yellow.
 - **The cockpit and the cameras** (`formulaCockpit(spec)` in layouts.ts: each single-seater's eye, posture, wheel, T-camera, nose camera, chase anchor,
   mirror glass and stalk, and the rear camera of the HUD's mirror strip; `eyePoint`, `computeLayout`, `styleFor` in interior.ts and mirrorLayout.ts read it,
-  and the Volta's numbers are the literal ones it had): the eye 73 cm up and 1.42 m behind the front axle, 10 cm over the tub's sides beside the helmet
+  and the Volta's numbers are the literal ones it had, which `tests/probes/geom-hash.test.ts` shows): the eye 73 cm up and 1.42 m behind the front axle, 10 cm over the tub's sides beside the helmet
   (the body sets them from it), the driver lying back 63 degrees from upright.
   - **The 2004 steering wheel** (`WHEEL04` in interior.ts): a carbon butterfly 27 cm across with three live parts, drawn by branches of the one interior
     shader built from global constants, as the Volta's yoke is (every interior material shares one program): `IPART.wheelDisplay04` (59: a small backlit
