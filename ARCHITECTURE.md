@@ -487,8 +487,11 @@ pipes (below), and the car picker's power bar is out of 1000 hp (750), so that t
   circuit in it, dry and wet, without a wall hit or a reset, its centre past the asphalt's edge for 3.0 s of two laps of Kuroyama dry (the Volta's 14.3).
 - **The body** (`src/carvis/bodies/formula04.ts` and `formula04Parts.ts`): `BLUEPRINTS.formula` sends a spec with `formulaEra` 2004 to `makeFormula04` and
   the Volta's, as before, to `makeFormula`, and the 2004 body is built with the Volta's toolkit (`formulaParts.ts` exports `element`, `edges`, `plate`,
-  `plates`, `rods` and `smooth`, whose output is unchanged). Every place that differs by era reads it through small pure helpers in layouts.ts
-  (`isFormula04`, `formula04Points`, `formulaCockpit`). Sculpted: the tub and the high pointed nose (its tip 0.97 m ahead of the front axle and 0.33 m up),
+  `plates`, `rods` and `smooth`, whose output is unchanged). That table and the wheel (`styleForBody` in wheels.ts and `wheelLook` in layouts.ts,
+  which take `formulaEra` as an argument) read the era themselves; every other place in carvis that differs by era (the cockpit, its steering wheel and
+  the cameras, the mirrors, the livery's layout, the tyre's lettering and its colour, the body's lamps and periscopes) reads it through small pure
+  helpers in layouts.ts (`isFormula04`, `formula04Points`, `formulaCockpit`). `effects.ts` imports nothing from carvis, so its light points and its
+  periscope tips repeat `formula04Points`' numbers (below). Sculpted: the tub and the high pointed nose (its tip 0.97 m ahead of the front axle and 0.33 m up),
   the undercut sidepods with rounded inlets and the periscopes on their tops, the airbox and roll hoop to 0.95 m, the deep engine cover with no fin, the
   crash structure. Parts: the front wing hung under the nose on two pylons, dipped into a spoon in the middle, with big endplates; the bargeboards, a keel
   and the flip-ups; the floor and the large diffuser of the years before 2005, with five strakes; a rear wing of two elements, its flap's top 83 cm up under
