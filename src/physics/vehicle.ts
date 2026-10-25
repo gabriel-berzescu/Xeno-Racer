@@ -1306,7 +1306,7 @@ export class Vehicle {
    */
   private launchRpm(throttle: number): number {
     const e = this.spec.engine;
-    const own = this.track.info.winter ? undefined : e.launchRpm;
+    const own = this.winter ? undefined : e.launchRpm;
     return Math.max(e.idleRpm + 900, (own ?? Math.min(0.5 * e.redlineRpm, 4600)) * (0.55 + 0.45 * throttle));
   }
 
