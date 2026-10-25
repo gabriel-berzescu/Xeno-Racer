@@ -478,8 +478,9 @@ pipes (below), and the car picker's power bar is out of 1000 hp (750), so that t
   circuits in 0.942 of the Volta's time dry and 0.944 in a storm (the brief asked about 0.945): 0.92-0.93 on Aurelia and Brennwald, 0.96 on Kuroyama, and
   Isvik, where grip and not power sets the pace, in 0.97 dry and 0.99 in the snowfall. Every lap is clean (no reset, no impact, no time off the road), the
   tyres in their window and the discs at 800 °C at most. In 48 one-make races of twelve on Aurelia, Kuroyama and Brennwald, dry and wet (`PACKSEEDS=1
-  SEEDS=0..7 CAR=dieci npx vitest run tests/probes/pack.test.ts`), no car hits a wall or needs a reset (the one-make Voltas' first-lap scrape at Kuroyama
-  does not happen). In 48 mixed races of twelve (`CAR=mixed`: two each of the Vanta, Kestrel, Ronin, LMP-X and Mammoth, one Volta and one Dieci) no car
+  SEEDS=0..7 CAR=dieci npx vitest run tests/probes/pack.test.ts`), no car hits a wall or needs a reset. The one-make Voltas' first-lap scrape of
+  Kuroyama's narrow corner is rarer in Diecis, not gone: in eight more races there, dry (`TRACK=kuroyama WET=0 SEEDS=30..37`), one Dieci, tenth on the
+  grid, touched its wall once, on the first lap at 820 m and 2.1 m/s, where the Voltas of the same seeds touched a wall there four times. In 48 mixed races of twelve (`CAR=mixed`: two each of the Vanta, Kestrel, Ronin, LMP-X and Mammoth, one Volta and one Dieci) no car
   needs a reset and the Dieci hits no wall (off the road for 0.11 s a race at Kuroyama dry, and nowhere else), but road cars touched the wall at Brennwald three times,
   at 2.3-4.7 m/s, each running wide as it moved out to pass the car ahead, with no Dieci within 60 m; the same field at Brennwald with seeds 8-15 touched none, so it
   reads as the chance of a different race order, not as anything the Dieci does. In traffic it pumps its brakes more than the Volta, which
