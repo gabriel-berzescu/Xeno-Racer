@@ -817,7 +817,7 @@ const dieci: CarDefinition = {
   name: 'Dieci',
   maker: 'Xeno Racing',
   description:
-    'A 2004-style single-seater: 640 kg, a 3.0 L V10 screaming to 19,300 rpm, grooved tyres on 13-inch rims, and nothing electric. The quickest car here, and an octave above the rest.',
+    'A 2004-style single-seater: 640 kg, a 3.0 L V10 screaming to 19,300 rpm, grooved tyres on 13-inch rims, and nothing electric. The quickest car here round a lap, and an octave above the rest.',
   class: 'Formula',
   drivetrain: 'RWD',
   // (measured: 0-100 in 2.63 s with the traction control on, 332.4 km/h flat out; the curve gives 911.9 hp at 18,500 rpm and 375 Nm at 16,500)
