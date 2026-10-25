@@ -555,8 +555,9 @@ pipes (below), and the car picker's power bar is out of 1000 hp (750), so that t
     and writes nine scenes to `previews/dieci/`, each an MP3 and a spectrogram: the idle and blips, a run from rest outside and in the cockpit, a flyby at
     300 km/h, the lift-off and the overrun, a nitro shot, the Volta's run and then the Dieci's, the LMP-X's and then the Dieci's, and a grid start held through
     the countdown.
-- **Damage:** the LMP-X's profile (downforce at both ends, the engine in the middle; its 1.74 and 2.21 m^2 of lift area are the most of any car) and the open-wheeler's
-  outline on the HUD (`SHAPES.formula`). Badly bent (everything at 1.0) it laps 1.9-5.1 % slower for an AI driver told of it, every lap clean
+- **Damage:** the LMP-X's profile (downforce at both ends, the engine in the middle), on the Dieci's own 1.74 and 2.21 m^2 of lift area, the most of
+  any car (the LMP-X has 1.55 and 2.05, the Volta 1.64 and 2.16 in corner mode: `src/core/mechanical.ts`), and the open-wheeler's outline on the HUD
+  (`SHAPES.formula`). Badly bent (everything at 1.0) it laps 1.9-5.1 % slower for an AI driver told of it, every lap clean
   (`DMGCAL=lap DMGTRACK=aurelia,kuroyama,brennwald,portovela DMGCARS=dieci npx vitest run tests/probes/damage-calib.test.ts`).
 - **Known limits**, left as they are because fixing them would change the Volta, or every car:
   - Replays do not record the clutch, so a replayed shift sounds unlike the live one, in every car.
