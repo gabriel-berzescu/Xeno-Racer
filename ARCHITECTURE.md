@@ -542,8 +542,9 @@ pipes (below), and the car picker's power bar is out of 1000 hp (750), so that t
     to the limiter the note rises 0.7 dB every 1000 rpm, within 0.3 dB of that line, where through the merged exhaust it rises 0.3 dB with 2.5 dB either
     side, and a close-ratio gearbox would leave each gear quieter at its top than at its bottom. Through the physics flat out from rest the 4th, 5th and 6th
     gears rise 0.9, 0.9 and 0.8 dB, and no gear from the 3rd on sags by more than 0.4 dB.
-  - **The ignition cut** (`EngineSoundProfile.ignitionCut`): the torque the traction control or the launch control takes away with the pedal down is cut
-    from whole firing events, each cylinder's spark cut at random with the share of the torque taken, the throttle left open. The firings left burn at the
+  - **The ignition cut** (`EngineSoundProfile.ignitionCut`): what holds the throttle under the pedal while it is down (the traction control, the
+    stability control, the launch control, a downshift's blip with the pedal flat) is cut from whole firing events, each cylinder's spark cut at random
+    with the share of the torque taken, the throttle left open. The firings left burn at the
     pedal's load, a cylinder whose spark is cut pushes out a weak pulse, and a cut charge lights in the pipe at crackle x 24 times a second times the share
     cut, on a hazard of its own (on the overrun's shared timer few cuts popped). The share is 1 - `throttle` / `throttlePedal`, the pedal through the map
     (above). Without the field none of it runs and no random number is drawn, so every other voice is what it was to the bit. In 1st gear flat out from rest

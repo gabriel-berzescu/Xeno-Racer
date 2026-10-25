@@ -212,9 +212,9 @@ export interface Voicing {
    */
   bridgeCut: boolean;
   /**
-   * The torque the traction control or the launch control takes away with the pedal down is cut from whole firing events, with the
-   * throttle left open (EngineSoundProfile.ignitionCut): the stutter of a 2004 single-seater on a slow exit. false: it is heard as a
-   * lighter load.
+   * Whatever holds the throttle under the pedal while the pedal is down (the traction control, the stability control, the launch control, a
+   * downshift's blip with the pedal flat) is cut from whole firing events, with the throttle left open (EngineSoundProfile.ignitionCut): the
+   * stutter of a 2004 single-seater on a slow exit. false: it is heard as a lighter load.
    */
   ignitionCut: boolean;
   // supercharger: a positive-displacement blower, its whine locked to the crank
@@ -1061,8 +1061,9 @@ export class EngineVoice {
     // what it was before for CUT_BRIDGE at most; the shift counter that follows starts the dip that is the shift
     let thrIn = I.throttle;
     let loadIn = I.load;
-    // a torque cut heard as an ignition cut (Voicing.ignitionCut): the throttle the traction control or the launch control leaves under the
-    // pedal is the share of the firing events that still burn; the throttle stays open, so the rest are heard at the pedal's load
+    // a torque cut heard as an ignition cut (Voicing.ignitionCut): the throttle the traction control, the stability control, the launch
+    // control or a downshift's blip leaves under the pedal is the share of the firing events that still burn; the throttle stays open, so
+    // the rest are heard at the pedal's load
     let fireCut = 0;
     if (V.ignitionCut && I.pedal >= 0.25 && I.throttle >= 0.05 && I.throttle < 0.97 * I.pedal && I.limiter < 0.5) {
       fireCut = 1 - I.throttle / I.pedal;

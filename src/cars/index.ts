@@ -806,8 +806,8 @@ const dieciSound: EngineSoundProfile = {
   // after the shift and holds it under half for 150, so from rest the note is 3 dB down for 84 ms of the shift's first 150 at 60 frames a
   // second (tests/audio-dieci.test.ts, ARCHITECTURE.md)
   shiftDip: 0.04,
-  // its traction control and its launch control cut the spark, not the throttle: in 1st gear flat out from rest it stutters 3 dB and more
-  // louder than the same torque heard as a lighter load (tests/audio-dieci.test.ts)
+  // its traction control, its stability control and its launch control cut the spark, not the throttle: in 1st gear flat out from rest it
+  // stutters 3 dB and more louder than the same torque heard as a lighter load (tests/audio-dieci.test.ts)
   ignitionCut: true,
 };
 
