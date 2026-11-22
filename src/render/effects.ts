@@ -367,6 +367,14 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
       for (const s of [1, -1]) tips.push({ x: s * 0.25, y: 0.585 * hk, z: -v.wheelbase / 2 + 0.6, dx: (s * 0.12) / d, dy: 0.77 / d, dz: -0.63 / d });
       return tips;
     }
+    if (v.style === 'hyper') {
+      // (the hypercar's four tailpipes, a cluster in the middle of the fascia across its tail, 15 cm apart and 52 cm up, their mouths
+      // a centimetre inside the tail: carvis/bodies/hyperParts.ts hyperPoints puts the pipes there, and a test keeps the two the same)
+      const zt = -(v.length - v.frontOverhang - v.wheelbase / 2) + 0.01;
+      const l = Math.hypot(0.06, 1);
+      for (const x of [-0.225, -0.075, 0.075, 0.225]) tips.push({ x, y: 0.52, z: zt, dx: 0, dy: -0.06 / l, dz: -1 / l });
+      return tips;
+    }
     // (the single-seater's one tailpipe stands over its crash structure, under the rear wing, 41 cm over the floor and half a metre
     // behind the rear axle: carvis/layouts.ts formulaPoints puts the pipe there)
     const formula = v.style === 'formula';

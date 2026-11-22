@@ -649,7 +649,8 @@ describe('Dieci wheels', () => {
     expect(look.grooves).toEqual([0.025, 0.075, 0.007, 0.0025]);
     expect(look.slick).toBe(1);
     expect(look.tread).toBe(0);
-    for (const c of CARS) if (c.id !== 'dieci') expect(wheelLook(c.visual.style, c.visual.formulaEra).grooves, c.id).toBeUndefined();
+    // (the Taccola's semi-slick has grooves of its own, two a side: tests/carvis-hyper.test.ts)
+    for (const c of CARS) if (c.id !== 'dieci' && c.id !== 'taccola') expect(wheelLook(c.visual.style, c.visual.formulaEra).grooves, c.id).toBeUndefined();
     // inside the tread of both tyres
     for (const W of [spec.tireWidthFront, spec.tireWidthRear]) expect(look.grooves![1] + look.grooves![2]).toBeLessThan(0.3 * W);
   });

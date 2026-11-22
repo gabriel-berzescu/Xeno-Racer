@@ -55,11 +55,17 @@ describe('Volta body', () => {
     expect(typeof bp.parts).toBe('function');
     expect(typeof bp.farParts).toBe('function');
     expect(bp.moving?.map((m) => m.name)).toEqual(['frontFlaps', 'rearFlaps']);
-    // (and no other body has either hook: their far LODs and their meshes are what they were)
+    // (and no other body has either hook, but the hypercar's, whose wing is a moving part and kept in its far LOD
+    // (tests/carvis-hyper.test.ts): their far LODs and their meshes are what they were)
     for (const c of CARS.filter((c) => c.visual.style !== 'formula')) {
       const other = BLUEPRINTS[c.visual.style](c.visual);
-      expect(other.farParts, c.id).toBeUndefined();
-      expect(other.moving, c.id).toBeUndefined();
+      if (c.visual.style === 'hyper') {
+        expect(typeof other.farParts, c.id).toBe('function');
+        expect(other.moving?.map((m) => m.name), c.id).toEqual(['wing']);
+      } else {
+        expect(other.farParts, c.id).toBeUndefined();
+        expect(other.moving, c.id).toBeUndefined();
+      }
       expect(other.info?.lamps, c.id).toBeUndefined();
     }
   });
@@ -199,8 +205,8 @@ describe('Volta body', () => {
     expect(bp.body(0, pylonFoot + 0.01, zTail + 0.32)).toBeLessThan(0);
     expect(halo).toBeGreaterThan(20);
     expect(helmet).toBeGreaterThan(20);
-    // the other cars' far LODs have no parts at all
-    for (const c of CARS.filter((c) => c.visual.style !== 'formula')) {
+    // the other cars' far LODs have no parts at all (but the hypercar's, which keeps its wing: tests/carvis-hyper.test.ts)
+    for (const c of CARS.filter((c) => c.visual.style !== 'formula' && c.visual.style !== 'hyper')) {
       const d = await buildCarData(c.visual, 'low');
       expect(d.lod2.vertices.length / VERTEX_STRIDE, c.id).toBe(d.lod2.stats.bodyVertices);
       expect(d.moving, c.id).toBeUndefined();

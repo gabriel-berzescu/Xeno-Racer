@@ -15,7 +15,7 @@ type V3 = [number, number, number];
 /** The lengths the body and its parts share (body frame: the origin on the ground at the middle of the wheelbase, +z forward). */
 export function hyperFrame(s: CarVisualSpec): { zF: number; zR: number; zNose: number; zTail: number; hw: number; hk: number } {
   const zF = s.wheelbase / 2;
-  return { zF, zR: -zF, zNose: zF + s.frontOverhang, zTail: -(zF + (s.length - s.wheelbase - s.frontOverhang)), hw: s.width / 2, hk: s.height / 1.12 };
+  return { zF, zR: -zF, zNose: zF + s.frontOverhang, zTail: -(zF + (s.length - s.wheelbase - s.frontOverhang)), hw: s.width / 2, hk: s.height / 1.17 };
 }
 
 /**

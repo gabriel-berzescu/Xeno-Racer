@@ -283,7 +283,7 @@ export function poseMoving(m: Pick<MovingPartData, 'pivot' | 'axis' | 'angle'>, 
  */
 export function steeringLock(def: CarDefinition): number {
   const style = def.visual.style;
-  const steerRatio = style === 'prototype' ? 7 : style === 'coupe' ? 12.5 : style === 'suv' ? 15 : style === 'formula' ? 5 : 13;
+  const steerRatio = style === 'prototype' ? 7 : style === 'coupe' ? 12.5 : style === 'suv' ? 15 : style === 'formula' ? 5 : style === 'hyper' ? 11 : 13;
   return Math.min(Math.PI * 2.5, def.physics.chassis.maxSteer * steerRatio);
 }
 
@@ -321,8 +321,8 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
     U.uGlassAlpha.value = 0.42;
     U.uInteriorCarbon.value = 1;
   }
-  // (the single-seater has no glass; the inside of its tub is carbon)
-  if (spec.style === 'formula') U.uInteriorCarbon.value = 1;
+  // (the single-seater has no glass; the inside of its tub is carbon, and so is the hypercar's behind its glass)
+  if (spec.style === 'formula' || spec.style === 'hyper') U.uInteriorCarbon.value = 1;
 
   const farMat = createFarMaterial(U);
   let farBaseRough = farMat.roughness;
@@ -557,8 +557,8 @@ export async function createCarVisual(def: CarDefinition, livery: Livery, qualit
   /** every event the car took in live play, so a replay can hand the race's own damage back when it ends */
   const liveLog: DamageEvent[] = [];
   const lampsNow = new Float32Array([1, 1, 1, 1]);
-  // (carbon under the paint: the prototype, the single-seater)
-  if (spec.style === 'prototype' || spec.style === 'formula') U.uDmgBase.value = 1;
+  // (carbon under the paint: the prototype, the single-seater, the hypercar)
+  if (spec.style === 'prototype' || spec.style === 'formula' || spec.style === 'hyper') U.uDmgBase.value = 1;
   /**
    * A single-seater's rear lights: no brake light, a rain light lit in the wet and in the dark; the 2026 car's endplate LEDs pulse with its
    * electric boost (the 2004 car has none: the two halves of its rain light are its tail lamps).

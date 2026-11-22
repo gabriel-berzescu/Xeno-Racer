@@ -958,12 +958,13 @@ function semiSlick(widthMm: number, aspect: number, rimIn: number, mu: number, e
   };
 }
 
-// The Taccola's body: 4.68 m long, 2.02 m wide and 1.12 m to the roof, on 20-inch front and 21-inch rear wheels.
+// The Taccola's body: 4.68 m long, 2.02 m wide and 1.12 m to the roof (1.17 to the top of its scoop), on 20-inch front and 21-inch rear wheels.
 const taccolaVisual: CarVisualSpec = {
   style: 'hyper',
   length: 4.68,
   width: 2.02,
-  height: 1.12,
+  // (to the top of the roof scoop; the roof itself is 1.12 m up)
+  height: 1.17,
   wheelbase: 2.76,
   trackFront: 1.7,
   trackRear: 1.66,
@@ -980,7 +981,8 @@ const taccolaVisual: CarVisualSpec = {
   wing: 0.6,
   engine: 'mid',
   exhaust: { count: 4, side: 'center' },
-  seat: { x: 0.34, y: 0.27, z: 0.02 },
+  // (the two seats are close together under the narrow canopy, 30 cm either side of the centre line)
+  seat: { x: 0.3, y: 0.27, z: 0.02 },
 };
 
 // The Taccola's voice: a 6.4 L 60-degree V12, naturally aspirated, even firing (six pulses a turn), through a short road exhaust.

@@ -148,7 +148,7 @@ function styleFor(style: BodyStyle, spec: CarVisualSpec): Style {
         door: { pos: [0.985, 0.8, 0.74], hw: 0.07, hh: 0.036, out: 11 },
         housing: { depth: 0.1, carbon: true, stalk: [0.9, 0.665, 0.66] },
         inside: null,
-        screen: { pos: [0.1, 0.995 * (spec.height / 1.12), 0.44], hw: 0.085, hh: 0.026 },
+        screen: { pos: [0.1, 0.995 * (spec.height / 1.17), 0.44], hw: 0.085, hh: 0.026 },
         rear: { y: 0.83, fromTail: 0.12, pitch: 2 },
       };
     default:

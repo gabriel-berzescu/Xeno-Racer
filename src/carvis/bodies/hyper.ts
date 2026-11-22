@@ -53,8 +53,7 @@ export const makeHyper: BlueprintFactory = (s) => {
       crown: flat(0.03),
       tum: flat(0.1),
       tumY: 0.3,
-      // (a hard edge each side of its top: the beak and the spine are one blade from the nose to the tail)
-      rTop: 0.006,
+      rTop: 0.09,
       rBot: 0.04,
       rEnd: 0.09,
       zf: zNose,
@@ -73,7 +72,7 @@ export const makeHyper: BlueprintFactory = (s) => {
       yt: curve([-1.3, 0.93 * hk, -0.9, 1.02 * hk, -0.5, 1.09 * hk, -0.1, 1.12 * hk, 0.2, 1.12 * hk, 0.5, 1.1 * hk, 1.2, 1.06 * hk], 0.05),
       w: curve([-1.3, 0.36, -0.9, 0.48, -0.4, 0.6, 0.1, 0.66, 0.5, 0.66, 0.9, 0.62, 1.2, 0.58], 0.05),
       crown: flat(0.07),
-      tum: flat(0.3),
+      tum: flat(0.22),
       tumY: 0.66,
       rTop: 0.22,
       rBot: 0.1,
@@ -189,14 +188,19 @@ export const makeHyper: BlueprintFactory = (s) => {
   };
 
   // ── zone outlines ─────────────────────────────────────────────────────────
-  const windshield = roundPoly([1.15, 0.57, 1.15, -0.57, 0.34, -0.36, 0.34, 0.36], 0.07);
-  const sideWin = roundPoly([1.0, 0.725, 0.24, 1.07 * hk, -0.22, 1.075 * hk, -0.62, 0.97 * hk, -0.76, 0.75], 0.03);
+  // The canopy is glass from its belt up, but for a slim pillar each side of the windscreen (5.6 cm, along the line the screen's
+  // plane turns into the side on: 57 cm out at its foot, 42 cm at the header, 12 cm to the left of the driver's eye), the roof panel
+  // and a rail beside it, and its tail.
+  const sideWin = roundPoly([1.2, 0.715, 1.2, 1.3, -0.22, 1.3, -0.62, 0.97 * hk, -0.76, 0.75], 0.03);
+  const pillarX = (z: number): number => 0.42 + 0.197 * (z - 0.36);
+  /** where the side glass begins, out from the centre line: outside the pillar, and behind the header outside the roof's rail */
+  const sideFrom = (z: number): number => (z >= 0.36 ? pillarX(z) + 0.028 : Math.max(0.39, 0.448 - 0.5 * (0.36 - z)));
 
   const zones = (x: number, y: number, z: number, nx: number, ny: number, nz: number, out: Float32Array, o: number): void => {
     const ax = x < 0 ? -x : x;
     // glass: the windscreen wraps round into the side glass
-    const ws = Math.max(sdPolygon2(windshield, z, ax), 0.7 - y);
-    const sw = Math.max(sdPolygon2(sideWin, z, y), 0.36 - ax);
+    const ws = Math.max((ax - pillarX(z) + 0.028) * 0.981, 0.36 - z, 0.7 - y);
+    const sw = Math.max(sdPolygon2(sideWin, z, y), (sideFrom(z) - ax) * 0.981);
     out[o] = Math.min(ws, sw);
     // black trim: the floor's edge, the inside of the arches
     const sill = y - 0.15;
@@ -206,7 +210,7 @@ export const makeHyper: BlueprintFactory = (s) => {
     // its scoop, the floor of the valleys beside the spine
     const lowLine = y - (0.225 + 0.2 * Math.min(1, Math.max(0, (-1.75 - z) / 0.5)));
     const channel = Math.max(ax - 0.57, 0.2 - ax, 1.12 - z, y - 0.52);
-    const roof = Math.max(Math.abs(z + 0.35) - 0.72, ax - 0.3, 1.0 * hk - y);
+    const roof = Math.max(Math.abs(z + 0.35) - 0.72, ax - 0.36, 1.0 * hk - y);
     const deck = Math.max(ax - 0.56, 0.25 - ax, z + 0.85, y - 0.8, 0.6 - y);
     out[o + 2] = Math.min(lowLine, channel, roof, deck);
     // mesh: the channels' inlets, the side intakes' mouths, the vents, the fascia

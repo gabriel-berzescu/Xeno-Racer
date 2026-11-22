@@ -217,6 +217,39 @@ function styleFor(spec: CarVisualSpec): IStyle {
       const c = formulaCockpit(spec);
       return { twoSeats: false, rearBench: false, cage: false, doorCards: false, bucket: true, seatTilt: c.seatTilt, cowlZ: 1.2, cowlY: 0.6, floorY: 0.08, ...LOW_CABIN, wheelUp: c.wheel.up, wheelFwd: c.wheel.fwd, wheelTilt: c.wheel.tilt, halfW: 0.24, top: 0.82 };
     }
+    case 'hyper':
+      // the hypercar: two fixed bucket seats close together in a narrow canopy (62 cm from the centre line to the glass at the
+      // shoulder), the driver lying back a little further than in a coupe; a low dash under a long windscreen, a slim console between
+      // the seats, door cards low on the doors; no cage (the tub is the cage) and nothing behind the seats but the bulkhead
+      return {
+        twoSeats: true,
+        rearBench: false,
+        cage: false,
+        doorCards: true,
+        bucket: true,
+        seatTilt: 0.45,
+        cowlZ: 1.0,
+        cowlY: 0.7,
+        floorY: 0.14,
+        ...LOW_CABIN,
+        wheelUp: 0.33,
+        wheelFwd: 0.5,
+        wheelTilt: 0.48,
+        binUp: 0.18,
+        halfW: 0.62,
+        top: 1.02,
+        floorHalfW: 0.56,
+        dashHalfW: 0.58,
+        dashHy: 0.1,
+        ventX: 0.5,
+        doorX: 0.6,
+        doorY: 0.55,
+        doorHy: 0.2,
+        doorZ: 0.55,
+        doorHz: 0.5,
+        doorCut: 0.57,
+        doorBack: 1.2,
+      };
     default:
       return { twoSeats: false, rearBench: false, cage: true, doorCards: false, bucket: true, seatTilt: 0.62, cowlZ: 0.9, cowlY: 0.64, floorY: 0.14, ...LOW_CABIN, wheelUp: 0.34, wheelFwd: 0.6, wheelTilt: 0.9 };
   }
