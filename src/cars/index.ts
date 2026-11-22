@@ -983,9 +983,31 @@ const taccolaVisual: CarVisualSpec = {
   seat: { x: 0.34, y: 0.27, z: 0.02 },
 };
 
-// The Taccola's voice: a 6.4 L 60-degree V12, naturally aspirated, even firing (six pulses a turn), through a short road exhaust.
+// The Taccola's voice: a 6.4 L 60-degree V12, naturally aspirated, firing evenly six times a turn (the 6th order of the crank: 1060 Hz at
+// the limiter), each bank an inline six through its own exhaust to its own pair of tailpipes, and an airbox of open trumpets under the
+// roof scoop (tests/audio-taccola.test.ts; node sandbox/audio/lab/run.mjs taccola-lab.ts orders | sweep | map prints what follows).
 const taccolaSound: EngineSoundProfile = {
-  cylinders: 12, layout: 'v', crankType: 'flat', displacement: 6.4, turbo: false, exhaustOpenness: 0.85, brightness: 0.85, gearWhine: 0.25, crackle: 0.4,
+  // (a road car's titanium exhaust, its valves open under load: nearly a racing car's openness, and a restrained crackle: on a hot overrun
+  // at most 4 small pops a second where the LMP-X has 10, and at most one backfire on a lift-off where the LMP-X has up to four)
+  cylinders: 12, layout: 'v', crankType: 'flat', displacement: 6.4, turbo: false, exhaustOpenness: 0.85, brightness: 0.85, gearWhine: 0.25, crackle: 0.25,
+  // two sixes singing together: the 6th, 12th and 18th orders are the twelve's, and between them the 3rd, 9th and 15th of one bank stand
+  // 12-24, 8-16 and 7-15 dB under the 6th, a fifth to a quarter of the lines' power through the middle (4000-6000 rpm) and under a tenth
+  // from 9000, where the note cleans up into one howl. Through its straight-through mufflers the note rises to the limiter: steady flat
+  // out from 4000 rpm 1.6 dB every 1000 rpm, 0.22 dB rms about the parabola fitted to it and never 0.2 dB under an earlier point (through
+  // one merged pipe the same engine ripples by 2.1 dB rms and falls 7.7 dB on its way up)
+  exhaustSystem: 'twin',
+  // its loudness measured over its own revs, and 3 dB taken off what a 6.4 L engine is given: flat out through the gears it is then
+  // 0.8 dB under the Vanta GT and the Dieci and 2.4 dB under the LMP-X, and its peak stays under full scale at the limiter (0.85)
+  limiterRpm: 10600,
+  loudnessDb: -3,
+  // the lift of its 1000 rpm idle reaches 4000 rpm (not 2200): flat out the big engine is as full at 2000 rpm as at 4000, and rises from there
+  idleLiftTo: 4,
+  // an upshift is the gearbox's 50 ms: the note breaks for about that long, 12 dB deep, and comes back at the lower revs (a road car's
+  // gearbox leaves 100 ms, the Dieci's ignition cut 30, the Volta's flick 12)
+  shiftDip: 0.05,
+  // the induction's note from the scoop over the driver's head: on the same orders as the exhaust and timed to add to it, brighter (1.9 and
+  // 2.9 kHz), 18 dB louder in the cockpit than outside; flat out the cockpit rises 1.3 dB every 1000 rpm to the limiter
+  induction: 1,
 };
 
 // The Taccola itself: 1340 kg with the driver and fuel, 42 % of it on the front axle, on semi-slicks.
