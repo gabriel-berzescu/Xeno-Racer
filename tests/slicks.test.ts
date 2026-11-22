@@ -25,7 +25,11 @@ const mammoth = getCar('mammoth');
 const roadCars = ['vanta-gt', 'kestrel-r', 'ronin-86'].map(getCar);
 /** The three racing cars, on slicks (the Dieci's grooved), and every car that is not one. */
 const racingCars = ['lmp-x', 'volta', 'dieci'].map(getCar);
-/** The Taccola stands between the two: a road car on semi-slicks, half a slick (tests/taccola.test.ts says what that comes to). */
+/**
+ * The Taccola stands between the two: a road car on semi-slicks, half a slick (tests/taccola.test.ts says what that comes to). The skeleton
+ * was taken out of the asphalt ordering below because the LMP-X's 1.63 g at 60 km/h was not 1.35 times its 1.23 (1.66): it never had more
+ * grip than the LMP-X. It is in the ordering now, with a factor of its own on either side.
+ */
 const taccola = getCar('taccola');
 const otherCars = CARS.filter((c) => !racingCars.includes(c) && c !== taccola);
 const LOOSE: SurfaceType[] = ['grass', 'dirt', 'gravel', 'sand', 'deepsnow'];
@@ -51,8 +55,10 @@ describe('the racing slick is a trait of the tyre', () => {
     }
     // the Taccola's semi-slick is half of one, front and rear, its grip between a road tyre's and a slick's
     expect([taccola.physics.tireFront.slick, taccola.physics.tireRear.slick]).toEqual([0.5, 0.5]);
-    for (const c of otherCars) expect(taccola.physics.tireFront.mu, c.id).toBeGreaterThan(c.physics.tireFront.mu);
-    for (const r of racingCars) expect(taccola.physics.tireFront.mu, r.id).toBeLessThan(r.physics.tireFront.mu);
+    for (const t of [taccola.physics.tireFront, taccola.physics.tireRear]) {
+      for (const c of otherCars) expect(t.mu, c.id).toBeGreaterThan(c.physics.tireFront.mu * 1.1);
+      for (const r of racingCars) expect(t.mu, r.id).toBeLessThan(r.physics.tireFront.mu * 0.85);
+    }
     // (and the all-terrain tyre is the Mammoth's alone: the two kinds are two cars)
     expect(CARS.filter((c) => c.physics.tireFront.offroad).map((c) => c.id)).toEqual(['mammoth']);
     // the slick is still the stickiest tyre of the roster
@@ -161,15 +167,36 @@ describe('on asphalt, kerbs and concrete the LMP-X is what it was', () => {
     expect(dragRun(lmp, 20).t100).toBe(dragRun(withoutSlick, 20).t100);
   });
 
-  it('is still the king of the asphalt, with the Volta and the Dieci: the three racing cars have far more grip than any other car at 60 and at 120 km/h, dry and wet', () => {
+  it('is still the king of the asphalt, with the Volta and the Dieci: the three racing cars have far more grip than any other car at 60 and at 120 km/h, dry and wet, and the Taccola\'s semi-slicks stand between', () => {
     for (const wetness of [0, 0.75]) {
       for (const kmh of [60, 120]) {
+        const g = (c: CarDefinition) => gripAtSpeed(c, kmh, { wetness }).latG;
+        const others = otherCars.map(g);
+        // half a slick: an eighth and more over every car on road or all-terrain tyres (1.26 g at 60 km/h dry against the Vanta GT's 1.01,
+        // 0.90 on a wet road against the Kestrel R's 0.79), and a quarter and more under every racing car (the LMP-X's 1.63 and 1.15)
+        const half = g(taccola);
+        for (let i = 0; i < otherCars.length; i++) expect(half, `the Taccola against ${otherCars[i].id} at ${kmh} wet ${wetness}`).toBeGreaterThan(others[i] * 1.12);
         for (const r of racingCars) {
-          const mine = gripAtSpeed(r, kmh, { wetness }).latG;
-          for (const c of otherCars) expect(mine, `${r.id} against ${c.id} at ${kmh} wet ${wetness}`).toBeGreaterThan(gripAtSpeed(c, kmh, { wetness }).latG * 1.35);
+          const mine = g(r);
+          for (let i = 0; i < otherCars.length; i++) expect(mine, `${r.id} against ${otherCars[i].id} at ${kmh} wet ${wetness}`).toBeGreaterThan(others[i] * 1.35);
+          expect(mine, `${r.id} against the Taccola at ${kmh} wet ${wetness}`).toBeGreaterThan(half * 1.25);
         }
       }
     }
+  });
+
+  it('puts the Taccola between the road cars and the LMP-X on loose ground too: under the three road cars and over the LMP-X on grass, dirt and gravel, dry and wet, in the corner and in the stop', () => {
+    for (const surface of ['grass', 'dirt', 'gravel'] as const)
+      for (const wetness of [0, 0.75]) {
+        const ground = { surface, wetness };
+        const g = (c: CarDefinition) => gripAtSpeed(c, 60, ground).latG;
+        const d = (c: CarDefinition) => brakeRun(c, true, ground, 60).distance;
+        const label = `${surface} wet ${wetness}`;
+        expect(g(taccola), label).toBeLessThan(Math.min(...roadCars.map(g)));
+        expect(g(taccola), label).toBeGreaterThan(g(lmp) * 1.2);
+        expect(d(taccola), label).toBeGreaterThan(Math.max(...roadCars.map(d)));
+        expect(d(taccola), label).toBeLessThan(d(lmp) * 0.85);
+      }
   });
 });
 
