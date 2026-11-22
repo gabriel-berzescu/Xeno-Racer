@@ -155,6 +155,8 @@ describe('vehicle physics', () => {
         // (the two single-seaters, with more downforce than the prototype, stop shorter and corner harder than it: the Volta, 800 kg on slicks,
         // 18.8 m and 2.39 g, and the Dieci, 640 kg on grooved tyres, 18.3 m and 2.64 g, where the LMP-X does 20.2 m and 1.92 g;
         // tests/volta.test.ts and tests/dieci.test.ts hold the rest of their numbers)
+        // (the Taccola, class Hypercar, a road car on semi-slicks, is held to the road cars' bounds and sits at their edge: 27.1 m and 1.30 g
+        // on the skidpad, where the Vanta GT does 32.8 m and 1.08 g; tests/taccola.test.ts holds the rest of its numbers)
         expect(brakeAbs.distance).toBeGreaterThan(def.class === 'Formula' ? 17.5 : def.class === 'Prototype' ? 17 : def.class === 'SUV' ? 34 : 26);
         expect(brakeAbs.distance).toBeLessThan(45);
         expect(brakeLock.distance).toBeGreaterThan(brakeAbs.distance * 0.98);

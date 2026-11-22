@@ -250,7 +250,7 @@ describe('the Dieci is what its stats say', () => {
     expect(snow.held).toBeGreaterThan(4900);
     expect(snow.held).toBeLessThan(5350);
     // and no other car names one
-    for (const id of ['vanta-gt', 'kestrel-r', 'ronin-86', 'lmp-x', 'mammoth', 'volta']) expect(getCar(id).physics.engine.launchRpm, id).toBeUndefined();
+    for (const id of ['vanta-gt', 'kestrel-r', 'ronin-86', 'lmp-x', 'mammoth', 'volta', 'taccola']) expect(getCar(id).physics.engine.launchRpm, id).toBeUndefined();
     // the launch control's clutch takes no more than the tyres hold at rest: the rear wheels run at a steady slip, not in bursts the traction
     // control has to cut; with the traction control off they spin up and the car is at 100 in 2.9 s
     const { world, car } = setup(dieci, {}, 0, { ...AIDS });
