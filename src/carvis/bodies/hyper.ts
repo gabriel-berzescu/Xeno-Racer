@@ -9,7 +9,7 @@ import { curve } from '../curve';
 import { defaultLoft, sdFootprint, sdLoft } from '../loft';
 import { dent, roundPoly, strip2 } from '../shapes';
 import { sdCylinderX, sdEllipseRot2, sdPolygon2, sdRoundBox, sdRoundCone, sdRoundRect2, smax, smin, ssub } from '../sdf';
-import { addHyperFarParts, addHyperParts, hyperFrame, hyperGroove, hyperMoving } from './hyperParts';
+import { addHyperFarParts, addHyperParts, hyperFlank, hyperFrame, hyperGroove, hyperMoving } from './hyperParts';
 import { frontZ } from './probe';
 
 export const makeHyper: BlueprintFactory = (s) => {
@@ -25,18 +25,15 @@ export const makeHyper: BlueprintFactory = (s) => {
     {
       yb: curve([zTail, 0.12, zTail + 0.6, 0.105, zR + 0.5, 0.095, zNose - 0.5, 0.095, zNose - 0.15, 0.1, zNose, 0.13], 0.04),
       yt: curve([zTail, 0.69, zTail + 0.3, 0.705, zR, 0.715, -0.8, 0.7, 0.0, 0.685, 0.9, 0.675, 1.1, 0.645, 1.4, 0.5, 1.7, 0.35, 2.0, 0.25, 2.2, 0.215, zNose, 0.2], 0.05),
-      w: curve(
-        [zTail, 0.86, zTail + 0.12, 0.935, zTail + 0.4, 0.985, zR, 1.0, zR + 0.5, 0.99, -0.5, 0.945, 0.2, 0.93, 0.8, 0.95, zF, 0.985, zF + 0.4, 0.975, zNose - 0.35, 0.9, zNose - 0.15, 0.78, zNose, 0.5],
-        0.05,
-      ),
+      w: hyperFlank(s),
       crown: flat(0.03),
       // (the wall stands upright from 30 to 60 cm, where the groove is cut in it: it leans in above that and tucks under below)
       tum: flat(0.04),
       bar: flat(0.05),
       yw: 0.3,
       tumY: 0.6,
-      rTop: 0.07,
-      rBot: 0.06,
+      rTop: 0.09,
+      rBot: 0.08,
       rEnd: 0.08,
       zf: zNose,
       zr: zTail,
@@ -144,9 +141,9 @@ export const makeHyper: BlueprintFactory = (s) => {
 
   const base = (ax: number, y: number, z: number): number => {
     let d = sdLoft(low, ax, y, z);
-    d = smin(d, sdLoft(fus, ax, y, z), 0.07);
+    d = smin(d, sdLoft(fus, ax, y, z), 0.09);
     d = smin(d, sdLoft(canopy, ax, y, z), 0.09);
-    d = smin(d, sdLoft(fenderF, ax > podF ? ax - podF : podF - ax, y, z), 0.08);
+    d = smin(d, sdLoft(fenderF, ax > podF ? ax - podF : podF - ax, y, z), 0.1);
     d = smin(d, sdLoft(fenderR, ax > podR ? ax - podR : podR - ax, y, z), 0.11);
     // the roof scoop, running back into the spine
     d = smin(d, sdRoundCone(ax, y, z, 0, 1.1 * hk, -0.3, 0.09, 0, 1.0 * hk, -1.05, 0.05), 0.07);
@@ -154,8 +151,9 @@ export const makeHyper: BlueprintFactory = (s) => {
     d = smax(d, sdFootprint(ax, z, hw, zNose, zTail, 0.6, 0.3), 0.07);
     // (a hard cut: its edges are creases the mesher puts vertices on, where a blend would be a fillet narrower than a cell)
     d = Math.max(d, -groove.cut(ax, y, z));
-    d = ssub(d, archF(ax, y, z), 0.045);
-    d = ssub(d, archR(ax, y, z), 0.045);
+    // (hard cuts: an arch's lip is an edge)
+    d = Math.max(d, -archF(ax, y, z));
+    d = Math.max(d, -archR(ax, y, z));
     return d;
   };
   const baseF = (x: number, y: number, z: number): number => base(x < 0 ? -x : x, y, z);

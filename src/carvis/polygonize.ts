@@ -114,7 +114,8 @@ export function polygonize(o: PolygonizeOptions): MeshOut {
   let ecap = 1 << 14;
   let edata = new Float32Array(ecap * 6);
   let ecount = 0;
-  const ge = h * 0.12;
+  // (the normals are taken from four points under a millimetre round a point: wider, and more of them straddle a crease)
+  const ge = h * 0.03;
   /** The crossing of the edge from node (i, j, k) along `axis`, whose ends have the values fa and fb: its index into `edata`. */
   const hermite = (i: number, j: number, k: number, axis: number, fa: number, fb: number): number => {
     const key = (i + sx * j + sxy * k) * 3 + axis;
@@ -308,11 +309,12 @@ export function polygonize(o: PolygonizeOptions): MeshOut {
             b1 += wgt * wy * r;
             b2 += wgt * wz * r;
           }
-          // the normal there, and one Newton step onto the surface (a blended crease is a small fillet inside the planes' meeting line)
-          const fa = field(qx + gh, qy - gh, qz - gh);
-          const fb = field(qx - gh, qy - gh, qz + gh);
-          const fc = field(qx - gh, qy + gh, qz - gh);
-          const fd = field(qx + gh, qy + gh, qz + gh);
+          // the normal there (from four points under a millimetre round it, not the centimetre the smooth meshes use: beside a crease the wider four
+          // straddle it and tip a flat face's normal towards the next one), and one Newton step onto the surface
+          const fa = field(qx + ge, qy - ge, qz - ge);
+          const fb = field(qx - ge, qy - ge, qz + ge);
+          const fc = field(qx - ge, qy + ge, qz - ge);
+          const fd = field(qx + ge, qy + ge, qz + ge);
           evals += 4;
           const tx = fa - fb - fc + fd;
           const ty = -fa - fb + fc + fd;
@@ -323,7 +325,7 @@ export function polygonize(o: PolygonizeOptions): MeshOut {
             nxv = tx / gl;
             nyv = ty / gl;
             nzv = tz / gl;
-            const gm = gl / (4 * gh);
+            const gm = gl / (4 * ge);
             if (gm > 0.35) {
               let st = f1 / gm;
               const lim1 = 0.5 * h;
@@ -520,12 +522,12 @@ export function polygonize(o: PolygonizeOptions): MeshOut {
    * Dual contouring's hard edges. A vertex on a crease carries the normal of the fillet there, between the two faces, and a face shaded
    * from it to its own normal one cell away shows the mesh's diagonals as a saw-tooth along the crease. So the triangles round each
    * vertex are sorted into smoothing groups, as a modelling tool does: two that share an edge are in one group when their planes are
-   * within 40 degrees of each other. A vertex whose triangles are all one group keeps the field's own normal (every vertex of a smooth
-   * surface, and of a fillet of 6 cm or more at this cell size); one with several is copied, a copy to a group, each with the mean
+   * within 55 degrees of each other. A vertex whose triangles are all one group keeps the field's own normal (every vertex of a smooth
+   * surface, and of a fillet of 4 cm or more at this cell size: a body keeps its edges either well over 55 degrees or rounder than that); one with several is copied, a copy to a group, each with the mean
    * normal of its group's triangles: a face is smooth up to its edge, and the edge is a line.
    */
   if (sharp) {
-    const HARD_COS = 0.766;
+    const HARD_COS = 0.574;
     const nt = icount / 3;
     const tn = new Float32Array(nt * 3);
     for (let t = 0; t < nt; t++) {
@@ -553,38 +555,71 @@ export function polygonize(o: PolygonizeOptions): MeshOut {
     const fill = start.slice(0, nv0);
     for (let q = 0; q < icount; q++) fan[fill[idx[q]]++] = q;
     const group = new Int32Array(32);
-    const find = (q: number): number => {
-      while (group[q] !== q) q = group[q];
-      return q;
-    };
+    const un = new Float32Array(32 * 3);
+    const find = (q: number): number => group[q];
     for (let v = 0; v < nv0; v++) {
       const s0 = start[v], n = start[v + 1] - s0;
       if (n < 2 || n > 32) continue;
-      for (let q = 0; q < n; q++) group[q] = q;
-      let groups = n;
+      // Sorted by their planes: all one group unless two of them are more than the angle apart, and then those two are the seeds of
+      // two groups and every other joins the nearer; a group that still holds two as far apart is split again (a corner has three
+      // faces). Sorting by which triangles share an edge would let one triangle that straddles a crease, where the mesh missed it,
+      // join the two faces into one group.
       for (let q = 0; q < n; q++) {
-        const cq = fan[s0 + q];
-        const tq = (cq / 3) | 0;
-        const q1 = idx[tq * 3 + ((cq + 1) % 3)], q2 = idx[tq * 3 + ((cq + 2) % 3)];
-        const lq = Math.sqrt(tn[tq * 3] * tn[tq * 3] + tn[tq * 3 + 1] * tn[tq * 3 + 1] + tn[tq * 3 + 2] * tn[tq * 3 + 2]);
-        for (let r = q + 1; r < n; r++) {
-          const cr = fan[s0 + r];
-          const tr = (cr / 3) | 0;
-          const r1 = idx[tr * 3 + ((cr + 1) % 3)], r2 = idx[tr * 3 + ((cr + 2) % 3)];
-          if (q1 !== r1 && q1 !== r2 && q2 !== r1 && q2 !== r2) continue;
-          const lr = Math.sqrt(tn[tr * 3] * tn[tr * 3] + tn[tr * 3 + 1] * tn[tr * 3 + 1] + tn[tr * 3 + 2] * tn[tr * 3 + 2]);
-          if (tn[tq * 3] * tn[tr * 3] + tn[tq * 3 + 1] * tn[tr * 3 + 1] + tn[tq * 3 + 2] * tn[tr * 3 + 2] < HARD_COS * lq * lr) continue;
-          const gq = find(q), gr = find(r);
-          if (gq !== gr) {
-            group[gr] = gq;
-            groups--;
+        const tq = (fan[s0 + q] / 3) | 0;
+        const l = Math.sqrt(tn[tq * 3] * tn[tq * 3] + tn[tq * 3 + 1] * tn[tq * 3 + 1] + tn[tq * 3 + 2] * tn[tq * 3 + 2]) || 1;
+        un[q * 3] = tn[tq * 3] / l;
+        un[q * 3 + 1] = tn[tq * 3 + 1] / l;
+        un[q * 3 + 2] = tn[tq * 3 + 2] / l;
+        group[q] = 0;
+      }
+      let groups = 1;
+      for (let g = 0; g < groups && groups < 4; g++) {
+        let bi = -1, bj = -1, bd = HARD_COS;
+        for (let q = 0; q < n; q++) {
+          if (group[q] !== g) continue;
+          for (let r = q + 1; r < n; r++) {
+            if (group[r] !== g) continue;
+            const d = un[q * 3] * un[r * 3] + un[q * 3 + 1] * un[r * 3 + 1] + un[q * 3 + 2] * un[r * 3 + 2];
+            if (d < bd) {
+              bd = d;
+              bi = q;
+              bj = r;
+            }
           }
         }
+        if (bi < 0) continue;
+        const ng = groups++;
+        for (let q = 0; q < n; q++) {
+          if (group[q] !== g) continue;
+          const di = un[q * 3] * un[bi * 3] + un[q * 3 + 1] * un[bi * 3 + 1] + un[q * 3 + 2] * un[bi * 3 + 2];
+          const dj = un[q * 3] * un[bj * 3] + un[q * 3 + 1] * un[bj * 3 + 1] + un[q * 3 + 2] * un[bj * 3 + 2];
+          if (dj > di) group[q] = ng;
+        }
+        // (the group that was split is looked at again)
+        g--;
       }
-      if (groups < 2) continue;
+      if (groups < 2) {
+        // One face. Its normal is the field's, taken from four points a centimetre round the vertex: beside a crease they straddle
+        // it, and the vertex of a flat face is given a normal tipped towards the next one, a fringe along every edge on a glossy
+        // paint. The mean plane of its own triangles knows nothing of the crease: where the two are more than 12 degrees apart,
+        // that is the normal (a smooth surface's are within a few degrees of each other).
+        let mx = 0, my = 0, mz = 0;
+        for (let r = 0; r < n; r++) {
+          const tr = (fan[s0 + r] / 3) | 0;
+          mx += tn[tr * 3];
+          my += tn[tr * 3 + 1];
+          mz += tn[tr * 3 + 2];
+        }
+        const ml = Math.sqrt(mx * mx + my * my + mz * mz);
+        if (ml > 1e-12 && nor[v * 3] * mx + nor[v * 3 + 1] * my + nor[v * 3 + 2] * mz < 0.978 * ml) {
+          nor[v * 3] = mx / ml;
+          nor[v * 3 + 1] = my / ml;
+          nor[v * 3 + 2] = mz / ml;
+        }
+        continue;
+      }
       // a copy to a group (the first group keeps the vertex itself), each with its triangles' mean normal
-      for (let q = 0; q < n; q++) {
-        if (group[q] !== q) continue;
+      for (let q = 0; q < groups; q++) {
         let mx = 0, my = 0, mz = 0;
         let gx = 0, gy = 0, gz = 0, gn = 0;
         for (let r = 0; r < n; r++) {
@@ -616,7 +651,7 @@ export function polygonize(o: PolygonizeOptions): MeshOut {
           evals += 4;
           const tx = fa - fb - fc + fd, ty = -fa - fb + fc + fd, tz = -fa + fb - fc + fd;
           const tl = Math.sqrt(tx * tx + ty * ty + tz * tz);
-          if (tl > 1e-12 && (tx * mx + ty * my + tz * mz) / tl > 0.8) {
+          if (tl > 1e-12 && (tx * mx + ty * my + tz * mz) / tl > 0.966) {
             mx = tx / tl;
             my = ty / tl;
             mz = tz / tl;

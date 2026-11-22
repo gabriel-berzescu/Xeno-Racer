@@ -7,6 +7,7 @@ import { PART, type MovingPart } from '../blueprint';
 import { airfoilPoly } from '../aero';
 import { addDoorMirrors } from '../mirrorParts';
 import type { PartBuilder } from '../parts';
+import { curve, type Curve } from '../curve';
 import { roundPoly } from '../shapes';
 
 type V3 = [number, number, number];
@@ -33,28 +34,56 @@ export function hyperPoints(s: CarVisualSpec): { sideIntakeZ: number; exhausts: 
 }
 
 /**
- * The groove down each flank (ax = |x|; negative inside the cut): a V under the shoulder that opens out of the front wheel's arch and
- * is 18 cm deep where it ends. Its upper face runs in under a lip that climbs a little to the rear (an undercut: the face drops
- * 3 cm in 10), its lower face leans 50 degrees
- * out from the bottom of the V to the sill, and it ends in a wall that leans forward at the top, a brow over the intake's mouth: the
- * mesh in that wall is a part (addHyperParts).
+ * The car's half width along its length: the low body's wall (bodies/hyper.ts), upright from 30 to 60 cm off the ground, which is the
+ * flank from one wheel to the other and what the scallop is cut into.
  */
-export function hyperGroove(s: CarVisualSpec): { cut(ax: number, y: number, z: number): number; wallZ(y: number): number; upperX(y: number, z: number): number; lowerX(y: number, z: number): number; side: number } {
+export function hyperFlank(s: CarVisualSpec): Curve {
+  const { zF, zR, zNose, zTail } = hyperFrame(s);
+  return curve([zTail, 0.86, zTail + 0.12, 0.935, zTail + 0.4, 0.985, zR, 1.0, zR + 0.5, 0.99, -0.5, 0.945, 0.2, 0.93, 0.8, 0.95, zF, 0.985, zF + 0.4, 0.975, zNose - 0.35, 0.9, zNose - 0.15, 0.78, zNose, 0.5], 0.05);
+}
+
+/**
+ * The scallop down each flank (ax = |x|; negative inside the cut). Under a lip that climbs a little to the rear the flank is undercut:
+ * an upper face runs in under the lip, dropping 3 cm in 10, to a line 5 cm inside the flank behind the front wheel's arch (it opens
+ * out of the arch: the air from the wheel well runs down it) and 18 cm inside where it ends. From that line a lower face curves out
+ * and down, meeting the flank again 20 cm below as a tangent (the flank's own curve, hyperFlank, so it leaves no edge wherever the
+ * flank is): a crisp shoulder over a soft hollow. It ends in a wall that leans forward
+ * at the top, a brow over the intake's mouth; the mesh in that wall is a part (addHyperParts).
+ *
+ * Its sizes are the mesher's: nothing in it is thinner than two cells, its two edges (the lip, 73 degrees, and the line at the bottom
+ * of the undercut) are hard, and the lower face's curve is never tighter than 13 cm, so it leaves the flank without an edge.
+ */
+export function hyperGroove(s: CarVisualSpec): { cut(ax: number, y: number, z: number): number; wallZ(y: number): number; upperX(y: number, z: number): number; lowerX(y: number, z: number): number; sideAt(z: number): number } {
   const P = hyperPoints(s);
-  const side = 0.955;
-  const lipY = (z: number): number => 0.562 - 0.04 * z;
-  // (it opens out of the back of the front wheel's arch, 2 cm deep there: the air from the wheel well runs down it)
-  const depth = (z: number): number => 0.02 + 0.1 * (1.02 - z);
+  const flank = hyperFlank(s);
+  const sideAt = (z: number): number => flank.at(z);
+  const lipY = (z: number): number => 0.52 - 0.04 * z;
+  const depth = (z: number): number => 0.05 + 0.08 * (1.02 - z);
   const wallZ = (y: number): number => P.sideIntakeZ + 0.5 * (y - 0.45);
-  // where each face is at a height and a station: the cut is outboard of both
-  const upperX = (y: number, z: number): number => side + (y - lipY(z)) / 0.3;
-  const lowerX = (y: number, z: number): number => side - depth(z) + 1.19 * (lipY(z) - 0.3 * depth(z) - y);
+  /** how far below the bottom of the undercut the lower face is back at the flank */
+  const fall = 0.2;
+  // where each face is at a height and a station: the cut is outboard of both. (Below where it meets the flank the lower face
+  // curves on outwards, clear of the body: the cut ends there with no edge.)
+  const upperX = (y: number, z: number): number => sideAt(z) + (y - lipY(z)) / 0.3;
+  const lowerX = (y: number, z: number): number => {
+    const D = depth(z);
+    const t = (lipY(z) - 0.3 * D - y) / fall;
+    if (t >= 1) return sideAt(z) + 0.5 * (t - 1) * (t - 1);
+    return sideAt(z) - D * (t > 0 ? (1 - t) * (1 - t) : 1 - 2 * t);
+  };
+  const lowerSlope = (y: number, z: number): number => {
+    const t = (lipY(z) - 0.3 * depth(z) - y) / fall;
+    return t >= 1 ? (t - 1) / fall : (2 * depth(z) * (t > 0 ? 1 - t : 1)) / fall;
+  };
   return {
-    cut: (ax, y, z) => Math.max((upperX(y, z) - ax) * (0.3 / 1.045), (lowerX(y, z) - ax) / 1.56, (wallZ(y) - z) / 1.118),
+    cut: (ax, y, z) => {
+      const k = lowerSlope(y, z);
+      return Math.max((upperX(y, z) - ax) * (0.3 / 1.045), (lowerX(y, z) - ax) / Math.sqrt(1 + k * k), (wallZ(y) - z) / 1.118);
+    },
     wallZ,
     upperX,
     lowerX,
-    side,
+    sideAt,
   };
 }
 
@@ -132,7 +161,7 @@ export function addHyperParts(b: PartBuilder, s: CarVisualSpec): void {
   // the side intakes' mesh: a panel in the wall each groove ends in, cut to the V of the groove
   {
     const g = hyperGroove(s);
-    const out = g.side - 0.012;
+    const out = g.sideAt(g.wallZ(0.45)) - 0.012;
     const inner = (y: number): number => Math.max(g.upperX(y, g.wallZ(y)), g.lowerX(y, g.wallZ(y)));
     // the heights where the two faces reach the flank
     const solve = (f: (y: number) => number, lo: number, hi: number): number => {
