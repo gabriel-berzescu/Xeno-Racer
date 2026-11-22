@@ -72,7 +72,7 @@ export const SHAPES = {
 export type ShapeId = keyof typeof SHAPES;
 
 /** The shape each body style is drawn in: the three road cars share the grand tourer's. */
-export const SHAPE_OF: Record<BodyStyle, ShapeId> = { gt: 'gt', coupe: 'gt', hatch: 'gt', suv: 'suv', prototype: 'prototype', formula: 'formula' };
+export const SHAPE_OF: Record<BodyStyle, ShapeId> = { gt: 'gt', coupe: 'gt', hatch: 'gt', suv: 'suv', prototype: 'prototype', formula: 'formula', hyper: 'gt' };
 
 /** The four zones of a shape, as the rectangles that are cut to its body. */
 const zonePaths = (s: Shape): Record<'front' | 'rear' | 'left' | 'right', string> => ({

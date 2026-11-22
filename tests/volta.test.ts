@@ -33,6 +33,8 @@ import { runPack } from './probes/pack-race';
 const volta = getCar('volta');
 const lmp = getCar('lmp-x');
 const others = CARS.filter((c) => c !== volta);
+/** Every car whose wings are fixed: all but the Volta and the Taccola, whose rear wing lies down on the straights (tests/taccola.test.ts). */
+const noActiveAero = others.filter((c) => c.id !== 'taccola');
 /** The aids an AI driver races with (and the four-cars guard drives): ABS, the traction control low, no stability control. */
 const AIDS: Assists = { abs: true, tcs: 'low', esc: false, autoShift: true, steeringAssist: 0, autoClutch: true };
 const G = 9.81;
@@ -218,9 +220,9 @@ describe('the Volta corners and stops like a single-seater', () => {
 });
 
 describe('active aero: the Volta opens its wings on the straights', () => {
-  it('is the Volta\'s alone: every other car has fixed wings and no flaps in its state', () => {
+  it('is the Volta\'s and the Taccola\'s: every other car has fixed wings and no flaps in its state', () => {
     expect(volta.physics.aero.straightMode).toBeDefined();
-    for (const def of others) {
+    for (const def of noActiveAero) {
       expect(def.physics.aero.straightMode, def.id).toBeUndefined();
       const { world, car } = setup(def, {}, 250 / 3.6, { ...AIDS });
       car.controls.throttle = 1;
@@ -545,7 +547,7 @@ describe('the AI knows the flaps', () => {
   });
 
   it('gives no other car a straight mode, and a straight mode that is the corner mode changes the profile not by a bit', () => {
-    for (const def of others) expect(gripModel(def, alien).straight, def.id).toBeNull();
+    for (const def of noActiveAero) expect(gripModel(def, alien).straight, def.id).toBeNull();
     expect(gripModel(volta, alien).straight).not.toBeNull();
     const same = structuredClone(volta);
     same.physics.aero.straightMode = { dragArea: volta.physics.aero.dragArea, liftAreaFront: volta.physics.aero.liftAreaFront, liftAreaRear: volta.physics.aero.liftAreaRear };

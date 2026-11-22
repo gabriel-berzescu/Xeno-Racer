@@ -927,8 +927,137 @@ const dieci: CarDefinition = {
   },
 };
 
-// (the newest cars last, the Mammoth, the Volta and then the Dieci: tests take CARS[3] for the LMP-X)
-export const CARS: CarDefinition[] = [vanta, kestrel, ronin, lmp, mammoth, volta, dieci];
+// ─────────────────────────────────────────────────────────────────────────────
+// Taccola — a mid-engined road hypercar. A 6.4 L V12 singing to 10,600 rpm, an active rear wing, and number plates.
+// ─────────────────────────────────────────────────────────────────────────────
+// (taccola: the jackdaw, and the name the Sienese engineer Mariano di Jacopo went by. A first pass, on the shared contracts: its body,
+// its voice and its physics are each tuned in their own block below.)
+
+/**
+ * A semi-slick: the road-legal track tyre a hypercar leaves the factory on, a nearly smooth face of soft rubber with a few shallow
+ * grooves. Half way between a road tyre and a racing slick in everything: more grip on dry asphalt once it is warm (`mu`), less of it
+ * cold (`coldGrip`), little tread to clear standing water (`wetGrip`), and half a slick's loss on loose ground (`slick`: 0.5,
+ * src/physics/surfaces.ts).
+ */
+function semiSlick(widthMm: number, aspect: number, rimIn: number, mu: number, extra: Partial<TireSpec> = {}): TireSpec {
+  return {
+    ...roadTire(widthMm, aspect, rimIn, mu),
+    inertia: 1.6,
+    loadSensitivity: 0.15,
+    nominalLoad: 4500,
+    peakSlipAngle: 6.3 * DEG,
+    peakSlipRatio: 0.095,
+    slideRatio: 0.75,
+    relaxationLength: 0.38,
+    optimalTemp: 90,
+    tempWindow: 40,
+    coldGrip: 0.8,
+    wetGrip: 0.6,
+    slick: 0.5,
+    ...extra,
+  };
+}
+
+// The Taccola's body: 4.68 m long, 2.02 m wide and 1.12 m to the roof, on 20-inch front and 21-inch rear wheels.
+const taccolaVisual: CarVisualSpec = {
+  style: 'hyper',
+  length: 4.68,
+  width: 2.02,
+  height: 1.12,
+  wheelbase: 2.76,
+  trackFront: 1.7,
+  trackRear: 1.66,
+  frontOverhang: 1.02,
+  wheelRadiusFront: tireRadius(275, 30, 20),
+  wheelRadiusRear: tireRadius(345, 30, 21),
+  tireWidthFront: 0.275,
+  tireWidthRear: 0.345,
+  rimRadiusFront: 0.254,
+  rimRadiusRear: 0.2667,
+  rideHeight: 0.095,
+  cgHeight: 0.4,
+  cgToFrontAxle: 1.6,
+  wing: 0.6,
+  engine: 'mid',
+  exhaust: { count: 4, side: 'center' },
+  seat: { x: 0.34, y: 0.27, z: 0.02 },
+};
+
+// The Taccola's voice: a 6.4 L 60-degree V12, naturally aspirated, even firing (six pulses a turn), through a short road exhaust.
+const taccolaSound: EngineSoundProfile = {
+  cylinders: 12, layout: 'v', crankType: 'flat', displacement: 6.4, turbo: false, exhaustOpenness: 0.85, brightness: 0.85, gearWhine: 0.25, crackle: 0.4,
+};
+
+// The Taccola itself: 1340 kg with the driver and fuel, 42 % of it on the front axle, on semi-slicks.
+const taccola: CarDefinition = {
+  id: 'taccola',
+  name: 'Taccola',
+  maker: 'Xeno Automobili',
+  description:
+    'A mid-engined hypercar named for the jackdaw: 1340 kg, a 6.4 L V12 that sings to 10,600 rpm and a wing that lies flat on the straights. Road-legal, on semi-slicks — warm them before you lean on them.',
+  class: 'Hypercar',
+  drivetrain: 'RWD',
+  stats: { powerHp: 986, torqueNm: 760, massKg: 1340, topSpeedKmh: 385, zeroTo100: 2.8 },
+  visual: taccolaVisual,
+  sound: taccolaSound,
+  defaultLivery: { primary: '#12141c', secondary: '#9aa1a8', accent: '#dfe8ee', pattern: 'solid', number: 12, driver: 'You', finish: 0, metallic: true },
+  physics: {
+    chassis: {
+      mass: 1340,
+      inertia: { x: 2150, y: 2050, z: 470 },
+      cgHeight: 0.4,
+      wheelbase: 2.76,
+      cgToFrontAxle: 1.6,
+      trackFront: 1.7,
+      trackRear: 1.66,
+      maxSteer: 30 * DEG,
+      ackermann: 0.4,
+      ...hullFromVisual(taccolaVisual, 1.6),
+    },
+    engine: {
+      idleRpm: 1000,
+      redlineRpm: 10400,
+      limiterRpm: 10600,
+      // 735 kW (986 hp) at 10,000 rpm and 760 Nm at 7000, with 600 Nm from 3000: no turbo, no motor
+      torqueCurve: [
+        [0, 380], [1000, 430], [2000, 520], [3000, 600], [4000, 660], [5000, 710], [6000, 745], [7000, 760], [8000, 758],
+        [9000, 740], [10000, 702], [10400, 672], [10600, 650], [11000, 590],
+      ],
+      engineBraking: 150,
+      inertia: 0.13,
+      turbo: null,
+    },
+    drivetrain: {
+      layout: 'RWD',
+      // (10,400 rpm is 105 / 145 / 185 / 228 / 275 / 327 / 385 km/h)
+      gears: [3.37, 2.44, 1.913, 1.552, 1.287, 1.082, 0.919],
+      reverse: 3.0,
+      finalDrive: 4.1,
+      efficiency: 0.92,
+      shiftTime: 0.05,
+      upshiftRpm: 10300,
+      downshiftRpm: 5800,
+      diff: { type: 'lsd', preload: 100, powerLock: 0.4, coastLock: 0.25 },
+      frontSplit: 0,
+    },
+    brakes: { frontTorque: 3800, rearTorque: 2000, handbrakeTorque: 2400, discHeatCapacity: 3600 },
+    // corner mode, the wing up: 2.25 m^2 of downforce area, 42 % of it at the front (650 kg at 250 km/h), and a CdA of 0.92; straight mode,
+    // the wing laid flat and the flaps under the nose with it: a fifth less drag and four tenths less downforce
+    aero: {
+      dragArea: 0.92,
+      liftAreaFront: 0.95,
+      liftAreaRear: 1.3,
+      straightMode: { dragArea: 0.72, liftAreaFront: 0.52, liftAreaRear: 0.78 },
+    },
+    tireFront: semiSlick(275, 30, 20, 1.32),
+    tireRear: semiSlick(345, 30, 21, 1.32, { inertia: 1.9 }),
+    suspFront: { travel: 0.09, spring: 70000, bump: 3200, rebound: 5600, antiRoll: 42000, camber: -2.2 * DEG },
+    suspRear: { travel: 0.09, spring: 100000, bump: 3600, rebound: 6400, antiRoll: 30000, camber: -1.6 * DEG },
+  },
+};
+
+// (the newest cars last, the Mammoth, the Volta, the Dieci and then the Taccola: tests take CARS[3] for the LMP-X)
+export const CARS: CarDefinition[] = [vanta, kestrel, ronin, lmp, mammoth, volta, dieci, taccola];
 
 export function getCar(id: string): CarDefinition {
   const c = CARS.find((c) => c.id === id);

@@ -112,8 +112,10 @@ describe.each(CARS.map((c) => [c.id, c.visual] as const))('mirror layout: %s', (
   });
 
   it('has a prototype display and no rear-view mirror, road cars the other way round, and a single-seater neither', () => {
-    expect(!!L.interior).toBe(spec.style !== 'prototype' && spec.style !== 'formula');
-    expect(!!L.screen).toBe(spec.style === 'prototype');
+    // (the hypercar's engine and its spine fill the view behind the cabin: it has the prototype's display of the rear camera)
+    const display = spec.style === 'prototype' || spec.style === 'hyper';
+    expect(!!L.interior).toBe(!display && spec.style !== 'formula');
+    expect(!!L.screen).toBe(display);
   });
 });
 
@@ -219,7 +221,7 @@ describe('mirror rig', () => {
     for (const c of CARS) {
       const rig = createMirrorRig(c.visual);
       const kinds = rig.api.glass.map((g) => g.kind + ':' + g.mesh.name.replace('mirror.', ''));
-      if (c.visual.style === 'prototype') expect(kinds, c.id).toEqual(['reflect:left', 'reflect:right', 'camera:screen']);
+      if (c.visual.style === 'prototype' || c.visual.style === 'hyper') expect(kinds, c.id).toEqual(['reflect:left', 'reflect:right', 'camera:screen']);
       else if (c.visual.style === 'formula') expect(kinds, c.id).toEqual(['reflect:left', 'reflect:right']);
       else expect(kinds, c.id).toEqual(['reflect:left', 'reflect:right', 'reflect:interior']);
       expect(rig.api.rearCamera).toBeTruthy();

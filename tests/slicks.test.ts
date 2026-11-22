@@ -25,7 +25,9 @@ const mammoth = getCar('mammoth');
 const roadCars = ['vanta-gt', 'kestrel-r', 'ronin-86'].map(getCar);
 /** The three racing cars, on slicks (the Dieci's grooved), and every car that is not one. */
 const racingCars = ['lmp-x', 'volta', 'dieci'].map(getCar);
-const otherCars = CARS.filter((c) => !racingCars.includes(c));
+/** The Taccola stands between the two: a road car on semi-slicks, half a slick (tests/taccola.test.ts says what that comes to). */
+const taccola = getCar('taccola');
+const otherCars = CARS.filter((c) => !racingCars.includes(c) && c !== taccola);
 const LOOSE: SurfaceType[] = ['grass', 'dirt', 'gravel', 'sand', 'deepsnow'];
 const NOT_LOOSE: SurfaceType[] = ['asphalt', 'curb', 'concrete', 'snow', 'ice'];
 
@@ -47,6 +49,10 @@ describe('the racing slick is a trait of the tyre', () => {
       expect(c.physics.tireFront.slick, c.id).toBeUndefined();
       expect(c.physics.tireRear.slick, c.id).toBeUndefined();
     }
+    // the Taccola's semi-slick is half of one, front and rear, its grip between a road tyre's and a slick's
+    expect([taccola.physics.tireFront.slick, taccola.physics.tireRear.slick]).toEqual([0.5, 0.5]);
+    for (const c of otherCars) expect(taccola.physics.tireFront.mu, c.id).toBeGreaterThan(c.physics.tireFront.mu);
+    for (const r of racingCars) expect(taccola.physics.tireFront.mu, r.id).toBeLessThan(r.physics.tireFront.mu);
     // (and the all-terrain tyre is the Mammoth's alone: the two kinds are two cars)
     expect(CARS.filter((c) => c.physics.tireFront.offroad).map((c) => c.id)).toEqual(['mammoth']);
     // the slick is still the stickiest tyre of the roster

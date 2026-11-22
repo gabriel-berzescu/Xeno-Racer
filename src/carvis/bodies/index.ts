@@ -16,4 +16,6 @@ export const BLUEPRINTS: Record<BodyStyle, BlueprintFactory> = {
   suv: makeSuv,
   // (a single-seater of 2004, CarVisualSpec.formulaEra, has a body of its own; the Volta's 2026 car, no era, the one it always had)
   formula: (s) => (s.formulaEra === 2004 ? makeFormula04(s) : makeFormula(s)),
+  // (the hypercar's own body is still to come: until then it is drawn with the prototype's at its own sizes)
+  hyper: makePrototype,
 };

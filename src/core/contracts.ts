@@ -291,8 +291,11 @@ export interface VehicleState {
 // Cars (owner: game/physics — data lives in src/cars)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** The body a car is drawn with ('formula': an open-wheeled single-seater, the Volta and the Dieci; CarVisualSpec.formulaEra says of which era). */
-export type BodyStyle = 'gt' | 'hatch' | 'coupe' | 'prototype' | 'suv' | 'formula';
+/**
+ * The body a car is drawn with ('formula': an open-wheeled single-seater, the Volta and the Dieci; CarVisualSpec.formulaEra says of which
+ * era. 'hyper': a mid-engined road hypercar with a closed canopy and an active rear wing, the Taccola).
+ */
+export type BodyStyle = 'gt' | 'hatch' | 'coupe' | 'prototype' | 'suv' | 'formula' | 'hyper';
 
 /** Everything the car-visual builder needs. Body geometry origin: on the ground, centered
  *  between the axles and between the wheels, +z forward. The center of mass sits at
@@ -494,7 +497,7 @@ export interface CarDefinition {
   name: string;
   maker: string; // fictional
   description: string;
-  class: 'Road' | 'Sport' | 'GT' | 'Prototype' | 'SUV' | 'Formula';
+  class: 'Road' | 'Sport' | 'GT' | 'Prototype' | 'SUV' | 'Formula' | 'Hypercar';
   drivetrain: 'FWD' | 'RWD' | 'AWD';
   /** Menu stats (computed/estimated). */
   stats: { powerHp: number; torqueNm: number; massKg: number; topSpeedKmh: number; zeroTo100: number };
