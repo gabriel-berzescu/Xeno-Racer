@@ -27,7 +27,7 @@ signage: teal `#16e0bd`, hot pink `#ff2e63`, near-black `#0b0c10`, off-white `#e
 | `src/game/`, `src/main.ts` | lead | game loop, race logic, timing, ghosts, championship (`championship.ts`: pure scoring, standings and persistence), weather that changes during a race (`weather.ts`: the plan, the timeline and the director, pure; the rules of a legal forecast are in `src/core/forecast.ts`), integration |
 | `src/track/` | track | track definitions, spline/runtime queries, road/terrain/scenery meshes |
 | `src/render/` | render | renderer, post-processing, sky/sun/env map, cameras, particle FX, skidmarks |
-| `src/carvis/` | carvis | procedural car models (`bodies/`: a blueprint per body style; the single-seater's two eras in `formula.ts` + `formulaParts.ts`, the Volta's 2026 car, and `formula04.ts` + `formula04Parts.ts`, the Dieci's 2004 one), wheels, lights, liveries, cockpit (`layouts.ts`: where a car's eye, cameras and lamps are, `formulaCockpit` for the single-seaters) |
+| `src/carvis/` | carvis | procedural car models (`bodies/`: a blueprint per body style; the single-seater's two eras in `formula.ts` + `formulaParts.ts`, the Volta's 2026 car, and `formula04.ts` + `formula04Parts.ts`, the Dieci's 2004 one; the hypercar's body in `hyper.ts` + `hyperParts.ts`), the mesher (`polygonize.ts`: surface nets, and dual contouring with hard edges for a body that asks, `Blueprint.sharp`), wheels, lights, liveries, cockpit (`layouts.ts`: where a car's eye, cameras and lamps are, `formulaCockpit` for the single-seaters) |
 | `src/audio/` | audio | engine synthesis, tires, wind, impacts, UI sounds, music |
 | `src/input/` | ui | gamepad + keyboard → `InputFrame` |
 | `src/ui/` | ui | HUD, menus, settings screens (DOM/CSS overlay in `#ui`) |
@@ -35,7 +35,7 @@ signage: teal `#16e0bd`, hot pink `#ff2e63`, near-black `#0b0c10`, off-white `#e
 | `sandbox/<owner>.html` + `sandbox/<owner>/*` | each owner | standalone dev page for the subsystem |
 | `public/assets/<owner>/` | each owner | downloaded assets + `CREDITS.md` |
 | `tests/<owner>*.test.ts` | each owner | vitest (headless) tests |
-| `tests/<car>.test.ts` | lead | a car's promises in numbers (`mammoth`, `volta`, `dieci`), beside its look (`carvis-suv`, `carvis-formula`, `carvis-formula04`) and its voice (`audio-<car>`) |
+| `tests/<car>.test.ts` | lead | a car's promises in numbers (`mammoth`, `volta`, `dieci`, `taccola`), beside its look (`carvis-suv`, `carvis-formula`, `carvis-formula04`, `carvis-hyper`) and its voice (`audio-<car>`) |
 | `previews/<car>/` | audio | git-ignored: a car's voice rendered to MP3s and spectrograms to listen to (`sandbox/audio/lab/<car>-previews.ts`) |
 
 Each module exposes its public API from `src/<module>/index.ts`, matching `src/core/systems.ts`
@@ -74,15 +74,15 @@ engine position) and kept with its record (`MechState.profile`; a record made wi
 physics, the AI, the drawn wheels) and `mechanicalReport` (the HUD) both read it, so they cannot disagree: a part of the indicator lights exactly when
 the hit changed how that car drives. `Vehicle.setDamage` also refuses to scale a lift area that is not downforce, whatever it is handed.
 
-| the nose and tail can lose | Vanta GT | Kestrel R | Ronin 86 | LMP-X | Mammoth | Volta | Dieci |
-|---|---|---|---|---|---|---|---|
-| front and rear downforce (to 60 %) | yes | no: a lip and a ducktail | no: the same | yes, a great deal | no: its aero is lift | yes, a great deal, its flaps open or shut | yes, the most |
-| engine power (up to 10 %, heavy nose hits) | yes | yes | yes | no: radiators in the side pods | yes | no: radiators in the sidepods | no: radiators in the sidepods |
-| the rear wheels pushed out of line (a trace, tail hits) | yes | yes | yes | yes | yes | yes | yes |
+| the nose and tail can lose | Vanta GT | Kestrel R | Ronin 86 | LMP-X | Mammoth | Volta | Dieci | Taccola |
+|---|---|---|---|---|---|---|---|---|
+| front and rear downforce (to 60 %) | yes | no: a lip and a ducktail | no: the same | yes, a great deal | no: its aero is lift | yes, a great deal, its flaps open or shut | yes, the most | yes, its wing up or down |
+| engine power (up to 10 %, heavy nose hits) | yes | yes | yes | no: radiators in the side pods | yes | no: radiators in the sidepods | no: radiators in the sidepods | yes: its radiators are in its nose |
+| the rear wheels pushed out of line (a trace, tail hits) | yes | yes | yes | yes | yes | yes | yes | yes |
 
 The wheels are every car's (toe and camber, from the hits along the flank). The indicator shows a nose by its downforce where the car has any and by its
 engine where not (so a Mammoth's stays dark until a hit reaches the radiator), and a tail by its downforce or by the trace of toe (never worse than Light).
-It draws the car in the outline of its body style (`HudDamage.style`, from `CarVisualSpec.style`): a teardrop for the road cars, a brick with flared arches
+It draws the car in the outline of its body style (`HudDamage.style`, from `CarVisualSpec.style`): a teardrop for the road cars, the Taccola among them, a brick with flared arches
 for the Mammoth, a prototype with its front and rear wings for the LMP-X, an open-wheeler for the Volta and the Dieci (a front wing, a narrow nose, the wheels
 out on their arms, sidepods narrowing to the gearbox, a rear wing), each with its own wheels and zone splits (`SHAPES` in `src/ui/hud/damage.ts`).
 
@@ -483,7 +483,8 @@ how it drives or sounds: the nitro flames start at the pipes (below), and the ca
   SEEDS=0..7 CAR=dieci npx vitest run tests/probes/pack.test.ts`), no car hits a wall or needs a reset. The one-make Voltas' first-lap scrape of
   Kuroyama's narrow corner is rarer in Diecis, not gone: in eight more races there, dry (`TRACK=kuroyama WET=0 SEEDS=30..37`), one Dieci, tenth on the
   grid, touched its wall once, on the first lap at 820 m and 2.1 m/s, where the Voltas of the same seeds touched a wall there four times. In 48 mixed
-  races of twelve (`CAR=mixed`: two each of the Vanta, Kestrel, Ronin, LMP-X and Mammoth, one Volta and one Dieci) no car needs a reset and the
+  races of twelve (`CAR=mixed`, the field of that time: two each of the Vanta, Kestrel, Ronin, LMP-X and Mammoth, one Volta and one Dieci; with the
+  Taccola the eighth car of the roster the second Mammoth's place is the Taccola's) no car needs a reset and the
   Dieci hits no wall (off the road for 0.11 s a race at Kuroyama dry, and nowhere else), but road cars touched the wall at Brennwald three times, at
   2.3-4.7 m/s, each running wide as it moved out to pass the car ahead, with no Dieci within 60 m; the same field at Brennwald with seeds 8-15 touched
   none, so it reads as the chance of a different race order, not as anything the Dieci does. In traffic it pumps its brakes more than the Volta, which
@@ -591,6 +592,100 @@ how it drives or sounds: the nitro flames start at the pipes (below), and the ca
     At 200 km/h 0.8 of the pedal holds it at 5.4 degrees, and at 280 flat out it holds 4.5 (`tests/dieci.test.ts`, `DIECI_BEND_LOG=1`). The traction
     control reads the rears' slip along the road, not across it, and changing that would change every car; moving the downforce rearward would plant
     the Dieci, but it is a change to its tune and its numbers, left as it is.
+
+## The Taccola: a road hypercar, a semi-slick, a wing that lies down and a mesh with edges
+
+`CARS[7]`, class `Hypercar`, body style `'hyper'`: a mid-engined road car, the top of the road cars, between the Vanta GT and the LMP-X (taccola: the
+jackdaw, and the name the Sienese engineer Mariano di Jacopo went by). 1340 kg with its driver and fuel (40 % of it on the front axle, the
+centre of gravity 44 cm up), 986 hp from a 6.4 L naturally aspirated V12 (760 Nm at 7000 rpm, 735 kW at 10,000; it shifts at 10,300 and is cut at 10,600), 7 speeds and rear
+drive, on semi-slicks (275/30R20 and 345/30R21) and with a rear wing that lies down on the straights; nothing electric, and its nitro is the ordinary
+bottle. The numbers it is held to are in `tests/taccola.test.ts` (`TACCOLA=all npx vitest run tests/probes/taccola-probe.test.ts` prints the tables
+beside the Vanta GT and the LMP-X; `tests/physics.test.ts` holds the class to its own bounds), its look in `tests/carvis-hyper.test.ts` and its voice
+in `tests/audio-taccola.test.ts`.
+
+Everything it brought is behind a field of the car's data that no other car has (the body style, `Blueprint.sharp`, a `TireSpec.slick` between 0 and 1,
+`AeroSpec.straightMode` on a car that is not a single-seater, `EngineSpec.noseRadiators`, `EngineSoundProfile.exhaustSystem` `'twin'`, `induction` and
+`loudnessDb`), never behind its id, so the seven other cars are what they were: `tests/probes/geom-hash.test.ts` (`GEOMHASH=compare`, against a file
+recorded from a tree at the skeleton, `GEOMHASH_IDS` the seven) prints `geomhash: 221 entries: ALL IDENTICAL`, the audio regress-lab `27/27 scenarios
+identical` for each of the seven other voices, and `tests/probes/four-cars.test.ts` `ALL BIT-IDENTICAL` with the default ids and with `FOURCARS_IDS` `mammoth`, `volta` and `dieci` (against files recorded at the skeleton).
+
+- **The body** (`src/carvis/bodies/hyper.ts`, its parts and what other modules look for in `hyperParts.ts`; `tests/carvis-hyper.test.ts`): a low body
+  the whole plan of the car, whose top is the floor of two open channels beside the nose, the shoulder along the doors and the floor of two valleys
+  beside the engine; on it a fuselage (a beak of a nose, the cowl, and behind the cabin a spine that runs to the tail), a teardrop canopy, and four
+  pontoons over the wheels, the front ones bending in towards the nose so that the plan of the nose is the low body's. The radiators' mesh is in the
+  channels' floors, the engine's vents in the valleys', a scoop stands on the roof (the car's 1.17 m is to its top; the roof is 1.12 m up), the tail
+  is a lamp across its whole width over a meshed fascia with four tailpipes in a cluster, and under that a diffuser tunnel with four fins.
+  - **The flank** is the low body's wall alone from one wheel to the other (`hyperFlank`: the pontoons stay inside it), upright from 30 to 60 cm off
+    the ground, and the scallop is cut in it relative to that same curve (`hyperGroove`): an upper face runs in under a lip, 5 cm behind the front
+    arch and 18 cm where it ends, and a lower face curves out and down to meet the flank again as a tangent 20 cm below, so the hollow has one edge,
+    the lip, and leaves the flank without one. It ends in a wall that leans forward at the top, and the intake's mesh in that wall is a part. Cut
+    from a fixed plane it left the flank at an angle wherever the flank was not that plane, a saw-tooth the length of the door.
+  - **The glass** is the canopy from its belt up, but for a 5.6 cm pillar each side of the windscreen, the roof panel and its rail, and the tail:
+    the pillar runs from 57 cm out at its foot to 42 at the header, 12 cm to the left of the driver's eye (the seats are 30 cm from the centre
+    line). With the roof 30 cm narrower than the belt each side and the seats at 34 it crossed the middle of the view.
+  - **The wing** is one moving part (`Blueprint.moving`, `drive: 'aero'`, as the Volta's flaps): a blade on two arms that turn 0.3 rad about a hinge
+    in the valleys' floor. In corner mode, and at rest, the arms stand and the blade is pitched 0.3 rad, its trailing edge high; in straight mode
+    they lie down and the blade comes down flat over the tail, 8 cm and more lower. The far LOD keeps it as a slab (`farParts`).
+  - **Wheels, lamps, cockpit:** nine swept blades round a centre lock (`WheelStyle` `'blade'`), a semi-slick with two shallow grooves a side and a
+    road tyre's markings; a blade of daytime light over a round projector in each pontoon's face, and the tail's lamp is the tail light and the
+    brake light; the flames come out of the four tailpipes (`hyperPoints`, `src/render/effects.ts buildTips`: `tests/render-fx.test.ts` keeps the
+    two the same). The cabin is two bucket seats under the canopy, a low dash and a slim console, door mirrors on stalks from the doors'
+    shoulders, and where a rear-view mirror would hang a display of the rear camera, as the LMP-X has (the spine fills the view behind).
+- **The mesher's sharp mode** (`polygonize.ts` `sharp`, asked for by `Blueprint.sharp`; off for every other body, whose meshes are bit for bit what
+  they were). Surface nets put a vertex at the centroid of a cell's edge crossings, which steps from one face to the other along any crease that is
+  not on the grid: on this body about 2 % of the triangles lie more than 4 mm off the field, across its creases, and a glossy paint shows each one.
+  The sharp mode is dual contouring with what it took to make an edge a line:
+  - each vertex is the point nearest the tangent planes of the surface at its cell's edge crossings (a least-squares fit, held to the crossings'
+    mean by a 250th of their weight where the planes do not say, firmly if the answer lands outside the cell, and never outside the cell); the
+    crossings are found on the field itself and their normals taken from four points under a millimetre apart;
+  - a face that cuts a corner off a cell between two samples crosses none of its edges: when the point is off the surface and the surface nearest
+    to it faces a way no crossing did, that face's tangent plane joins the others and the point is solved again, which puts it on the crease;
+  - a quad with two opposite corners on a crease is bent along that diagonal, and is split along it (the diagonal whose middle is on the surface);
+  - hard edges by smoothing groups: the triangles round a vertex are sorted by their planes, two groups when two of them are more than 55 degrees
+    apart, and the vertex is copied, a copy to a group, each with the field's own normal a little way into its face; a vertex of one group keeps the
+    field's normal unless it is more than 12 degrees off the mean plane of its triangles (a crease beside it has tipped it).
+  A body that asks for it keeps to the mesher's rules, as this one does: nothing thinner than two cells, and no edge between about 15 and 55 degrees
+  (an edge is well over 55, or a blend of 4 cm of radius and more, or a tangent). With them the mesh has no vertex 4 mm off the field and under 0.4 %
+  of its triangles (`tests/carvis-hyper.test.ts`; `HYPERMESH=1 npx vitest run tests/probes/hyper-mesh-probe.test.ts` prints both meshers' figures and
+  where the strays are). It costs about twice the field evaluations of surface nets, a second a body at the high quality's cell.
+- **The voice** (`taccolaSound`, `tests/audio-taccola.test.ts`, previews by `sandbox/audio/lab/taccola-previews.ts`): a 6.4 L V12 fires every 60 degrees,
+  and through one merged pipe its two banks sum to a pure 6th-order train, a smooth and anonymous note. `exhaustSystem: 'twin'` gives each bank, an
+  inline six, its own pipe to its own pair of tailpipes, with straight-through mufflers and almost nothing sent back from the open ends: the two
+  banks differ by a short delay and by their share at the listener, so the 3rd, 9th and 15th orders of one bank stand 13-18, 8-12 and 7-9 dB under
+  the 6th through the middle of the revs (two sixes singing together) and fade into one howl towards the limiter, and with no reflections to ripple
+  it the note rises 1.6 dB every 1000 rpm from 4000 to 10,600 rpm with no step down. `induction` is the airbox's own note from the scoop over the
+  driver's head, on the crank's orders and timed to add to the exhaust, 18 dB louder in the cockpit than outside; `loudnessDb` trims the loudness
+  target of a big engine measured over its own revs (-3: without it it peaks over full scale flat out). An upshift is the gearbox's 50 ms, every
+  downshift is blipped, and a lift-off has one backfire or none. Twelve cylinders shake the block a quarter as much as fewer do, for any engine of
+  twelve.
+- **The semi-slick** (`semiSlick` in `src/cars/index.ts`, `TireSpec.slick: 0.5`): the road-legal track tyre a hypercar leaves the factory on, half way
+  between a road tyre and a racing slick in everything. `slick` was 0 or 1 on every car before it; at 0.5 every number of its table of surfaces is
+  the mean of the road tyre's and the slick's (`src/physics/surfaces.ts`), and paved ground, packed snow and ice are the same objects for it as for
+  every tyre. Its mu is 1.255 at the front and 1.30 at the rear (the rear tyre a quarter wider, sized for nearly twice the load), an eighth over
+  every road car's and a quarter under every racing car's (`tests/slicks.test.ts` has it in both orderings); it holds 81 % of that cold, at the air's
+  24 C (a road tyre 90, a slick 75), 69 % on a wet road and 59 % in standing water (the Vanta GT's road tyre 75 and 66), and on grass, dirt and
+  gravel it is under every road car and well over the LMP-X. Each axle has its own thermal size, so a dry lap runs the fronts at 85-91 C and the
+  rears at 86-91, their optimum.
+- **The active wing** is `AeroSpec.straightMode` on a road car, by the Volta's rule as it stands (open on a straight taken flat out, shut at once
+  for a lift, the brakes or a turn of the wheel; the AI knows it as it knows the Volta's). Corner mode: 2.37 m^2 of downforce area, 39 % of it at
+  the front, and a CdA of 1.08; straight mode a fifth less drag and 44 % less downforce, 36 % of it at the front: 384 km/h flat out in seventh at
+  10,200 rpm, just past the power peak, and 352 with the wing fixed up. The downforce sits behind the centre of gravity in both modes (40 % of the
+  weight is on the front axle): with 42 % of it at the front the car held a little more at 250 km/h, but flat out in a fast bend without the aids
+  the tail came round, and a lift at 200 km/h in standing water spun it.
+- **The tune:** 60 % of the weight on the driven axle and a first gear to 120 km/h (the rear tyres run 12 % faster than the road under the
+  traction control, and a shorter first changed up before 100): 0-100 km/h in 2.88 s, the rear tyres' limit, 200 in 6.1 s and 300 in 12.6 s. A
+  differential that is nearly open until the engine pulls hard (15 Nm of preload, 8 % of the drive): locked harder, the inside rear wheel pushed
+  the car straight on and it drifted 25-32 degrees flat out in a bend on the traction control alone, where now it holds 9-13. Brakes 72 % to the
+  front, so the front tyres and ABS are the limit at any speed: 27.1 m from 100 km/h, 2.3 g from 300, and a stop with the wheels locked ploughs
+  straight on. It holds 1.30 g on the skidpad, 1.44 g at 150 km/h, 1.62 at 200 and 1.80 at 250, where 714 kg press it down (the Vanta GT 1.08 and
+  1.13, the LMP-X 1.92 and 3.02). With the Standard aids it holds its line flat out in a bend (6 degrees of body slip where the Vanta GT drifts
+  18-26); without the traction control it steps out under power in second and third over a quarter of a second and more, and a lift turns it in
+  6-7 degrees. A nitro shot, the ordinary bottle, held from rest takes 100 in 2.3 s and 200 in 4.4 s.
+- **Nose radiators** (`EngineSpec.noseRadiators`): a mid-engined car loses no engine power to a nose hit in `mechanicalProfile`, its radiators
+  being in its side pods; one cooled through its nose, the outlets in its hood, does. The Taccola alone has the field (see the table of what a
+  hit can take, above).
+- **On a lap** (`tests/taccola.test.ts`, the AI drivers): 9-15 % quicker than the Vanta GT on the four road circuits in the dry and 5-9 % in a
+  storm, 7-16 % behind the LMP-X in the dry and 10-17 % in a storm, and on the studded tyres of Isvik level with the LMP-X.
 
 ## Driving aids: the driving line and the braking assist
 

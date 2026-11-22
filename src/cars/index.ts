@@ -436,7 +436,7 @@ const lmp: CarDefinition = {
 // or over the apex kerb of a corner at the limit, it lifts an inner wheel; it cannot be tipped by a wall, a bank or loose ground in this model (its
 // tyres hold 1.05 g, a rollover takes 1.2). On packed snow, studded like every car there, it gets to 100 in 5.6 s against 10 for the rear- and
 // front-drive cars, and corners worse than they do (0.46 g against 0.50-0.56: heavy, tall and wide). On a lap it is level with the Kestrel in the dry
-// (5-13 % behind the Vanta), second to the LMP-X in the rain on four circuits of five, and the quickest road car at Isvik, dry and in the snow.
+// (5-13 % behind the Vanta), second to the LMP-X in the rain on four circuits of five, and at Isvik, dry and in the snow, the quickest road car but for the Taccola (2-3 % quicker there).
 
 /**
  * An all-terrain tyre: open blocks and a tall sidewall. Less bite on asphalt (a lower `mu` than a road tyre of the size, and a longer
