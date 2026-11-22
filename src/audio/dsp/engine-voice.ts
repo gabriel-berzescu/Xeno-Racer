@@ -129,6 +129,8 @@ export interface EngineDebug {
   events: Float32Array;
   /** The electric motor's whine (EngineSoundProfile.electric); optional, so the labs' and tests' own tap sets need not name it. */
   electric?: Float32Array;
+  /** The induction's own note (EngineSoundProfile.induction), which is also part of `intake`; optional, as `electric`. */
+  induction?: Float32Array;
 }
 export function createEngineDebug(n: number): EngineDebug {
   return {
@@ -140,6 +142,7 @@ export function createEngineDebug(n: number): EngineDebug {
     whine: new Float32Array(n),
     events: new Float32Array(n),
     electric: new Float32Array(n),
+    induction: new Float32Array(n),
   };
 }
 
@@ -266,6 +269,28 @@ export interface Voicing {
   dualDelay: number;
   /** How much of the difference between the two pipes is left at the top of the rev range (1 = all of it, 0 = twins). */
   dualFloor: number;
+  /** Where the difference between the two pipes fades from all of it to `dualFloor`, as shares of the limiter's rpm. */
+  dualFade: [number, number];
+  /** The chain per bank is a twin exhaust's (EngineSoundProfile.exhaustSystem 'twin'). */
+  twinEx: boolean;
+  /** The induction's own note (EngineSoundProfile.induction): how loud it is, 0 = none. */
+  induction: number;
+  /** The two resonances of a trumpet and its port that the note rings in, Hz: the quarter wave and the three-quarter wave. */
+  indHz: [number, number];
+  /** Seconds in which each of them dies away to 1/e. */
+  indDecay: [number, number];
+  /** How much of the three-quarter wave there is beside the quarter wave. */
+  indUpper: number;
+  /** What each bank's trumpets are worth at the listener: the far bank's a little less. */
+  indBank: [number, number];
+  /** The far bank's resonances relative to the near bank's (its trumpets breathe from the far side of the airbox). */
+  indDetune: number;
+  /** Seconds a valve's pulse takes to rise (two poles): the edge of the note. */
+  indTau: number;
+  /** How loud the note is outside and in the cockpit. */
+  indGain: [number, number];
+  /** Seconds the note is heard after the exhaust's pulse of the same cylinder has left its tailpipe (it may be a little before: negative). */
+  indLag: number;
 }
 
 export function deriveVoicing(p: EngineSoundProfile, layout: EngineLayout): Voicing {
@@ -277,7 +302,9 @@ export function deriveVoicing(p: EngineSoundProfile, layout: EngineLayout): Voic
   const boxer = p.crankType === 'boxer';
   // a cross-plane V8: its banks fire unevenly, so each bank's pipe sees pulses 90, 180, 270 and 180 degrees apart
   const cross = p.crankType === 'crossplane' && p.cylinders === 8 && layout.banks === 2;
-  const dual = p.exhaustSystem === 'dual' && layout.banks === 2;
+  // a twin exhaust: a chain per bank as the true dual has, a sports car's (see Voicing.twinEx)
+  const twinEx = p.exhaustSystem === 'twin' && layout.banks === 2;
+  const dual = (p.exhaustSystem === 'dual' || twinEx) && layout.banks === 2;
   // a short open exhaust (a 2004 single-seater's periscopes): every pipe after the collectors 0.65 of the length the openness gives it
   // (x 1 for every other engine, which is exact)
   const short = p.exhaustSystem === 'short';
@@ -285,6 +312,7 @@ export function deriveVoicing(p: EngineSoundProfile, layout: EngineLayout): Voic
   const sc = p.supercharger;
   const lobes = sc ? Math.max(1, Math.round(sc.lobes)) : 0;
   const et = p.electricTaper;
+  const ind = p.induction !== undefined ? clamp01(p.induction) : 0;
   return {
     Ls: lerp(0.62, 0.4, o) * kLen,
     Lm: lerp(1.0, 0.55, o) * kLen,
@@ -293,8 +321,8 @@ export function deriveVoicing(p: EngineSoundProfile, layout: EngineLayout): Voic
     Lt: lerp(0.62, 0.3, o) * kLen,
     gS: 2.0,
     gM: layout.banks === 2 ? 1.5 : 1.0,
-    rc: lerp(5.2, 1.18, Math.pow(o, 0.8)),
-    rq: lerp(0.45, 0.06, o),
+    rc: twinEx ? 1.2 : lerp(5.2, 1.18, Math.pow(o, 0.8)),
+    rq: twinEx ? 0.05 : lerp(0.45, 0.06, o),
     // (a dual exhaust is two separate pipes with the big mufflers of a truck and nothing to scatter the energy of a resonance into, as the junction
     // of a merged system does: damped a little more, so that the exhaust does not surge as the firing harmonics sweep a pipe resonance: 2 dB
     // between two 66 ms windows of a rev sweep, where it was 4.7. A short open exhaust's ends reflect little: steady flat out over the top of
@@ -302,8 +330,8 @@ export function deriveVoicing(p: EngineSoundProfile, layout: EngineLayout): Voic
     // step up of 1500 rpm louder, where through the merged exhaust it rises 0.3 dB, 2.4 dB rms about its line (4.8 at most), and a step up can
     // be 6 dB quieter: a close-ratio box keeps the engine there, so each gear would come out quieter at its top than at its bottom;
     // tests/audio-dieci.test.ts)
-    Rc: dual ? 0.66 : short ? 0.2 : 0.78,
-    Ro: lerp(0.95, 0.88, o) * (dual ? 0.88 : short ? 0.45 : 1),
+    Rc: twinEx ? 0.3 : dual ? 0.66 : short ? 0.2 : 0.78,
+    Ro: lerp(0.95, 0.88, o) * (twinEx ? 0.15 : dual ? 0.88 : short ? 0.45 : 1),
     Rq: 0.85,
     fcP: 5200 + 3500 * b,
     fcS: 6000 + 3000 * b,
@@ -324,7 +352,7 @@ export function deriveVoicing(p: EngineSoundProfile, layout: EngineLayout): Voic
     timingJitterDeg: boxer ? 1.1 : 0.7,
     runnerHz: 210 * fScale,
     hissHz: 1800 + 1400 * b,
-    intakeGain: p.turbo ? 0.5 : 0.65,
+    intakeGain: ind > 0 ? (p.turbo ? 0.5 : 0.65) * (1 - 0.6 * ind) : p.turbo ? 0.5 : 0.65,
     intakeMod: 0.35 + 0.5 * layout.intakeDepth,
     tickGain: 0.35,
     mechHiss: 0.045,
@@ -332,7 +360,7 @@ export function deriveVoicing(p: EngineSoundProfile, layout: EngineLayout): Voic
     crackAbs: 0,
     blockHz: [96 * fScale, 205 * fScale, 430 * fScale],
     blockDecay: [0.035, 0.022, 0.012],
-    blockGain: 2.1,
+    blockGain: p.cylinders >= 12 ? 0.5 : 2.1,
     turbo: p.turbo,
     twin: p.turbo && p.cylinders >= 8,
     whistleF0: smallTurbo ? 2400 : 1800,
@@ -343,7 +371,7 @@ export function deriveVoicing(p: EngineSoundProfile, layout: EngineLayout): Voic
     crackle: p.crackle,
     // (the dual exhaust is louder through its two separate chains than the one shared chain of lite: averaged over the rev range, with
     // the same pulses, the lite voice came out 5.6 dB under the full one at a gain of 1.35, and a little above it at 1.7, where the others' lite voices come out within 2 dB of theirs)
-    liteGain: dual ? 1.35 * 1.7 : 1.35,
+    liteGain: twinEx ? 1.74 : dual ? 1.35 * 1.7 : 1.35,
     shiftDip: p.shiftDip !== undefined ? clamp(p.shiftDip, 0.005, 0.2) : 0.07,
     bridgeCut: p.shiftDip !== undefined,
     ignitionCut: p.ignitionCut === true,
@@ -365,11 +393,22 @@ export function deriveVoicing(p: EngineSoundProfile, layout: EngineLayout): Voic
     idleWobble: cross ? 0.4 : 0.03,
     idleLiftTo: p.idleLiftTo !== undefined ? clamp(p.idleLiftTo, 1.05, 4) : 2.2,
     dual,
-    dualLen: [1, 1.004],
-    dualMuff: [1, 0.97],
-    dualGain: [1.28, 0.78],
-    dualDelay: 0.0005,
-    dualFloor: 0.12,
+    twinEx,
+    dualLen: twinEx ? [1, 1] : [1, 1.004],
+    dualMuff: twinEx ? [1, 1] : [1, 0.97],
+    dualGain: twinEx ? [1.18, 0.82] : [1.28, 0.78],
+    dualDelay: twinEx ? 0.00008 : 0.0005,
+    dualFloor: twinEx ? 0.4 : 0.12,
+    dualFade: twinEx ? [0.5, 1] : [0.12, 0.7],
+    induction: ind,
+    indHz: [1900, 2900],
+    indDecay: [0.00037, 0.00024],
+    indUpper: 0.7,
+    indBank: [1, 0.5],
+    indDetune: 1.06,
+    indTau: 0.00012,
+    indGain: [0.12, 1],
+    indLag: 0,
   };
 }
 
@@ -661,6 +700,16 @@ export class EngineVoice {
   private gEl = 0;
   private sNitro = 0;
 
+  // the induction's own note (Voicing.induction): each bank's valve pulses waiting to be rendered (this sample's and the next one's), their
+  // two-pole shapers, the two resonances of each bank's trumpets (bank 0's pair, then bank 1's), and the ramped gain
+  private indIn: Float64Array;
+  private indInN: Float64Array;
+  private indS1: Float64Array;
+  private indS2: Float64Array;
+  private indRes: Resonator[] = [];
+  private indDelay: DelayLine;
+  private gInd = 0;
+
   // the cross-plane V8's lumpiness (pulseFactor): what each bank's pipe still holds of the last pulses, when the bank last fired (in samples)
   private lopeH: Float64Array;
   private lopeT: Float64Array;
@@ -736,7 +785,7 @@ export class EngineVoice {
     this.profile = profile;
     this.layout = buildLayout(profile);
     this.V = deriveVoicing(profile, this.layout);
-    this.V.crackAbs = this.V.crackLevel * Math.pow(10, exhaustTargetDb(profile.exhaustOpenness, profile.displacement) / 20) * CRACK_K;
+    this.V.crackAbs = this.V.crackLevel * Math.pow(10, profileTargetDb(profile) / 20) * CRACK_K;
     this.rng = new Rng(seed * 7919 + 13);
     const L = this.layout;
     const V = this.V;
@@ -776,6 +825,13 @@ export class EngineVoice {
     this.lopeT = mk(B);
     this.cylBurn = mk(this.N).fill(1);
     this.cylCut = new Uint8Array(this.N);
+    this.indIn = mk(B);
+    this.indInN = mk(B);
+    this.indS1 = mk(B);
+    this.indS2 = mk(B);
+    if (V.induction > 0) for (let i = 0; i < 2 * B; i++) this.indRes.push(new Resonator());
+    // (room for the whole way through the pipes at the lowest speed of sound and the highest Doppler time-scale, and 2 ms more)
+    this.indDelay = new DelayLine(V.induction > 0 ? Math.ceil(((L.groups[0].lenM + V.Ls + V.Lm + V.Lc + V.Lt) / 380) * sr * 1.8 + 0.002 * sr) + 8 : 1);
     for (let g = 0; g < G; g++) {
       this.grpCnt[g] = L.groups[g].count;
       this.grpBank[g] = L.groups[g].bank;
@@ -885,6 +941,12 @@ export class EngineVoice {
     this.cylCut.fill(0);
     this.cutPopHaz = -1;
     this.lopeH.fill(0);
+    this.indIn.fill(0);
+    this.indInN.fill(0);
+    this.indS1.fill(0);
+    this.indS2.fill(0);
+    for (const r of this.indRes) r.reset();
+    this.indDelay.clear();
     for (const r of this.blk) r.reset();
     this.clunkR1.reset();
     this.clunkR2.reset();
@@ -1139,7 +1201,7 @@ export class EngineVoice {
     if (V.dual) {
       // two pipes that differ make a lope while the pulses are single events; as they crowd together into the roar of the top end the
       // difference between the pipes matters less (a pipe that rings at one of the half orders would otherwise make the half order the loudest line)
-      this.dualAsym = lerp(1, V.dualFloor, smoothstep(0.12, 0.7, rpmN));
+      this.dualAsym = lerp(1, V.dualFloor, smoothstep(V.dualFade[0], V.dualFade[1], rpmN));
       for (let b = 0; b < 2; b++) this.liteBias[b] = 1 + (V.dualGain[b] - 1) * this.dualAsym;
     }
     this.recomputeDelays(this.sTs);
@@ -1403,6 +1465,41 @@ export class EngineVoice {
     let cEl = this.gEl;
     this.gEl = tEl;
 
+    // the induction's own note, block parameters. Every intake valve that closes stops the air in its trumpet, and the pulse that sends
+    // back up it rings in the trumpet and its port (a quarter wave and a three-quarter wave, heard Doppler-shifted like everything else):
+    // a bank's six trumpets sound three times a turn, the two banks' in turn, and the far bank's a little less and a little higher, so
+    // the note has the lines of one six as well as those of the twelve. It follows the air the engine breathes: the throttle, and the revs.
+    const indOn = V.induction > 0 && full;
+    const indRes = this.indRes;
+    const indIn = this.indIn;
+    const indInN = this.indInN;
+    const indS1 = this.indS1;
+    const indS2 = this.indS2;
+    const indUpper = V.indUpper;
+    const indDelay = this.indDelay;
+    const indD = Math.max(1, this.Dp[0] + this.Ds + this.Dm + this.Dc + this.Dt + V.indLag * sr);
+    const kInd = 1 - Math.exp(-invSr / V.indTau);
+    let cInd = 0;
+    let dInd = 0;
+    if (V.induction > 0) {
+      // (outside, and through a helmet, it is heard the other way up: there the exhaust reaches the listener as the rise of its pulses,
+      // in a cabin as their swell, half a turn apart at the note's pitch, and the note is to add to it in both)
+      const gInd = helmet ? -lerp(V.indGain[0], V.indGain[1], sI) : V.indGain[1] * sI - V.indGain[0] * (1 - sI);
+      // (and it breaks with the engine on an upshift, as the exhaust does)
+      const tInd = gInd * V.induction * Math.pow(thr, 1.3) * (0.25 + 0.75 * rpmN) * (1 - dip);
+      if (firstBlock) this.gInd = tInd;
+      dInd = (tInd - this.gInd) * invLen;
+      cInd = this.gInd;
+      this.gInd = tInd;
+      if (indOn) {
+        for (let b = 0; b < this.B; b++) {
+          const d = (b === 0 ? 1 : V.indDetune) * this.sTs;
+          indRes[2 * b].set(V.indHz[0] * d, V.indDecay[0], sr);
+          indRes[2 * b + 1].set(V.indHz[1] * d, V.indDecay[1], sr);
+        }
+      }
+    }
+
     // event-sound decay constants (sample-rate independent)
     const popEnvK = Math.exp(-invSr / 0.017);
     const popToneK = Math.exp(-invSr / 0.045);
@@ -1550,6 +1647,7 @@ export class EngineVoice {
     const cylCut = this.cylCut;
     const sIntNow = sI;
     const lopeOn = V.lope > 0;
+    const liteTwin = V.twinEx && !full;
     const burbleP = this.burbleP;
     const tails = this.tails;
     const dualOn = full && tails.length > 0;
@@ -1588,6 +1686,10 @@ export class EngineVoice {
               if (burb > 0) this.burbles++;
               if (burb > 1.6) popToneEnv = Math.max(popToneEnv, 0.15 * burb);
             } else this.burbleRun = 0;
+          } else if (liteTwin) {
+            // (a twin exhaust in lite quality, where the banks share one chain: the bank heard more of is the stronger, as through its own pipe)
+            pf = this.liteBias[cs.bank];
+            amp *= pf;
           }
           amp *= 1 + burb;
           // (a cylinder whose spark was cut this cycle pushes out its unburnt charge: as weak a pulse as under the limiter's cut)
@@ -1605,6 +1707,12 @@ export class EngineVoice {
             const ca = (crackAmp + burb * V.crackAbs * 0.12) * cs.gain * (0.6 + 0.8 * rng.u()) * pf * (dualOn ? tails[cs.bank].gain : 1);
             crackIn += ca * frac;
             crackInN += ca * (1 - frac);
+          }
+          if (indOn) {
+            // (the same cylinder's pulse in its trumpet, into its bank's share of the induction's note: see the block parameters)
+            const ai = cs.gain * (1 + 0.06 * rng.s2()) * V.indBank[cs.bank];
+            indIn[cs.bank] += ai * frac;
+            indInN[cs.bank] += ai * (1 - frac);
           }
         } else if (ty === EV_COMBUSTION) {
           // (a cylinder that burns weakly thumps weakly, and its exhaust pulse, 130 degrees later, is as weak)
@@ -1845,6 +1953,7 @@ export class EngineVoice {
       let turbo = 0;
       let bov = 0;
       let elec = 0;
+      let induct = 0;
       if (full) {
         // engine block modes excited by combustion
         const bi = blkIn * 0.05;
@@ -1936,6 +2045,27 @@ export class EngineVoice {
             elec = (sinCyc(elPh) + elW2 * sinCyc(wrap1(elPh * 2)) + elW3 * sinCyc(wrap1(elPh * 3))) * elA * 0.05;
           }
         }
+
+        // the induction's own note: each bank's valve pulses, rounded off by two poles and taken as their rise and fall (a pulse of
+        // pressure, with no steady part), ring in that bank's two resonances
+        if (indOn) {
+          for (let b = 0; b < bankCount; b++) {
+            const x = indIn[b];
+            indIn[b] = indInN[b];
+            indInN[b] = 0;
+            let p = indS1[b];
+            p += kInd * (x - p);
+            indS1[b] = p;
+            let q = indS2[b];
+            q += kInd * (p - q);
+            indS2[b] = q;
+            const d = q - p;
+            induct += indRes[2 * b].step(d) + indUpper * indRes[2 * b + 1].step(d);
+          }
+          // (heard as late as the exhaust's pulses are through their pipes)
+          indDelay.write(induct);
+          induct = indDelay.tap(indD);
+        }
       } else {
         // A lite voice renders neither the block nor the ticks, but what feeds them (every combustion, every valve tick) must not pile
         // up: a voice promoted to full (an opponent coming within 80 m, a TV camera cutting onto a pack) used to throw the whole heap
@@ -1986,6 +2116,10 @@ export class EngineVoice {
         cEl += dEl;
         y += elec * cEl;
       }
+      if (indOn) {
+        cInd += dInd;
+        y += induct * cInd;
+      }
       if (sIntNow > 0.002 && !helmet) {
         const cb1 = cabin2.step(cabin.step(y));
         y += (cb1 - y) * sIntNow;
@@ -1998,7 +2132,8 @@ export class EngineVoice {
       if (dbg) {
         const k = dbgOffset + i;
         dbg.exhaust[k] = exD * cExE + exI * cExI + crack * (cExE + 0.3 * cExI);
-        dbg.intake[k] = intake * cInt;
+        dbg.intake[k] = intake * cInt + (indOn ? induct * cInd : 0);
+        if (dbg.induction) dbg.induction[k] = indOn ? induct * cInd : 0;
         dbg.mech[k] = mech * cMech;
         dbg.block[k] = blkOut * cBlk;
         dbg.turbo[k] = turbo * cTur;
@@ -2124,6 +2259,15 @@ export function exhaustTargetDb(openness: number, displacement = 0): number {
 }
 
 /**
+ * A profile's own target: what its openness and its displacement give it (exhaustTargetDb), and what it takes off or adds itself
+ * (EngineSoundProfile.loudnessDb; without it, exactly exhaustTargetDb).
+ */
+export function profileTargetDb(profile: EngineSoundProfile): number {
+  const t = exhaustTargetDb(profile.exhaustOpenness, profile.displacement);
+  return profile.loudnessDb !== undefined ? t + clamp(profile.loudnessDb, -12, 6) : t;
+}
+
+/**
  * RMS of the exhaust layer (exterior) over a full-throttle sweep from 35 % to 100 % of the limiter,
  * power-averaged so that harmonic/resonance coincidences at single rpm values do not skew it.
  */
@@ -2173,12 +2317,12 @@ export function measureExhaustSweepRms(profile: EngineSoundProfile, sr: number, 
  */
 export function calibratedExhaustGain(profile: EngineSoundProfile, sr: number): number {
   // (everything the sweep hears: a wastegate opens on its boost, and a wide lift of the idle can reach into its lower end)
-  const key = [sr, profile.cylinders, profile.layout, profile.crankType, profile.displacement, profile.turbo ? 1 : 0, profile.exhaustOpenness, profile.brightness, profile.exhaustSystem ?? 'merged', profile.limiterRpm ?? '', profile.wastegate ?? '', profile.idleLiftTo ?? ''].join('|');
+  const key = [sr, profile.cylinders, profile.layout, profile.crankType, profile.displacement, profile.turbo ? 1 : 0, profile.exhaustOpenness, profile.brightness, profile.exhaustSystem ?? 'merged', profile.limiterRpm ?? '', profile.wastegate ?? '', profile.idleLiftTo ?? '', profile.loudnessDb ?? ''].join('|');
   const hit = calCache.get(key);
   if (hit !== undefined) return hit;
   const rmsCrack = measureExhaustSweepRms(profile, sr, 0, true); // pulses off: crack only
   const pulses1 = measureExhaustSweepRms(profile, sr, 1, false); // crack off: pulses at unit gain
-  const target = Math.pow(10, exhaustTargetDb(profile.exhaustOpenness, profile.displacement) / 20);
+  const target = Math.pow(10, profileTargetDb(profile) / 20);
   // total^2 = pulses^2 + crack^2 = target^2 (independent noise-like sources add in power)
   const wanted = Math.sqrt(Math.max(target * target - rmsCrack * rmsCrack, 0.04 * target * target));
   const g = pulses1 > 1e-12 ? wanted / pulses1 : 1;
