@@ -933,11 +933,31 @@ const dieci: CarDefinition = {
 // (taccola: the jackdaw, and the name the Sienese engineer Mariano di Jacopo went by. A first pass, on the shared contracts: its body,
 // its voice and its physics are each tuned in their own block below.)
 
+// What it does on a flat plane (TACCOLA=all npx vitest run tests/probes/taccola-probe.test.ts prints the tables beside the Vanta GT and the
+// LMP-X; tests/taccola.test.ts holds the bounds): 0-100 km/h in 2.88 s with the traction control on (the rear tyres' limit: 4.0 s without
+// it), 200 in 6.1 s and 300 in 12.6 s; 384 km/h flat out in seventh at 10,200 rpm, just past its power peak, with the wing down, and 352
+// with it fixed up. A nitro shot, the ordinary bottle, held from rest takes 100 in 2.3 s, 200 in 4.4 s and the top speed to 400. It holds
+// 1.30 g on the skidpad, 1.44 g at 150 km/h, 1.62 at 200 and 1.80 at 250, where the wing and the floor press it down by 714 kg (the Vanta
+// GT: 1.08 on the skidpad and 1.13 at 250; the LMP-X: 1.92 and 3.02), and stops from 100 in 27.1 m with ABS and from 200 in 95 m, at 2.3 g
+// from 300 km/h (the Vanta GT 32.8 m, the LMP-X 20.2). On a wet road it keeps 69 % of its grip and in standing water 59 %, where the Vanta
+// GT's road tyre keeps 75 and 66: still more than any road car holds there (0.90 and 0.77 g at 60 km/h against 0.79 and 0.72 at the most),
+// and it stops from 100 in 37.6 and 43.4 m, the second no shorter than the Mammoth does. Cold, at the air's 24 C, its tyres hold 81 % of
+// what they do warm (a road tyre 90, a slick 75). On grass, dirt and gravel it is under every road car and well over the LMP-X.
+// On a lap (tests/taccola.test.ts, the AI drivers): 9-15 % quicker than the Vanta GT on the four road circuits dry and 5-9 % in a storm,
+// 7-16 % behind the LMP-X dry and 10-17 % in a storm, and on the studded tyres of Isvik level with the LMP-X.
+// How it drives: the downforce sits a little behind the centre of gravity with the wing up and further behind with it flat, the brakes
+// well forward and the differential nearly open, so with the Standard aids it holds its line flat out in a bend (6 degrees of body slip
+// where the Vanta GT drifts 18-26) and nothing a thumb does slides it past 15 on a dry road; without the traction control it steps out
+// under power in second and third over a quarter of a second and more, a lift turns it in 6-7 degrees, and a stop with the wheels locked
+// ploughs straight on.
+
 /**
  * A semi-slick: the road-legal track tyre a hypercar leaves the factory on, a nearly smooth face of soft rubber with a few shallow
  * grooves. Half way between a road tyre and a racing slick in everything: more grip on dry asphalt once it is warm (`mu`), less of it
- * cold (`coldGrip`), little tread to clear standing water (`wetGrip`), and half a slick's loss on loose ground (`slick`: 0.5,
- * src/physics/surfaces.ts).
+ * cold (`coldGrip`, and a window as far from a road tyre's as from a slick's), little tread to clear standing water (`wetGrip`: 0.6, what
+ * a racing car keeps on its wet-weather tyres and less than any road tyre's 0.66-0.8), a peak that comes sooner and falls further than a
+ * road tyre's and later and less than a slick's, and half a slick's loss on loose ground (`slick`: 0.5, src/physics/surfaces.ts: every
+ * number of its table is the mean of the road tyre's and the slick's, and paved ground, packed snow and ice are the very same objects).
  */
 function semiSlick(widthMm: number, aspect: number, rimIn: number, mu: number, extra: Partial<TireSpec> = {}): TireSpec {
   return {
@@ -976,8 +996,8 @@ const taccolaVisual: CarVisualSpec = {
   rimRadiusFront: 0.254,
   rimRadiusRear: 0.2667,
   rideHeight: 0.095,
-  cgHeight: 0.4,
-  cgToFrontAxle: 1.6,
+  cgHeight: 0.44,
+  cgToFrontAxle: 1.656,
   wing: 0.6,
   engine: 'mid',
   exhaust: { count: 4, side: 'center' },
@@ -1018,7 +1038,7 @@ const taccolaSound: EngineSoundProfile = {
   induction: 1,
 };
 
-// The Taccola itself: 1340 kg with the driver and fuel, 42 % of it on the front axle, on semi-slicks.
+// The Taccola itself: 1340 kg with the driver and fuel, 40 % of it on the front axle, on semi-slicks.
 const taccola: CarDefinition = {
   id: 'taccola',
   name: 'Taccola',
@@ -1027,7 +1047,9 @@ const taccola: CarDefinition = {
     'A mid-engined hypercar named for the jackdaw: 1340 kg, a 6.4 L V12 that sings to 10,600 rpm and a wing that lies flat on the straights. Road-legal, on semi-slicks — warm them before you lean on them.',
   class: 'Hypercar',
   drivetrain: 'RWD',
-  stats: { powerHp: 986, torqueNm: 760, massKg: 1340, topSpeedKmh: 385, zeroTo100: 2.8 },
+  // (measured: 0-100 in 2.88 s with the traction control on, 384.4 km/h flat out with the wing working; the curve gives 985.8 hp at 10,000 rpm
+  // and 760 Nm at 7000)
+  stats: { powerHp: 986, torqueNm: 760, massKg: 1340, topSpeedKmh: 384, zeroTo100: 2.9 },
   visual: taccolaVisual,
   sound: taccolaSound,
   // (the jackdaw's colours: the silver of its nape, black, and the pale grey of its eye)
@@ -1036,14 +1058,17 @@ const taccola: CarDefinition = {
     chassis: {
       mass: 1340,
       inertia: { x: 2150, y: 2050, z: 470 },
-      cgHeight: 0.4,
+      // (60 % of the weight on the driven axle and the centre of gravity 44 cm up, a V12 and its gearbox behind the cabin: with 59 % and
+      // 40 cm the rear tyres took it to 100 km/h in 3.0 s at the best, and the skeleton, with 58 % and a clutch that asked more than they
+      // held, in 3.4)
+      cgHeight: 0.44,
       wheelbase: 2.76,
-      cgToFrontAxle: 1.6,
+      cgToFrontAxle: 1.656,
       trackFront: 1.7,
       trackRear: 1.66,
       maxSteer: 30 * DEG,
       ackermann: 0.4,
-      ...hullFromVisual(taccolaVisual, 1.6),
+      ...hullFromVisual(taccolaVisual, 1.656),
     },
     engine: {
       idleRpm: 1000,
@@ -1057,33 +1082,60 @@ const taccola: CarDefinition = {
       engineBraking: 150,
       inertia: 0.13,
       turbo: null,
+      // (a road car's cooling: the radiators ahead of the front wheels, their outlets in the hood, so a heavy nose hit costs it power)
+      noseRadiators: true,
     },
     drivetrain: {
       layout: 'RWD',
-      // (10,400 rpm is 105 / 145 / 185 / 228 / 275 / 327 / 385 km/h)
-      gears: [3.37, 2.44, 1.913, 1.552, 1.287, 1.082, 0.919],
+      // (the upshift at 10,300 rpm is 120 / 158 / 197 / 240 / 286 / 337 / 393 km/h at the wheels. A first gear that long, because the rear
+      // tyres run 12 % faster than the road under the traction control: with a first to 104 the car changed up at 95 km/h, before 100, and
+      // at 103 on the skidpad, at its limit there, where the jolt read as 1.40 g on a car that held 1.28. And a seventh that meets the drag
+      // at 10,200 rpm, just past the power peak: geared for 385 km/h at 10,400 the skeleton ran into its limiter at 388)
+      gears: [2.922, 2.219, 1.78, 1.461, 1.226, 1.04, 0.892],
       reverse: 3.0,
       finalDrive: 4.1,
       efficiency: 0.92,
       shiftTime: 0.05,
       upshiftRpm: 10300,
       downshiftRpm: 5800,
-      diff: { type: 'lsd', preload: 100, powerLock: 0.4, coastLock: 0.25 },
+      // (an electronic differential that is nearly open until the engine pulls hard: 15 Nm of preload and 8 % of the drive. With 100 Nm
+      // and 40 % the axle was as good as locked on a light throttle and the inside rear wheel pushed the car straight on: an earlier tune
+      // held 1.26 g on the skidpad with that and 1.37 with an open differential. With 25 Nm and 12 % this car drifted 25-32 degrees flat
+      // out in a bend on the traction control alone, where now it holds 9-13. With 6 % the inside wheel spins the drive away in a bend at
+      // 250 km/h, and with 10 % the tail comes round flat out at 200 without the aids)
+      diff: { type: 'lsd', preload: 15, powerLock: 0.08, coastLock: 0.2 },
       frontSplit: 0,
     },
-    brakes: { frontTorque: 3800, rearTorque: 2000, handbrakeTorque: 2400, discHeatCapacity: 3600 },
-    // corner mode, the wing up: 2.25 m^2 of downforce area, 42 % of it at the front (650 kg at 250 km/h), and a CdA of 0.92; straight mode,
-    // the wing laid flat and the flaps under the nose with it: a fifth less drag and four tenths less downforce
+    // (a full pedal asks for 2.6 g, 72 % of it at the front: the front tyres and ABS are the limit at any speed and the rears stay just
+    // short of theirs, so a stop from 300 km/h peaks at 2.32 g, drag included, and a stop at full lock without ABS ploughs straight on, 6
+    // and 13 degrees of body slip from 130 and 250 km/h. With 3800 / 2000 Nm the rears locked too: 41 and 28 degrees, and 26.9 m from 100.
+    // Carbon-ceramic discs sized for 300 km/h stops: 1060 C at the most on a lap of Portovela)
+    brakes: { frontTorque: 4200, rearTorque: 1800, handbrakeTorque: 2400, discHeatCapacity: 5200 },
+    // corner mode, the wing up: 2.37 m^2 of downforce area, 39 % of it at the front (714 kg at 250 km/h), and a CdA of 1.08; straight mode,
+    // the wing laid flat and the flaps under the nose with it: a fifth less drag and 44 % less downforce, 36 % of it at the front. The
+    // drag is what brings the 735 kW to 384 km/h at the power peak (with 0.92 and 0.72 the skeleton ran into its limiter at 388 with
+    // power in hand); with the wing up it is 352. The downforce sits behind the centre of gravity either way up (40 % of the weight is on
+    // the front axle): with 42 % of it at the front the car held 1.84 g at 250 km/h, but flat out in a bend at 250-300 km/h without the
+    // aids the tail came round, and a lift at 200 km/h in standing water spun it; now those are 6-7 degrees each, and it holds 1.80 g
     aero: {
-      dragArea: 0.92,
-      liftAreaFront: 0.95,
-      liftAreaRear: 1.3,
-      straightMode: { dragArea: 0.72, liftAreaFront: 0.52, liftAreaRear: 0.78 },
+      dragArea: 1.08,
+      liftAreaFront: 0.93,
+      liftAreaRear: 1.44,
+      straightMode: { dragArea: 0.86, liftAreaFront: 0.48, liftAreaRear: 0.84 },
     },
-    tireFront: semiSlick(275, 30, 20, 1.32),
-    tireRear: semiSlick(345, 30, 21, 1.32, { inertia: 1.9 }),
-    suspFront: { travel: 0.09, spring: 70000, bump: 3200, rebound: 5600, antiRoll: 42000, camber: -2.2 * DEG },
-    suspRear: { travel: 0.09, spring: 100000, bump: 3600, rebound: 6400, antiRoll: 30000, camber: -1.6 * DEG },
+    // The rear tyre is a quarter wider and an inch taller than the front: a little stickier (1.30 against 1.255) and sized for nearly twice
+    // the load, so its friction is still 1.06 times its mu on the 4.8 kN a rear wheel carries off the line. The launch control's clutch
+    // is sized to 1.15 times mu on the driven axle: with both tyres named at 4.5 kN it took a tenth more than the rears held, and the
+    // traction control cut it in bursts for the first second and a half. The front's 1.255 is what puts the skidpad at 1.30 g and the stop
+    // from 100 km/h at 27 m together: the front axle sets both. Carbon wheels (1.4 and 1.7 kg m^2). Each axle has its own thermal size:
+    // a dry AI lap of the four road circuits runs the fronts at 85-91 C and the rears at 86-91, their optimum (the range over a lap 80-99),
+    // where with both at a road tyre's the fronts ran at 78-82 and the rears at 103-113, a tenth of their grip gone at the hottest
+    tireFront: semiSlick(275, 30, 20, 1.255, { inertia: 1.4, heatScale: 0.92 }),
+    tireRear: semiSlick(345, 30, 21, 1.3, { inertia: 1.7, nominalLoad: 8000, heatScale: 1.3 }),
+    // (bars of 22 and 46 kN/m put 38 % of the roll stiffness at the front, on 40 % of the weight: with half of it there, the skeleton's
+    // 42 and 30, the fronts gave up 1-2 % sooner on the skidpad)
+    suspFront: { travel: 0.09, spring: 70000, bump: 3200, rebound: 5600, antiRoll: 22000, camber: -2.2 * DEG },
+    suspRear: { travel: 0.09, spring: 100000, bump: 3600, rebound: 6400, antiRoll: 46000, camber: -1.6 * DEG },
   },
 };
 

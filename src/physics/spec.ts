@@ -106,6 +106,13 @@ export interface EngineSpec {
    * VehicleState.throttlePedal what the map opens for the pedal before they cut it.
    */
   throttleGamma?: number;
+  /**
+   * The engine is cooled through the nose although it does not sit there (absent: the radiators are where the engine is, in the nose of a
+   * front-engined car and in the sides of a mid-engined one): a mid-engined road car with its radiators ahead of the front wheels and
+   * their outlets in the hood. A heavy nose hit then tires the engine as it does a front-engined car's (src/core/mechanical.ts,
+   * mechanicalProfile); nothing in the physics reads it.
+   */
+  noseRadiators?: boolean;
 }
 
 export interface DifferentialSpec {
