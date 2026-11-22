@@ -248,10 +248,10 @@ export function computeLayout(s: CarVisualSpec): CarLayout {
     layout.headlight = [p.beam[0], p.beam[1], p.beam[2]];
     layout.taillight = [p.rainLight[0], p.rainLight[1], p.rainLight[2]];
   } else if (style === 'hyper') {
-    // the hypercar: the roundel on the door, in the facet under the shoulder; the number on the cowl, where the beak is widest; a split
+    // the hypercar: the roundel on the door, in the hollow under the shoulder's lip; the number on the cowl, where the beak is widest; a split
     // at the shoulder's height; the hood camera over the beak, the bumper camera on its tip; the headlamp spots at the lamps in the
     // fenders' faces, the tail light the lamp across the tail
-    lay.door = { z: 0.2, y: 0.44, r: 0.14 };
+    lay.door = { z: 0.2, y: 0.375, r: 0.11 };
     lay.hood = { z: 1.2, r: 0.15 };
     lay.belt = 0.62;
     lay.trueRound = true;

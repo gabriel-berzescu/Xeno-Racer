@@ -87,13 +87,14 @@ export const makeHyper: BlueprintFactory = (s) => {
   );
 
   // the fender pontoons, lofts about the wheels' lines: the front one peaks over the axle, the rear haunch behind it
-  const podF = 0.79;
+  // (its line bends in towards the nose, so its outer flank stays just inside the bib it stands on: the plan of the nose is the bib's)
+  const podF = curve([zF - 1, 0.79, zF, 0.79, zF + 0.5, 0.765, zF + 0.98, 0.715], 0.05);
   const fenderF = defaultLoft(
     {
       // (behind its wheel only the shoulder runs on into the door: the pontoon's foot climbs out of the way of the door's tucked-in wall)
       yb: curve([zF - 0.82, 0.56, zF - 0.55, 0.36, zF - 0.4, 0.15, zNose, 0.15], 0.04),
       yt: curve([zF - 0.8, 0.655, zF - 0.45, 0.72, zF, 0.76, zF + 0.35, 0.705, zF + 0.7, 0.56, zF + 0.98, 0.37], 0.06),
-      w: curve([zF - 0.8, 0.09, zF - 0.4, 0.2, zF, 0.23, zF + 0.4, 0.21, zF + 0.75, 0.16, zF + 0.98, 0.09], 0.05),
+      w: curve([zF - 0.8, 0.09, zF - 0.4, 0.2, zF, 0.23, zF + 0.4, 0.205, zF + 0.75, 0.155, zF + 0.98, 0.095], 0.05),
       crown: flat(0.05),
       tum: flat(0.03),
       tumY: 0.4,
@@ -142,12 +143,13 @@ export const makeHyper: BlueprintFactory = (s) => {
     let d = sdLoft(low, ax, y, z);
     d = smin(d, sdLoft(fus, ax, y, z), 0.09);
     d = smin(d, sdLoft(canopy, ax, y, z), 0.09);
-    d = smin(d, sdLoft(fenderF, ax > podF ? ax - podF : podF - ax, y, z), 0.1);
+    const pf = podF.at(z);
+    d = smin(d, sdLoft(fenderF, ax > pf ? ax - pf : pf - ax, y, z), 0.1);
     d = smin(d, sdLoft(fenderR, ax > podR ? ax - podR : podR - ax, y, z), 0.11);
     // the roof scoop, running back into the spine
     d = smin(d, sdRoundCone(ax, y, z, 0, 1.1 * hk, -0.3, 0.09, 0, 1.0 * hk, -1.05, 0.05), 0.07);
     // the plan of the car: its corners rounded
-    d = smax(d, sdFootprint(ax, z, hw, zNose, zTail, 0.6, 0.3), 0.07);
+    d = smax(d, sdFootprint(ax, z, hw, zNose, zTail, 0.3, 0.3), 0.07);
     // (a hard cut: its edges are creases the mesher puts vertices on, where a blend would be a fillet narrower than a cell)
     d = Math.max(d, -groove.cut(ax, y, z));
     // (hard cuts: an arch's lip is an edge)
@@ -208,7 +210,8 @@ export const makeHyper: BlueprintFactory = (s) => {
     out[o + 1] = Math.min(sill, arch - 0.02);
     // carbon: the sills and the bib under a line that rises to the tail, the floor of the channels beside the beak, the roof panel and
     // its scoop, the floor of the valleys beside the spine
-    const lowLine = y - (0.225 + 0.2 * Math.min(1, Math.max(0, (-1.75 - z) / 0.5)));
+    // (a chin of carbon 31 cm up round the nose, where the pontoons meet the bib, and 42 cm up round the diffuser)
+    const lowLine = y - (0.225 + 0.2 * Math.min(1, Math.max(0, (-1.75 - z) / 0.5)) + 0.085 * Math.min(1, Math.max(0, (z - 1.55) / 0.4)));
     const channel = Math.max(ax - 0.57, 0.2 - ax, 1.12 - z, y - 0.52);
     const roof = Math.max(Math.abs(z + 0.35) - 0.72, ax - 0.36, 1.0 * hk - y);
     const deck = Math.max(ax - 0.56, 0.25 - ax, z + 0.85, y - 0.8, 0.6 - y);

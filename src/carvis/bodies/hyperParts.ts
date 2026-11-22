@@ -39,7 +39,7 @@ export function hyperPoints(s: CarVisualSpec): { sideIntakeZ: number; exhausts: 
  */
 export function hyperFlank(s: CarVisualSpec): Curve {
   const { zF, zR, zNose, zTail } = hyperFrame(s);
-  return curve([zTail, 0.86, zTail + 0.12, 0.935, zTail + 0.4, 0.985, zR, 1.0, zR + 0.5, 0.99, -0.5, 0.945, 0.2, 0.93, 0.8, 0.95, zF, 0.985, zF + 0.4, 0.975, zNose - 0.35, 0.9, zNose - 0.15, 0.78, zNose, 0.5], 0.05);
+  return curve([zTail, 0.86, zTail + 0.12, 0.935, zTail + 0.4, 0.985, zR, 1.0, zR + 0.5, 0.99, -0.5, 0.945, 0.2, 0.93, 0.8, 0.95, zF, 0.985, zF + 0.4, 0.975, zNose - 0.35, 0.965, zNose - 0.15, 0.9, zNose - 0.05, 0.83, zNose, 0.72], 0.04);
 }
 
 /**
@@ -55,6 +55,7 @@ export function hyperFlank(s: CarVisualSpec): Curve {
  */
 export function hyperGroove(s: CarVisualSpec): { cut(ax: number, y: number, z: number): number; wallZ(y: number): number; upperX(y: number, z: number): number; lowerX(y: number, z: number): number; sideAt(z: number): number } {
   const P = hyperPoints(s);
+  const { zF } = hyperFrame(s);
   const flank = hyperFlank(s);
   const sideAt = (z: number): number => flank.at(z);
   const lipY = (z: number): number => 0.52 - 0.04 * z;
@@ -78,7 +79,8 @@ export function hyperGroove(s: CarVisualSpec): { cut(ax: number, y: number, z: n
   return {
     cut: (ax, y, z) => {
       const k = lowerSlope(y, z);
-      return Math.max((upperX(y, z) - ax) * (0.3 / 1.045), (lowerX(y, z) - ax) / Math.sqrt(1 + k * k), (wallZ(y) - z) / 1.118);
+      // (it starts inside the front wheel's arch, 20 cm behind the axle, and ends in its wall)
+      return Math.max((upperX(y, z) - ax) * (0.3 / 1.045), (lowerX(y, z) - ax) / Math.sqrt(1 + k * k), (wallZ(y) - z) / 1.118, z - (zF - 0.2));
     },
     wallZ,
     upperX,
@@ -141,7 +143,7 @@ export function addHyperParts(b: PartBuilder, s: CarVisualSpec): void {
   const P = hyperPoints(s);
   // front splitter: a carbon blade under the nose, a hand's width ahead of it
   {
-    const poly = roundPoly([0.0, zNose + 0.035, 0.45, zNose + 0.015, 0.82, zNose - 0.2, 0.96, zNose - 0.45, 0.96, zNose - 0.72, -0.96, zNose - 0.72, -0.96, zNose - 0.45, -0.82, zNose - 0.2, -0.45, zNose + 0.015], 0.03);
+    const poly = roundPoly([0.0, zNose + 0.045, 0.6, zNose + 0.03, 0.87, zNose - 0.05, 0.99, zNose - 0.3, 0.99, zNose - 0.72, -0.99, zNose - 0.72, -0.99, zNose - 0.3, -0.87, zNose - 0.05, -0.6, zNose + 0.03], 0.04);
     b.setPart(PART.carbon);
     b.extrude(poly, { o: [0, 0.1, 0], u: [1, 0, 0], v: [0, 0, 1] }, 0.014, 0.004, 2);
   }

@@ -1002,7 +1002,8 @@ const taccola: CarDefinition = {
   stats: { powerHp: 986, torqueNm: 760, massKg: 1340, topSpeedKmh: 385, zeroTo100: 2.8 },
   visual: taccolaVisual,
   sound: taccolaSound,
-  defaultLivery: { primary: '#12141c', secondary: '#9aa1a8', accent: '#dfe8ee', pattern: 'solid', number: 12, driver: 'You', finish: 0, metallic: true },
+  // (the jackdaw's colours: the silver of its nape, black, and the pale grey of its eye)
+  defaultLivery: { primary: '#8a9098', secondary: '#14161b', accent: '#dfe8ee', pattern: 'solid', number: 12, driver: 'You', finish: 0, metallic: true },
   physics: {
     chassis: {
       mass: 1340,
