@@ -22,11 +22,11 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { CARS } from '../../../src/cars';
 import type { EngineSoundProfile } from '../../../src/core/contracts';
-import { bandPower, peakAbs, rms, spectralCentroid, welch } from '../../../src/audio/analysis';
+import { bandPower, offGridLines, peakAbs, rms, spectralCentroid, welch } from '../../../src/audio/analysis';
 import { EngineVoice, createEngineDebug, type EngineDebug, type Voicing } from '../../../src/audio/dsp/engine-voice';
 import { Canvas } from './png';
 
-const SR = 48000;
+const SR = process.argv.includes('--sr') ? +process.argv[process.argv.indexOf('--sr') + 1] : 48000;
 const outDir = resolve('.cache/audio-lab');
 mkdirSync(outDir, { recursive: true });
 const args = process.argv.slice(2);
@@ -245,4 +245,30 @@ if (cmd === 'orders') {
   writeFileSync(file, cv.png());
   head();
   console.log(`${file}: ${from}..${E.limiterRpm} rpm left to right (a line every 1000), ${dbLo}..${dbHi} dB (a line every 5); white the level, yellow / orange / red the 6th / 12th / 18th orders, cyan / green / blue the 3rd / 9th / 15th`);
-} else console.log('usage: taccola-lab.ts orders | sweep | grid | map');
+} else if (cmd === 'offgrid') {
+  // the tonal lines off the engine-order grid (rpm/120) at one engine speed, in the whole voice and in each layer: what folds back
+  const rpm = +opt('rpm', String(E.redlineRpm * 0.97));
+  const v = voice(+opt('seed', '17'));
+  Object.assign(v.inp, { rpm, throttle: 1, load: 1, pedal: 1, boost: 0, driveOmega: 0 });
+  const n = Math.floor(3.2 * SR);
+  const out = new Float32Array(n);
+  const dbg = createEngineDebug(n);
+  v.debug = dbg;
+  v.process(out, n);
+  head();
+  const taps: [string, Float32Array][] = [['out', out], ['exhaust', dbg.exhaust], ['intake', dbg.intake], ['induction', dbg.induction!], ['block', dbg.block], ['mech', dbg.mech], ['whine', dbg.whine]];
+  const top = offGridLines(welch(out, 65536, Math.floor(1.2 * SR), n), SR, rpm / 120, { fLo: 1000, fHi: 0.49 * SR, prominenceDb: 14, floorDb: 80 });
+  console.log(`${rpm} rpm at ${SR} Hz: ${top.count} off the grid in the voice ${JSON.stringify(top.lines.slice(0, 6))}`);
+  for (const [name, x] of taps) {
+    const off = offGridLines(welch(x, 65536, Math.floor(1.2 * SR), n), SR, rpm / 120, { fLo: 1000, fHi: 0.49 * SR, prominenceDb: 14, floorDb: 80 });
+    console.log(`  ${name.padEnd(10)} ${db(rms(x, SR)).toFixed(1).padStart(6)} dB  ${off.count} ${JSON.stringify(off.lines.slice(0, 6).map((l) => ({ hz: +l.hz.toFixed(1), db: +l.db.toFixed(1) })))}`);
+  }
+  // (--hz: how much of each layer is within 4 Hz of one frequency, against the whole voice there)
+  const hz = +opt('hz', '0');
+  if (hz > 0) {
+    const at = (x: Float32Array): number => pdb(bandPower(welch(x, 65536, Math.floor(1.2 * SR), n), SR, hz - 4, hz + 4));
+    const ref = at(out);
+    const rest = out.map((s, i) => s - dbg.exhaust[i] - dbg.intake[i] - dbg.block[i] - dbg.mech[i] - dbg.whine[i] - dbg.events[i] - dbg.turbo[i]);
+    console.log(`  at ${hz} Hz against the voice: ${[...taps.slice(1), ['events', dbg.events] as [string, Float32Array], ['the rest', rest] as [string, Float32Array]].map(([name, x]) => `${name} ${(at(x) - ref).toFixed(1)}`).join(', ')} dB`);
+  }
+} else console.log('usage: taccola-lab.ts orders | sweep | grid | map | offgrid');

@@ -321,8 +321,8 @@ export function deriveVoicing(p: EngineSoundProfile, layout: EngineLayout): Voic
     Lt: lerp(0.62, 0.3, o) * kLen,
     gS: 2.0,
     gM: layout.banks === 2 ? 1.5 : 1.0,
-    rc: twinEx ? 1.2 : lerp(5.2, 1.18, Math.pow(o, 0.8)),
-    rq: twinEx ? 0.05 : lerp(0.45, 0.06, o),
+    rc: twinEx ? 1.1 : lerp(5.2, 1.18, Math.pow(o, 0.8)),
+    rq: twinEx ? 0.03 : lerp(0.45, 0.06, o),
     // (a dual exhaust is two separate pipes with the big mufflers of a truck and nothing to scatter the energy of a resonance into, as the junction
     // of a merged system does: damped a little more, so that the exhaust does not surge as the firing harmonics sweep a pipe resonance: 2 dB
     // between two 66 ms windows of a rev sweep, where it was 4.7. A short open exhaust's ends reflect little: steady flat out over the top of
@@ -331,7 +331,7 @@ export function deriveVoicing(p: EngineSoundProfile, layout: EngineLayout): Voic
     // be 6 dB quieter: a close-ratio box keeps the engine there, so each gear would come out quieter at its top than at its bottom;
     // tests/audio-dieci.test.ts)
     Rc: twinEx ? 0.3 : dual ? 0.66 : short ? 0.2 : 0.78,
-    Ro: lerp(0.95, 0.88, o) * (twinEx ? 0.15 : dual ? 0.88 : short ? 0.45 : 1),
+    Ro: lerp(0.95, 0.88, o) * (twinEx ? 0.05 : dual ? 0.88 : short ? 0.45 : 1),
     Rq: 0.85,
     fcP: 5200 + 3500 * b,
     fcS: 6000 + 3000 * b,
