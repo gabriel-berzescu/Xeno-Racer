@@ -18,7 +18,7 @@ import { Matrix4, Quaternion, Vector3 } from 'three';
 import { version } from '../../package.json';
 import { AIDriver } from '../ai';
 import { NITRO_PER_LAP, NITRO_SECONDS, NitroTank } from '../core/nitro';
-import { CARS, getCar } from '../cars';
+import { CAR_LINEUP, CARS, getCar } from '../cars';
 import { armWeather, createAudioSystem, onAlbumTrack, onLightning, primeAlbum, primeCarVoices, setDriving, setWiper, skipTrack } from '../audio';
 import { createCarVisual } from '../carvis';
 import type {
@@ -278,7 +278,8 @@ export class Game {
     // the race music: a card on the HUD and a line on the pause menu say which song has started
     onAlbumTrack(this.audio, (np) => this.ui.setNowPlaying(np));
     this.ui = createUI(this.uiRoot, {
-      cars: CARS,
+      // (the menus list the cars in their own order, the road cars and then the racing cars: CAR_LINEUP)
+      cars: CAR_LINEUP,
       tracks: TRACKS.map((t) => t.info),
       settings: structuredClone(this.settings),
       version: VERSION,

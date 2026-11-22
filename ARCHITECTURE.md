@@ -23,7 +23,7 @@ signage: teal `#16e0bd`, hot pink `#ff2e63`, near-black `#0b0c10`, off-white `#e
 | `src/core/contracts.ts`, `src/core/systems.ts` | lead | Shared types + subsystem APIs. **Do not edit**; ask the lead. |
 | `src/core/*` (other) | lead | settings, small shared helpers; `split.ts`: the split-screen geometry, lens, HUD scale and grid slots (pure, shared by render, UI and game) |
 | `src/physics/` | lead | rigid body, tires, suspension, drivetrain, aero, collisions, assists |
-| `src/cars/` | lead | car roster (`CARS`, `getCar`) — physics + visual + sound specs |
+| `src/cars/` | lead | car roster (`CARS`, `getCar`) — physics + visual + sound specs; `CAR_LINEUP` is the same cars in the order the menus list them (the road cars by power to weight, then the racing cars by pace), where `CARS` keeps the order they were added in, which tests and benchmarks take cars from by position |
 | `src/game/`, `src/main.ts` | lead | game loop, race logic, timing, ghosts, championship (`championship.ts`: pure scoring, standings and persistence), weather that changes during a race (`weather.ts`: the plan, the timeline and the director, pure; the rules of a legal forecast are in `src/core/forecast.ts`), integration |
 | `src/track/` | track | track definitions, spline/runtime queries, road/terrain/scenery meshes |
 | `src/render/` | render | renderer, post-processing, sky/sun/env map, cameras, particle FX, skidmarks |

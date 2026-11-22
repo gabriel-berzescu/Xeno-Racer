@@ -1148,3 +1148,10 @@ export function getCar(id: string): CarDefinition {
   if (!c) throw new Error(`Unknown car '${id}'`);
   return c;
 }
+
+/**
+ * The cars as the menus list them: the road cars from the gentlest to the Taccola (by power to weight: 0.20, 0.24, 0.29, 0.41 and
+ * 0.74 hp a kilogram), then the racing cars from the slowest round a lap to the quickest. `CARS` itself stays in the order the cars
+ * were added: tests and probes take cars from it by position, and the mixed fields of the benchmarks are that order in turn.
+ */
+export const CAR_LINEUP: CarDefinition[] = ['ronin-86', 'kestrel-r', 'mammoth', 'vanta-gt', 'taccola', 'lmp-x', 'volta', 'dieci'].map(getCar);
