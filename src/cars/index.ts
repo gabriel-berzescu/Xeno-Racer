@@ -930,8 +930,8 @@ const dieci: CarDefinition = {
 // ─────────────────────────────────────────────────────────────────────────────
 // Taccola — a mid-engined road hypercar. A 6.4 L V12 singing to 10,600 rpm, an active rear wing, and number plates.
 // ─────────────────────────────────────────────────────────────────────────────
-// (taccola: the jackdaw, and the name the Sienese engineer Mariano di Jacopo went by. A first pass, on the shared contracts: its body,
-// its voice and its physics are each tuned in their own block below.)
+// (taccola: the jackdaw, and the name the Sienese engineer Mariano di Jacopo went by. Its body, its voice and its
+// physics are each in their own block below.)
 
 // What it does on a flat plane (TACCOLA=all npx vitest run tests/probes/taccola-probe.test.ts prints the tables beside the Vanta GT and the
 // LMP-X; tests/taccola.test.ts holds the bounds): 0-100 km/h in 2.88 s with the traction control on (the rear tyres' limit: 4.0 s without
@@ -1044,7 +1044,8 @@ const taccola: CarDefinition = {
   name: 'Taccola',
   maker: 'Xeno Automobili',
   description:
-    'A mid-engined hypercar named for the jackdaw: 1340 kg, a 6.4 L V12 that sings to 10,600 rpm and a wing that lies flat on the straights. Road-legal, on semi-slicks — warm them before you lean on them.',
+    // (three lines in the car picker, as the longest of the others: a fourth pushes the stats into the livery row)
+    'A mid-engined V12 hypercar named for the jackdaw. It sings to 10,600 rpm and lays its wing flat on the straights. Warm its semi-slicks first.',
   class: 'Hypercar',
   drivetrain: 'RWD',
   // (measured: 0-100 in 2.88 s with the traction control on, 384.4 km/h flat out with the wing working; the curve gives 985.8 hp at 10,000 rpm
