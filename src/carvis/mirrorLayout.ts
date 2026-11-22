@@ -140,6 +140,17 @@ function styleFor(style: BodyStyle, spec: CarVisualSpec): Style {
         rear: { y: c.rear.y, fromTail: c.rear.fromTail, pitch: 2 },
       };
     }
+    case 'hyper':
+      // the hypercar: slim mirrors on stalks from the doors' shoulders, beside the foot of the windscreen, where the driver sees them
+      // through the wrap of the glass; no rear-view mirror (the engine and its spine fill the view behind the cabin) but a display of
+      // the rear camera where one would hang, under the windscreen's header; the camera in the tail of the spine
+      return {
+        door: { pos: [0.985, 0.8, 0.74], hw: 0.07, hh: 0.036, out: 11 },
+        housing: { depth: 0.1, carbon: true, stalk: [0.9, 0.665, 0.66] },
+        inside: null,
+        screen: { pos: [0.1, 0.995 * (spec.height / 1.12), 0.44], hw: 0.085, hh: 0.026 },
+        rear: { y: 0.83, fromTail: 0.12, pitch: 2 },
+      };
     default:
       return {
         door: { pos: [0.745, 0.97 * hk, 0.66], hw: 0.058, hh: 0.04, out: 10 },

@@ -31,9 +31,10 @@ export interface CarLayout {
 export function eyePoint(s: CarVisualSpec): V3 {
   const proto = s.style === 'prototype';
   if (s.style === 'formula') return formulaCockpit(s).eye;
-  // (a 4x4 sits its driver bolt upright and high: the eye is 68 cm above the seat reference)
-  const eyeRise = proto ? 0.56 : s.style === 'hatch' ? 0.66 : s.style === 'suv' ? 0.68 : 0.62;
-  return [s.seat.x, s.seat.y + eyeRise, s.seat.z + (proto ? 0.05 : 0.1)];
+  // (a 4x4 sits its driver bolt upright and high: the eye is 68 cm above the seat reference; a hypercar's lies back under a low roof)
+  const hyper = s.style === 'hyper';
+  const eyeRise = proto ? 0.56 : hyper ? 0.57 : s.style === 'hatch' ? 0.66 : s.style === 'suv' ? 0.68 : 0.62;
+  return [s.seat.x, s.seat.y + eyeRise, s.seat.z + (proto || hyper ? 0.05 : 0.1)];
 }
 
 /**
@@ -246,6 +247,19 @@ export function computeLayout(s: CarVisualSpec): CarLayout {
     layout.chase = c.chase;
     layout.headlight = [p.beam[0], p.beam[1], p.beam[2]];
     layout.taillight = [p.rainLight[0], p.rainLight[1], p.rainLight[2]];
+  } else if (style === 'hyper') {
+    // the hypercar: the roundel on the door, in the facet under the shoulder; the number on the cowl, where the beak is widest; a split
+    // at the shoulder's height; the hood camera over the beak, the bumper camera on its tip; the headlamp spots at the lamps in the
+    // fenders' faces, the tail light the lamp across the tail
+    lay.door = { z: 0.2, y: 0.44, r: 0.14 };
+    lay.hood = { z: 1.2, r: 0.15 };
+    lay.belt = 0.62;
+    lay.trueRound = true;
+    layout.hood = [0, 0.78, zNose - 1.05];
+    layout.bumper = [0, 0.46, zNose - 0.02];
+    layout.chase = [0, roofY, (zF + zR) * 0.5 - 0.2];
+    layout.headlight = [0.74, 0.5, zNose - 0.16];
+    layout.taillight = [0, 0.67, zTail + 0.03];
   }
   return layout;
 }
@@ -283,6 +297,10 @@ export function wheelLook(style: CarVisualSpec['style'], era?: 2004): WheelLook 
     case 'suv':
       // satin-black beadlock wheels with raw steel bolts, orange calipers behind them, a treaded all-terrain tyre
       return { rimColor: [0.016, 0.016, 0.018], rimMetal: 0.85, rimRough: 0.36, rimCC: 0.15, nutColor: [0.62, 0.63, 0.66], caliper: [0.95, 0.2, 0.0], slick: 0, tread: 1 };
+    case 'hyper':
+      // forged blades in a dark satin titanium with a brighter lip, a silver centre-lock nut, calipers in a pale ice grey (the jackdaw's
+      // eye), and a semi-slick: a smooth face with two shallow grooves each side of its centre line
+      return { rimColor: [0.075, 0.078, 0.086], rimMetal: 1, rimRough: 0.34, rimCC: 0.35, nutColor: [0.74, 0.76, 0.8], caliper: [0.62, 0.7, 0.78], slick: 1, tread: 0, grooves: [0.035, 0.1, 0.006, 0.003] };
     case 'formula':
       // black magnesium rims behind carbon closing panels, a red centre-lock nut, a slick (its sidewall lettering in the compound's yellow: car.ts)
       return { rimColor: [0.014, 0.014, 0.016], rimMetal: 0.6, rimRough: 0.38, rimCC: 0.3, nutColor: [0.7, 0.04, 0.03], caliper: [0.05, 0.05, 0.05], slick: 1, tread: 0 };

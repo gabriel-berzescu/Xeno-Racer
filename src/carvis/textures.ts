@@ -75,6 +75,14 @@ export function createTireTextTexture(spec: CarVisualSpec, slick: boolean, accen
       drawText(size, x0 + 470, 0.52, 28, '600', '#ffffff');
       drawText('GROOVED  •  DRY', x0 + 640, 0.52, 28, '600', '#ffffff');
     }
+  } else if (spec.style === 'hyper') {
+    // the hypercar's semi-slick: a road tyre's markings (it is road legal) under a track tyre's name
+    drawText('XENO', 60, 0.6, 52, '900', '#ffffff');
+    drawText('CORSA R', 250, 0.6, 52, '700', '#ffffff');
+    drawText(size + ' ZR', 560, 0.56, 34, '600', '#ffffff');
+    drawText('TREADWEAR 60 • TRACTION AA • TEMPERATURE A', 830, 0.46, 22, '500', '#ffffff');
+    drawText('XENO', 1380, 0.6, 52, '900', '#ffffff');
+    drawText('CORSA R', 1570, 0.6, 52, '700', '#ffffff');
   } else if (slick) {
     // racing slick: big brand + a coloured ring
     g.fillStyle = accent;

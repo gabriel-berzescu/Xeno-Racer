@@ -56,7 +56,7 @@ export interface BodyBuildOptions {
 export function buildBody(bp: Blueprint, spec: CarVisualSpec, o: BodyBuildOptions): BodyData {
   const now = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now());
   const t0 = now();
-  const m = polygonize({ min: bp.bounds.min, max: bp.bounds.max, cell: o.cell, field: bp.body, lipschitz: 1.35 });
+  const m = polygonize({ min: bp.bounds.min, max: bp.bounds.max, cell: o.cell, field: bp.body, lipschitz: 1.35, sharp: bp.sharp });
 
   // ── drop the flat underbody (never seen) and compact the vertex list ─────────
   const yFlat = spec.rideHeight + 0.02;

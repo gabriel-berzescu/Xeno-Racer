@@ -1,0 +1,173 @@
+/**
+ * The Taccola's parts (bodies/hyper.ts sculpts the body they stand on): the splitter, the diffuser's strakes, the four tailpipes in the
+ * fascia, the mirrors, and the active wing on its two arms, which is one moving part.
+ */
+import type { CarVisualSpec } from '../../core/contracts';
+import { PART, type MovingPart } from '../blueprint';
+import { airfoilPoly } from '../aero';
+import { addDoorMirrors } from '../mirrorParts';
+import type { PartBuilder } from '../parts';
+import { roundPoly } from '../shapes';
+
+type V3 = [number, number, number];
+
+/** The lengths the body and its parts share (body frame: the origin on the ground at the middle of the wheelbase, +z forward). */
+export function hyperFrame(s: CarVisualSpec): { zF: number; zR: number; zNose: number; zTail: number; hw: number; hk: number } {
+  const zF = s.wheelbase / 2;
+  return { zF, zR: -zF, zNose: zF + s.frontOverhang, zTail: -(zF + (s.length - s.wheelbase - s.frontOverhang)), hw: s.width / 2, hk: s.height / 1.12 };
+}
+
+/**
+ * Where the Taccola carries what other modules look for (body frame, +x the left):
+ *   - sideIntakeZ: the wall the flank's facet ends in, with the side intake's mouth in it;
+ *   - exhausts: the mouths of the four tailpipes, a cluster in the middle of the fascia (src/render/effects.ts blows the flames there);
+ *   - headlamp: where the left lamp's beam starts.
+ */
+export function hyperPoints(s: CarVisualSpec): { sideIntakeZ: number; exhausts: V3[]; headlamp: V3 } {
+  const { zNose, zTail } = hyperFrame(s);
+  return {
+    sideIntakeZ: -0.62,
+    exhausts: [-0.225, -0.075, 0.075, 0.225].map((x) => [x, 0.52, zTail + 0.01] as V3),
+    headlamp: [0.74, 0.5, zNose - 0.16],
+  };
+}
+
+/**
+ * The groove down each flank (ax = |x|; negative inside the cut): a V under the shoulder that opens out of the front wheel's arch and
+ * is 18 cm deep where it ends. Its upper face runs in under a lip that climbs a little to the rear (an undercut: the face drops
+ * 3 cm in 10), its lower face leans 50 degrees
+ * out from the bottom of the V to the sill, and it ends in a wall that leans forward at the top, a brow over the intake's mouth: the
+ * mesh in that wall is a part (addHyperParts).
+ */
+export function hyperGroove(s: CarVisualSpec): { cut(ax: number, y: number, z: number): number; wallZ(y: number): number; upperX(y: number, z: number): number; lowerX(y: number, z: number): number; side: number } {
+  const P = hyperPoints(s);
+  const side = 0.955;
+  const lipY = (z: number): number => 0.562 - 0.04 * z;
+  // (it opens out of the back of the front wheel's arch, 2 cm deep there: the air from the wheel well runs down it)
+  const depth = (z: number): number => 0.02 + 0.1 * (1.02 - z);
+  const wallZ = (y: number): number => P.sideIntakeZ + 0.5 * (y - 0.45);
+  // where each face is at a height and a station: the cut is outboard of both
+  const upperX = (y: number, z: number): number => side + (y - lipY(z)) / 0.3;
+  const lowerX = (y: number, z: number): number => side - depth(z) + 1.19 * (lipY(z) - 0.3 * depth(z) - y);
+  return {
+    cut: (ax, y, z) => Math.max((upperX(y, z) - ax) * (0.3 / 1.045), (lowerX(y, z) - ax) / 1.56, (wallZ(y) - z) / 1.118),
+    wallZ,
+    upperX,
+    lowerX,
+    side,
+  };
+}
+
+/**
+ * The active wing (body frame, +x the left): one blade on two arms that turn about a hinge in the deck. In corner mode (at rest) the
+ * arms stand up and the blade is pitched, its trailing edge high; in straight mode the arms lie down and the blade comes down flat
+ * over the tail.
+ */
+export function hyperWing(s: CarVisualSpec): { pivot: V3; at: V3; halfSpan: number; chord: number; pitch: number; swing: number; armX: number } {
+  const { zTail } = hyperFrame(s);
+  return {
+    // the hinge, in the floor of the deck's valleys
+    pivot: [0, 0.7, zTail + 0.66],
+    // the blade's quarter chord in corner mode
+    at: [0, 0.95, zTail + 0.2],
+    halfSpan: 0.86,
+    chord: 0.32,
+    // corner mode: the trailing edge up by this (rad)
+    pitch: 0.3,
+    // what the arms turn through into straight mode (rad about +x: negative brings the blade down and flat)
+    swing: -0.3,
+    armX: 0.4,
+  };
+}
+
+/** The blade and its arms as they stand in corner mode. */
+function addWing(b: PartBuilder, s: CarVisualSpec): void {
+  const w = hyperWing(s);
+  // the blade: an inverted aerofoil (the camber below), its trailing edge lifted
+  b.setPart(PART.carbon);
+  b.extrude(airfoilPoly(w.chord, 0.085, -0.09, -w.pitch, 18), { o: [w.halfSpan, w.at[1], w.at[2]], u: [0, 0, 1], v: [0, 1, 0] }, w.halfSpan * 2, 0.003, 2);
+  // small end plates in the body's paint
+  b.setPart(PART.body);
+  for (const sg of [-1, 1]) {
+    const plate = roundPoly([0.1, -0.035, 0.09, 0.01, -0.17, 0.085, -0.24, 0.08, -0.24, 0.0, -0.05, -0.05], 0.012);
+    b.extrude(plate, { o: [sg * w.halfSpan + (sg > 0 ? 0.01 : 0), w.at[1], w.at[2]], u: [0, 0, 1], v: [0, 1, 0] }, 0.01, 0.002, 1);
+  }
+  // the arms: from the hinge up under the blade
+  b.setPart(PART.carbon);
+  for (const sg of [-1, 1]) {
+    const dz = w.at[2] - w.pivot[2];
+    const dy = w.at[1] - w.pivot[1];
+    const arm = roundPoly([0.05, -0.02, 0.06, 0.03, dz + 0.1, dy - 0.02, dz - 0.04, dy - 0.03, dz - 0.06, dy - 0.07, -0.04, -0.03], 0.012);
+    b.extrude(arm, { o: [sg * w.armX + 0.012, w.pivot[1], w.pivot[2]], u: [0, 0, 1], v: [0, 1, 0] }, 0.024, 0.004, 1);
+  }
+}
+
+export function hyperMoving(s: CarVisualSpec): MovingPart[] {
+  const w = hyperWing(s);
+  return [{ name: 'wing', drive: 'aero', pivot: w.pivot, axis: [1, 0, 0], angle: w.swing, build: (b) => addWing(b, s) }];
+}
+
+export function addHyperParts(b: PartBuilder, s: CarVisualSpec): void {
+  const { zNose, zTail } = hyperFrame(s);
+  const P = hyperPoints(s);
+  // front splitter: a carbon blade under the nose, a hand's width ahead of it
+  {
+    const poly = roundPoly([0.0, zNose + 0.035, 0.45, zNose + 0.015, 0.82, zNose - 0.2, 0.96, zNose - 0.45, 0.96, zNose - 0.72, -0.96, zNose - 0.72, -0.96, zNose - 0.45, -0.82, zNose - 0.2, -0.45, zNose + 0.015], 0.03);
+    b.setPart(PART.carbon);
+    b.extrude(poly, { o: [0, 0.1, 0], u: [1, 0, 0], v: [0, 0, 1] }, 0.014, 0.004, 2);
+  }
+  // the diffuser's strakes: fins in the tunnel, tall at the tail and running out along its roof
+  b.setPart(PART.carbon);
+  for (const x of [-0.46, -0.2, 0.2, 0.46]) {
+    const fin = [zTail + 0.02, 0.105, zTail + 0.02, 0.32, zTail + 0.62, 0.11, zTail + 0.62, 0.105];
+    b.extrude(fin, { o: [x + 0.005, 0, 0], u: [0, 0, 1], v: [0, 1, 0] }, 0.01, 0.0015, 1);
+  }
+  // four tailpipes, a cluster in the middle of the fascia
+  for (const e of P.exhausts) {
+    b.setPart(PART.titanium);
+    b.cylinder([e[0], e[1], e[2] + 0.12], [e[0], e[1], e[2]], 0.05, 0.053, 24, false);
+    b.setPart(PART.plastic);
+    b.cylinder([e[0], e[1], e[2] + 0.07], [e[0], e[1], e[2] + 0.06], 0.047, 0.047, 24, true);
+  }
+  // the side intakes' mesh: a panel in the wall each groove ends in, cut to the V of the groove
+  {
+    const g = hyperGroove(s);
+    const out = g.side - 0.012;
+    const inner = (y: number): number => Math.max(g.upperX(y, g.wallZ(y)), g.lowerX(y, g.wallZ(y)));
+    // the heights where the two faces reach the flank
+    const solve = (f: (y: number) => number, lo: number, hi: number): number => {
+      for (let i = 0; i < 40; i++) {
+        const m = (lo + hi) / 2;
+        if (f(lo) < 0 === f(m) < 0) lo = m;
+        else hi = m;
+      }
+      return (lo + hi) / 2;
+    };
+    const yTop = solve((y) => g.upperX(y, g.wallZ(y)) - out, 0.45, 0.75);
+    const yBot = solve((y) => g.lowerX(y, g.wallZ(y)) - out, 0.05, 0.45);
+    const up = 1 / 1.118, fwd = 0.5 / 1.118;
+    for (const sg of [1, -1]) {
+      const poly: number[] = [];
+      const n = 14;
+      for (let i = 0; i <= n; i++) {
+        const y = yBot + ((yTop - yBot) * i) / n;
+        poly.push(sg * (inner(y) - 0.006), (y - 0.45) / up);
+      }
+      poly.push(sg * out, (yTop - 0.45) / up, sg * out, (yBot - 0.45) / up);
+      b.setPart(PART.body);
+      b.setZone(3, -1);
+      // (the wall's own normal looks forward and down: the panel stands 8 mm ahead of it)
+      b.extrude(poly, { o: [0, 0.45 - 0.008 * fwd, g.wallZ(0.45) + 0.008 * up], u: [1, 0, 0], v: [0, up, fwd] }, 0.002, 0, 1);
+      b.clearZones();
+    }
+  }
+  addDoorMirrors(b, s);
+}
+
+/** What a far Taccola keeps: the wing as a slab on its arms (it makes its outline and its shadow). */
+export function addHyperFarParts(b: PartBuilder, s: CarVisualSpec): void {
+  const w = hyperWing(s);
+  b.setPart(PART.carbon);
+  b.box([0, w.at[1], w.at[2] - 0.08], w.halfSpan, 0.02, w.chord * 0.5);
+  for (const sg of [-1, 1]) b.box([sg * w.armX, (w.at[1] + w.pivot[1]) * 0.5, (w.at[2] + w.pivot[2]) * 0.5], 0.012, (w.at[1] - w.pivot[1]) * 0.5, 0.05);
+}

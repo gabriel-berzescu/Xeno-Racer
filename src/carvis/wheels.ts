@@ -23,7 +23,7 @@ import type { QualityLevel } from '../core/contracts';
 import { PART } from './blueprint';
 import { PartBuilder, frameFromAxis, type Frame, type V3 } from './parts';
 
-export type WheelStyle = 'multi' | 'split5' | 'six' | 'centerlock' | 'beadlock' | 'formula' | 'formula04';
+export type WheelStyle = 'multi' | 'split5' | 'six' | 'centerlock' | 'beadlock' | 'formula' | 'formula04' | 'blade';
 
 /** A single-seater's wheel, of either era: no bodywork round it, so seen from every side, and closed on its inboard side by the brake's drum. */
 function singleSeater(s: WheelStyle): boolean {
@@ -418,6 +418,15 @@ export function buildWheel(p: WheelParams): PartBuilder {
       }
       break;
     }
+    case 'blade': {
+      // nine slim forged blades swept back from a centre lock, each a little broader where it meets the lip (the hypercar's)
+      const n = 9;
+      for (let i = 0; i < n; i++) {
+        const ang = (i / n) * Math.PI * 2;
+        addSpoke(rotPoly(spokePoly(0.052, rEnd, 0.017, 0.0135, 0.075, 1, 10), ang));
+      }
+      break;
+    }
     case 'centerlock': {
       const n = 5;
       for (let i = 0; i < n; i++) {
@@ -500,7 +509,7 @@ export function buildWheel(p: WheelParams): PartBuilder {
     // (the beadlock's centre cap is satin black like its spokes: a polished one only reflected the white of the studio)
     setZ(pb, v0, v0 + prof.length * 40, 13, p.style === 'beadlock' ? PART.rimFace : PART.hub);
     setZ(pb, v0, v0 + prof.length * 40, 12, 0.9);
-    if (p.style === 'centerlock' || singleSeater(p.style)) {
+    if (p.style === 'centerlock' || p.style === 'blade' || singleSeater(p.style)) {
       // big knurled centre-lock nut
       const nProf: Array<[number, number]> = [
         [xOut + 0.001, 0.05],
@@ -631,6 +640,8 @@ export function styleForBody(style: string, era?: 2004): WheelStyle {
       return 'beadlock';
     case 'formula':
       return 'formula';
+    case 'hyper':
+      return 'blade';
     default:
       return 'centerlock';
   }

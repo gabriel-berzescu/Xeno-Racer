@@ -82,6 +82,11 @@ export interface Blueprint {
   moving?: MovingPart[];
   /** Numbers the main thread needs that were measured on the sculpted surface. */
   info?: BlueprintInfo;
+  /**
+   * Mesh the body by dual contouring (polygonize.ts `sharp`; absent: surface nets, as every body before the hypercar): its creases come
+   * out straight, for a body whose edges are part of its look.
+   */
+  sharp?: boolean;
   /** Named sub-fields for tests / debugging only. */
   debug?: Record<string, FieldFn>;
 }
