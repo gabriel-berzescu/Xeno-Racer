@@ -17,7 +17,7 @@
  *   + turbo (spool whistle / flutter / blow-off), gear whine, shift clunk, backfire pops, rev limiter
  *   + interior / exterior mix (cabin resonance, muffled exhaust path; or, in an open cockpit, the helmet)
  *
- * Four things a profile can ask for beyond that (all off, and costing nothing, for every other engine):
+ * Six things a profile can ask for beyond that (all off, and costing nothing, for every other engine):
  *
  *   `exhaustSystem: 'dual'`  the secondaries do not meet: each bank goes on through a main pipe, muffler and tailpipe of its own (TailChain)
  *        and the listener hears the sum, a little nearer one tailpipe than the other. Through twin pipes the sum of a cross-plane V8's banks
@@ -32,6 +32,13 @@
  *   `electric`  an electric motor geared to the crankshaft (a 2026 MGU-K): a whine on the 14th order of the crank with its harmonics, a
  *        murmur of its gears as it turns, faint while it harvests on a lift or under braking, strong while it deploys (a nitro shot burning,
  *        in a forward gear), as strong as the share of its power the road speed leaves it (`electricTaper`).
+ *   `exhaustSystem: 'twin'`  a chain per bank as the dual has, but a sports car's: straight-through mufflers that send next to nothing back
+ *        up the pipes, the two systems alike but for a delay of 0.08 ms and their share at the listener. The sum of a V12's two banks is
+ *        then the twelve's even train (the 6th, 12th, 18th orders of the crank) with the lines of one six between them (the 3rd, 9th,
+ *        15th), most through the middle of the revs, and the note rises to the limiter without a pipe's ripple (see deriveVoicing).
+ *   `induction`  the note of open trumpets in an airbox: each cylinder's pulse rings in its bank's two resonances, on the orders of the
+ *        crank as the exhaust is and timed to add to it at the listener; it follows the throttle and the revs and is heard far more in
+ *        the cockpit than outside (see the block parameters in block()).
  *
  * A cross-plane V8 (crankType 'crossplane') is also lumpier, strongest at idle: what each bank's pipe still holds of its last pulse, the cammed
  * idle's cycle-to-cycle spread and weak cylinders, a bank that runs richer for a while, and a burble of unburnt charge on a lift-off
@@ -41,7 +48,8 @@
  * the lift of a high idle kept near the idle), a turbo with no blow-off valve (blowOff) and a wastegate that lets part of every pulse past the
  * turbine flat out (wastegate), a shift of its own (shiftDip: the Volta's seamless flick, the Dieci's short ignition cut), a traction control
  * that cuts the spark of whole firing events rather than the load (ignitionCut, the Dieci's); and a car with an open cockpit is heard from
- * it through a helmet (EngineVoice.helmet).
+ * it through a helmet (EngineVoice.helmet). An engine can take some of its loudness off, or add to it (loudnessDb), and one of twelve
+ * cylinders shakes its block a quarter as much as the others (Voicing.blockGain).
  *
  * No allocation after construction; process() is safe to call from an AudioWorklet.
  */
@@ -257,7 +265,7 @@ export interface Voicing {
   idleWobble: number;
   /** Where the lift of the idle has faded out, x the idle rpm (EngineSoundProfile.idleLiftTo: 2.2 for an engine that does not say). */
   idleLiftTo: number;
-  // exhaust: a true dual system, each bank to its own tailpipe (full quality)
+  // exhaust: a chain per bank after the collectors, a true dual system's or a twin exhaust's (full quality)
   dual: boolean;
   /** Length of the left / right pipes (after the collector) relative to the nominal ones. */
   dualLen: [number, number];
@@ -302,7 +310,8 @@ export function deriveVoicing(p: EngineSoundProfile, layout: EngineLayout): Voic
   const boxer = p.crankType === 'boxer';
   // a cross-plane V8: its banks fire unevenly, so each bank's pipe sees pulses 90, 180, 270 and 180 degrees apart
   const cross = p.crankType === 'crossplane' && p.cylinders === 8 && layout.banks === 2;
-  // a twin exhaust: a chain per bank as the true dual has, a sports car's (see Voicing.twinEx)
+  // a twin exhaust: a chain per bank as the true dual has (so `dual` is set for both), a sports car's: each bank's own manifold, pipe,
+  // straight-through muffler and tailpipes, side by side in the tail
   const twinEx = p.exhaustSystem === 'twin' && layout.banks === 2;
   const dual = (p.exhaustSystem === 'dual' || twinEx) && layout.banks === 2;
   // a short open exhaust (a 2004 single-seater's periscopes): every pipe after the collectors 0.65 of the length the openness gives it
@@ -329,7 +338,12 @@ export function deriveVoicing(p: EngineSoundProfile, layout: EngineLayout): Voic
     // a 19,000 rpm V10's revs (14,500..19,300 rpm) its note rises 0.7 dB every 1000 rpm, 0.27 dB rms about that line (0.43 at most) and every
     // step up of 1500 rpm louder, where through the merged exhaust it rises 0.3 dB, 2.4 dB rms about its line (4.8 at most), and a step up can
     // be 6 dB quieter: a close-ratio box keeps the engine there, so each gear would come out quieter at its top than at its bottom;
-    // tests/audio-dieci.test.ts)
+    // tests/audio-dieci.test.ts. A twin exhaust's straight-through mufflers absorb what the open ends send back, 0.05 of it left, the
+    // chamber is 1.1 of the pipe and the stub 0.03 of it, and the closed end reflects 0.3: steady flat out from 4000 to 10,600 rpm a
+    // 6.4 L V12 rises 1.6 dB every 1000 rpm, 0.22 dB rms about the parabola fitted to it and no point under an earlier one, and over
+    // the 7600..10,600 rpm of its upper gears 1.15 dB every 1000 rpm and 0.11 dB rms about that line; with the open end at 0.15 the
+    // note stepped up 1.4 dB at 8500 rpm and stood still for the next 800, and through the merged exhaust it is 2 dB rms about its
+    // parabola and falls 7.5 dB on its way up; tests/audio-taccola.test.ts)
     Rc: twinEx ? 0.3 : dual ? 0.66 : short ? 0.2 : 0.78,
     Ro: lerp(0.95, 0.88, o) * (twinEx ? 0.05 : dual ? 0.88 : short ? 0.45 : 1),
     Rq: 0.85,
@@ -352,6 +366,8 @@ export function deriveVoicing(p: EngineSoundProfile, layout: EngineLayout): Voic
     timingJitterDeg: boxer ? 1.1 : 0.7,
     runnerHz: 210 * fScale,
     hissHz: 1800 + 1400 * b,
+    // (an engine whose induction has a note of its own hisses less: with all of the hiss a V12's cockpit flat out was a third to two
+    // thirds noise, where with the note and 0.4 of the hiss nine tenths and more of it is on the lines)
     intakeGain: ind > 0 ? (p.turbo ? 0.5 : 0.65) * (1 - 0.6 * ind) : p.turbo ? 0.5 : 0.65,
     intakeMod: 0.35 + 0.5 * layout.intakeDepth,
     tickGain: 0.35,
@@ -360,6 +376,10 @@ export function deriveVoicing(p: EngineSoundProfile, layout: EngineLayout): Voic
     crackAbs: 0,
     blockHz: [96 * fScale, 205 * fScale, 430 * fScale],
     blockDecay: [0.035, 0.022, 0.012],
+    // (twelve small combustions that overlap, in two banks that are each in balance, shake the block a quarter as much. A V12's firing
+    // line also runs through all three block modes between 950 and 4200 rpm, where the exhaust's own line is still weak: with 2.1 the
+    // block was the loudest layer at 1000 and 2000 rpm flat out, a bump of some 5 dB at 2000, and at 4000 rpm it cancelled the 6th order
+    // to 10 dB under what it is at 3800 and 4200 rpm, 16 dB under the 12th; with 0.5 that line dips 5 dB about 4100 rpm)
     blockGain: p.cylinders >= 12 ? 0.5 : 2.1,
     turbo: p.turbo,
     twin: p.turbo && p.cylinders >= 8,
@@ -371,6 +391,8 @@ export function deriveVoicing(p: EngineSoundProfile, layout: EngineLayout): Voic
     crackle: p.crackle,
     // (the dual exhaust is louder through its two separate chains than the one shared chain of lite: averaged over the rev range, with
     // the same pulses, the lite voice came out 5.6 dB under the full one at a gain of 1.35, and a little above it at 1.7, where the others' lite voices come out within 2 dB of theirs)
+    // (a twin exhaust's lite voice came out 2.2 dB under the full one at 1.35; at 1.74 it is 0.05 dB under on average, -1.6..+0.5 dB:
+    // node sandbox/audio/lab/run.mjs engine-lab.ts lite --car taccola)
     liteGain: twinEx ? 1.74 : dual ? 1.35 * 1.7 : 1.35,
     shiftDip: p.shiftDip !== undefined ? clamp(p.shiftDip, 0.005, 0.2) : 0.07,
     bridgeCut: p.shiftDip !== undefined,
@@ -394,6 +416,10 @@ export function deriveVoicing(p: EngineSoundProfile, layout: EngineLayout): Voic
     idleLiftTo: p.idleLiftTo !== undefined ? clamp(p.idleLiftTo, 1.05, 4) : 2.2,
     dual,
     twinEx,
+    // (a twin exhaust's two systems are the same pipes: what tells them apart is that one bank sits half a cylinder's spacing behind the
+    // other, 5 cm of hot pipe, 0.08 ms, and that the listener hears one pair of tailpipes 3 dB more than the other. The delay lets the
+    // higher of one bank's lines through more than the lower: at 5000 rpm the 3rd order is 16 dB under the 6th, the 9th 10 and the 15th
+    // 7. All of it is there to half the limiter's revs and 0.4 of it at the limiter, where the pulses crowd into one note)
     dualLen: twinEx ? [1, 1] : [1, 1.004],
     dualMuff: twinEx ? [1, 1] : [1, 0.97],
     dualGain: twinEx ? [1.18, 0.82] : [1.28, 0.78],
@@ -401,6 +427,9 @@ export function deriveVoicing(p: EngineSoundProfile, layout: EngineLayout): Voic
     dualFloor: twinEx ? 0.4 : 0.12,
     dualFade: twinEx ? [0.5, 1] : [0.12, 0.7],
     induction: ind,
+    // (the induction's note: the resonances above the firing line's 1060 Hz at the limiter, so that the note is the edge over the
+    // exhaust's body and rises with the revs; each two octaves wide (a Q of 2.2), so that no line stands out as it passes; the far bank
+    // half as loud and 6 % higher, so that a tenth of the note is one bank's lines; 18 dB more of it in the cockpit than outside)
     indHz: [1900, 2900],
     indDecay: [0.00037, 0.00024],
     indUpper: 0.7,
