@@ -1026,6 +1026,8 @@ const taccola: CarDefinition = {
       engineBraking: 150,
       inertia: 0.13,
       turbo: null,
+      // (a road car's cooling: the radiators ahead of the front wheels, their outlets in the hood, so a heavy nose hit costs it power)
+      noseRadiators: true,
     },
     drivetrain: {
       layout: 'RWD',

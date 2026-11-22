@@ -32,14 +32,16 @@
  *
  *   downforce  an axle loses it only if it has some worth the name (MECH_TUNING.aeroMin: 0.1 m^2 of lift area per tonne of car, 3 % of its
  *              weight pressed down at 250 km/h). The Vanta GT (0.22 and 0.32 m^2), the LMP-X (1.55 and 2.05), the Volta (1.64 and 2.16 in
- *              corner mode, 1.18 and 1.56 with its flaps open; the profile reads the corner mode) and the Dieci (1.74 and 2.21) have; the
+ *              corner mode, 1.18 and 1.56 with its flaps open; the profile reads the corner mode), the Dieci (1.74 and 2.21) and the
+ *              Taccola (0.93 and 1.44 with its wing up, 0.48 and 0.84 with it flat) have; the
  *              Kestrel R and the Ronin 86 (0.02 to 0.08: a splitter lip and a ducktail, 6 to 24 kgf at 250 km/h) do not, there is nothing there
  *              to lose; and the Mammoth's is not downforce at all but lift (-0.10 and -0.06 m^2: a brick with a light bar), which damage must
  *              not touch, since 60 % of a lift is less lift, a car that gets better in a crash (it used to: 180 N less lift at 250 km/h, 1 % more
  *              peak grip on its front tyres)
  *   engine     a tired engine comes with a smashed nose where the radiator is in it: the front-engined cars (Vanta GT, Kestrel R, Ronin 86,
  *              Mammoth). The LMP-X, the Volta and the Dieci are mid-engined, their radiators in their sidepods, so a nose hit leaves the engine
- *              alone
+ *              alone. The Taccola is mid-engined too, but a road car cooled through its nose (EngineSpec.noseRadiators: the radiators ahead of
+ *              the front wheels, their outlets in the hood), so its engine tires with its nose as a front-engined car's does
  *   wheels     toe and camber: every car has wheels, all of it
  *
  * The HUD keeps to the same rule (mechanicalReport): a zone lights for what a hit cost this car there, each loss as a share of the worst it can be. The
@@ -118,7 +120,7 @@ export interface MechProfile {
   /** the front / rear axle has downforce worth losing (a lift area of MECH_TUNING.aeroMin per tonne or more; lift, or next to nothing, is not) */
   readonly frontAero: boolean;
   readonly rearAero: boolean;
-  /** the radiator is in the nose (the engine is in front), so a heavy nose hit tires the engine */
+  /** the radiator is in the nose (the engine is in front, or cooled through the nose: EngineSpec.noseRadiators), so a heavy nose hit tires the engine */
   readonly noseEngine: boolean;
 }
 
@@ -128,7 +130,8 @@ export const FULL_CAR: MechProfile = Object.freeze({ frontAero: true, rearAero: 
 /**
  * What can be taken from this car, from its own numbers and nobody's name: downforce on the axles whose lift area is at least aeroMin per
  * tonne (a car with lift, or a lip, has none to lose), and an engine that a smashed nose can tire only where it sits in front of the cabin
- * (its radiator is behind the grille; a mid-engined car cools through its sides).
+ * (its radiator is behind the grille; a mid-engined car cools through its sides) or where the car says its radiators are in its nose all
+ * the same (EngineSpec.noseRadiators).
  */
 export function mechanicalProfile(car: Pick<CarDefinition, 'physics' | 'visual'>): MechProfile {
   const tonnes = car.physics.chassis.mass / 1000;
@@ -136,7 +139,7 @@ export function mechanicalProfile(car: Pick<CarDefinition, 'physics' | 'visual'>
   return {
     frontAero: liftAreaFront >= MECH_TUNING.aeroMin * tonnes,
     rearAero: liftAreaRear >= MECH_TUNING.aeroMin * tonnes,
-    noseEngine: car.visual.engine === 'front',
+    noseEngine: car.visual.engine === 'front' || car.physics.engine.noseRadiators === true,
   };
 }
 

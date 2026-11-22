@@ -326,6 +326,11 @@ describe('what each car can lose', () => {
     expect(byId('volta')).toEqual({ frontAero: true, rearAero: true, noseEngine: false });
     expect(byId('dieci')).toEqual({ frontAero: true, rearAero: true, noseEngine: false });
     expect(byId('mammoth')).toEqual({ frontAero: false, rearAero: false, noseEngine: true });
+    // the Taccola: an active rear wing and a splitter, and a mid-engined road car cooled through its nose (EngineSpec.noseRadiators: the
+    // radiators ahead of the front wheels, their outlets in the hood), so it has all of it to lose
+    expect(byId('taccola')).toEqual({ frontAero: true, rearAero: true, noseEngine: true });
+    expect(getCar('taccola').visual.engine).toBe('mid');
+    expect(CARS.filter((c) => c.physics.engine.noseRadiators).map((c) => c.id)).toEqual(['taccola']);
     // a record kept without a car is a car that has all of it, which is what the tests above are about
     expect(FULL_CAR).toEqual({ frontAero: true, rearAero: true, noseEngine: true });
     expect(new MechState().profile).toBe(FULL_CAR);
@@ -347,6 +352,9 @@ describe('what each car can lose', () => {
     expect(mechanicalProfile(made(1, 1, 1000, 'front')).noseEngine).toBe(true);
     expect(mechanicalProfile(made(1, 1, 1000, 'mid')).noseEngine).toBe(false);
     expect(mechanicalProfile(made(1, 1, 1000, 'rear')).noseEngine).toBe(false);
+    // or where the car says it is cooled, wherever its engine sits
+    const cooledInFront = made(1, 1, 1000, 'mid');
+    expect(mechanicalProfile({ ...cooledInFront, physics: { ...cooledInFront.physics, engine: { ...cooledInFront.physics.engine, noseRadiators: true } } }).noseEngine).toBe(true);
     // and the roster sits well clear of the line: nothing hangs on a third decimal
     for (const def of CARS) {
       const t = def.physics.chassis.mass / 1000;
@@ -375,8 +383,15 @@ describe('what each car can lose', () => {
       // the engine is the nose's alone, and only on a car with its radiator there
       expect(fxOf(def, { rear: 1 }).power, def.id).toBe(1);
       expect(fxOf(def, { wheels: [1, 1, 1, 1] }).power, def.id).toBe(1);
-      expect(fxOf(def, { front: 1 }).power < 1, def.id).toBe(def.visual.engine === 'front');
+      // (the engine in front, or the Taccola's, mid-mounted and cooled through the nose)
+      expect(fxOf(def, { front: 1 }).power < 1, def.id).toBe(def.visual.engine === 'front' || def.physics.engine.noseRadiators === true);
     }
+    // the Taccola, mid-engined, loses the same tenth of its power to a wrecked nose as the Vanta GT, and both its downforce areas
+    const taccola = getCar('taccola');
+    expect(fxOf(taccola, { front: 1 }).power).toBe(fxOf(vanta, { front: 1 }).power);
+    expect(fxOf(taccola, { front: 1 }).power).toBeCloseTo(1 - MECH_TUNING.power, 6);
+    expect(fxOf(taccola, { front: 1 }).aeroFront).toBeCloseTo(1 - MECH_TUNING.aeroFront, 6);
+    expect(fxOf(taccola, { rear: 1 }).aeroRear).toBeCloseTo(1 - MECH_TUNING.aeroRear, 6);
     // the LMP-X keeps its engine through everything; its wings are the nose's and the tail's
     const lmp = getCar('lmp-x');
     expect(fxOf(lmp, whole).power).toBe(1);
