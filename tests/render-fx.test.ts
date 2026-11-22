@@ -8,6 +8,7 @@ import { ContactShadows } from '../src/render/fx/contactShadow';
 import { ChipPool, FlamePool, makePuffSpec, PuffPool, SparkPool, seedRandom } from '../src/render/fx/pools';
 import { makeTrail, SkidMarks } from '../src/render/fx/skidmarks';
 import { lightUniforms } from '../src/render/wet/lights';
+import { hyperPoints } from '../src/carvis/bodies/hyperParts';
 import { formula04Points } from '../src/carvis/layouts';
 import { makeState } from '../sandbox/render/cars';
 import { makeRingTrack } from '../sandbox/render/fakeTrack';
@@ -442,6 +443,44 @@ describe('createEffects', () => {
     expect(rain.y).toBeCloseTo(p.rainLight[1], 6);
     expect(rain.z).toBeCloseTo(p.rainLight[2], 2);
     fx2.dispose();
+  });
+
+  it("backfires out of the hypercar's four tailpipes, the cluster in the middle of its tail where its body has them", () => {
+    seedRandom(23);
+    const taccola = getCar('taccola');
+    const v = taccola.visual;
+    const pipes = hyperPoints(v).exhausts;
+    const { render, particles } = mockRender();
+    const fx = createEffects(render, makeRingTrack(), 'high');
+    const s = stateOnAsphalt(11, taccola);
+    fx.registerCar(11, taccola);
+    fx.update(1 / 60, [s], cam);
+    // (a pipe now and then stays dark: enough backfires that all four have flamed)
+    for (let k = 0; k < 12; k++) {
+      s.backfireCount++;
+      fx.update(1 / 60, [s], cam);
+    }
+    const flames = particles.children.find((c) => c.name === 'xr.fx.flames') as Mesh;
+    const n = (flames.geometry as unknown as { instanceCount: number }).instanceCount;
+    const P = flames.geometry.getAttribute('aP').array as Float32Array;
+    const D = flames.geometry.getAttribute('aV').array as Float32Array;
+    const lit = new Set<number>();
+    for (let i = 0; i < n; i++) {
+      const o = i * 4;
+      const k = pipes.findIndex((e) => Math.abs(P[o] - e[0]) < 1e-4);
+      expect(k).toBeGreaterThanOrEqual(0);
+      lit.add(k);
+      expect(P[o + 1]).toBeCloseTo(pipes[k][1], 4);
+      // (each flame has ridden on with the car for the frames since it was lit)
+      const back = P[o + 2] - (pipes[k][2] - bodyCgZ(v));
+      expect(back).toBeGreaterThan(-1e-4);
+      expect(back).toBeLessThan((13 * s.velocity.z) / 60 + 1e-4);
+      // straight back, a touch down
+      expect(D[o]).toBeCloseTo(0, 6);
+      expect(D[o + 2]).toBeLessThan(-0.99);
+    }
+    expect(lit.size).toBe(4);
+    fx.dispose();
   });
 
   it("lights a nitro shot's flames at the mouths of the tailpipes, where a backfire's flame starts, on every car with a nitro that burns", () => {
