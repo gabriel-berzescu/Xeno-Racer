@@ -80,15 +80,25 @@ function whineOverMix(out: Float32Array, whine: Float32Array, rpm: number, from 
 const db = (x: number): number => 20 * Math.log10(x + 1e-12);
 
 describe('what the profile asks for is all the shared voice does for the Volta', () => {
-  it('only the Volta has an electric motor, and only the two single-seaters a racing engine\'s fields; the Volta has no blower, no dual exhaust and none of the cross-plane lumpiness', () => {
+  it('only the Volta has an electric motor and a racing turbo, and only the two single-seaters and the Taccola give their own revs and their own shift; the Volta has no blower, no dual exhaust and none of the cross-plane lumpiness', () => {
     for (const c of CARS) {
       const V = deriveVoicing(c.sound, buildLayout(c.sound));
-      expect(V.electric > 0, c.id).toBe(c.id === 'volta');
-      if (c.id === 'volta' || c.id === 'dieci') continue;
-      // (the five engines that are not a single-seater's take the old path everywhere: none of the fields is there)
       const s = c.sound;
-      expect([s.electric, s.electricTaper, s.limiterRpm, s.idleLiftTo, s.blowOff, s.shiftDip, s.wastegate], c.id).toEqual([undefined, undefined, undefined, undefined, undefined, undefined, undefined]);
-      expect([V.wastegate, V.blowOff, V.shiftDip, V.bridgeCut, V.idleLiftTo], c.id).toEqual([0, true, 0.07, false, 2.2]);
+      expect(V.electric > 0, c.id).toBe(c.id === 'volta');
+      if (c.id === 'volta') continue;
+      // (no other engine has the motor, the taper of its power, a turbo without a blow-off valve or a wastegate that is heard)
+      expect([s.electric, s.electricTaper, s.blowOff, s.wastegate], c.id).toEqual([undefined, undefined, undefined, undefined]);
+      expect([V.wastegate, V.blowOff], c.id).toEqual([0, true]);
+      if (c.id === 'dieci' || c.id === 'taccola') {
+        // (the two other engines that rev far past a road engine's 8000 rpm: their loudness measured over their own revs, the reach of
+        // the idle's lift and the upshift their own; tests/audio-dieci.test.ts, tests/audio-taccola.test.ts)
+        expect(s.limiterRpm, c.id).toBe(c.physics.engine.limiterRpm);
+        expect([V.bridgeCut, s.idleLiftTo !== undefined, s.shiftDip !== undefined], c.id).toEqual([true, true, true]);
+        continue;
+      }
+      // (the five other engines take the old path everywhere: none of the fields is there)
+      expect([s.limiterRpm, s.idleLiftTo, s.shiftDip], c.id).toEqual([undefined, undefined, undefined]);
+      expect([V.shiftDip, V.bridgeCut, V.idleLiftTo], c.id).toEqual([0.07, false, 2.2]);
     }
     const V = deriveVoicing(P, buildLayout(P));
     expect(V.blower).toBe(false);

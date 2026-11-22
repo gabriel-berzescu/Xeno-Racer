@@ -90,12 +90,16 @@ function pulseSpread(profile: EngineSoundProfile, car: (typeof CARS)[number], rp
 }
 
 describe('what the profile asks for is all the shared voice does for the Mammoth', () => {
-  it('only the Mammoth has a blower, a dual exhaust and the cross-plane lumpiness; every other engine of the roster is off all three', () => {
+  it('only the Mammoth has a blower, a dual exhaust and the cross-plane lumpiness; every other engine of the roster is off all three (the Taccola\'s twin exhaust has a chain for each bank too, a sports car\'s and not the dual\'s)', () => {
     for (const c of CARS) {
       const V = deriveVoicing(c.sound, buildLayout(c.sound));
       const mine = c.id === 'mammoth';
       expect(V.blower, c.id).toBe(mine);
-      expect(V.dual, c.id).toBe(mine);
+      expect(c.sound.exhaustSystem === 'dual', c.id).toBe(mine);
+      // (a chain for each bank: the dual's, with the dual's own pipes, and the twin exhaust's, tests/audio-taccola.test.ts)
+      expect(V.dual, c.id).toBe(mine || c.id === 'taccola');
+      expect(V.twinEx, c.id).toBe(c.id === 'taccola');
+      if (mine) expect([V.Rc, V.dualLen, V.dualMuff, V.dualGain, V.dualDelay, V.dualFloor, V.dualFade], c.id).toEqual([0.66, [1, 1.004], [1, 0.97], [1.28, 0.78], 0.0005, 0.12, [0.12, 0.7]]);
       expect(V.lope > 0, c.id).toBe(mine);
       expect(V.burble > 0, c.id).toBe(mine);
       expect(V.idleWobble, c.id).toBe(mine ? 0.4 : 0.03);
