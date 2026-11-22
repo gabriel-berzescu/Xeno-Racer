@@ -378,7 +378,8 @@
 .chip.pink { background: rgba(255, 46, 99, 0.24); color: #ff7a99; }
 .chip.solid { background: var(--teal); color: #03211b; }
 
-.stat { display: grid; grid-template-columns: 170px 1fr 120px; align-items: center; column-gap: 18px; height: 40px; }
+/* (six rows, in the height five used to take: the car picker has no room below them to give) */
+.stat { display: grid; grid-template-columns: 190px 1fr 130px; align-items: center; column-gap: 18px; height: 34px; }
 .stat .s-l { font: 600 21px/1 var(--f-display); letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
 .stat .s-b { position: relative; height: 12px; background: rgba(255, 255, 255, 0.12); clip-path: polygon(5px 0, 100% 0, calc(100% - 5px) 100%, 0 100%); overflow: hidden; }
 .stat .s-b i { position: absolute; inset: 0; background: linear-gradient(90deg, var(--teal-d), var(--teal)); transform-origin: 0 50%; transition: transform 0.5s var(--ease); }

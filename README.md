@@ -94,7 +94,7 @@ Xeno-Racer has an album of its own: instrumental race music, composed in code an
 
 ## Cars
 
-All eight are original designs, and their figures are measured in the simulation, not just quoted. They are listed as the car picker lists them: the road cars from the gentlest to the quickest (by power to weight), then the racing cars from the slowest round a lap to the quickest.
+All eight are original designs, and their figures are measured in the simulation, not just quoted. They are listed as the car picker lists them: the road cars from the gentlest to the quickest (by power to weight, which the picker shows for each car in horsepower a tonne, under its power and its weight), then the racing cars from the slowest round a lap to the quickest.
 
 | | Layout | Power | Weight | 0–100 km/h | Top speed | Skidpad |
 |---|---|---|---|---|---|---|

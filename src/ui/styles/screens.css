@@ -186,7 +186,7 @@
 .car-pager i { display: block; width: 36px; height: 6px; background: rgba(255, 255, 255, 0.2); clip-path: polygon(4px 0, 100% 0, calc(100% - 4px) 100%, 0 100%); transition: background 0.2s, width 0.3s var(--ease); }
 .car-pager i.on { width: 64px; background: var(--teal); }
 .car-info { padding: 16px 0 0 33px; }
-.car-desc { margin: 0 0 14px; max-width: 700px; font: 500 25px / 1.36 var(--f-body); color: var(--text); text-shadow: 0 2px 12px rgba(0, 0, 0, 0.75); }
+.car-desc { margin: 0 0 10px; max-width: 700px; font: 500 25px / 1.36 var(--f-body); color: var(--text); text-shadow: 0 2px 12px rgba(0, 0, 0, 0.75); }
 .car-best { display: flex; justify-content: space-between; align-items: baseline; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
 .car-best .k { font: 600 21px / 1 var(--f-display); letter-spacing: 0.16em; text-transform: uppercase; color: var(--dim); }
 .car-best .v { font-size: 30px; color: var(--teal); }

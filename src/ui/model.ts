@@ -57,7 +57,7 @@ export const CHAMP_OPPONENTS_MIN = 1;
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface StatBar {
-  id: 'power' | 'weight' | 'grip' | 'top' | 'accel';
+  id: 'power' | 'weight' | 'ratio' | 'grip' | 'top' | 'accel';
   label: string;
   /** 0..1 bar fill. */
   value: number;
@@ -77,14 +77,22 @@ export function gripScore(car: CarDefinition): number {
   return Math.sqrt(clamp01((grip - 0.85) / 1.5));
 }
 
+/** A car's power to weight, in horsepower for each tonne of it: what the menus sort the road cars by, and the figure that says most about how quick a car is. */
+export function powerToWeight(car: CarDefinition): number {
+  return (car.stats.powerHp / car.stats.massKg) * 1000;
+}
+
 export function carStatBars(car: CarDefinition, units: 'kmh' | 'mph'): StatBar[] {
   const s = car.stats;
+  const ratio = powerToWeight(car);
   const top = units === 'mph' ? Math.round(s.topSpeedKmh * 0.621371) + ' mph' : Math.round(s.topSpeedKmh) + ' km/h';
   return [
     // (out of 1000 hp: the Dieci's 912 fills nine tenths of it, the Mammoth's 710 seven tenths, the Ronin's 240 a quarter)
     { id: 'power', label: 'Power', value: clamp01(s.powerHp / 1000), text: Math.round(s.powerHp) + ' hp' },
     // (out of 2.5 t: the Mammoth fills it, a sports car sits around the middle)
     { id: 'weight', label: 'Weight', value: clamp01(s.massKg / 2500), text: thousands(s.massKg) + ' kg', neutral: true },
+    // (out of 1500 hp/t: the Dieci's 1425 all but fills it, the Taccola and the two other racing cars sit at half with 700 and some, the Ronin's 200 is an eighth)
+    { id: 'ratio', label: 'Power / weight', value: clamp01(ratio / 1500), text: thousands(ratio) + ' hp/t' },
     { id: 'grip', label: 'Grip', value: gripScore(car), text: '' + Math.round(gripScore(car) * 100) },
     { id: 'top', label: 'Top speed', value: clamp01((s.topSpeedKmh - 150) / 200), text: top },
     { id: 'accel', label: 'Acceleration', value: clamp01(1 - (s.zeroTo100 - 2.4) / 5.2), text: s.zeroTo100.toFixed(1) + ' s' },

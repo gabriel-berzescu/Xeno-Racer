@@ -11,6 +11,7 @@ import {
   liveryFor,
   matchQuality,
   MODE_INFO,
+  powerToWeight,
   SETTINGS_TABS,
 } from '../src/ui/model';
 import {
@@ -237,7 +238,7 @@ describe('car stats', () => {
   it('has a bar for every stat, all within 0..1', () => {
     for (const car of CARS) {
       const bars = carStatBars(car, 'kmh');
-      expect(bars.map((b) => b.id)).toEqual(['power', 'weight', 'grip', 'top', 'accel']);
+      expect(bars.map((b) => b.id)).toEqual(['power', 'weight', 'ratio', 'grip', 'top', 'accel']);
       for (const b of bars) {
         expect(b.value).toBeGreaterThanOrEqual(0);
         expect(b.value).toBeLessThanOrEqual(1);
@@ -252,6 +253,7 @@ describe('car stats', () => {
       for (const b of rows) {
         if (a.c.stats.powerHp > b.c.stats.powerHp) expect(bar(a, 'power')).toBeGreaterThanOrEqual(bar(b, 'power'));
         if (a.c.stats.massKg > b.c.stats.massKg) expect(bar(a, 'weight')).toBeGreaterThanOrEqual(bar(b, 'weight'));
+        if (powerToWeight(a.c) > powerToWeight(b.c)) expect(bar(a, 'ratio')).toBeGreaterThan(bar(b, 'ratio'));
         if (a.c.stats.topSpeedKmh > b.c.stats.topSpeedKmh) expect(bar(a, 'top')).toBeGreaterThanOrEqual(bar(b, 'top'));
         if (a.c.stats.zeroTo100 < b.c.stats.zeroTo100) expect(bar(a, 'accel')).toBeGreaterThanOrEqual(bar(b, 'accel'));
       }
@@ -267,6 +269,21 @@ describe('car stats', () => {
     expect(gripScore(winged)).toBeGreaterThan(gripScore(base));
     expect(gripScore(base)).toBeGreaterThan(0);
     expect(gripScore(base)).toBeLessThanOrEqual(1);
+  });
+  it('gives the power to weight in horsepower a tonne, straight from the two figures above it, and no car fills the bar', () => {
+    const text = (id: string): string => carStatBars(getCar(id), 'kmh').find((b) => b.id === 'ratio')!.text;
+    expect(text('ronin-86')).toBe('200 hp/t'); // 240 hp, 1200 kg
+    expect(text('taccola')).toBe('736 hp/t'); // 986 hp, 1340 kg
+    expect(text('dieci')).toBe('1,425 hp/t'); // 912 hp, 640 kg
+    for (const car of CARS) {
+      const bars = carStatBars(car, 'mph');
+      const ratio = bars.find((b) => b.id === 'ratio')!;
+      expect(ratio.text, car.id).toBe(Math.round((car.stats.powerHp / car.stats.massKg) * 1000).toLocaleString('en-US') + ' hp/t');
+      expect(ratio.value, car.id).toBeLessThan(1);
+      expect(ratio.neutral, car.id).toBeFalsy();
+      // it sits under the two figures it is made of
+      expect(bars.map((b) => b.id).indexOf('ratio')).toBe(bars.map((b) => b.id).indexOf('weight') + 1);
+    }
   });
   it('prints units', () => {
     const car = CARS[0];
