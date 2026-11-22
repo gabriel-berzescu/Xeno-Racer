@@ -435,9 +435,15 @@ export interface EngineSoundProfile {
    * a lite voice has the same lope as per-pulse strengths. 'short': each collector straight out through a short open pipe with no muffler
    * (the periscopes of a 2004 single-seater; the two pipes of an even-firing engine, heard from one point, are the merged one): the pipes
    * 0.65 of a merged exhaust's length and their ends reflecting little, so that the pipe resonances which ripple a long exhaust's note
-   * through the top of a 19,000 rpm engine's revs are damped and the note rises to the limiter.
+   * through the top of a 19,000 rpm engine's revs are damped and the note rises to the limiter. 'twin': a sports car's twin exhaust, each
+   * bank of a V engine through its own manifold, its own pipe, its own straight-through muffler and its own tailpipes, side by side in the
+   * tail (the four pipes in a row of a V12: each bank is an inline six). The two systems are alike but for where they sit: one bank is half
+   * a cylinder's spacing behind the other, so its pulses come out 0.08 ms later, and the listener hears one pair of tailpipes a little
+   * more than the other. So the sum is not only the even train of the twelve (the 6th, 12th, 18th orders of the crank) but has the lines
+   * of one six between them (the 3rd, 9th, 15th), most through the middle of the revs and less at the top, where the pulses crowd into one
+   * note. Its mufflers absorb what the tailpipes send back, so the note rises to the limiter without the ripple of a long pipe's resonances.
    */
-  exhaustSystem?: 'merged' | 'dual' | 'short';
+  exhaustSystem?: 'merged' | 'dual' | 'short' | 'twin';
   /**
    * 0..1 how loud the whine of an electric motor geared to the crankshaft is (absent: none), the Volta's MGU-K (EngineSpec.electric):
    * locked to the engine speed, faint while it harvests under braking and strong while it deploys, which is only while a nitro shot burns,
@@ -490,6 +496,21 @@ export interface EngineSoundProfile {
    * them off above 3.4 kHz: the hard, high rasp of a Formula 1 car flat out, its firing harmonics heard up to 10 kHz.
    */
   wastegate?: number;
+  /**
+   * 0..1 how loud the induction's own note is (absent: none): open trumpets in an airbox fed by a scoop. Every cylinder's pulse in its
+   * trumpet rings there, a bank's six three times a turn, so the note is on the orders of the crank as the exhaust's is, brighter (its
+   * resonances are at 1.9 and 2.9 kHz) and with the lines of one bank between those of both (the far bank's trumpets are heard less). It
+   * follows the air the engine breathes, the throttle and the revs, is silent with the throttle shut, and is heard far more in the cockpit
+   * than outside (a scoop over the driver's head). With it the hiss of the intake is less: the air's noise has become a note. It is timed
+   * with the exhaust so that the two add at the listener. Full quality only.
+   */
+  induction?: number;
+  /**
+   * dB added to the loudness the openness and the displacement give the exhaust (absent: 0; negative: quieter). A big engine is given
+   * 6.5 dB for every doubling above 4.5 L, which suits one measured over a road engine's revs; one that also gives its own limiter far
+   * above them is measured where every voice is loudest, and would come out the loudest car of the roster and past full scale.
+   */
+  loudnessDb?: number;
 }
 
 export interface CarDefinition {

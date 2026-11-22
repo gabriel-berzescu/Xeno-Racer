@@ -390,6 +390,7 @@ describe('the level of two human voices (real synthesis, full throttle from a st
   let lmp: Voice;
   let volta: Voice;
   let dieci: Voice;
+  let taccola: Voice;
   let one: ReturnType<typeof level>;
   const two = (other: Voice, trim: number) => level(mix([{ v: vanta1, pan: -pan, trim }, { v: other, pan, trim }]), from);
   beforeAll(() => {
@@ -401,8 +402,10 @@ describe('the level of two human voices (real synthesis, full throttle from a st
     volta = renderPlayer('volta', 41, seconds);
     // (the Dieci, a V10 screaming to 19,300 rpm, the seventh car: the trim must hold for it too)
     dieci = renderPlayer('dieci', 43, seconds);
+    // (the Taccola, a V12 to 10,600 rpm through a twin exhaust, the eighth car: the trim must hold for it too)
+    taccola = renderPlayer('taccola', 47, seconds);
     one = level(mix([{ v: vanta1, pan: 0, trim: 1 }]), from);
-    // six players' worth of real synthesis: a few seconds alone, far more while the machine is busy with something else
+    // seven players' worth of real synthesis: a few seconds alone, far more while the machine is busy with something else
   }, 60_000);
 
   it('untrimmed, a second voice adds about 2 to 4 dB: the doubling the trim is there to take away', () => {
@@ -413,7 +416,7 @@ describe('the level of two human voices (real synthesis, full throttle from a st
 
   it('with SPLIT_PLAYER_TRIM two voices stay within 1.5 dB of one untrimmed voice, for equal and for unequal pairs', () => {
     const rows: string[] = [];
-    for (const [name, other] of [['vanta+vanta', vanta2], ['vanta+kestrel', kestrel], ['vanta+lmp-x', lmp], ['vanta+volta', volta], ['vanta+dieci', dieci]] as const) {
+    for (const [name, other] of [['vanta+vanta', vanta2], ['vanta+kestrel', kestrel], ['vanta+lmp-x', lmp], ['vanta+volta', volta], ['vanta+dieci', dieci], ['vanta+taccola', taccola]] as const) {
       const t = two(other, SPLIT_PLAYER_TRIM);
       rows.push(`${name}: rms ${(t.rmsDb - one.rmsDb).toFixed(2)} dB, loudest second ${(t.loudestDb - one.loudestDb).toFixed(2)} dB, peak ${(t.peakDb - one.peakDb).toFixed(2)} dB`);
       expect(Math.abs(t.rmsDb - one.rmsDb)).toBeLessThan(1.5);

@@ -25,6 +25,7 @@ import {
   createEngineDebug,
   exhaustTargetDb,
   measureExhaustSweepRms,
+  profileTargetDb,
 } from '../src/audio/dsp/engine-voice';
 
 const SR = 48000;
@@ -380,11 +381,13 @@ describe('engine voice: dynamics and events', () => {
 });
 
 describe('loudness calibration', () => {
-  it('every profile lands its sweep-average exhaust on the openness-dependent target', () => {
+  it('every profile lands its sweep-average exhaust on the openness-dependent target (the Taccola 3 dB under it, as its profile asks: the only one with a loudness of its own)', () => {
     for (const c of CARS) {
       const g = calibratedExhaustGain(c.sound, SR);
       const db = 20 * Math.log10(measureExhaustSweepRms(c.sound, SR, g));
-      expect(Math.abs(db - exhaustTargetDb(c.sound.exhaustOpenness, c.sound.displacement)), c.id).toBeLessThan(0.6);
+      expect(c.sound.loudnessDb, c.id).toBe(c.id === 'taccola' ? -3 : undefined);
+      expect(profileTargetDb(c.sound), c.id).toBe(exhaustTargetDb(c.sound.exhaustOpenness, c.sound.displacement) + (c.sound.loudnessDb ?? 0));
+      expect(Math.abs(db - profileTargetDb(c.sound)), c.id).toBeLessThan(0.6);
     }
   });
 

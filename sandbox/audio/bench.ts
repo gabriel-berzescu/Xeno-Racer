@@ -230,8 +230,8 @@ export function startBench(): void {
     markCustom();
   });
   // (merged: the banks meet and one pipe goes on; dual: a pipe to each bank, the burble of a crossplane V8; short: short open pipes, the
-  // Dieci's periscopes)
-  const exhaustSel = select('exhaust', ['merged', 'dual', 'short'] as const, profile.exhaustSystem ?? 'merged', (v) => {
+  // Dieci's periscopes; twin: each bank's own system side by side, the two sixes of the Taccola's V12)
+  const exhaustSel = select('exhaust', ['merged', 'dual', 'short', 'twin'] as const, profile.exhaustSystem ?? 'merged', (v) => {
     profile.exhaustSystem = v;
     markCustom();
   });
@@ -249,6 +249,10 @@ export function startBench(): void {
   });
   const electricS = slider('electric motor on the crank (the MGU-K whine; 0 = none)', 0, 1, 0.01, profile.electric ?? 0, (v) => {
     profile.electric = v > 0 ? v : undefined;
+    markCustom();
+  });
+  const inductionS = slider("induction's note (open trumpets under a scoop; 0 = none; loudest from the cockpit camera)", 0, 1, 0.01, profile.induction ?? 0, (v) => {
+    profile.induction = v > 0 ? v : undefined;
     markCustom();
   });
   let rebuildTimer = 0;
@@ -272,6 +276,7 @@ export function startBench(): void {
     blowRatioS.set(profile.supercharger?.ratio ?? 2.5);
     blowLobesS.set(profile.supercharger?.lobes ?? 4);
     electricS.set(profile.electric ?? 0);
+    inductionS.set(profile.induction ?? 0);
     rpm.set(Math.round(car.physics.engine.limiterRpm * 0.35));
   }
 
@@ -383,7 +388,7 @@ export function startBench(): void {
       'div',
       { class: 'grid' },
       panel('Engine', carSel.el, modeSel.el, camSel.el, interiorChk.el, rpm.el, thr.el, boost.el, limiter.el, nitroS.el, speedS.el, h('div', { class: 'btns' }, shiftBtn, popBtn), h('p', { class: 'hint' }, 'W / up = throttle, S / down = brake, E = shift, B = pop. Gamepad: RT throttle, LT brake, RB shift.')),
-      panel('Custom engine profile (live)', cylSel.el, layoutSel.el, crankSel.el, dispS.el, turboChk.el, openS.el, brightS.el, whineS.el, crackS.el, exhaustSel.el, blowerChk.el, blowRatioS.el, blowLobesS.el, electricS.el, h('p', { class: 'hint' }, 'Any change switches to "custom" and rebuilds the voice. Try V8 + crossplane + the dual exhaust for the burble (and merged for the same engine without it), 10 + v + flat + the short exhaust to 19,000 rpm for the scream, 4 + flat + boxer for the rumble, a supercharger for the whine.')),
+      panel('Custom engine profile (live)', cylSel.el, layoutSel.el, crankSel.el, dispS.el, turboChk.el, openS.el, brightS.el, whineS.el, crackS.el, exhaustSel.el, blowerChk.el, blowRatioS.el, blowLobesS.el, electricS.el, inductionS.el, h('p', { class: 'hint' }, 'Any change switches to "custom" and rebuilds the voice. Try V8 + crossplane + the dual exhaust for the burble (and merged for the same engine without it), 10 + v + flat + the short exhaust to 19,000 rpm for the scream, 12 + v + flat + the twin exhaust for the two sixes of a V12 (and merged for the twelve alone), 4 + flat + boxer for the rumble, a supercharger for the whine.')),
       panel('Tires, road, chassis', surface.el, skidF.el, skidR.el, slip.el, spinS.el, scrape.el, curb.el, air.el, h('div', { class: 'btns' }, sweepBtn, thumpBtn)),
       panel(
         'Weather',
