@@ -43,8 +43,9 @@ describe('Taccola body', () => {
     // (low on the corner, beside the diffuser: the tail is raked, and the fascia between is set 10 cm in)
     expect(rearZ(body, 0.8, 0.3)).toBeLessThan(zTail + 0.06);
     expect(rearZ(body, 0.8, 0.3)).toBeGreaterThan(zTail - 0.01);
-    expect(sideX(body, 0.45, zR)).toBeGreaterThan(spec.width / 2 - 0.03);
-    expect(sideX(body, 0.45, zR)).toBeLessThan(spec.width / 2 + 0.005);
+    // (just ahead of the rear wheel's arch, where the flank is at its widest but for the arch itself)
+    expect(sideX(body, 0.5, zR + 0.5)).toBeGreaterThan(spec.width / 2 - 0.04);
+    expect(sideX(body, 0.5, zR + 0.5)).toBeLessThan(spec.width / 2 + 0.005);
     // the roof beside the scoop, and the scoop over it
     expect(topY(body, 0.2, 0.2)).toBeGreaterThan(1.09);
     expect(topY(body, 0.2, 0.2)).toBeLessThan(1.13);
