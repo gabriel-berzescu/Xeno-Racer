@@ -233,7 +233,7 @@ export const xenon: TrackDef = {
     // street lamps all the way round, staggered from side to side; on the Strip the grandstand side only (the pit side carries the
     // start-straight TV camera and the pit lane)
     lamps: [
-      { from: m('main0', 20), to: m('Chrome', -20), spacing: 30, side: 'R', height: 11, arm: 3, gap: 1.2 },
+      { from: m('main0', 35), to: m('Chrome', -20), spacing: 30, side: 'R', height: 11, arm: 3, gap: 1.2 },
       { from: m('Chrome/e', 10), to: m('S4', 130), spacing: 30, side: 'B', stagger: true, height: 11, arm: 3, gap: 1.2 },
       { from: m('S4', 490), to: m('Neon/e', -10), spacing: 30, side: 'B', stagger: true, height: 11, arm: 3, gap: 1.2 },
     ],
