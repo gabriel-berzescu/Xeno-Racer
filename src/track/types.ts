@@ -319,9 +319,13 @@ export interface StandDef {
   depth?: number;
 }
 
-/** A hand-placed landmark on the harbour map (east, north in metres; yaw in degrees, 0 = facing north): see scene/landmarks.ts. */
+/**
+ * A hand-placed landmark on the harbour map (east, north in metres; yaw in degrees, 0 = facing north): see scene/landmarks.ts. A
+ * megacity's (scene/megaLandmarks.ts): 'spire', its tallest tower, beside the road at a mark, `d` metres to the left; 'arcology', a
+ * megastructure built over a tunnel (the one `at` is in, or the first).
+ */
 export interface LandmarkDef {
-  kind: 'cathedral' | 'castle' | 'lighthouse';
+  kind: 'cathedral' | 'castle' | 'lighthouse' | 'spire' | 'arcology';
   /** On the map (east, north): `yaw` is then the compass direction the front faces. */
   e?: number;
   n?: number;
@@ -331,6 +335,9 @@ export interface LandmarkDef {
   yaw?: number;
   /** Uniform scale (default 1). */
   scale?: number;
+  /** A megacity's landmark: its height (m; the spire 400, the arcology 96) and, for the arcology, its width across the tunnel (160). */
+  height?: number;
+  width?: number;
 }
 
 /** A city lining the circuit: building rows along the streets, a skyline of blocks on the hillsides, palms and street furniture. */
@@ -349,8 +356,13 @@ export interface CityDef {
   floors?: { from: Mark; to: Mark; min: number; max: number; side?: SideSel }[];
   /** Rows of buildings behind the front row (default 2). */
   rows?: number;
-  /** Distant blocks on the hillsides: how far from the circuit they reach (m) and how dense (0..1). */
-  skyline?: { reach: number; density: number };
+  /**
+   * Distant blocks on the hillsides: how far from the circuit they reach (m) and how dense (0..1). A megacity's megatowers, beyond
+   * the rows and in the middle of the circuit: `top` is the height of the tallest (m, default 320).
+   */
+  skyline?: { reach: number; density: number; top?: number };
+  /** A megacity's street rows: the lowest and the tallest tower (m, default [25, 110]); `floors` (at 4 m a storey) overrides it by stretch. */
+  heights?: [number, number];
   /** Bunting strung across the road between two poles at these marks. */
   bunting?: Mark[];
   /** Palms along the streets. */

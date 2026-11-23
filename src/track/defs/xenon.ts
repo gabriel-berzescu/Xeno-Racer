@@ -191,7 +191,13 @@ export const xenon: TrackDef = {
       seed: 89,
       // the grandstand side of the Strip stays clear
       open: [{ from: m('main0', 20), to: m('main', 460), side: 'R' }],
-      skyline: { reach: 900, density: 0.9 },
+      skyline: { reach: 900, density: 0.9, top: 320 },
+      landmarks: [
+        // the Spire: the tallest tower of the city, inside the long right that bears its name
+        { kind: 'spire', at: m('Spire/m'), d: -145, height: 400 },
+        // the arcology the Conduit runs under
+        { kind: 'arcology', width: 160, height: 96 },
+      ],
     },
     stands: [
       { at: m('main', 215), length: 340, side: 'R', gap: 13, rows: 22, roof: true, rearAds: true },

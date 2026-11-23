@@ -31,6 +31,9 @@ export interface Style {
   /** Width of the facade the pattern fits (m). */
   w: number;
   lit: number;
+  /** Two more numbers for a shader that wants them (the megacity's: see cyberFacade.ts); 0 when left out. */
+  a?: number;
+  b?: number;
 }
 
 export class CityBuf {
@@ -51,7 +54,7 @@ export class CityBuf {
     this.uv.push(u, v);
     this.col.push(st.col[0], st.col[1], st.col[2]);
     this.fa.push(kind, st.seed, st.floors, st.gH);
-    this.fb.push(st.w, st.lit, 0, 0);
+    this.fb.push(st.w, st.lit, st.a ?? 0, st.b ?? 0);
     return this.n++;
   }
   /** A quad whose winding is chosen to face `n`; p and uv are four [x, y, z] / [u, v] corners in order around it. */
