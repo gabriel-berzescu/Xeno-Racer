@@ -300,7 +300,7 @@ sets none of them gets the very same objects, numbers and shader programs as bef
 - **No shader after the start** holds: every material is in the scene when it is built, and `renderer.info.programs` stays at 78 from the grid to the
   flag of a twelve-car night race whose rain clears.
 - **Cost** (High, 1920x1080, a night race of twelve, sampled every 2.5 s round a lap): 381 draw calls and 1.38 M triangles on average, 594 and
-  2.0 M at the most (out of the Halo: the gate of rings, the hologram, the stand and the Spire in one view). Porto Vela in the same race, run
+  2.0 M at the most. Porto Vela in the same race, run
   side by side: 447 and 1.66 M on average, 774 and 2.27 M at the most, and a frame a tenth longer.
 - **The Xeno Cup** comes to Xenon Ring twice (rounds four and seven: a night in the rain that clears, a dusk under broken cloud), in the two rounds
   that were Isvik's. Isvik is raced on its own; a season saved with it keeps its calendar (`tests/championship.test.ts`, `tests/isvik.test.ts`).
