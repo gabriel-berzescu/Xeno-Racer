@@ -174,15 +174,26 @@ export const xenon: TrackDef = {
   defaults: { bandsL: [asphalt(3)], bandsR: [asphalt(3)], barrierL: 'fence', barrierR: 'fence', cross: -0.01 },
   zones,
   // the Conduit: the tunnel under the arcology, on the Datastream
-  tunnels: [{ from: m('S4', 150), to: m('S4', 470), lining: 0xa8c8ff, portal: 0x4a5564, cover: 9 }],
+  tunnels: [{ from: m('S4', 150), to: m('S4', 470), lining: 0x2e3644, portal: 0x4a5564, cover: 9, dark: true }],
   sectors: [m('Spire/e'), m('Arcade2/e')],
   terrain,
   scenery: {
     // the Xeno colours as light: teal along the left wall, hot pink along the right, violet between them
     neon: {
       strips: [0x16e0bd, 0xff2e63],
-      rings: [{ at: m('main', 0), color: 0x16e0bd }, { at: m('Halo', -60), color: 0xb45cff }, { at: m('Halo2/e', 40), color: 0xff2e63 }, { at: m('Arcade', -200), color: 0x16e0bd }, { at: m('Neon/e', 60), color: 0xb45cff }],
+      // the start line's (it frames the gantry), one into the Halo, a gate of three out of it, one onto the Strip (each half way between
+      // two lamp posts)
+      rings: [
+        { at: m('main', 0), color: 0x16e0bd },
+        { at: m('Halo', -59), color: 0xb45cff },
+        { at: m('Halo2/e', 33), color: 0xff2e63 },
+        { at: m('Halo2/e', 63), color: 0xb45cff },
+        { at: m('Halo2/e', 93), color: 0x16e0bd },
+        { at: m('Neon/e', 65), color: 0xb45cff },
+      ],
       hoops: { every: 24, colors: [0x16e0bd, 0xff2e63, 0xb45cff] },
+      // the Halo's halo: a ring of light over the carousel, all the way round
+      hologram: { from: m('Halo', 10), to: m('Halo2/e', -10), colors: [0xb45cff, 0x16e0bd] },
       skyLanes: 3,
       lampTint: 0xcfe4ff,
     },

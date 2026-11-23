@@ -12,7 +12,7 @@ import { buildHarbour } from './harbour';
 import { buildHarbourProps } from './harbourProps';
 import { buildStreet } from './street';
 import { makeMaterials } from './materials';
-import { buildNeon } from './neon';
+import { buildNeon, reserveNeon } from './neon';
 import { buildProps } from './props';
 import { buildRockCuts, buildTunnels } from './rocks';
 import { buildRoad } from './road';
@@ -64,6 +64,8 @@ export async function buildTrackScene(rt: TrackRuntimeImpl, opts: TrackSceneOpti
   }
 
   ctx.progress(0.27, 'buildings');
+  // (the feet of a megacity circuit's rings of light: ground the city keeps clear of)
+  reserveNeon(ctx);
   const props = buildProps(ctx, barrierMats, mats);
   root.add(props.group);
   await yieldFrame();

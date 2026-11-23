@@ -240,6 +240,11 @@ export interface TunnelDef {
    * stands out of the ground (default): for a hill the terrain already makes (trees and a castle stand on it).
    */
   cover?: number;
+  /**
+   * A dark lining with no lamps painted into it: the tunnel is lit by what the scene hangs in it (a megacity circuit's hoops of
+   * light, `NeonDef.hoops`).
+   */
+  dark?: boolean;
 }
 
 export interface TrackDef {
@@ -400,7 +405,12 @@ export interface NeonDef {
   /** Rings of light standing over the road (the cars drive through them) at these marks. */
   rings?: { at: Mark; color?: number }[];
   /** Hoops of light inside the tunnels, every this many metres (default 24), in these colours in turn. */
-  hoops?: { every?: number; colors?: number[] };
+  hoops?: { every?: number; colors?: number[]; /** The arch of light round each mouth (default a cold white). */ portal?: number };
+  /**
+   * A hologram hovering over a stretch of the road (a carousel: a ring of light the cars drive round under): two bands of light, one
+   * over each edge of the asphalt, slowly turning against each other, the lower one `height` m over the road (default 13).
+   */
+  hologram?: { from: Mark; to: Mark; height?: number; colors?: [number, number] };
   /** Lanes of flying traffic between the towers (how many; default none). */
   skyLanes?: number;
   /** The colour the street lamps shine (default: the warm white of the other circuits). */
