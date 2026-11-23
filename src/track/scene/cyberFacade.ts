@@ -182,7 +182,7 @@ void cSign(float fw) {
     ink = cGlyph(q, vec2(n, 3.0) + rS * 97.0, 3.0 * fw / gs) * step(0.0, n) * step(p.y, H - mrg) * step(mrg + gs * 0.2, p.y);
     ink = mix(ink, 0.24, smoothstep(0.12, 0.3, fw / gs));
   } else if (mode < 3.5) {
-    // a screen: two lights drifting across it in broad bands, and a mark that changes every few seconds
+    // a screen: a slow wash of two lights, a mark that changes every few seconds
     float tt = t * 0.25 + rS * 40.0;
     float wash = 0.5 + 0.5 * sin(p.y / H * 2.6 + p.x / W * 1.9 - tt * 0.7);
     light = mix(col, cAccent(mod(floor(rS * 50.0) + 2.0, 5.0)), wash);
@@ -269,7 +269,7 @@ void cPodium(float fwu, float fwv, vec4 n2, vec4 n4, vec3 accent) {
     float inner = (0.16 + 0.84 * smoothstep(0.4, sH, v)) * mix(0.45 + 1.1 * n4.r, 1.0, lodS);
     inner *= 1.0 - 0.22 * step(0.6, fract(v / 0.52)) * (1.0 - lodS);
     inner += 0.9 * (1.0 - smoothstep(0.04, 0.09 + fwv, abs(v - (sH - 0.42)))) * step(0.3, fract((x + a) / 1.1)) * (1.0 - lodS);
-    float shape = 1.0 - smoothstep(0.0, 0.3, v - 0.8 - 1.1 * smoothstep(0.3, 0.9, n4.g));
+    float shape = 1.0 - smoothstep(0.0, 0.25, v - 0.95 - 0.4 * n4.g);
     inner *= mix(1.0, 0.5, shape * (1.0 - lodS));
     vec3 poster = mix(vec3(1.0), 0.6 + 0.4 * cAccent(floor(n4.b * 4.99)), smoothstep(0.55, 0.7, n4.a) * 0.6);
     // (a wall with a lit door instead of a shop window, in a bay out of five)

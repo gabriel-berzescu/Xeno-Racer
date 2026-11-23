@@ -113,6 +113,44 @@ export function walls(buf: CityBuf, q0: Pt[], q1: Pt[], y0: number, y1: number, 
   }
 }
 
+/**
+ * A wedge on top of a quad's prism: the roof falls `drop` m from the quad's first edge (at `yHigh`) to the opposite one. The tall
+ * wall and the two triangular ones carry on the walls below (v from `yRef`); the slope is glazed like them.
+ */
+export function wedge(buf: CityBuf, q: Pt[], yHigh: number, drop: number, yRef: number, st: Style, kind: number): void {
+  const yLow = yHigh - drop;
+  const c = centroid(q);
+  const out = (k: number): [number, number, number] => {
+    const a = q[k];
+    const b = q[(k + 1) % 4];
+    const tl = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+    let nx = -(b[1] - a[1]) / tl;
+    let nz = (b[0] - a[0]) / tl;
+    if ((a[0] - c[0]) * nx + (a[1] - c[1]) * nz < 0) {
+      nx = -nx;
+      nz = -nz;
+    }
+    return [nx, nz, tl];
+  };
+  const [n0x, n0z, l0] = out(0);
+  const s0: Style = { ...st, w: l0, floors: yHigh - yRef };
+  buf.quad([[q[0][0], yLow, q[0][1]], [q[1][0], yLow, q[1][1]], [q[1][0], yHigh, q[1][1]], [q[0][0], yHigh, q[0][1]]], [[0, yLow - yRef], [l0, yLow - yRef], [l0, yHigh - yRef], [0, yHigh - yRef]], [n0x, 0, n0z], s0, kind);
+  const [n1x, n1z, l1] = out(1);
+  buf.tri([[q[1][0], yLow, q[1][1]], [q[2][0], yLow, q[2][1]], [q[1][0], yHigh, q[1][1]]], [[0, yLow - yRef], [l1, yLow - yRef], [0, yHigh - yRef]], [n1x, 0, n1z], { ...st, w: l1, floors: 1e4 }, kind);
+  const [n3x, n3z, l3] = out(3);
+  buf.tri([[q[3][0], yLow, q[3][1]], [q[0][0], yLow, q[0][1]], [q[0][0], yHigh, q[0][1]]], [[0, yLow - yRef], [l3, yLow - yRef], [l3, yHigh - yRef]], [n3x, 0, n3z], { ...st, w: l3, floors: 1e4 }, kind);
+  // the slope: it faces away from the tall wall, and up
+  const run = (l1 + l3) / 2;
+  const sl = Math.hypot(run, drop) || 1;
+  buf.quad(
+    [[q[3][0], yLow, q[3][1]], [q[2][0], yLow, q[2][1]], [q[1][0], yHigh, q[1][1]], [q[0][0], yHigh, q[0][1]]],
+    [[0, 0], [l0, 0], [l0, sl], [0, sl]],
+    [(-n0x * drop) / sl, run / sl, (-n0z * drop) / sl],
+    { ...st, w: l0, floors: 1e4, gH: 0 },
+    kind,
+  );
+}
+
 /** A flat roof over a polygon (a quad gets its parapet; anything else is a fan). */
 export function roof(buf: CityBuf, q: Pt[], y: number, st: Style): void {
   if (q.length === 4) {

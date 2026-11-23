@@ -5,12 +5,14 @@
  * The street rows are laid out in (s, d) street coordinates as the harbour town's are (city.ts), but a lot here is a tower's
  * footprint: 24 to 60 m of street front, a pavement's width behind the barrier, pushed back where the pits, a stand or a TV camera
  * hold the ground. Behind the rows and in the middle of the circuit megatowers stand on two street grids, taller toward the middle
- * of town. A tower is a stack of prisms on a convex footprint (a podium, a shaft, setbacks or a taper, a crown); what is on its walls
- * is drawn by the shader (cyberFacade.ts). Signs are slabs with a lit face: blades standing out from the facades, panels on them and
- * on the side walls that face the traffic, billboards on the roofs, banners high on the megatowers.
+ * of town. A tower is a stack of prisms on a convex footprint (a podium, a shaft, setbacks or a taper, a crown: a mast, a pyramid, a
+ * wedge, four blades); what is on its walls is drawn by the shader (cyberFacade.ts). Signs are slabs with a lit face: blades standing
+ * out from the facades, panels on them and on the side walls that face the traffic, billboards on the roofs, banners high on the
+ * megatowers. Skyways (glazed bridges with lines of light under them) cross the road from tower to tower where the def asks.
  *
  * Geometry is merged per cell of a grid on the map: the street rows (they cast shadows when near), the megatowers (they never do), and
- * the roofs' plant (drawn near the camera only). The aircraft warning lights are one draw call of points.
+ * the small things (the plant on the roofs, canopies, fins, the air conditioners and ducts of the concrete towers: drawn near the
+ * camera only, and not at all on the low preset). The aircraft warning lights are one draw call of points.
  */
 import * as THREE from 'three';
 import { Noise2, clamp, mulberry32, smoothstep } from '../math';
@@ -22,7 +24,7 @@ import { CityBuf, type Style, hash11, linear } from './cityBuf';
 import { LotGrid, Occluders, type CityResult, type Pt } from './cityLots';
 import { ACCENTS, CYBER_FLAG, CYBER_KIND, SIGN_MODE, makeBeaconMaterial, makeCyberMaterial } from './cyberFacade';
 import { emitArcology, emitSpire, placeArcology, placeSpire, type MegaPlace } from './megaLandmarks';
-import { centroid, inset, lightStyle, parapet, pickWeighted, plainStyle, roof, scaled, seedOf, signStyle, slab, tank, walls } from './megaSolids';
+import { centroid, inset, lightStyle, parapet, pickWeighted, plainStyle, roof, scaled, seedOf, signStyle, slab, tank, walls, wedge } from './megaSolids';
 import { lerpS } from './road';
 
 // ── palette ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -72,6 +74,8 @@ interface Tier {
   y0: number;
   y1: number;
   gH: number;
+  /** The roof falls this far from the footprint's first edge to the opposite one (a wedge), instead of lying flat. */
+  wedge?: number;
 }
 
 function tiersOf(t: Tower): Tier[] {
@@ -111,7 +115,8 @@ function tiersOf(t: Tower): Tier[] {
     q = inset(q, 2 + 3 * h3);
     tiers.push({ q0: q, q1: q, y0: ya, y1: top, gH: 0 });
   } else {
-    tiers.push({ q0: q, q1: q, y0: y, y1: top, gH: 0 });
+    // (a megatower's slab may end in a wedge)
+    tiers.push({ q0: q, q1: q, y0: y, y1: top, gH: 0, wedge: !t.street && t.h > 90 && h1 < 0.55 ? Math.min(span * 0.2, 14 + 22 * h3) : undefined });
   }
   return tiers;
 }
@@ -159,9 +164,16 @@ function emitTower(t: Tower, e: Emit): number {
   const last = tiers.length - 1;
   tiers.forEach((tr, i) => {
     // (only the top of the tower wears the crown band)
-    walls(base, tr.q0, tr.q1, tr.y0, tr.y1, t.yRef, { ...st, gH: tr.gH, b: i === last ? t.flags : t.flags & ~CYBER_FLAG.crown }, kind);
-    roof(base, tr.q1, tr.y1, st);
+    const ts: Style = { ...st, gH: tr.gH, b: i === last ? t.flags : t.flags & ~CYBER_FLAG.crown };
+    if (tr.wedge) {
+      walls(base, tr.q0, tr.q1, tr.y0, tr.y1 - tr.wedge, t.yRef, { ...ts, b: t.flags & ~CYBER_FLAG.crown }, kind);
+      wedge(base, tr.q1, tr.y1, tr.wedge, t.yRef, ts, kind);
+    } else {
+      walls(base, tr.q0, tr.q1, tr.y0, tr.y1, t.yRef, ts, kind);
+      roof(base, tr.q1, tr.y1, st);
+    }
   });
+  const wedged = !!tiers[last].wedge;
   const top = tiers[last].y1;
   const tq = tiers[last].q1;
   const tc = centroid(tq);
@@ -181,6 +193,20 @@ function emitTower(t: Tower, e: Emit): number {
     }
     base.box(tc[0], top + ph + 5, tc[1], 0.22, 5.5, 0.22, 1, 0, metal, CYBER_KIND.plain);
     e.beacons.push(tc[0], top + ph + 10.8, tc[1], hash11(t.seed * 617.9));
+  } else if (wedged) {
+    // (a wedge: its lamp on the ridge)
+    e.beacons.push((tq[0][0] + tq[1][0]) / 2, top + 1.2, (tq[0][1] + tq[1][1]) / 2, hash11(t.seed * 617.9));
+  } else if (t.arche === 3 && !t.street && t.h > 100 && hm < 0.55) {
+    // a crown of four blades, a line of light up each
+    const bh = 10 + 14 * hash11(t.seed * 523.1);
+    const lamp = lightStyle(ACCENTS[t.accent], 1.3);
+    for (let k = 0; k < 4; k++) {
+      const dx = tq[k][0] - tc[0];
+      const dz = tq[k][1] - tc[1];
+      const dl = Math.hypot(dx, dz) || 1;
+      slab(base, tq[k][0] - (dx / dl) * 1.6, top + bh / 2, tq[k][1] - (dz / dl) * 1.6, -dz / dl, dx / dl, 0.5, bh, dx / dl, dz / dl, 2.4, lamp, CYBER_KIND.light);
+    }
+    e.beacons.push(tc[0], top + 1.5, tc[1], hash11(t.seed * 617.9));
   } else if (t.h > 60 && hm < (t.h > 170 ? 0.6 : 0.3)) {
     const mh = clamp(t.h * (0.12 + 0.14 * hash11(t.seed * 523.1)), 9, 60);
     const mw = t.h > 170 ? 0.9 : 0.4;
@@ -217,8 +243,33 @@ function emitTower(t: Tower, e: Emit): number {
       }
     }
   }
+  if (detail && t.street && !t.glass && shaft.q0 === shaft.q1) {
+    // a concrete tower's clutter: air conditioners under some of its windows, a duct or two up its walls (the module and the storey
+    // are the shader's own, from the same seed: see cWall in cyberFacade.ts)
+    const Hf = 3.3 + 0.6 * hash11(t.seed * 5.7);
+    const unit = plainStyle([0.085, 0.087, 0.09], 0.35);
+    for (const k of [0, 3]) {
+      const ed = edgeOf(shaft.q0, k);
+      const nb = Math.max(1, Math.floor(ed.len / (2.8 + 1.8 * hash11(t.seed * 3.1)) + 0.5));
+      const Wp = ed.len / nb;
+      const f0 = Math.ceil((shaft.y0 - t.yRef) / Hf);
+      const f1 = Math.floor((shaft.y1 - t.yRef) / Hf) - 1;
+      for (let fl = f0; fl <= f1; fl++) {
+        for (let ix = 0; ix < nb; ix++) {
+          if (hash11(ix * 7.31 + fl * 3.17 + k + t.seed * 191.0) > 0.2) continue;
+          const u = (ix + 0.5) * Wp;
+          detail.box(ed.a[0] + ed.tx * u + ed.nx * 0.24, t.yRef + fl * Hf + 0.62, ed.a[1] + ed.tz * u + ed.nz * 0.24, 0.45, 0.3, 0.24, ed.tx, ed.tz, unit, CYBER_KIND.plain);
+        }
+      }
+      const ducts = 1 + Math.floor(hash11(t.seed * 277.0 + k) * 2.2);
+      for (let i = 0; i < ducts && nb > 2; i++) {
+        const u = Math.max(1, Math.min(nb - 1, Math.floor(hash11(t.seed * 331.0 + i * 5.1 + k) * nb))) * Wp;
+        detail.box(ed.a[0] + ed.tx * u + ed.nx * 0.2, (shaft.y0 + shaft.y1) / 2 + 0.6, ed.a[1] + ed.tz * u + ed.nz * 0.2, 0.24, (shaft.y1 - shaft.y0) / 2 + 0.6, 0.2, ed.tx, ed.tz, metal, CYBER_KIND.plain);
+      }
+    }
+  }
   // the roof's plant: air handlers, a tank, a lift housing
-  if (detail && t.away < 420) {
+  if (detail && t.away < 420 && !wedged) {
     const n = 2 + Math.floor(rnd() * 4);
     const ed = edgeOf(tq, 0);
     for (let i = 0; i < n; i++) {
@@ -244,12 +295,14 @@ function emitTower(t: Tower, e: Emit): number {
       const ed = edgeOf(shaft.q0, best);
       const tall = rnd() < 0.6;
       const w = tall ? 5 + rnd() * 5 : Math.min(ed.len * 0.6, 14 + rnd() * 14);
-      const h = tall ? Math.min((shaft.y1 - shaft.y0) * 0.5, 26 + rnd() * 34) : w * (0.55 + 0.5 * rnd());
+      // (under the eaves of a wedge)
+      const sy1 = shaft.y1 - (shaft.wedge ?? 0);
+      const h = tall ? Math.min((sy1 - shaft.y0) * 0.5, 26 + rnd() * 34) : w * (0.55 + 0.5 * rnd());
       const u = tall ? (rnd() < 0.5 ? 0.14 : 0.86) : 0.5;
-      const yc = shaft.y1 - h / 2 - 3 - rnd() * (shaft.y1 - shaft.y0) * 0.2;
+      const yc = sy1 - h / 2 - 3 - rnd() * (sy1 - shaft.y0) * 0.2;
       slab(base, ed.a[0] + ed.tx * ed.len * u + ed.nx * 0.5, yc, ed.a[1] + ed.tz * ed.len * u + ed.nz * 0.5, ed.tx, ed.tz, w, h, ed.nx, ed.nz, 0.5, signStyle(w, h, rnd), CYBER_KIND.sign);
     }
-    return shaft.y1;
+    return shaft.y1 - (shaft.wedge ?? 0);
   }
 
   // ── a street tower's signs ──────────────────────────────────────────────────────────────────────────────────────────────────
@@ -259,14 +312,15 @@ function emitTower(t: Tower, e: Emit): number {
   const room = shaft.y1 - y0;
   // how far the podium stands out in front of the shaft: a blade reaches past it
   const step = Math.max(0, (pod.a[0] - front.a[0]) * front.nx + (pod.a[1] - front.a[1]) * front.nz);
-  // blades standing out from the facade, written downward
+  // blades standing out from the facade, written downward: never more than 1.8 m beyond the podium (the street lamps stand
+  // between the pavement and the barrier)
   const blades = rnd() < 0.62 ? (rnd() < 0.35 ? 2 : 1) : 0;
   for (let i = 0; i < blades; i++) {
-    const w = 1.5 + rnd() * 1.5;
+    const w = Math.min(1.5 + rnd() * 1.5, step + 1.5);
     const h = Math.min(room * 0.7, 7 + rnd() * 13);
     if (h < 5) continue;
     const u = blades === 2 ? (i ? 0.84 : 0.16) : 0.12 + 0.76 * rnd();
-    const out = step + 0.5 + w / 2;
+    const out = Math.min(step + 0.5 + w, step + 1.8) - w / 2;
     const yc = y0 + 1.5 + rnd() * Math.min(10, Math.max(0, room - h - 3)) + h / 2;
     const sg = signStyle(w, h, rnd);
     slab(base, front.a[0] + front.tx * front.len * u + front.nx * out, yc, front.a[1] + front.tz * front.len * u + front.nz * out, front.nx, front.nz, w, h, front.tx, front.tz, 0.34, sg, CYBER_KIND.sign, sg);
@@ -594,7 +648,8 @@ export function buildMegacity(ctx: Ctx, cd: CityDef): CityResult {
   // nothing else is planted where a tower stands
   ctx.reserved.push((x, z, margin) => grid.near(x, z, margin) || skyGrid.near(x, z, margin));
 
-  // the ground: how close the towers are (the terrain shader lays pavement and their light at their feet)
+  // the ground: how close the towers are (the terrain shader lays pavement and their light at their feet). Never under 0.2: the
+  // whole town is built on, and nothing grows on it (the grass tufts keep off ground that is more built-up than 0.15)
   {
     const b = rt.bounds;
     const cell = 8;
@@ -614,13 +669,13 @@ export function buildMegacity(ctx: Ctx, cd: CityDef): CityResult {
     ctx.urban = (x: number, z: number): number => {
       const fx = (x - x0) / cell;
       const fz = (z - z0) / cell;
-      if (fx < 0 || fz < 0 || fx >= nx - 1 || fz >= nz - 1) return 0;
+      if (fx < 0 || fz < 0 || fx >= nx - 1 || fz >= nz - 1) return 0.2;
       const ix = Math.floor(fx);
       const iz = Math.floor(fz);
       const tx = fx - ix;
       const tz = fz - iz;
       const k = iz * nx + ix;
-      return (raster[k] * (1 - tx) + raster[k + 1] * tx) * (1 - tz) + (raster[k + nx] * (1 - tx) + raster[k + nx + 1] * tx) * tz;
+      return 0.2 + 0.8 * ((raster[k] * (1 - tx) + raster[k + 1] * tx) * (1 - tz) + (raster[k + nx] * (1 - tx) + raster[k + nx + 1] * tx) * tz);
     };
   }
 
@@ -739,10 +794,8 @@ export function buildMegacity(ctx: Ctx, cd: CityDef): CityResult {
     const pts = new THREE.Points(geo, mat);
     pts.name = 'mega_beacons';
     group.add(pts);
+    // (always drawn, with no light in them by day: a storm that darkens a race must find their program built)
     ctx.disposables.push(geo, mat);
-    ctx.envListeners.push(() => {
-      pts.visible = cyber.sign.value > 0.02;
-    });
   }
   const cam = new THREE.Vector3();
   ctx.updaters.push((_dt, camera) => {

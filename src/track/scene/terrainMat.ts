@@ -149,13 +149,13 @@ const FRAG_MAP = /* glsl */ `
     float joint = smoothstep(0.5 - 0.012 - sw, 0.5 - 0.004, max(sf.x, sf.y));
     float slabTone = 0.85 + 0.3 * fract(sin(dot(floor(sl), vec2(12.9898, 78.233))) * 43758.5453);
     vec3 cPave = vec3(0.075, 0.075, 0.078) * slabTone * (0.85 + 0.3 * gN3.r) * (1.0 - 0.45 * joint * (1.0 - smoothstep(0.1, 0.4, sw)));
-    float pave = smoothstep(0.3, 0.75, vUrban + 0.25 * (gN2.g - 0.5));
+    float pave = smoothstep(0.45, 0.8, vUrban + 0.25 * (gN2.g - 0.5));
     col = mix(cAsph, cPave, pave);
     gWGrass = 0.0;
     gWRock = 0.0;
     gWDirt = 1.0;
     gWMoss = 0.0;
-    gCityGlow = mix(vec3(0.03, 0.42, 0.34), vec3(0.5, 0.05, 0.2), smoothstep(0.35, 0.65, gN1.g)) * (0.4 + 0.6 * gN2.b) * smoothstep(0.3, 1.0, vUrban) * uCityNight * col * 0.5;
+    gCityGlow = mix(vec3(0.03, 0.42, 0.34), vec3(0.5, 0.05, 0.2), smoothstep(0.35, 0.65, gN1.g)) * (0.4 + 0.6 * gN2.b) * smoothstep(0.45, 1.0, vUrban) * uCityNight * col * 0.5;
   }
 #else
   // a built-up area: packed earth, paving and yards instead of meadow
