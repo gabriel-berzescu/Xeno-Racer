@@ -111,7 +111,7 @@ export function envKey(s: EnvironmentSettings): string {
  * hundred thousand signs in humid air, about as bright again as the night's own haze. `fog` thickens the air (the towers a
  * kilometre away stand in haze): by day a little, after dark a good deal more. Dials, like the presets.
  */
-export const MEGACITY = { glow: [0.03, 0.0105, 0.046] as RGB, fogDay: 1.3, fogNight: 2.3, stars: 0.82 };
+export const MEGACITY = { glow: [0.03, 0.0105, 0.046] as RGB, fogDay: 1.3, fogNight: 2.3, stars: 0.9 };
 
 export async function solveEnvironment(settings: EnvironmentSettings, yieldFn?: () => Promise<void>): Promise<EnvSolution> {
   const key = envKey(settings);
