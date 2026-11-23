@@ -16,6 +16,11 @@ deep glossy car paint with clearcoat reflections. Natural, filmic tone mapping (
 never oversaturated, never "gamey" neon. The "Xeno" brand shows only in the UI, liveries and
 signage: teal `#16e0bd`, hot pink `#ff2e63`, near-black `#0b0c10`, off-white `#eef0f3`.
 
+One circuit is the exception, on purpose: Xenon Ring is a megacity after dark, and there the brand's
+colours are the city's light (see Megacity circuits). The rule still holds inside it: dark concrete and
+glass, light in thin lines and a few signs, levels set against the bloom so that a line stays a line,
+and by day nothing glows.
+
 ## Layout and ownership
 
 | Path | Owner | What |
@@ -197,7 +202,7 @@ and the picture is the old one to the pixel. Physics wins: no circuit's sun dire
 ## Winter circuits
 
 A circuit with `TrackInfo.winter` (Isvik: packed snow, a frozen lake, snowbanks for walls) is one flag that every system reads for its own
-purpose. Nothing else changes for the other four circuits: a road circuit gets the very same objects, numbers and shaders as before.
+purpose. Nothing else changes for the other circuits: a road circuit gets the very same objects, numbers and shaders as before.
 
 - **Surfaces** (`src/physics/surfaces.ts`): `snow` (packed road, 0.50 of dry asphalt), `ice` (the studded lake, 0.40) and `deepsnow` (beside
   the road, 0.32, with ploughing drag and a heavy rolling term). `SurfaceProps.fresh` is the grip kept under a heavy fall of fresh snow: on a
@@ -242,6 +247,63 @@ purpose. Nothing else changes for the other four circuits: a road circuit gets t
   "water"), the line that keeps off the snowbanks. What the car can brake at is that of the ground it is on (`DrivingGuide.brakeAt(speed, s)`,
   `brakeGripAt`), so the colours go amber and red where a car on snow or ice has to brake, not where one on asphalt would. The ribbon itself is more opaque on a
   winter circuit (`LINE.alphaWinter`, 0.9 against 0.66): snow in the headlights is far brighter than asphalt, and a thinner ribbon came out a pale ghost of its colour.
+
+## Megacity circuits
+
+Xenon Ring is a grand-prix circuit through a megacity, made to be raced after dark. What makes it one is three switches, each read by the system
+it belongs to: `TrackInfo.megacity` (the air), `CityDef.style: 'neon'` (the city) and `SceneryDef.neon` (the light along the road). A circuit that
+sets none of them gets the very same objects, numbers and shader programs as before.
+
+- **Track** (`src/track/defs/xenon.ts`): the turtle layout, clockwise; the Datastream and the edge into the last corner are the free ones. The city
+  stands on a slope (one `tilts` entry: 3 % down from north to south, levelling out at both ends) and the road's profile follows it, so that cut and
+  fill stay under a metre and the towers stand on the ground they seem to; no mountains: the horizon is towers. A wall on both sides of every metre
+  (`fence` by default, tyre walls behind asphalt aprons outside the braking zones, a tunnel), asphalt or concrete to its foot, `paved`.
+  The lap's brief is in numbers in `tests/xenon.test.ts`; `TRACKLAPS=xenon npx vitest run tests/probes/track-laps.test.ts` laps a circuit with every
+  car and prints the lap times, the hits and the speed each corner is taken at (it was the design tool).
+- **The air** (`src/render/environment.ts`, `MEGACITY`): `EnvironmentSettings.megacity` is set by the game from the track, as `winter` is, and is part
+  of the environment key. With the dark (`smoothstep(0.25, 0.95, darkness)`: a storm at noon brings some of it) the solver adds the light of the
+  city (`EnvSolution.city`: violet, about the luminance of a night's own haze again) to the fog table on every side, to the haze the clouds fade
+  into and the cumulus' ambient (they are lit from below), to the deck's colours under rain (0.85 of it in the mist, 0.3 overhead), and 0.3 of
+  it to the sky's ambient; the sky shader adds it toward the horizon (`uCity`: `0.92 exp(-5.5 y) + 0.08`, black for everyone else). The air is 1.3
+  times as hazy by day and 2.3 times after dark (the towers a kilometre away stand in haze, which is most of the depth of the picture), and a
+  tenth of the stars are left. By day `city` is black and the fog table and the ambient are the plain sky's to the bit. `blendInto` carries it
+  through a weather that changes.
+- **The city** (`src/track/scene/megacity.ts`, `megaSolids.ts`, `megaLandmarks.ts`, `cyberFacade.ts`; `cityLots.ts` is what it shares with the harbour
+  town): `buildCity` branches once on the style, and Porto Vela's path, `facade.ts` and its program are untouched. Street rows of towers (24 to 60 m of
+  street front, 25 to 110 m tall) in the (s, d) street coordinates of `city.ts`, pushed back where the pits, a stand or a TV camera hold the ground;
+  megatowers on two street grids behind them and in the middle of the circuit, taller toward the middle of town (`skyline.top`). A tower is a stack
+  of prisms on a convex footprint (podium, shaft, setbacks or a taper, a crown); what is on its walls is drawn by one shader on plain quads with uv
+  in metres: glass curtain walls, concrete with strip windows, podiums of shop fronts, lit rooms (uneven from floor to floor and tower to tower),
+  lines of light along crowns, edges and floors, and signs in xeno-glyphs (strokes switched on at random between the nodes of a small lattice: no
+  writing system, no font), some scrolling, stuttering or swept by a scan line, all from one clock. Far away the windows and the glyphs fade to their
+  mean by screen-space derivatives. Two landmarks: the Spire (`LandmarkDef.kind: 'spire'`, 400 m, eight-sided, inside the corner named for it) and
+  the arcology (`'arcology'`: three tiers over the tunnel, its end walls a metre and a half behind the portal planes with a recess the size of the
+  portal wall, so that the portals read as its mouths; it encloses the mound `rocks.ts` builds over the tube). Skyways cross the road where
+  `CityDef.skyways` asks. Geometry is merged per cell of a map grid (street rows cast shadows when near, megatowers never, the small things
+  are drawn near the camera only); the aircraft warning lights are one draw call of points, drawn at zero alpha by day so that their program exists
+  if a storm darkens a race. The ground (`XR_CITY_NEON` in `terrainMat.ts`) is asphalt everywhere, paving at the towers' feet and a faint spill of
+  light after dark; no tufts. About 108 k triangles in 122 meshes for the whole city.
+- **The neon** (`src/track/scene/neon.ts` and `neonKit`, `neonStrips`, `neonRings`, `neonTunnel`, `neonHolo`, `neonSky`): everything that glows along
+  the road is one of two materials: `tube`, a lit diffuser (pale by day) whose emissive is the vertex colour times a level that follows the
+  darkness, and `glow`, the light a tube throws on what is next to it, painted on as an additive sheet (emissive surfaces light nothing by
+  themselves), with the lamp pools' blend so that the wet road's alpha flag survives. A strip along the top of each wall all the way round (teal
+  left, pink right), eased from mount to mount so the line never breaks; rings over the road (a steel frame carrying three tubes, its feet on
+  plinths outside the barriers and reserved before the props are built, `reserveNeon`; the start line's stands just past the gantry and holds it);
+  hoops round the tunnel's lining every 24 m in the three colours in turn and an arch round each mouth (`TunnelDef.dark` gives the tunnel a darker
+  lining for them to carry; the tunnel's tubes are lit by day too, and the hoops' crowns join the lamp list so that a car is lit inside);
+  two see-through bands of display segments over the Halo's road, scrolling against each other (`NeonDef.hologram`, one draw call); and three
+  lanes of traffic in the sky, one instanced draw call moved in the vertex shader. In the wet the strips, rings and hoops are opaque and write
+  depth, so the road's screen-space reflections pick them up, and the painted glow drops to 55 %. 37 meshes and 58 k triangles in all.
+- **Street lamps with a colour** (`NeonDef.lampTint`): the tint's hue at the warm white's luminance (`lampTintFactors` in `wet.ts`), on the heads, the
+  pools on the dry road and the wet road's own lamp light, and published beside the heads (`userData.xrLampTint`) for the render side: the eight
+  lamps that light every lit material (`RenderSystem.updateLamps`), the lit rain and the halos. With no tint every number is the one it was.
+- **No shader after the start** holds: every material is in the scene when it is built, and `renderer.info.programs` stays at 78 from the grid to the
+  flag of a twelve-car night race whose rain clears.
+- **Cost** (High, 1920x1080, a night race of twelve, sampled every 2.5 s round a lap): 381 draw calls and 1.38 M triangles on average, 594 and
+  2.0 M at the most (out of the Halo: the gate of rings, the hologram, the stand and the Spire in one view). Porto Vela in the same race, run
+  side by side: 447 and 1.66 M on average, 774 and 2.27 M at the most, and a frame a tenth longer.
+- **The Xeno Cup** comes to Xenon Ring twice (rounds four and seven: a night in the rain that clears, a dusk under broken cloud), in the two rounds
+  that were Isvik's. Isvik is raced on its own; a season saved with it keeps its calendar (`tests/championship.test.ts`, `tests/isvik.test.ts`).
 
 ## The Mammoth: all-wheel drive and the all-terrain tyre
 
