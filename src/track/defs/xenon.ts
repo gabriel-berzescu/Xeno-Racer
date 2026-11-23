@@ -203,7 +203,17 @@ export const xenon: TrackDef = {
       seed: 89,
       // the grandstand side of the Strip stays clear
       open: [{ from: m('main0', 20), to: m('main', 460), side: 'R' }],
-      skyline: { reach: 900, density: 0.9 },
+      // the Strip is a canyon: nothing under sixteen storeys beyond the grandstand
+      floors: [{ from: m('main', 440), to: m('Chrome', -10), min: 16, max: 29 }],
+      skyline: { reach: 900, density: 0.9, top: 320 },
+      // bridges between the towers: over the end of the Strip, the run down to Flux and to the Spire, the arcade district, the avenue
+      skyways: [m('main', 640), m('S1', 110), m('S3', 420), m('S6', 130), m('Kernel/e', 70), m('Ghost2/e', 50)],
+      landmarks: [
+        // the Spire: the tallest tower of the city, inside the long right that bears its name
+        { kind: 'spire', at: m('Spire/m'), d: -145, height: 400 },
+        // the arcology the Conduit runs under
+        { kind: 'arcology', width: 160, height: 96 },
+      ],
     },
     stands: [
       { at: m('main', 215), length: 340, side: 'R', gap: 13, rows: 22, roof: true, rearAds: true },

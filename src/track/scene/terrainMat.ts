@@ -46,6 +46,10 @@ varying float vEdge;
 #ifdef XR_URBAN
 varying float vUrban;
 #endif
+#ifdef XR_CITY_NEON
+uniform float uCityNight;
+vec3 gCityGlow;
+#endif
 float gWRock;
 float gWDirt;
 float gWMoss;
@@ -132,12 +136,35 @@ const FRAG_MAP = /* glsl */ `
     col = mix(col, cCan, cw);
   }
 #ifdef XR_URBAN
+#ifdef XR_CITY_NEON
+  // a megacity: no meadow anywhere. Asphalt between the towers, slabs of concrete paving at their feet, and after dark the light of
+  // their shop fronts lying on it
+  {
+    vec3 cAsph = vec3(0.036, 0.037, 0.04) * (0.75 + 0.5 * gN2.r) * (0.85 + 0.3 * gN3.g);
+    // patches of newer and older surface, a seam here and there
+    cAsph *= mix(0.8, 1.15, smoothstep(0.4, 0.6, gN1.r));
+    vec2 sl = wuv / 3.2;
+    vec2 sf = abs(fract(sl) - 0.5);
+    float sw = max(fwidth(sl.x), fwidth(sl.y));
+    float joint = smoothstep(0.5 - 0.012 - sw, 0.5 - 0.004, max(sf.x, sf.y));
+    float slabTone = 0.85 + 0.3 * fract(sin(dot(floor(sl), vec2(12.9898, 78.233))) * 43758.5453);
+    vec3 cPave = vec3(0.075, 0.075, 0.078) * slabTone * (0.85 + 0.3 * gN3.r) * (1.0 - 0.45 * joint * (1.0 - smoothstep(0.1, 0.4, sw)));
+    float pave = smoothstep(0.45, 0.8, vUrban + 0.25 * (gN2.g - 0.5));
+    col = mix(cAsph, cPave, pave);
+    gWGrass = 0.0;
+    gWRock = 0.0;
+    gWDirt = 1.0;
+    gWMoss = 0.0;
+    gCityGlow = mix(vec3(0.03, 0.42, 0.34), vec3(0.5, 0.05, 0.2), smoothstep(0.35, 0.65, gN1.g)) * (0.4 + 0.6 * gN2.b) * smoothstep(0.45, 1.0, vUrban) * uCityNight * col * 0.5;
+  }
+#else
   // a built-up area: packed earth, paving and yards instead of meadow
   if (vUrban > 0.001) {
     vec3 cUrban = vec3(0.34, 0.31, 0.27) * (0.8 + 0.4 * gN2.r) * (0.9 + 0.2 * gN3.g);
     col = mix(col, cUrban, vUrban * 0.9);
     gWGrass *= 1.0 - vUrban * 0.5;
   }
+#endif
 #endif
   // wet ground is darker: grass a little, bare earth and rock a lot
   col *= mix(1.0, 0.74 * gWGrass + 0.6 * gWRock + 0.5 * gWDirt + 0.68 * gWMoss, uWet);
@@ -232,6 +259,8 @@ export function makeTerrainMaterial(ctx: Ctx): THREE.MeshStandardMaterial {
   const rockTint = new THREE.Vector3(...look.rockTint);
   const canopy = new THREE.Vector4(...look.canopy);
   const canopyCol = new THREE.Vector3(...look.canopyCol);
+  const neon = ctx.rt.def.scenery?.city?.style === 'neon';
+  const uCityNight = { value: 0 };
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uGrass = { value: t.moss.diff }; // lush meadow is the base layer
     shader.uniforms.uGrassN = { value: t.moss.nor };
@@ -261,10 +290,21 @@ export function makeTerrainMaterial(ctx: Ctx): THREE.MeshStandardMaterial {
       .replace('#include <map_fragment>', FRAG_MAP)
       .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = mix(0.95, 0.8, gWRock) * (1.0 - 0.16 * uWet);')
       .replace('#include <normal_fragment_maps>', FRAG_NORMAL);
+    if (neon) {
+      shader.uniforms.uCityNight = uCityNight;
+      shader.fragmentShader = shader.fragmentShader.replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n  totalEmissiveRadiance += gCityGlow;');
+    }
   };
   // a city's ground carries a built-up measure per vertex (see city.ts); the other circuits do not pay for it
   if (ctx.rt.def.scenery?.city) mat.defines = { ...(mat.defines ?? {}), XR_URBAN: '' };
-  mat.customProgramCacheKey = () => 'terrain-splat-v11-' + ctx.q.splatLayers;
+  // a megacity's ground is asphalt and paving from end to end (megacity.ts), lit by its shop fronts after dark
+  if (neon) {
+    mat.defines = { ...(mat.defines ?? {}), XR_CITY_NEON: '' };
+    ctx.envListeners.push((env) => {
+      uCityNight.value = Math.min(1, Math.max(0, (env.darkness - 0.12) / 0.3));
+    });
+  }
+  mat.customProgramCacheKey = () => 'terrain-splat-v11-' + ctx.q.splatLayers + (neon ? '-neon' : '');
   mat.userData.wetShader = true;
   return mat;
 }
