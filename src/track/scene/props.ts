@@ -10,6 +10,7 @@ import { type BarrierMaterials, type Row, type MatKey, addBox, extrude, getBuf, 
 import type { Ctx } from './ctx';
 import { GeoBuf } from './geom';
 import { type TrackMaterials, makeRoadMaterial } from './materials';
+import { lampTintFactors } from './wet';
 import { makeBoardTexture, makeChevronTexture, makeCrowdTexture, makeFacadeTexture, makeFlagTexture, makeSeatTexture, makeSignTexture, makeTowerTextures, makeWarnTexture } from './propTextures';
 
 export interface PropResult {
@@ -625,7 +626,10 @@ function buildLamps(ctx: Ctx, group: THREE.Group): void {
   const headG = new THREE.BoxGeometry(A, 0.14, 0.55);
   headG.translate(A / 2, H, 0); // arm extends toward +x (local); rotated to face the track
   const poleM = new THREE.MeshStandardMaterial({ color: 0x8a8f94, metalness: 0.7, roughness: 0.5 });
-  const headM = new THREE.MeshStandardMaterial({ color: 0xdcdcdc, roughness: 0.4, emissive: 0xfff0d0, emissiveIntensity: 0 });
+  // a circuit may give its lamps a colour of their own (a megacity's cold white): the heads, the pools and, by the factors published
+  // beside the heads, every light the render side casts from them
+  const tint = sc?.neon?.lampTint;
+  const headM = new THREE.MeshStandardMaterial({ color: 0xdcdcdc, roughness: 0.4, emissive: tint ?? 0xfff0d0, emissiveIntensity: 0 });
   const poles = new THREE.InstancedMesh(poleG, poleM, list.length);
   const heads = new THREE.InstancedMesh(headG, headM, list.length);
   const m4 = new THREE.Matrix4();
@@ -650,6 +654,7 @@ function buildLamps(ctx: Ctx, group: THREE.Group): void {
     lampHeads[i * 3 + 2] = l.z - l.oz * (A / 2);
   });
   group.userData.xrLamps = lampHeads;
+  if (tint !== undefined) group.userData.xrLampTint = lampTintFactors(tint);
   ctx.lamps = lampHeads;
   ctx.disposables.push(poleG, headG, poleM, headM);
   ctx.nightGlow.push({ mat: headM, day: 0, night: 6 });
@@ -660,16 +665,19 @@ function buildLamps(ctx: Ctx, group: THREE.Group): void {
   c.width = c.height = 128;
   const g = c.getContext('2d')!;
   const gr = g.createRadialGradient(64, 64, 2, 64, 64, 64);
-  gr.addColorStop(0, 'rgba(255,240,212,1)');
+  // (the pool of a tinted lamp is the tint's colour all the way out)
+  const stop = (at: number, r: number, gg: number, b: number, a: number): void =>
+    gr.addColorStop(at, tint === undefined ? `rgba(${r},${gg},${b},${a})` : `rgba(${(tint >> 16) & 255},${(tint >> 8) & 255},${tint & 255},${a})`);
+  stop(0, 255, 240, 212, 1);
   if (ctx.rt.def.paved) {
     // (a city's lamps stand close together and the pool is painted flat over the asphalt: a tighter, fainter pool, or the road under a
     // lamp turns into a beige plate with no texture)
-    gr.addColorStop(0.3, 'rgba(255,232,196,0.42)');
-    gr.addColorStop(0.62, 'rgba(255,225,186,0.1)');
+    stop(0.3, 255, 232, 196, 0.42);
+    stop(0.62, 255, 225, 186, 0.1);
   } else {
-    gr.addColorStop(0.45, 'rgba(255,230,192,0.45)');
+    stop(0.45, 255, 230, 192, 0.45);
   }
-  gr.addColorStop(1, 'rgba(255,220,180,0)');
+  stop(1, 255, 220, 180, 0);
   g.fillStyle = gr;
   g.fillRect(0, 0, 128, 128);
   const poolT = new THREE.CanvasTexture(c);
