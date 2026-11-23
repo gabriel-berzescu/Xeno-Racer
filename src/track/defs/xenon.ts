@@ -158,6 +158,7 @@ export const xenon: TrackDef = {
     lengthHint: 4820,
     color: '#b45cff',
     floodlit: true,
+    megacity: true,
   },
   seed: 20891,
   dir: -1,

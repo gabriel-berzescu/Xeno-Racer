@@ -120,6 +120,11 @@ export interface TrackInfo {
    * 'rain' and 'storm' weathers are snowfall and a blizzard), and the "water" on the track is fresh snow.
    */
   winter?: boolean;
+  /**
+   * A circuit in a megacity: after dark the air carries the light of the city (a glow at the horizon and under the clouds, a haze the
+   * towers fade into, hardly a star), see `EnvironmentSettings.megacity`.
+   */
+  megacity?: boolean;
 }
 
 /**
@@ -543,6 +548,11 @@ export interface EnvironmentSettings {
    * blizzard, and the night sky carries an aurora. Set by the game from the track.
    */
   winter?: boolean;
+  /**
+   * A megacity circuit (`TrackInfo.megacity`): the air is hazier, and after dark it carries the light of the city: a violet glow at the
+   * horizon, in the haze and under the clouds, and few stars. By day it is an ordinary sky in a little more haze. Set by the game from the track.
+   */
+  megacity?: boolean;
 }
 
 /** Live environment info other modules may read (e.g. headlights on at night). */
