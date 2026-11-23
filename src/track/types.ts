@@ -363,6 +363,8 @@ export interface CityDef {
   skyline?: { reach: number; density: number; top?: number };
   /** A megacity's street rows: the lowest and the tallest tower (m, default [25, 110]); `floors` (at 4 m a storey) overrides it by stretch. */
   heights?: [number, number];
+  /** A megacity's skyways: glazed bridges from tower to tower high over the road, each as near its mark as two tall towers face each other. */
+  skyways?: Mark[];
   /** Bunting strung across the road between two poles at these marks. */
   bunting?: Mark[];
   /** Palms along the streets. */

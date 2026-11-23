@@ -20,9 +20,9 @@ import type { TrackPoint } from '../../core/contracts';
 import type { Ctx } from './ctx';
 import { CityBuf, type Style, hash11, linear } from './cityBuf';
 import { LotGrid, Occluders, type CityResult, type Pt } from './cityLots';
-import { CYBER_FLAG, CYBER_KIND, makeBeaconMaterial, makeCyberMaterial } from './cyberFacade';
+import { ACCENTS, CYBER_FLAG, CYBER_KIND, SIGN_MODE, makeBeaconMaterial, makeCyberMaterial } from './cyberFacade';
 import { emitArcology, emitSpire, placeArcology, placeSpire, type MegaPlace } from './megaLandmarks';
-import { centroid, inset, pickWeighted, plainStyle, roof, scaled, seedOf, signStyle, slab, tank, walls } from './megaSolids';
+import { centroid, inset, lightStyle, parapet, pickWeighted, plainStyle, roof, scaled, seedOf, signStyle, slab, tank, walls } from './megaSolids';
 import { lerpS } from './road';
 
 // ── palette ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -59,6 +59,11 @@ interface Tower {
   away: number;
   rx: number;
   rz: number;
+  /** A street lot: its side of the road, its stretch of it, and its front's distance from the centre line. */
+  sgn: 1 | -1 | 0;
+  s0: number;
+  s1: number;
+  d0: number;
 }
 
 interface Tier {
@@ -163,9 +168,20 @@ function emitTower(t: Tower, e: Emit): number {
   const shaft = tiers[t.gH > 0 && tiers.length > 1 ? 1 : 0];
   const metal = plainStyle([0.05, 0.052, 0.056], 0.6);
 
-  // a mast with its warning light on the taller ones; lamps on the corners of the tallest
+  // what crowns it: a pyramid and a needle on a tapered tower, a mast on some of the others; a warning light on the taller ones,
+  // lamps on the corners of the tallest
   const hm = hash11(t.seed * 419.3);
-  if (t.h > 60 && hm < (t.h > 170 ? 0.85 : 0.45)) {
+  if (t.arche === 2 && t.h > 80) {
+    const ph = 6 + 12 * hm;
+    for (let k = 0; k < 4; k++) {
+      const ed = edgeOf(tq, k);
+      const run = Math.abs((tc[0] - ed.a[0]) * ed.nx + (tc[1] - ed.a[1]) * ed.nz);
+      const nl = Math.hypot(ph, run) || 1;
+      base.tri([[ed.a[0], top, ed.a[1]], [ed.b[0], top, ed.b[1]], [tc[0], top + ph, tc[1]]], [[0, 0], [ed.len, 0], [ed.len / 2, nl]], [(ed.nx * ph) / nl, run / nl, (ed.nz * ph) / nl], metal, CYBER_KIND.plain);
+    }
+    base.box(tc[0], top + ph + 5, tc[1], 0.22, 5.5, 0.22, 1, 0, metal, CYBER_KIND.plain);
+    e.beacons.push(tc[0], top + ph + 10.8, tc[1], hash11(t.seed * 617.9));
+  } else if (t.h > 60 && hm < (t.h > 170 ? 0.6 : 0.3)) {
     const mh = clamp(t.h * (0.12 + 0.14 * hash11(t.seed * 523.1)), 9, 60);
     const mw = t.h > 170 ? 0.9 : 0.4;
     base.box(tc[0], top + mh * 0.3, tc[1], mw, mh * 0.3, mw, 1, 0, metal, CYBER_KIND.plain);
@@ -177,6 +193,30 @@ function emitTower(t: Tower, e: Emit): number {
   }
   if (t.h > 190) for (const k of [0, 2]) e.beacons.push(tq[k][0], top + 1, tq[k][1], 2);
 
+  if (t.street) {
+    // parapets round the roofs
+    const rim = plainStyle([0.05, 0.052, 0.056], 0.1);
+    for (const tr of tiers) if (tr.q0 === tr.q1) parapet(base, tr.q1, tr.y1, rim);
+  }
+  if (detail && t.street && t.gH > 0) {
+    // a canopy over the shop windows, under their signs
+    const pod = edgeOf(t.quad, 0);
+    const sH = Math.min(4.4, t.gH - 1.7);
+    detail.box(pod.a[0] + pod.tx * pod.len * 0.5 + pod.nx * 0.5, t.yRef + sH + 0.09, pod.a[1] + pod.tz * pod.len * 0.5 + pod.nz * 0.5, pod.len / 2 - 0.3, 0.07, 0.5, pod.tx, pod.tz, metal, CYBER_KIND.plain);
+  }
+  if (detail && t.street && shaft.q0 === shaft.q1 && hash11(t.seed * 733.1) < 0.32) {
+    // fins up the street front and the wall that faces the traffic
+    const sp = 3.2 + 3 * hash11(t.seed * 811.7);
+    const fin = t.glass ? plainStyle([0.04, 0.043, 0.05], 0.6) : plainStyle([t.col[0] * 0.8, t.col[1] * 0.8, t.col[2] * 0.8], 0.05);
+    for (const k of [0, 3]) {
+      const ed = edgeOf(shaft.q0, k);
+      const n = Math.floor((ed.len - 1) / sp);
+      for (let i = 0; i <= n; i++) {
+        const u = (ed.len - n * sp) / 2 + i * sp;
+        detail.box(ed.a[0] + ed.tx * u + ed.nx * 0.3, (shaft.y0 + shaft.y1) / 2, ed.a[1] + ed.tz * u + ed.nz * 0.3, 0.14, (shaft.y1 - shaft.y0) / 2, 0.3, ed.tx, ed.tz, fin, CYBER_KIND.plain, false);
+      }
+    }
+  }
   // the roof's plant: air handlers, a tank, a lift housing
   if (detail && t.away < 420) {
     const n = 2 + Math.floor(rnd() * 4);
@@ -355,7 +395,7 @@ export function buildMegacity(ctx: Ctx, cd: CityDef): CityResult {
     const ar = rnd();
     const arche = street ? (ar < 0.42 ? 0 : ar < 0.72 ? 1 : ar < 0.94 ? 3 : 2) : hgt < 70 ? (ar < 0.6 ? 0 : 3) : ar < 0.34 ? 1 : ar < 0.66 ? 2 : ar < 0.82 ? 0 : 3;
     const gH = street || away < 160 ? (rnd() < 0.6 ? 6.6 + rnd() * 1.6 : 9 + rnd() * 4) : 0;
-    return { quad, yRef, yBot, h: hgt, glass, col: [tmpC[0], tmpC[1], tmpC[2]], seed: seedOf(rnd()), lit, accent: pickWeighted(ACCENT_W, rnd()), flags, gH, arche, street, away, rx, rz };
+    return { quad, yRef, yBot, h: hgt, glass, col: [tmpC[0], tmpC[1], tmpC[2]], seed: seedOf(rnd()), lit, accent: pickWeighted(ACCENT_W, rnd()), flags, gH, arche, street, away, rx, rz, sgn: 0, s0: 0, s1: 0, d0: 0 };
   };
 
   // ── the landmarks take their ground first ────────────────────────────────────────────────────────────────────────────────────────
@@ -442,6 +482,10 @@ export function buildMegacity(ctx: Ctx, cd: CityDef): CityResult {
         for (const [x, z] of quad) yBot = Math.min(yBot, rt.heightFast(x, z));
         const i = Math.round(ss / h) % N;
         const t = mkTower(quad, yRef, yBot - 1.5, hgt, true, d0 - front, -side * rt.HLX[i], -side * rt.HLZ[i]);
+        t.sgn = side;
+        t.s0 = s;
+        t.s1 = s1;
+        t.d0 = d0;
         streetTowers.push(t);
         grid.add(t);
         placed = true;
@@ -531,6 +575,22 @@ export function buildMegacity(ctx: Ctx, cd: CityDef): CityResult {
     }
   }
 
+  // ── skyways: glazed bridges from tower to tower, high over the road ─────────────────────────────────────────────────────────────
+  // (each at the place nearest its mark where a tower of 44 m or more stands at the pavement on both sides of a straight road)
+  const skyways: { s: number; a: Tower; b: Tower }[] = [];
+  for (const mk of cd.skyways ?? []) {
+    const sm = resolveMark(rt.plan.marks, L, mk);
+    const find = (sgn: 1 | -1, s: number): Tower | undefined => streetTowers.find((t) => t.sgn === sgn && s > t.s0 + 5 && s < t.s1 - 5 && t.h >= 44 && t.away < 16);
+    for (let k = 0; k <= 20; k++) {
+      const s = rt.wrapS(sm + (k % 2 ? -1 : 1) * Math.ceil(k / 2) * 6);
+      const a = find(1, s);
+      const b = find(-1, s);
+      if (!a || !b || Math.abs(kappaAt(s)) > 0.004) continue;
+      skyways.push({ s, a, b });
+      break;
+    }
+  }
+
   // nothing else is planted where a tower stands
   ctx.reserved.push((x, z, margin) => grid.near(x, z, margin) || skyGrid.near(x, z, margin));
 
@@ -588,6 +648,40 @@ export function buildMegacity(ctx: Ctx, cd: CityDef): CityResult {
     const c = centroid(t.quad);
     const cl = cellAt(c[0], c[1]);
     occ.add(t.quad, emitTower(t, { base: cl.sky, detail: withDetail ? cl.detail : null, beacons, rnd: rndDec }));
+  }
+  for (const sw of skyways) {
+    const i = Math.round(sw.s / h) % N;
+    const cx = rt.X[i];
+    const cz = rt.Z[i];
+    const tx = rt.HTX[i];
+    const tz = rt.HTZ[i];
+    const lx = rt.HLX[i];
+    const lz = rt.HLZ[i];
+    const P = (al: number, lat: number): Pt => [cx + tx * al + lx * lat, cz + tz * al + lz * lat];
+    const buf = cellAt(cx, cz).rows;
+    // (five metres into each tower: their shafts stand back from their podiums)
+    const latL = sw.a.d0 + 5;
+    const latR = -(sw.b.d0 + 5);
+    const yb = rt.Y[i] + clamp(Math.min(sw.a.h, sw.b.h) * 0.5, 24, 38);
+    const hgt = 4.8;
+    const q: Pt[] = [P(-3.5, latR), P(3.5, latR), P(3.5, latL), P(-3.5, latL)];
+    const st: Style = { col: [0.06, 0.085, 0.11], seed: seedOf(rndDec()), floors: 0, gH: 0, w: 1, lit: 0.5, a: sw.a.accent, b: CYBER_FLAG.crown };
+    walls(buf, q, q, yb, yb + hgt, yb, st, CYBER_KIND.glass);
+    roof(buf, q, yb + hgt, st);
+    buf.quad([[q[0][0], yb, q[0][1]], [q[1][0], yb, q[1][1]], [q[2][0], yb, q[2][1]], [q[3][0], yb, q[3][1]]], [[0, 0], [7, 0], [7, latL - latR], [0, latL - latR]], [0, -1, 0], plainStyle([0.03, 0.032, 0.036], 0.5), CYBER_KIND.plain);
+    // two lines of light under it, from pavement to pavement
+    const lamp = lightStyle(ACCENTS[sw.a.accent], 1.6);
+    for (const al of [-2.3, 2.3]) {
+      const a0 = P(al - 0.18, latR + 5);
+      const a1 = P(al + 0.18, latR + 5);
+      const b1 = P(al + 0.18, latL - 5);
+      const b0 = P(al - 0.18, latL - 5);
+      buf.quad([[a0[0], yb - 0.03, a0[1]], [a1[0], yb - 0.03, a1[1]], [b1[0], yb - 0.03, b1[1]], [b0[0], yb - 0.03, b0[1]]], [[0, 0], [1, 0], [1, 1], [0, 1]], [0, -1, 0], lamp, CYBER_KIND.light);
+    }
+    // a line of writing toward the traffic
+    const w = Math.min(18, (latL - latR - 10) * 0.6);
+    const c = P(-3.5 - 0.25, (latL + latR) / 2);
+    slab(buf, c[0], yb + hgt / 2, c[1], lx, lz, w, 2.6, -tx, -tz, 0.3, signStyle(w, 2.6, rndDec, SIGN_MODE.lines), CYBER_KIND.sign);
   }
   for (const p of places) {
     const cl = cellAt(p.x, p.z);

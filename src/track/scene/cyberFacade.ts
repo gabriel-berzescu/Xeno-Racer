@@ -113,8 +113,8 @@ float cRoom(vec2 p, vec2 id, vec4 nz, float fw) {
   g += 0.8 * (1.0 - smoothstep(0.025, 0.06 + fw, abs(p.y - 0.9))) * step(0.3, h1) * step(0.3, fract(p.x * 2.0 + h1));
   float blind = step(1.0 - max(0.0, h2 - 0.4) * 1.5, p.y);
   g *= mix(1.0, 0.4 + 0.1 * step(0.5, fract(p.y * 22.0)), blind);
-  float sil = 1.0 - smoothstep(0.0, 0.06, p.y - 0.55 * smoothstep(0.35, 0.8, nz.g));
-  g *= mix(1.0, 0.28, sil * (1.0 - blind));
+  float sil = 1.0 - smoothstep(0.0, 0.14, p.y - 0.14 - 0.3 * nz.g);
+  g *= mix(1.0, 0.45, sil * (1.0 - blind));
   g *= 0.6 + 0.55 * h1;
   return mix(g, 0.36, smoothstep(0.08, 0.3, fw));
 }
@@ -138,8 +138,7 @@ float cGlyph(vec2 q, vec2 id, float aa) {
   dd = max(dd, max(max(-f.x, f.x - 1.0), max(-f.y, f.y - 1.0)));
   float onD = step(fract(hd * 7.0), 0.22);
   float d = min(min(mix(9.0, dh, onH), mix(9.0, dv, onV)), mix(9.0, dd, onD));
-  // (a glyph in seven is a space)
-  return (1.0 - smoothstep(0.13 - aa, 0.13 + aa, d)) * step(0.14, cHash12(id + 31.7));
+  return 1.0 - smoothstep(0.13 - aa, 0.13 + aa, d);
 }
 
 // Lines of glyphs gs high from p = (0, 0) rightward and upward; cols: the glyphs a full line holds. fw: a pixel in metres.
@@ -147,7 +146,8 @@ float cText(vec2 p, float gs, float cols, float seed, float fw) {
   vec2 cell = vec2(gs * 0.92, gs * 1.5);
   vec2 id = floor(p / cell);
   vec2 q = (p - id * cell - vec2(gs * 0.13, gs * 0.25)) / vec2(gs * 0.667, gs);
-  float ink = cGlyph(q, id + seed * 97.0, 3.0 * fw / gs);
+  // (a glyph in seven is a space)
+  float ink = cGlyph(q, id + seed * 97.0, 3.0 * fw / gs) * step(0.14, cHash12(id + seed * 97.0 + 31.7));
   // lines of different lengths, ragged on the right
   ink *= step(0.0, id.x) * step(id.x + 0.5, max(2.0, cols * mix(0.45, 1.0, cHash12(vec2(id.y, seed * 53.0)))));
   // glyphs under some five pixels settle on their mean
@@ -183,16 +183,17 @@ void cSign(float fw) {
     ink = mix(ink, 0.24, smoothstep(0.12, 0.3, fw / gs));
   } else if (mode < 3.5) {
     // a screen: two lights drifting across it in broad bands, and a mark that changes every few seconds
-    float tt = t * 0.09 + rS * 40.0;
-    vec2 b = floor(p / 0.5) * 0.5;
-    float n = sin(b.x * 0.19 + tt * 2.1) + sin(b.y * 0.31 - tt * 1.7 + 1.3 * sin(b.x * 0.09 + tt));
-    float band = smoothstep(-0.25, 0.25, sin(n * 2.2));
-    light = mix(col, cAccent(mod(floor(rS * 50.0) + 1.0 + floor(mod(tt * 0.5, 3.0)), 5.0)), band);
-    back = 0.2 + 0.16 * sin(n * 1.3 + 0.7);
-    float ms = min(H, W * 1.4) * 0.62;
-    vec2 q = (p - vec2(0.5 * W - 0.333 * ms, 0.5 * H - 0.5 * ms)) / vec2(ms * 0.667, ms);
-    ink = cGlyph(q, vec2(floor(tt * 2.6), 5.0) + rS * 97.0, 3.0 * fw / ms);
+    float tt = t * 0.25 + rS * 40.0;
+    float wash = 0.5 + 0.5 * sin(p.y / H * 2.6 + p.x / W * 1.9 - tt * 0.7);
+    light = mix(col, cAccent(mod(floor(rS * 50.0) + 2.0, 5.0)), wash);
+    back = 0.1 + 0.12 * wash;
+    float ms = min(H * 0.6, W * 0.8);
+    vec2 q = (p - vec2(0.5 * W - 0.333 * ms, H * 0.3)) / vec2(ms * 0.667, ms);
+    ink = cGlyph(q, vec2(floor(tt * 0.8), 5.0) + rS * 97.0, 3.0 * fw / ms);
     ink = mix(ink, 0.2, smoothstep(0.12, 0.3, fw / ms));
+    // a ticker along the bottom
+    float ls = max(H * 0.09, 0.3);
+    ink = max(ink, 0.8 * cText(vec2(p.x + t * ls * 1.4, p.y - H * 0.07), ls, 1e4, rS + 0.6, fw) * step(H * 0.07, p.y) * step(p.y, H * 0.07 + ls * 1.5));
     // the diodes, close up
     vec2 dq = fract(p / 0.16) - 0.5;
     float dots = 1.0 - smoothstep(0.3, 0.42, max(abs(dq.x), abs(dq.y)));
@@ -204,9 +205,7 @@ void cSign(float fw) {
     float ms = min(H * 0.56, W * 0.8);
     vec2 q = (p - vec2(0.5 * W - 0.333 * ms, H * 0.36)) / vec2(ms * 0.667, ms);
     float big = cGlyph(q, vec2(7.0, 9.0) + rS * 97.0, 3.0 * fw / ms);
-    // (the mark is never a space: its box is drawn when the glyph is)
     float bq = max(abs(q.x - 0.5) - 0.62, abs(q.y - 0.5) - 0.56);
-    big = max(big, (1.0 - smoothstep(0.0, 3.0 * fw / ms + 0.01, abs(bq + 0.03) - 0.03)) * 0.9);
     big = mix(big, 0.3 * step(bq, 0.0), smoothstep(0.12, 0.3, fw / ms));
     float ls = max(H * 0.11, 0.25);
     float cols = floor((W - 2.0 * mrg) / (ls * 0.92));
@@ -219,7 +218,7 @@ void cSign(float fw) {
   if (fl < 0.16) k -= 0.7 * step(0.78, cHash11(floor(t * 0.6) + rS * 31.0)) * step(0.5, cHash11(floor(t * 13.0) + rS * 13.0));
   else if (fl > 0.72) k += 0.7 * (1.0 - smoothstep(0.0, 0.05, abs(fract(p.y / max(H, 8.0) - t * 0.1 - rS) - 0.5)));
   float box = step(0.5, vFb.w);
-  float e = mix(ink * 2.3 + back, (1.0 - ink) * 0.85 + 0.04, box);
+  float e = mix(ink * 2.3 + back, (1.0 - ink) * 0.6 + 0.04, box);
   gCEmit = light * e * inside * k * uSign;
   // by day: a dark panel with its glyphs painted on it, or a pale acrylic box with dark ones
   vec3 dark = mix(vec3(0.028, 0.03, 0.034), col * 0.16 + 0.07, ink * 0.85);
@@ -243,7 +242,7 @@ void cPodium(float fwu, float fwv, vec4 n2, vec4 n4, vec3 accent) {
   float sH = min(4.4, gH - 1.7);
   float a = Wb * 0.5 - 0.42;
   float fw = max(fwu, fwv);
-  vec3 conc = vec3(0.06, 0.062, 0.068) * (0.75 + 0.5 * n2.r);
+  vec3 conc = vec3(0.06, 0.062, 0.068) * (0.9 + 0.2 * n2.r);
   gCAlbedo = conc;
   gCRough = 0.85;
   gCMetal = 0.0;
@@ -293,7 +292,7 @@ void cPodium(float fwu, float fwv, vec4 n2, vec4 n4, vec3 accent) {
   } else {
     // panels up to the band of light under the tower
     float pj = cLine(min(fract(u / 2.4), 1.0 - fract(u / 2.4)) * 2.4, 0.02, fwu);
-    gCAlbedo = vec3(0.05, 0.052, 0.058) * (0.8 + 0.4 * n2.g) * (1.0 - 0.4 * pj);
+    gCAlbedo = vec3(0.05, 0.052, 0.058) * (0.92 + 0.16 * n2.g) * (1.0 - 0.4 * pj);
     gCRough = 0.6;
     gCMetal = 0.4;
     gCEmit = accent * cLine(v - (gH - 0.4), 0.1, fwv) * 1.5 * uSign;
@@ -342,7 +341,7 @@ void cWall(bool concrete, float fwu, float fwv) {
     cPodium(fwu, fwv, n2, n4, accent);
   } else if (v < 0.0) {
     // the foundation where the ground falls away from the datum
-    gCAlbedo = vec3(0.055, 0.057, 0.062) * (0.75 + 0.5 * n2.r);
+    gCAlbedo = vec3(0.055, 0.057, 0.062) * (0.9 + 0.2 * n2.r);
     gCRough = 0.9;
     gCMetal = 0.0;
   } else if (!concrete) {
@@ -553,10 +552,10 @@ export function makeCyberMaterial(ctx: Ctx): CyberMaterial {
 
 /**
  * The aircraft warning lights on the masts and the crowns: points, so that a lamp a kilometre away is still a dot of red instead of
- * a sub-pixel box. `aPhase` is each tower's own beat; a point is never drawn smaller than two and a half pixels.
+ * a sub-pixel box. `aPhase` is each tower's own beat; a point is never drawn smaller than four pixels (a core and its glow).
  */
 export function makeBeaconMaterial(ctx: Ctx, sign: { value: number }): THREE.PointsMaterial {
-  const mat = new THREE.PointsMaterial({ color: new THREE.Color(3.2, 0.1, 0.06), size: 2.2, sizeAttenuation: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: true });
+  const mat = new THREE.PointsMaterial({ color: new THREE.Color(2.2, 0.07, 0.04), size: 7, sizeAttenuation: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: true });
   mat.name = 'cyberBeacon';
   const uTime = { value: 0 };
   mat.onBeforeCompile = (shader) => {
@@ -573,10 +572,10 @@ export function makeBeaconMaterial(ctx: Ctx, sign: { value: number }): THREE.Poi
     vBeat = uSign * (aPhase > 1.5 ? 0.55 : smoothstep(0.0, 0.06, f) * (1.0 - smoothstep(0.3, 0.4, f)));
   }`,
       )
-      .replace('#include <fog_vertex>', 'gl_PointSize = clamp(gl_PointSize, 2.5, 26.0);\n#include <fog_vertex>');
+      .replace('#include <fog_vertex>', 'gl_PointSize = clamp(gl_PointSize, 4.0, 30.0);\n#include <fog_vertex>');
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', '#include <common>\nvarying float vBeat;')
-      .replace('#include <map_particle_fragment>', '{ float r = length(gl_PointCoord - 0.5) * 2.0; diffuseColor.a *= (1.0 - smoothstep(0.25, 1.0, r)) * vBeat; }');
+      .replace('#include <map_particle_fragment>', '{ float r = length(gl_PointCoord - 0.5) * 2.0; float g = 1.0 - smoothstep(0.0, 1.0, r); diffuseColor.a *= (0.25 * g + 0.75 * g * g * g * g) * vBeat; }');
   };
   mat.customProgramCacheKey = () => 'cyber-beacon-v1';
   ctx.updaters.push((_dt, _camera, time) => {

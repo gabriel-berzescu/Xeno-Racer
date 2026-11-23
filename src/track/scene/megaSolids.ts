@@ -130,6 +130,28 @@ export function roof(buf: CityBuf, q: Pt[], y: number, st: Style): void {
   }
 }
 
+/** A parapet round a flat roof: `h` high, `t` thick, standing on the roof's edge. */
+export function parapet(buf: CityBuf, q: Pt[], y: number, st: Style, h = 0.9, t = 0.35): void {
+  const qi = inset(q, t);
+  const c = centroid(q);
+  for (let k = 0; k < q.length; k++) {
+    const a = q[k];
+    const b = q[(k + 1) % q.length];
+    const ai = qi[k];
+    const bi = qi[(k + 1) % q.length];
+    const tl = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+    let nx = -(b[1] - a[1]) / tl;
+    let nz = (b[0] - a[0]) / tl;
+    if ((a[0] - c[0]) * nx + (a[1] - c[1]) * nz < 0) {
+      nx = -nx;
+      nz = -nz;
+    }
+    buf.quad([[a[0], y, a[1]], [b[0], y, b[1]], [b[0], y + h, b[1]], [a[0], y + h, a[1]]], [[0, 0], [tl, 0], [tl, h], [0, h]], [nx, 0, nz], st, CYBER_KIND.plain);
+    buf.quad([[a[0], y + h, a[1]], [b[0], y + h, b[1]], [bi[0], y + h, bi[1]], [ai[0], y + h, ai[1]]], [[0, 0], [tl, 0], [tl, t], [0, t]], [0, 1, 0], st, CYBER_KIND.plain);
+    buf.quad([[ai[0], y, ai[1]], [bi[0], y, bi[1]], [bi[0], y + h, bi[1]], [ai[0], y + h, ai[1]]], [[0, 0], [tl, 0], [tl, h], [0, h]], [-nx, 0, -nz], st, CYBER_KIND.plain);
+  }
+}
+
 const DARK: [number, number, number] = [0.028, 0.03, 0.034];
 
 /** Painted metal (plant, frames, masts): `metal` 0..1. */
