@@ -114,9 +114,10 @@ export function buildRockCuts(ctx: Ctx): { group: THREE.Group; flags: RockCutFla
 // Tunnels
 // ─────────────────────────────────────────────────────────────────────────────
 
-function lampTexture(): THREE.CanvasTexture {
+function lampTexture(dark = false): THREE.CanvasTexture {
   // u around the ring (0 = left wall base .. 0.5 = roof apex .. 1 = right wall base), v along the tunnel (8 m per
   // repeat). Tiled walls, darker roof, ring joints, and two rows of lamp strips on the upper haunches with a warm halo.
+  // `dark`: the same lining with no lamps (TunnelDef.dark: the scene hangs its own lights in the tunnel).
   const W = 128;
   const H = 256;
   const c = document.createElement('canvas');
@@ -167,7 +168,7 @@ function lampTexture(): THREE.CanvasTexture {
   g.fillRect(0, 0, W, 2);
   g.fillRect(0, H / 2, W, 1);
   // lamp strips on the haunches (u = 0.3 and 0.7): halo, then the bright bar
-  for (const u of [0.3, 0.7]) {
+  for (const u of dark ? [] : [0.3, 0.7]) {
     for (const vy of [64, 192]) {
       const halo = g.createRadialGradient(W * u, vy, 2, W * u, vy, 62);
       halo.addColorStop(0, 'rgba(255,210,150,0.55)');
@@ -194,10 +195,18 @@ export function buildTunnels(ctx: Ctx, portalMaterial: THREE.Material, terrainMa
   group.name = 'tunnels';
   const lamp = lampTexture();
   ctx.disposables.push(lamp);
+  let unlit: THREE.CanvasTexture | null = null;
+  const darkLining = (): THREE.CanvasTexture => {
+    if (!unlit) {
+      unlit = lampTexture(true);
+      ctx.disposables.push(unlit);
+    }
+    return unlit;
+  };
   const NR = 18;
   for (const td of defs) {
     // unlit (the sun must not reach inside): the lamp strips and a dim lining colour are painted into the map
-    const lining = new THREE.MeshBasicMaterial({ map: lamp, color: td.lining ?? 0xffffff, side: THREE.DoubleSide });
+    const lining = new THREE.MeshBasicMaterial({ map: td.dark ? darkLining() : lamp, color: td.lining ?? 0xffffff, side: THREE.DoubleSide });
     // weathered portal concrete: darker than the barrier concrete, with sooty vertex colours around the opening
     const portalMat = (portalMaterial as THREE.MeshStandardMaterial).clone();
     portalMat.color.setHex(td.portal ?? 0x8e8f8c);
