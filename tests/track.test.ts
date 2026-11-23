@@ -36,6 +36,8 @@ const LIMITS: Record<string, Limits> = {
   portovela: { minRadius: 13, maxGrade: 0.09, minCrestR: 600, minSagR: 700, maxBankDeg: 3, elev: [38, 50], length: [3800, 4300], maxFieldStep: 1.2, maxNormalMismatch: 0.25 },
   // winter circuit: 4.3 km, 13 m of relief with a dead flat frozen lake, R25 switchbacks, no banking
   isvik: { minRadius: 24, maxGrade: 0.045, minCrestR: 300, minSagR: 300, maxBankDeg: 0.5, elev: [9, 16], length: [3900, 4500], maxFieldStep: 1.2 },
+  // megacity grand-prix circuit: 4.8 km, 34 m of relief on a 3 % slope, an R24 hairpin, a carousel banked 8 degrees
+  xenon: { minRadius: 23, maxGrade: 0.06, minCrestR: 600, minSagR: 500, maxBankDeg: 8.5, elev: [30, 38], length: [4600, 5000], maxFieldStep: 1.0 },
 };
 
 function newGround(): GroundSample {
