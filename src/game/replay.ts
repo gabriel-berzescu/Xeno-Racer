@@ -20,10 +20,24 @@ const WHEEL = 14;
 export const REPLAY_STRIDE = HEAD + 4 * WHEEL;
 const RATE = 30;
 const MAX_SECONDS = 600;
+const MAX_FRAMES = MAX_SECONDS * RATE;
+/**
+ * How early a frame may be taken, in steps of the rate. The pictures the frames are taken from come when they come, on a clock that
+ * moves in whole physics steps: at 60 pictures a second the one that falls on a 30 Hz step is 33 ms after the last, not 33.3, and
+ * waiting for the next (50 ms) recorded 20 frames a second.
+ */
+const EARLY = 0.1;
 
 export class ReplayRecorder {
   readonly cars: number;
   readonly data: Float32Array;
+  /**
+   * When each frame was captured, on the clock capture() is given (the race's own). The frames are about 1/rate apart, not exactly:
+   * each is the first picture drawn once it was due, and how often pictures are drawn is the screen's business (60 a second, 144, 40
+   * in a split screen). So a replay reads the moment of every frame here and plays on the race's clock; counting frames at the
+   * nominal rate instead played a race recorded at 60 pictures a second half as fast again.
+   */
+  readonly time: Float64Array;
   /**
    * Each car's crash damage as it happened: the events the car's visual took, stamped with the replay frame they fall
    * after. Playback rebuilds the damage of any moment from these (CarDamage.syncTo), so it builds up as the replay
@@ -36,29 +50,50 @@ export class ReplayRecorder {
    * and recording goes on at half the rate, so the replay always runs from the start to the flag.
    */
   rate = RATE;
-  private lastT = -Infinity;
+  /** When the next frame is due. */
+  private due = -Infinity;
+  private closed = false;
   readonly t0: number;
 
   constructor(cars: number, t0: number) {
     this.cars = cars;
     this.t0 = t0;
-    this.data = new Float32Array(MAX_SECONDS * RATE * cars * REPLAY_STRIDE + 1);
+    this.data = new Float32Array(MAX_FRAMES * cars * REPLAY_STRIDE + 1);
+    this.time = new Float64Array(MAX_FRAMES);
     this.damage = Array.from({ length: cars }, () => []);
   }
 
   /** A crash event of car `car`, happening now: between the last captured frame and the next one. */
   addDamage(car: number, e: DamageEvent): void {
+    if (this.closed) return;
     this.damage[car]?.push({ f: this.frames - 0.5, e });
   }
 
+  /** The length of the recording (s): from its first frame to its last, on the clock they were captured on. */
   get duration(): number {
-    return Math.max(0, (this.frames - 1) / this.rate);
+    return this.frames > 1 ? this.time[this.frames - 1] - this.time[0] : 0;
+  }
+
+  /**
+   * The race is over: nothing is recorded from here on. The game closes the recording when the results come up, because behind them
+   * it is no longer the race: the humans' cars are braked to a stop by the game while the opponents drive on, for as long as the
+   * results are read. Recorded, that was the end of every replay: the players' cars pulling up for no reason, wherever they were.
+   */
+  close(): void {
+    this.closed = true;
   }
 
   capture(t: number, states: readonly VehicleState[]): void {
-    if (t - this.lastT < 1 / this.rate - 1e-4) return;
-    if ((this.frames + 1) * this.cars * REPLAY_STRIDE >= this.data.length) this.halve();
-    this.lastT = t;
+    if (this.closed || t < this.due - EARLY / this.rate) return;
+    if (this.frames >= MAX_FRAMES) {
+      this.halve();
+      if (t < this.due - EARLY / this.rate) return;
+    }
+    // the next frame is due a step after this one was due, not a step after it came (the rhythm of the pictures must not stretch the
+    // steps), and no sooner than half a step from now (a picture that came late is not followed by a hurried one)
+    const step = 1 / this.rate;
+    this.due = this.frames === 0 ? t + step : Math.max(this.due + step, t + step / 2);
+    this.time[this.frames] = t;
     let o = this.frames * this.cars * REPLAY_STRIDE;
     const d = this.data;
     for (let c = 0; c < this.cars; c++) {
@@ -128,9 +163,13 @@ export class ReplayRecorder {
   private halve(): void {
     const n = this.cars * REPLAY_STRIDE;
     const kept = Math.ceil(this.frames / 2);
-    for (let k = 1; k < kept; k++) this.data.copyWithin(k * n, 2 * k * n, (2 * k + 1) * n);
+    for (let k = 1; k < kept; k++) {
+      this.data.copyWithin(k * n, 2 * k * n, (2 * k + 1) * n);
+      this.time[k] = this.time[2 * k];
+    }
     this.frames = kept;
     this.rate /= 2;
+    this.due = this.time[kept - 1] + 1 / this.rate;
     for (const list of this.damage) for (const ev of list) ev.f /= 2;
   }
 }
@@ -143,6 +182,11 @@ export class ReplayPlayer {
   readonly states: VehicleState[];
   /** The (fractional) recorded frame the last apply() showed: what the damage timeline is read at. */
   frame = 0;
+  /**
+   * The moment the last apply() showed, on the clock the recording was captured on (the race's own): what a log kept on that clock
+   * is read at (the weather's).
+   */
+  clock = 0;
 
   constructor(
     readonly rec: ReplayRecorder,
@@ -151,13 +195,30 @@ export class ReplayPlayer {
     this.states = templates.map((t) => cloneState(t));
   }
 
-  /** Apply time t (seconds from the start of the recording). */
+  /** Apply time t (seconds from the start of the recording, on the race's clock: a second of replay is a second of the race). */
   apply(t: number): void {
     const r = this.rec;
-    const f = Math.max(0, Math.min(r.frames - 1.001, t * r.rate));
-    this.frame = f;
-    const i = Math.floor(f);
-    const k = f - i;
+    if (r.frames < 1) return;
+    // the two frames either side of that moment, and how far between them it falls (past the end: the last frame)
+    const T = r.time;
+    const last = r.frames - 1;
+    const at = Math.min(T[last], T[0] + Math.max(0, t));
+    let i = 0;
+    let k = 0;
+    if (last >= 1 && at >= T[last]) {
+      i = last - 1;
+      k = 0.999;
+    } else if (last >= 1) {
+      let hi = last;
+      while (hi - i > 1) {
+        const mid = (i + hi) >> 1;
+        if (T[mid] <= at) i = mid;
+        else hi = mid;
+      }
+      k = (at - T[i]) / (T[i + 1] - T[i]);
+    }
+    this.frame = i + k;
+    this.clock = at;
     const d = r.data;
     for (let c = 0; c < r.cars; c++) {
       const a = (i * r.cars + c) * REPLAY_STRIDE;

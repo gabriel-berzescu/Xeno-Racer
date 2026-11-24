@@ -1816,6 +1816,9 @@ export class Game {
     this.ui.setHudVisible(false);
     this.ui.show('results');
     this.resultsShown = true;
+    // the replay ends here, with the race: behind the results the humans' cars are braked to a stop while the opponents drive on,
+    // which is not a part of the race to watch again (it was the end of every replay, as long as the results had been read)
+    this.replayRec?.close();
     // behind the results the screen is whole again: a TV camera on player 1's car (the lights keep the number they had)
     if (this.splitLayout) {
       this.endSplit();
@@ -1943,8 +1946,8 @@ export class Game {
       this.camera.snap();
     }
     r.player.apply(r.t);
-    // the weather of the race, as it was at this moment of it
-    if (this.wx?.plan && this.wxLog.at(r.t, this.wxReplay)) this.applyWeather(this.wxReplay, false);
+    // the weather of the race, as it was at this moment of it (the log is kept on the clock the frames were captured on)
+    if (this.wx?.plan && this.wxLog.at(r.player.clock, this.wxReplay)) this.applyWeather(this.wxReplay, false);
     const states = r.player.states;
     this.cars.forEach((c, i) => {
       c.visual.damage?.replay(r.player.rec.damage[i], r.player.frame);

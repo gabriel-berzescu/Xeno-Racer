@@ -261,7 +261,10 @@ export function nearestWeather(plan: WeatherPlan, s: WeatherState): Weather {
 // The log
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** The weather of a race as it went, a sample every half second, for a replay to play back (it runs on the replay's own clock). */
+/**
+ * The weather of a race as it went, a sample every half second, for a replay to play back. It is kept on the clock the replay's
+ * frames are captured on (ReplayRecorder.time) and read at the moment the replay shows (ReplayPlayer.clock).
+ */
 export class WeatherLog {
   private readonly t: number[] = [];
   private readonly v: number[] = [];
@@ -277,7 +280,7 @@ export class WeatherLog {
     return this.t.length;
   }
 
-  /** Note the state at time `t` (seconds since the race's replay began); a state closer than half a second to the last is skipped. */
+  /** Note the state at time `t` (seconds on the replay recorder's clock); a state closer than half a second to the last is skipped. */
   sample(t: number, s: WeatherState): void {
     if (t - this.last < 0.5) return;
     this.last = t;
