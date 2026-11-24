@@ -12,6 +12,7 @@ import { buildHarbour } from './harbour';
 import { buildHarbourProps } from './harbourProps';
 import { buildStreet } from './street';
 import { makeMaterials } from './materials';
+import { buildNeon, reserveNeon } from './neon';
 import { buildProps } from './props';
 import { buildRockCuts, buildTunnels } from './rocks';
 import { buildRoad } from './road';
@@ -63,6 +64,8 @@ export async function buildTrackScene(rt: TrackRuntimeImpl, opts: TrackSceneOpti
   }
 
   ctx.progress(0.27, 'buildings');
+  // (the feet of a megacity circuit's rings of light: ground the city keeps clear of)
+  reserveNeon(ctx);
   const props = buildProps(ctx, barrierMats, mats);
   root.add(props.group);
   await yieldFrame();
@@ -76,6 +79,9 @@ export async function buildTrackScene(rt: TrackRuntimeImpl, opts: TrackSceneOpti
   }
   const street = buildStreet(ctx);
   if (street) root.add(street);
+  // a megacity circuit's light strips, rings and sky traffic (after the city and the props: it dresses what they built)
+  const neon = buildNeon(ctx);
+  if (neon) root.add(neon);
   // a winter circuit's snowbanks, cabins, poles, reeds and crowds (after the props: they keep clear of the TV cameras)
   if (rt.def.winter) root.add(buildWinterScenery(ctx, mats.terrain));
   await yieldFrame();

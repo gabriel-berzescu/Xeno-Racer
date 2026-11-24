@@ -240,6 +240,11 @@ export interface TunnelDef {
    * stands out of the ground (default): for a hill the terrain already makes (trees and a castle stand on it).
    */
   cover?: number;
+  /**
+   * A dark lining with no lamps painted into it: the tunnel is lit by what the scene hangs in it (a megacity circuit's hoops of
+   * light, `NeonDef.hoops`).
+   */
+  dark?: boolean;
 }
 
 export interface TrackDef {
@@ -319,9 +324,13 @@ export interface StandDef {
   depth?: number;
 }
 
-/** A hand-placed landmark on the harbour map (east, north in metres; yaw in degrees, 0 = facing north): see scene/landmarks.ts. */
+/**
+ * A hand-placed landmark on the harbour map (east, north in metres; yaw in degrees, 0 = facing north): see scene/landmarks.ts. A
+ * megacity's (scene/megaLandmarks.ts): 'spire', its tallest tower, beside the road at a mark, `d` metres to the left; 'arcology', a
+ * megastructure built over a tunnel (the one `at` is in, or the first).
+ */
 export interface LandmarkDef {
-  kind: 'cathedral' | 'castle' | 'lighthouse';
+  kind: 'cathedral' | 'castle' | 'lighthouse' | 'spire' | 'arcology';
   /** On the map (east, north): `yaw` is then the compass direction the front faces. */
   e?: number;
   n?: number;
@@ -331,11 +340,19 @@ export interface LandmarkDef {
   yaw?: number;
   /** Uniform scale (default 1). */
   scale?: number;
+  /** A megacity's landmark: its height (m; the spire 400, the arcology 96) and, for the arcology, its width across the tunnel (160). */
+  height?: number;
+  width?: number;
 }
 
 /** A city lining the circuit: building rows along the streets, a skyline of blocks on the hillsides, palms and street furniture. */
 export interface CityDef {
   seed?: number;
+  /**
+   * The look of the city: Mediterranean plaster and tile roofs (the default), or 'neon': a megacity of concrete and glass towers, lit
+   * signs and holograms after dark (src/track/scene/megacity.ts).
+   */
+  style?: 'neon';
   /** Stretches of the circuit with no buildings beside the road (the quay, the tunnel hill ...). */
   open?: { from: Mark; to: Mark; side: SideSel }[];
   /** Pavement between the barrier and the facades (m): min, max. Default [3.2, 6]. */
@@ -344,8 +361,15 @@ export interface CityDef {
   floors?: { from: Mark; to: Mark; min: number; max: number; side?: SideSel }[];
   /** Rows of buildings behind the front row (default 2). */
   rows?: number;
-  /** Distant blocks on the hillsides: how far from the circuit they reach (m) and how dense (0..1). */
-  skyline?: { reach: number; density: number };
+  /**
+   * Distant blocks on the hillsides: how far from the circuit they reach (m) and how dense (0..1). A megacity's megatowers, beyond
+   * the rows and in the middle of the circuit: `top` is the height of the tallest (m, default 320).
+   */
+  skyline?: { reach: number; density: number; top?: number };
+  /** A megacity's street rows: the lowest and the tallest tower (m, default [25, 110]); `floors` (at 4 m a storey) overrides it by stretch. */
+  heights?: [number, number];
+  /** A megacity's skyways: glazed bridges from tower to tower high over the road, each as near its mark as two tall towers face each other. */
+  skyways?: Mark[];
   /** Bunting strung across the road between two poles at these marks. */
   bunting?: Mark[];
   /** Palms along the streets. */
@@ -385,7 +409,31 @@ export interface WinterSceneryDef {
   reeds?: number;
 }
 
+/**
+ * The night dressing of a megacity circuit (src/track/scene/neon.ts): light strips along the walls, rings of light over the road, hoops
+ * in the tunnels, traffic in the sky. Colours are sRGB hex.
+ */
+export interface NeonDef {
+  /** The colours of the light strips along the top of the barriers: [left of the road, right of the road]. */
+  strips?: [number, number];
+  /** Rings of light standing over the road (the cars drive through them) at these marks. */
+  rings?: { at: Mark; color?: number }[];
+  /** Hoops of light inside the tunnels, every this many metres (default 24), in these colours in turn. */
+  hoops?: { every?: number; colors?: number[]; /** The arch of light round each mouth (default a cold white). */ portal?: number };
+  /**
+   * A hologram hovering over a stretch of the road (a carousel: a ring of light the cars drive round under): two bands of light, one
+   * over each edge of the asphalt, slowly turning against each other, the lower one `height` m over the road (default 13).
+   */
+  hologram?: { from: Mark; to: Mark; height?: number; colors?: [number, number] };
+  /** Lanes of flying traffic between the towers (how many; default none). */
+  skyLanes?: number;
+  /** The colour the street lamps shine (default: the warm white of the other circuits). */
+  lampTint?: number;
+}
+
 export interface SceneryDef {
+  /** A megacity circuit's light strips, rings, tunnel hoops and sky traffic. */
+  neon?: NeonDef;
   /** A winter circuit's cabins, paddock, crowds, poles and reeds. */
   winter?: WinterSceneryDef;
   /** Pedestrian crossings, yellow box junctions, lane arrows and manhole covers on the road. */

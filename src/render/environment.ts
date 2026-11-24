@@ -62,6 +62,11 @@ export interface EnvSolution {
   moonVis: number;
   /** Northern lights, 0..1: a winter circuit's clear night (and a hint at the blue hours), none under cloud. */
   aurora: number;
+  /**
+   * The light of a megacity in its own air (scene radiance; black everywhere else and by day): what the sky shader adds toward the
+   * horizon. The fog table, the haze, the deck's colours and the sky's ambient already carry their share of it.
+   */
+  city: RGB;
 }
 
 const cache = new Map<string, EnvSolution>();
@@ -98,8 +103,15 @@ export function lightningStrength(distanceKm: number): number {
 }
 
 export function envKey(s: EnvironmentSettings): string {
-  return `${s.winter ? 'winter/' : ''}${s.timeOfDay}/${s.weather}`;
+  return `${s.winter ? 'winter/' : s.megacity ? 'megacity/' : ''}${s.timeOfDay}/${s.weather}`;
 }
+
+/**
+ * The glow of a megacity after dark, per unit of darkness (scene radiance toward the horizon in a clear night): the violet of a
+ * hundred thousand signs in humid air, about as bright again as the night's own haze. `fog` thickens the air (the towers a
+ * kilometre away stand in haze): by day a little, after dark a good deal more. Dials, like the presets.
+ */
+export const MEGACITY = { glow: [0.03, 0.0105, 0.046] as RGB, fogDay: 1.3, fogNight: 2.3, stars: 0.9 };
 
 export async function solveEnvironment(settings: EnvironmentSettings, yieldFn?: () => Promise<void>): Promise<EnvSolution> {
   const key = envKey(settings);
@@ -107,6 +119,7 @@ export async function solveEnvironment(settings: EnvironmentSettings, yieldFn?: 
   if (hit) return hit;
 
   const winter = settings.winter === true;
+  const megacity = settings.megacity === true && !winter;
   const tod = (winter ? TOD_WINTER : TOD)[settings.timeOfDay];
   const weather = (winter ? WEATHER_WINTER : WEATHER)[settings.weather];
   const el = tod.elDeg * DEG;
@@ -149,7 +162,12 @@ export async function solveEnvironment(settings: EnvironmentSettings, yieldFn?: 
   // ambient (so cars and trackside things keep their shape). The sky itself stays black above.
   const fill = weather.deck > 0 ? 0.0034 * tod.darkness * tod.darkness : 0;
   const skyBase = desat(scale(model.skyMeanCos, skyScale), od);
-  const skyCos: RGB = [skyBase[0] + fill, skyBase[1] + fill * 0.86, skyBase[2] + fill * 0.7];
+  // The light of a megacity: it comes on with the dark (a storm at noon lights the signs too), it is in the air at the horizon, in the
+  // haze the towers fade into and on the underside of every cloud, and a share of it comes back down as ambient light.
+  const darkness = Math.min(1, tod.darkness + weather.darken * (1 - tod.darkness));
+  const cityK = megacity ? smoothstep(0.25, 0.95, darkness) : 0;
+  const city: RGB = scale(MEGACITY.glow, cityK);
+  const skyCos: RGB = [skyBase[0] + fill + city[0] * 0.3, skyBase[1] + fill * 0.86 + city[1] * 0.3, skyBase[2] + fill * 0.7 + city[2] * 0.3];
   const lightVec = scale(mul(lightColor, [1, 1, 1]), lightIntensity);
 
   // Ground fill (below the horizon / environment lower hemisphere): grey-green albedo under sun + sky; snow gives most of its light back
@@ -161,14 +179,17 @@ export async function solveEnvironment(settings: EnvironmentSettings, yieldFn?: 
   ];
 
   const cloudLight = scale(lightVec, tod.cloud);
-  const cloudAmbient = desat(scale(model.skyMeanCos, skyScale * 1.5), od * 0.5);
-  const haze = desat(scale(model.horizonSide, skyScale), od);
+  const cloudAmbient0 = desat(scale(model.skyMeanCos, skyScale * 1.5), od * 0.5);
+  const haze0 = desat(scale(model.horizonSide, skyScale), od);
+  // (the clouds are lit from below, the haze at the horizon is the glow itself)
+  const cloudAmbient: RGB = [cloudAmbient0[0] + city[0] * 0.55, cloudAmbient0[1] + city[1] * 0.55, cloudAmbient0[2] + city[2] * 0.55];
+  const haze: RGB = [haze0[0] + city[0], haze0[1] + city[1], haze0[2] + city[2]];
 
   const hemiSky = scale(skyCos, Math.PI * tod.hemi * 0.45);
   const hemiGround = scale(ground, Math.PI * tod.hemi * 0.45);
 
   // Visibility -> exp2 fog density.
-  const visibility = 9000 / (tod.haze * weather.fog);
+  const visibility = 9000 / (tod.haze * weather.fog * (megacity ? MEGACITY.fogDay + (MEGACITY.fogNight - MEGACITY.fogDay) * cityK : 1));
   const fogDensity = 2 / visibility;
 
   // A low sun still warms the horizon under a rain deck: the fog toward the sun keeps part of its colour.
@@ -190,6 +211,8 @@ export async function solveEnvironment(settings: EnvironmentSettings, yieldFn?: 
     fogTableSun[k * 3 + 1] = Math.min(fogTable[k * 3 + 1], cs[1] * skyScale);
     fogTableSun[k * 3 + 2] = Math.min(fogTable[k * 3 + 2], cs[2] * skyScale);
   }
+  // the city's glow is in the air on every side (under a rain deck it is added below, after the table is flattened)
+  if (cityK > 0 && deck <= 0) for (let k = 0; k < FOG_TABLE_SIZE; k++) for (let c = 0; c < 3; c++) fogTable[k * 3 + c] += city[c];
   // Under a deck the haze has no sun-side glare: flatten the luminance of the horizon table (the colour toward a
   // low sun survives, its blinding brightness does not).
   let deckLo: RGB = haze;
@@ -211,6 +234,8 @@ export async function solveEnvironment(settings: EnvironmentSettings, yieldFn?: 
         fogTableSun[k * 3 + c] *= f;
       }
     }
+    // (the rain hangs in the light of the signs: the mist the towers dissolve into glows with it)
+    if (cityK > 0) for (let k = 0; k < FOG_TABLE_SIZE; k++) for (let c = 0; c < 3; c++) fogTable[k * 3 + c] += city[c] * 0.85;
     for (let k = 2; k < FOG_TABLE_SIZE; k++) for (let c = 0; c < 3; c++) avg[c] += fogTable[k * 3 + c] / (FOG_TABLE_SIZE - 2);
     deckLo = avg;
   }
@@ -223,7 +248,9 @@ export async function solveEnvironment(settings: EnvironmentSettings, yieldFn?: 
     deckLo = [deckLo[0] + pol * 1.0, deckLo[1] + pol * 0.78, deckLo[2] + pol * 0.55];
   }
   // the thick underside is a cool, desaturated grey-blue
-  const deckHi = mul(scale(deckLo, 0.58 - 0.36 * weather.deckDark), [0.96, 0.995, 1.05]);
+  const deckHi0 = mul(scale(deckLo, 0.58 - 0.36 * weather.deckDark), [0.96, 0.995, 1.05]);
+  // (the underside of a deck over a megacity is lit from below, overhead too)
+  const deckHi: RGB = [deckHi0[0] + city[0] * 0.3, deckHi0[1] + city[1] * 0.3, deckHi0[2] + city[2] * 0.3];
   // chroma of the clear-sky horizon beside the sun, per unit luminance: a faint warm band above the horizon
   const hs = model.horizonSun;
   const hsl = Math.max(lum(hs), 1e-6);
@@ -256,11 +283,11 @@ export async function solveEnvironment(settings: EnvironmentSettings, yieldFn?: 
     // the exposure compensation of a dim rainy day does not apply once the lights are on
     exposure: tod.exposure * (weather.deck > 0 ? (1 + (weather.exposure - 1) * (1 - tod.darkness)) * (1 - 0.22 * lowSun * (1 - tod.darkness)) : weather.exposure),
     // a storm brings the lamps and headlights on even at noon
-    darkness: Math.min(1, tod.darkness + weather.darken * (1 - tod.darkness)),
+    darkness,
     envIntensity: tod.env,
     shadowIntensity: weather.shadow,
     warmth: tod.warmth,
-    stars: deck > 0 ? 0 : tod.stars * (1 - od),
+    stars: deck > 0 ? 0 : tod.stars * (1 - od) * (1 - MEGACITY.stars * cityK),
     moonLight,
     deck,
     deckDark: weather.deckDark,
@@ -271,6 +298,7 @@ export async function solveEnvironment(settings: EnvironmentSettings, yieldFn?: 
     rainFog: weather.rainFog * (0.8 + 0.2 * tod.haze),
     moonVis: tod.moon ? (deck > 0 ? 0.6 : 1 - weather.overcast * 0.85) : 0,
     aurora: winter ? (tod.aurora ?? 0) * (1 - Math.min(1, weather.overcast * 1.1)) : 0,
+    city,
   };
   cache.set(key, sol);
   return sol;
@@ -349,6 +377,7 @@ export function cloneSolution(a: EnvSolution): EnvSolution {
     deckLo: rgb(a.deckLo),
     deckHi: rgb(a.deckHi),
     glow: rgb(a.glow),
+    city: rgb(a.city),
   };
 }
 
@@ -442,6 +471,7 @@ export function blendInto(out: EnvSolution, dry: EnvSolution, wet: EnvSolution, 
   mixRgb(dry.glow, wet.glow, c.amb, o.glow);
   o.rainFog = rainFogFor(rain, dry.settings.winter === true) * (0.8 + 0.2 * dry.tod.haze);
   o.aurora = mix(dry.aurora, wet.aurora, c.cloud);
+  mixRgb(dry.city, wet.city, c.amb, o.city);
   o.moonVis = mix(dry.moonVis, wet.moonVis, c.cloud);
   return o;
 }

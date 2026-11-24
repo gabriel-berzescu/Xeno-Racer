@@ -133,17 +133,20 @@ describe('calendar and race length', () => {
       ['aurelia', 'golden', 'clear', 'stable'],
       ['kuroyama', 'morning', 'cloudy', 'stable'],
       ['portovela', 'dusk', 'clear', 'stable'],
-      ['isvik', 'night', 'clear', 'stable'],
+      ['xenon', 'night', 'rain', 'clearing'],
       ['brennwald', 'morning', 'clear', 'stable'],
       ['kuroyama', 'dusk', 'rain', 'stable'],
-      ['isvik', 'golden', 'rain', 'clearing'],
+      ['xenon', 'dusk', 'cloudy', 'stable'],
       ['aurelia', 'night', 'clear', 'stable'],
       ['portovela', 'night', 'cloudy', 'rainLater'],
       ['brennwald', 'noon', 'storm', 'stable'],
     ]);
-    // every circuit twice, never twice in a row, never the same conditions twice (a winter circuit's day is its own: the
+    // every circuit of the cup twice, never twice in a row, never the same conditions twice (a winter circuit's day would be its own: the
     // render presets of a winter night are not those of a summer one, see the environment key in src/render/environment.ts)
-    for (const t of TRACKS) expect(CALENDAR.filter((c) => c.trackId === t.info.id), t.info.id).toHaveLength(2);
+    const cup = ['aurelia', 'kuroyama', 'portovela', 'xenon', 'brennwald'];
+    for (const id of cup) expect(CALENDAR.filter((c) => c.trackId === id), id).toHaveLength(2);
+    // Isvik's winter is raced on its own: Xenon Ring has its two rounds
+    expect(TRACKS.map((t) => t.info.id).filter((id) => !cup.includes(id))).toEqual(['isvik']);
     for (let i = 1; i < CALENDAR.length; i++) expect(CALENDAR[i].trackId).not.toBe(CALENDAR[i - 1].trackId);
     const winter = (id: string) => TRACKS.find((t) => t.info.id === id)?.info.winter === true;
     expect(new Set(CALENDAR.map((c) => `${winter(c.trackId) ? 'winter/' : ''}${c.environment.timeOfDay}/${c.environment.weather}`)).size).toBe(CALENDAR.length);
@@ -179,9 +182,10 @@ describe('calendar and race length', () => {
     expect(def.rounds[0]).toMatchObject({ trackId: 'aurelia', laps: { short: 2, standard: 3, long: 6 } });
     expect(def.rounds[1]).toMatchObject({ trackId: 'kuroyama', laps: { short: 1, standard: 2, long: 4 } });
     expect(def.rounds[2]).toMatchObject({ trackId: 'portovela', laps: { short: 2, standard: 3, long: 6 } });
-    expect(def.rounds[3]).toMatchObject({ trackId: 'isvik', laps: { short: 2, standard: 3, long: 6 } });
+    expect(def.rounds[3]).toMatchObject({ trackId: 'xenon', laps: { short: 2, standard: 3, long: 6 } });
     expect(def.rounds[4]).toMatchObject({ trackId: 'brennwald', laps: { short: 2, standard: 3, long: 6 } });
-    expect(def.rounds[6].forecast).toBe('clearing');
+    expect(def.rounds[3].forecast).toBe('clearing');
+    expect(def.rounds[6].forecast).toBeUndefined();
     expect(def.rounds[8].forecast).toBe('rainLater');
     expect(def.rounds.filter((r) => r.forecast)).toHaveLength(2);
     expect(def.points).toEqual([...POINTS]);
@@ -203,7 +207,7 @@ describe('creating a championship', () => {
     const s = make();
     expect(s.name).toBe('Xeno Cup');
     expect(s.calendar.map((c) => [c.trackId, c.laps])).toEqual([
-      ['aurelia', 3], ['kuroyama', 2], ['portovela', 3], ['isvik', 3], ['brennwald', 3], ['kuroyama', 2], ['isvik', 3], ['aurelia', 3], ['portovela', 3], ['brennwald', 3],
+      ['aurelia', 3], ['kuroyama', 2], ['portovela', 3], ['xenon', 3], ['brennwald', 3], ['kuroyama', 2], ['xenon', 3], ['aurelia', 3], ['portovela', 3], ['brennwald', 3],
     ]);
     expect(s.calendar[5].environment).toEqual({ timeOfDay: 'dusk', weather: 'rain' });
     expect(s.calendar[9].environment).toEqual({ timeOfDay: 'noon', weather: 'storm' });
@@ -482,7 +486,7 @@ describe('grids and round configs', () => {
     const s = make();
     const r = s.calendar[8];
     expect(r).toMatchObject({ trackId: 'portovela', forecast: 'rainLater' });
-    expect(s.calendar.filter((x) => x.forecast).map((x) => x.trackId)).toEqual(['isvik', 'portovela']);
+    expect(s.calendar.filter((x) => x.forecast).map((x) => x.trackId)).toEqual(['xenon', 'portovela']);
     const c = roundConfig(s, 8);
     expect(c).toMatchObject({ trackId: 'portovela', forecast: 'rainLater', environment: { timeOfDay: 'night', weather: 'cloudy' } });
     // a restart repeats it; another season has its own
@@ -501,16 +505,16 @@ describe('grids and round configs', () => {
 
   it('keeps the calendar of a season saved before Porto Vela', () => {
     const s = make();
-    const calendar = s.calendar.filter((c) => c.trackId !== 'portovela' && c.trackId !== 'isvik').map((c) => ({ trackId: c.trackId, environment: c.environment, laps: c.laps }));
+    const calendar = s.calendar.filter((c) => c.trackId !== 'portovela' && c.trackId !== 'xenon').map((c) => ({ trackId: c.trackId, environment: c.environment, laps: c.laps }));
     const back = sanitizeState(JSON.parse(JSON.stringify({ ...s, calendar })));
     expect(back?.calendar.map((c) => c.trackId)).toEqual(['aurelia', 'kuroyama', 'brennwald', 'kuroyama', 'aurelia', 'brennwald']);
     expect(back?.calendar.every((c) => c.forecast === undefined)).toBe(true);
     expect(roundConfig(back!, 5).championship).toMatchObject({ rounds: 6 });
   });
 
-  it('keeps the eight rounds of a season saved before Isvik joined the calendar, its results and its next round', () => {
+  it('keeps the eight rounds of a season saved before the calendar had ten, its results and its next round', () => {
     let s = make({ opponents: 3 });
-    const calendar = s.calendar.filter((c) => c.trackId !== 'isvik');
+    const calendar = s.calendar.filter((c) => c.trackId !== 'xenon');
     expect(calendar).toHaveLength(8);
     s = { ...s, calendar };
     const ids = s.drivers.map((d) => d.id);
@@ -523,6 +527,25 @@ describe('grids and round configs', () => {
     expect(roundConfig(back!, 5)).toMatchObject({ trackId: 'aurelia', environment: { timeOfDay: 'night', weather: 'clear' }, championship: { round: 6, rounds: 8 } });
     expect(buildView(back!).rounds).toHaveLength(8);
     expect(isComplete(back!)).toBe(false);
+  });
+
+  it('keeps the two Isvik rounds of a season saved while the winter circuit was in the cup', () => {
+    let s = make({ opponents: 3 });
+    // (that calendar: a clear night under the northern lights in round four, a golden hour of snow that clears in round seven)
+    const calendar = s.calendar.map((c, i) =>
+      i === 3 ? { trackId: 'isvik', environment: { timeOfDay: 'night' as const, weather: 'clear' as const }, laps: 3 } : i === 6 ? { trackId: 'isvik', environment: { timeOfDay: 'golden' as const, weather: 'rain' as const }, laps: 3, forecast: 'clearing' as const, forecastSeed: 77 } : c,
+    );
+    s = { ...s, calendar };
+    const ids = s.drivers.map((d) => d.id);
+    for (let r = 0; r < 3; r++) s = recordRound(s, finishers(ids));
+    const back = sanitizeState(JSON.parse(JSON.stringify(s)));
+    expect(back?.calendar.map((c) => c.trackId)).toEqual(['aurelia', 'kuroyama', 'portovela', 'isvik', 'brennwald', 'kuroyama', 'isvik', 'aurelia', 'portovela', 'brennwald']);
+    expect(nextRound(back!)).toBe(3);
+    expect(roundConfig(back!, 3)).toMatchObject({ trackId: 'isvik', environment: { timeOfDay: 'night', weather: 'clear' }, championship: { round: 4, rounds: 10 } });
+    expect(roundConfig(back!, 3).forecast).toBeUndefined();
+    expect(roundConfig(back!, 6)).toMatchObject({ trackId: 'isvik', forecast: 'clearing', forecastSeed: 77 });
+    // and this build can still race it: the circuit is still here
+    expect(isPlayable(back!, TRACKS.map((t) => t.info.id), [CAR.id])).toBe(true);
   });
 
   it('derives the config start position from the player slot', () => {
@@ -714,7 +737,7 @@ describe('persistence', () => {
 
   it('knows whether this build can race a saved season', () => {
     const s = make();
-    const all = ['aurelia', 'kuroyama', 'brennwald', 'portovela', 'isvik'];
+    const all = ['aurelia', 'kuroyama', 'brennwald', 'portovela', 'xenon'];
     expect(isPlayable(s, all, [CAR.id])).toBe(true);
     expect(isPlayable(s, ['aurelia', 'kuroyama', 'brennwald', 'portovela'], [CAR.id])).toBe(false); // a track has gone
     expect(isPlayable(s, all, ['other-car'])).toBe(false); // so has the car

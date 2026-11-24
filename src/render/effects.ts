@@ -336,6 +336,10 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
   /** Lamp-head positions published by the track scene (userData.xrLamps), found lazily. */
   let lamps: Float32Array | null = null;
   let lampsSearched = false;
+  /** A circuit's own lamp colour, as factors on the warm white (userData.xrLampTint, beside the heads): 1, 1, 1 without one. */
+  let lampR = 1;
+  let lampG = 1;
+  let lampB = 1;
 
   const skid = new SkidMarks(caps.skid);
   mainScene.add(skid.mesh);
@@ -1171,7 +1175,16 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
     if (!lampsSearched) {
       lampsSearched = true;
       mainScene.traverse((o) => {
-        if (!lamps && o.userData && o.userData.xrLamps) lamps = o.userData.xrLamps as Float32Array;
+        if (!lamps && o.userData && o.userData.xrLamps) {
+          lamps = o.userData.xrLamps as Float32Array;
+          const tint = o.userData.xrLampTint as readonly number[] | undefined;
+          if (tint) {
+            lampR = tint[0];
+            lampG = tint[1];
+            lampB = tint[2];
+            if (halos) halos.tint(lampR, lampG, lampB);
+          }
+        }
       });
     }
     if (lamps && darkness > 0.45) {
@@ -1179,7 +1192,7 @@ export function createEffects(render: RenderSystem, track: TrackRuntime, quality
       for (let i = 0; i < lamps.length; i += 3) {
         const dx = lamps[i] - _posCam.x, dz = lamps[i + 2] - _posCam.z;
         if (dx * dx + dz * dz > 90 * 90) continue;
-        lights.add(lamps[i], lamps[i + 1], lamps[i + 2], 30, 1.9 * k, 1.6 * k, 1.2 * k, 0, -1, 0, -0.35, 0.6);
+        lights.add(lamps[i], lamps[i + 1], lamps[i + 2], 30, 1.9 * k * lampR, 1.6 * k * lampG, 1.2 * k * lampB, 0, -1, 0, -0.35, 0.6);
         if (halos && rainK > 0.02) halos.add(lamps[i], lamps[i + 1], lamps[i + 2], 1.7 + 0.8 * rainK, k * (0.2 + 0.5 * rainK) * hazeIn);
       }
     }

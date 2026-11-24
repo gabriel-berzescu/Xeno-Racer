@@ -52,6 +52,7 @@ uniform vec3 uDeckHi;     // the thick, darker underside overhead
 uniform vec3 uGlow;       // warm chroma of a low sun / the moon, under the deck
 uniform vec3 uFogTab[8];  // horizon haze by azimuth relative to the sun (the table the fog uses)
 uniform float uAurora;    // northern lights, 0..1 (a winter circuit's clear night; 0 everywhere else)
+uniform vec3 uCity;       // the light of a megacity in its air after dark: radiance at the horizon (black everywhere else)
 uniform float uFlash;     // storm sheet lightning, 0..1 (see RenderSystem.lightning)
 uniform vec3 uFlashAdd;   // radiance the flash adds to the deck (scaled so it reads the same at noon and at night)
 uniform vec2 uFlashDir;   // horizontal direction of the strike
@@ -364,6 +365,10 @@ void main() {
       col = mix(col, cu.rgb, cu.a);
     }
   }
+
+  // the glow of a megacity: brightest at the horizon, fading over the first twenty degrees, a trace of it all the way up
+  // (in the air in front of the clouds; under a rain deck the deck's own colours carry it)
+  col += uCity * (0.92 * exp(-max(d.y, 0.0) * 5.5) + 0.08);
 
   // below the horizon: ground fill (only ever visible in reflections / environment capture)
   col = mix(col, uGround, smoothstep(0.012, -0.045, d.y));

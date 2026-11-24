@@ -369,6 +369,8 @@ class RenderSystemImpl implements XenoRenderSystem {
   private flashApplied = false;
   /** Street-lamp heads from the track scene (see updateLamps). */
   private lampHeads: Float32Array | null = null;
+  /** A circuit's own lamp colour, as factors on the warm white (userData.xrLampTint, beside the heads); null = the warm white. */
+  private lampTint: readonly number[] | null = null;
   private lampScanT = 0;
   private readonly lampD2 = new Float64Array(XR_LAMPS);
   private readonly lampIx = new Int32Array(XR_LAMPS);
@@ -1307,10 +1309,15 @@ class RenderSystemImpl implements XenoRenderSystem {
     if (this.lampScanT <= 0) {
       this.lampScanT = 2;
       let found: Float32Array | null = null;
+      let tint: readonly number[] | null = null;
       this.scene.traverse((o) => {
-        if (!found && o.userData && o.userData.xrLamps) found = o.userData.xrLamps as Float32Array;
+        if (!found && o.userData && o.userData.xrLamps) {
+          found = o.userData.xrLamps as Float32Array;
+          tint = (o.userData.xrLampTint as readonly number[] | undefined) ?? null;
+        }
       });
       this.lampHeads = found;
+      this.lampTint = tint;
     }
     const lamps = this.lampHeads;
     const dark = this.solution ? this.solution.darkness : 0;
@@ -1330,6 +1337,12 @@ class RenderSystemImpl implements XenoRenderSystem {
     col[1] = 6.1 * k;
     col[2] = 4.4 * k;
     col[3] = 1;
+    const tint = this.lampTint;
+    if (tint) {
+      col[0] *= tint[0];
+      col[1] *= tint[1];
+      col[2] *= tint[2];
+    }
     // around the car being filmed (the subject of a TV shot can be far from the camera; in the chase and cockpit
     // views it is right there anyway)
     const cx = focus.x;

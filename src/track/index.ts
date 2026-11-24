@@ -10,10 +10,11 @@ import { brennwald } from './defs/brennwald';
 import { kuroyama } from './defs/kuroyama';
 import { isvik } from './defs/isvik';
 import { portovela } from './defs/portovela';
+import { xenon } from './defs/xenon';
 import type { TrackRuntimeImpl } from './runtime';
 import type { TrackDef } from './types';
 
-const DEFS: Record<string, TrackDef> = { aurelia, kuroyama, brennwald, portovela, isvik };
+const DEFS: Record<string, TrackDef> = { aurelia, kuroyama, brennwald, portovela, isvik, xenon };
 
 export const TRACKS: TrackEntry[] = Object.values(DEFS).map((d) => ({ info: d.info }));
 

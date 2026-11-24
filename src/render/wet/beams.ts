@@ -270,6 +270,11 @@ export class HaloField {
     this.count = 0;
   }
 
+  /** The lamps of this circuit have a colour of their own: factors on the halo's warm white. */
+  tint(r: number, g: number, b: number): void {
+    ((this.mesh.material as ShaderMaterial).uniforms.uColor.value as Vector3).set(1 * r, 0.8 * g, 0.52 * b);
+  }
+
   /** A halo of the given radius (m) at a lamp head. */
   add(x: number, y: number, z: number, radius: number, strength: number): void {
     if (this.count >= MAX_HALOS || strength < 0.0003) return;

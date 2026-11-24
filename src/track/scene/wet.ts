@@ -29,6 +29,18 @@ export interface WetUniforms {
 
 export const WET_LAMPS = 8;
 
+/**
+ * A circuit's own street-lamp colour (`NeonDef.lampTint`, sRGB hex) as factors on the warm white every lamp light is tuned in
+ * (7.5, 6.1, 4.4 on the road; the render side's lit rain, halos and `xrLampCol` take the same factors from `userData.xrLampTint`):
+ * the tint's hue at the warm white's luminance, so a circuit with tinted lamps is as bright as one without.
+ */
+export function lampTintFactors(hex: number): [number, number, number] {
+  const c = new THREE.Color(hex);
+  const lum = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+  const k = (0.2126 * 7.5 + 0.7152 * 6.1 + 0.0722 * 4.4) / Math.max(lum, 1e-3);
+  return [(c.r * k) / 7.5, (c.g * k) / 6.1, (c.b * k) / 4.4];
+}
+
 export function createWetUniforms(): WetUniforms {
   return {
     uWet: { value: 0 },
@@ -227,6 +239,8 @@ export function setupWet(ctx: Ctx): WetUniforms {
     darkness = env.darkness;
   });
   const cam = new THREE.Vector3();
+  const lampTint = ctx.rt.def.scenery?.neon?.lampTint;
+  const tint = lampTint === undefined ? null : lampTintFactors(lampTint);
   ctx.updaters.push((dt, camera) => {
     if (u.uWet.value <= 0) return;
     // only advance while it rains (the ripple clock keeps the cost of a dry scene at zero)
@@ -240,7 +254,8 @@ export function setupWet(ctx: Ctx): WetUniforms {
     }
     camera.getWorldPosition(cam);
     const k = Math.min(1, (darkness - 0.45) / 0.4);
-    u.uLampCol.value.set(7.5 * k, 6.1 * k, 4.4 * k);
+    if (tint) u.uLampCol.value.set(7.5 * k * tint[0], 6.1 * k * tint[1], 4.4 * k * tint[2]);
+    else u.uLampCol.value.set(7.5 * k, 6.1 * k, 4.4 * k);
     // keep the 8 nearest (insertion into a tiny sorted list; no allocation)
     const dist = lampDist;
     let n = 0;
