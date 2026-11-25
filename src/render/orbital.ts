@@ -55,7 +55,7 @@ export const ORBITAL = {
 };
 
 /** The phase of the ring's day at each of the game's times of day (degrees): where a race that starts at that hour starts. */
-export const ORBITAL_PHASE: Record<TimeOfDay, number> = { dawn: 6.2, morning: 32, noon: 90, golden: 164, dusk: 176.6, night: 270 };
+export const ORBITAL_PHASE: Record<TimeOfDay, number> = { dawn: 8, morning: 32, noon: 90, golden: 164, dusk: 176.6, night: 270 };
 
 const wrap360 = (p: number): number => ((p % 360) + 360) % 360;
 
@@ -116,7 +116,7 @@ export function orbitalPole(planet: readonly number[], sun: readonly number[], o
 export function orbitalSunSeen(ring: OrbitalRing, sun: readonly number[], x: number, sinEl: number): number {
   const toRim = sun[0] < 0 ? x - ring.rims[0] : ring.rims[1] - x;
   const thr = (toRim * (1 - sun[0] * sun[0])) / (Math.max(Math.abs(sun[0]), 0.05) * 2 * ring.radius);
-  const t = Math.min(1, Math.max(0, (sinEl - thr) / 0.02));
+  const t = Math.min(1, Math.max(0, (sinEl - thr) / 0.04));
   return t * t * (3 - 2 * t);
 }
 
@@ -187,7 +187,7 @@ interface HourLook {
  * every number is on the straight line (brightnesses in the log domain).
  */
 const HOURS: HourLook[] = [
-  { phase: 6.2, sunE: 3.2, sky: 9.6, exposure: 4.2, darkness: 0.22, stars: 0.12, haze: 1.3, hemi: 0.5, env: 1.35, cloud: 0.36, warmth: 0.5, planetLum: 0.2 }, // dawn
+  { phase: 8, sunE: 3.2, sky: 9.6, exposure: 4.2, darkness: 0.22, stars: 0.12, haze: 1.3, hemi: 0.5, env: 1.35, cloud: 0.36, warmth: 0.5, planetLum: 0.2 }, // dawn
   { phase: 32, sunE: 3.5, sky: 9.45, exposure: 1.75, darkness: 0.0, stars: 0.0, haze: 1.1, hemi: 0.4, env: 1.0, cloud: 0.36, warmth: 0.25, planetLum: 0.2 }, // morning
   { phase: 90, sunE: 3.7, sky: 9.62, exposure: 1.4, darkness: 0.0, stars: 0.0, haze: 0.9, hemi: 0.36, env: 1.0, cloud: 0.36, warmth: 0.05, planetLum: 0.25 }, // noon
   { phase: 164, sunE: 3.4, sky: 9.52, exposure: 2.5, darkness: 0.05, stars: 0.06, haze: 1.0, hemi: 0.45, env: 1.4, cloud: 0.36, warmth: 0.45, planetLum: 0.3 }, // golden
@@ -268,7 +268,7 @@ export function orbitalHour(ring: OrbitalRing, phaseDeg: number): TodPreset {
  */
 export function orbitalKeyPhases(ring: OrbitalRing): number[] {
   const [up, down] = orbitalHandovers(ring);
-  const list = [0, 2.5, up, 6.2, 8, 11, 16, 23, 32, 48, 68, 90, 112, 132, 150, 158, 164, 168, 171, down, 176.6, 179, 182, 186, 194, 212, 240, 270, 300, 328, 348, 354, 357.5];
+  const list = [0, 2.5, 4.5, up, 8, 9.5, 12, 16, 23, 32, 48, 68, 90, 112, 132, 150, 158, 164, 167.5, 170.5, down, 176.6, 179, 182, 186, 194, 212, 240, 270, 300, 328, 348, 354, 357.5];
   return [...new Set(list.map((p) => Math.round(wrap360(p) * 1000) / 1000))].sort((a, b) => a - b);
 }
 

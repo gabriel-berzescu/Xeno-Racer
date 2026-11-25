@@ -16,7 +16,7 @@
  *   the Edge    700 m flat out on the terrace along the rim, 15 m above the park: the glass on the right, Saturn beyond it
  *   Titan       a left of 95 degrees (R140), braking downhill off the terrace
  *   Rhea        a left of 85 degrees (R85) down to the lake
- *   Dione       the hairpin (180 degrees right, R32) on the shore: the best place to pass
+ *   Dione       the hairpin (180 degrees right, R36) on the shore: the best place to pass
  *   Tethys      a left (45 degrees, R120) away from the water
  *   Enceladus   a right and a left (R130) taken in one breath, through the dip
  *   Phoebe      the last corner (135 degrees left, R62): its exit is the whole of Skyward
@@ -46,9 +46,9 @@ const steps: TStep[] = [
   { name: 'Titan', defl: 95, r: 140, free: true, zoneBefore: 200, zoneAfter: 60, outside: trap(24), inside: side([g(12)]) },
   { name: 'Rhea', defl: 85, r: 85, len: 400, zoneBefore: 110, zoneAfter: 50, outside: trap(18), inside: side([g(10)]) },
   // the Dione hairpin: two halves of 90 degrees joined without a transition = one arc of 180 degrees
-  { name: 'Dione', defl: -90, r: 32, lsIn: 26, lsOut: 0, len: 480, zoneBefore: 230, zoneAfter: 0, outside: trap(22), inside: side([g(6)]) },
-  { name: 'Dione2', defl: -90, r: 32, lsIn: 0, lsOut: 26, len: 'join', zoneBefore: 0, zoneAfter: 60, outside: side([band('asphalt', 3), gravel(10), g(4)], 'tires'), inside: side([g(6)]) },
-  { name: 'Tethys', defl: 45, r: 120, len: 400, zoneBefore: 60, zoneAfter: 40, outside: side([gravel(10), g(6)], 'tires') },
+  { name: 'Dione', defl: -90, r: 36, lsIn: 26, lsOut: 0, len: 480, zoneBefore: 230, zoneAfter: 0, outside: trap(22), inside: side([g(6)]) },
+  { name: 'Dione2', defl: -90, r: 36, lsIn: 0, lsOut: 26, len: 'join', zoneBefore: 0, zoneAfter: 60, outside: side([band('asphalt', 3), gravel(10), g(4)], 'tires'), inside: side([g(6)]) },
+  { name: 'Tethys', defl: 45, r: 120, len: 400, zoneBefore: 60, zoneAfter: 40, outside: side([gravel(8), g(4)], 'tires') },
   { name: 'Enceladus1', defl: -32, r: 130, len: 260, zoneBefore: 40, zoneAfter: 20, outside: side([gravel(8), g(6)]) },
   { name: 'Enceladus2', defl: 32, r: 130, len: 200, zoneBefore: 20, zoneAfter: 40, outside: side([gravel(8), g(6)]) },
   { name: 'Phoebe', defl: 'auto', r: 62, free: true, zoneBefore: 150, zoneAfter: 50, outside: trap(20), inside: side([g(10)]) },
