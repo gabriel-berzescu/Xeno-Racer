@@ -6,7 +6,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { TimeOfDay } from '../src/core/contracts';
-import { CALENDAR } from '../src/game/championship';
+import { CARS } from '../src/cars';
+import { CALENDAR, championshipDef, createChampionship, isPlayable, lapsFor, roundConfig } from '../src/game/championship';
 import { cloneSolution, envKey, mixHours, solveEnvironment, solveOrbitalHour, type EnvSolution } from '../src/render/environment';
 import {
   ORBITAL,
@@ -437,8 +438,32 @@ describe('Hyperion Ring in the menus', () => {
     expect(new Set(TRACKS.map((t) => trackCode(t.info.name))).size).toBe(TRACKS.length);
   });
 
-  it('is raced on its own: the Xeno Cup stays on the ground', () => {
-    expect(CALENDAR.some((c) => c.trackId === 'hyperion')).toBe(false);
+  it('is the last round of the Xeno Cup: once, from its golden hour, on a clear day, with nothing in the forecast (the sky is the round)', () => {
+    const rounds = CALENDAR.map((c, i) => ({ ...c, i })).filter((c) => c.trackId === 'hyperion');
+    expect(rounds.map((r) => [r.i, r.environment.timeOfDay, r.environment.weather, r.forecast ?? 'stable'])).toEqual([[CALENDAR.length - 1, 'golden', 'clear', 'stable']]);
+    const tracks = TRACKS.map((t) => t.info);
+    const def = championshipDef(tracks);
+    const last = def.rounds[def.rounds.length - 1];
+    expect(last.trackId).toBe('hyperion');
+    expect(last.laps.standard).toBe(lapsFor(info.defaultLaps, 'standard'));
+    const car = CARS[0];
+    const state = createChampionship({
+      setup: { carId: car.id, livery: { primary: '#16e0bd', driver: 'Gabriel' }, difficulty: 'pro', opponents: 7, length: 'standard', startPosition: 'back', grid: 'standings' },
+      tracks,
+      playerName: 'Gabriel',
+      playerLivery: { ...car.defaultLivery, driver: 'Gabriel' },
+      car,
+      seed: 4242,
+    });
+    expect(isPlayable(state, TRACKS.map((t) => t.info.id), CARS.map((c) => c.id))).toBe(true);
+    const cfg = roundConfig(state, def.rounds.length - 1);
+    expect(cfg).toMatchObject({ mode: 'race', trackId: 'hyperion', environment: { timeOfDay: 'golden', weather: 'clear' }, championship: { round: 7, rounds: 7 } });
+    expect(cfg.forecast).toBeUndefined();
+    // the hour of the round is the hour its day starts at: a standard race of the cup is long enough for the sunset, the night and the
+    // sunrise (the night ends 163 s after a start at golden hour, and no car of the game laps this circuit in under 70 s)
+    const sunrise = ((360 - ORBITAL_PHASE.golden) / 360) * ORBITAL.daySeconds;
+    expect(sunrise).toBeGreaterThan(150);
+    expect(sunrise).toBeLessThan(cfg.laps * 70);
   });
 });
 

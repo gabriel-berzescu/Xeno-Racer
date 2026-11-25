@@ -250,14 +250,15 @@ describe('The light of the megacity in the air', () => {
 });
 
 describe('Xenon Ring in the Xeno Cup', () => {
-  it('has two rounds of the calendar: a night in the rain that clears, and a dusk under broken cloud', () => {
+  it('has one round of the calendar, the last one on the ground: a night in the rain that clears', () => {
     const tracks = TRACKS.map((t) => t.info);
     const def = championshipDef(tracks);
     const rounds = def.rounds.map((r, i) => ({ ...r, i })).filter((r) => r.trackId === 'xenon');
     expect(rounds.map((r) => [r.i, r.environment.timeOfDay, r.environment.weather, r.forecast ?? 'stable'])).toEqual([
-      [3, 'night', 'rain', 'clearing'],
-      [6, 'dusk', 'cloudy', 'stable'],
+      [5, 'night', 'rain', 'clearing'],
     ]);
+    // (the megacity is the future the season goes into before it leaves the ground: the round after it is the ring at Saturn)
+    expect(def.rounds[6].trackId).toBe('hyperion');
     for (const r of rounds) {
       expect(r.laps.standard).toBe(lapsFor(info.defaultLaps, 'standard'));
       expect(r.laps.short).toBeLessThanOrEqual(r.laps.standard);
@@ -272,22 +273,20 @@ describe('Xenon Ring in the Xeno Cup', () => {
       seed: 4242,
     });
     expect(isPlayable(state, TRACKS.map((t) => t.info.id), CARS.map((c) => c.id))).toBe(true);
-    const rain = roundConfig(state, 3);
-    expect(rain).toMatchObject({ trackId: 'xenon', environment: { timeOfDay: 'night', weather: 'rain' }, forecast: 'clearing' });
+    const rain = roundConfig(state, 5);
+    expect(rain).toMatchObject({ trackId: 'xenon', environment: { timeOfDay: 'night', weather: 'rain' }, forecast: 'clearing', championship: { round: 6, rounds: 7 } });
     expect(Number.isInteger(rain.forecastSeed) && (rain.forecastSeed ?? 0) >= 1).toBe(true);
-    expect(rain.laps).toBe(state.calendar[3].laps);
-    const dusk = roundConfig(state, 6);
-    expect(dusk).toMatchObject({ trackId: 'xenon', environment: { timeOfDay: 'dusk', weather: 'cloudy' } });
-    expect(dusk.forecast).toBeUndefined();
-    expect(buildView(state).rounds[3]).toMatchObject({ trackId: 'xenon', forecast: 'clearing' });
+    expect(rain.laps).toBe(state.calendar[5].laps);
+    expect(buildView(state).rounds[5]).toMatchObject({ trackId: 'xenon', forecast: 'clearing' });
     // the menus call it rain here (it is no winter circuit)
     expect(formatConditions(rain.environment, rain.forecast, info.winter)).not.toContain('Snow');
   });
 
   it('runs the clearing at every race length of the season, never on a one-lap race', () => {
     const def = championshipDef(TRACKS.map((t) => t.info));
-    const r = CALENDAR[3];
-    for (const laps of Object.values(def.rounds[3].laps)) expect(roundForecast(r, laps)).toBe('clearing');
+    const r = CALENDAR[5];
+    expect(r.trackId).toBe('xenon');
+    for (const laps of Object.values(def.rounds[5].laps)) expect(roundForecast(r, laps)).toBe('clearing');
     expect(roundForecast(r, 1)).toBe('stable');
   });
 });

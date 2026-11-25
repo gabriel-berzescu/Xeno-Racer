@@ -46,23 +46,21 @@ const PLAYER_COLOR = '#16e0bd';
 const FALLBACK_COLOR = '#8a93a3';
 
 /**
- * The calendar is fixed: five circuits, ten very different days. Xenon Ring's megacity comes twice: a night that starts in the rain, the
- * road a mirror for the neon, and dries as the race goes on, and a dusk under broken cloud with the towers against the last of the light.
- * Porto Vela's night round starts dry under cloud and the rain comes during the race (when and how hard is fixed for the season, so a
- * restart repeats it); a thunderstorm to finish. Isvik's winter is not in the cup (it was, in the two rounds that are Xenon's now): it is
- * raced on its own, and a season saved with it keeps its calendar.
+ * The calendar is fixed: seven circuits, seven rounds, each circuit once and on the day that is most its own. A golden hour at Aurelia to
+ * begin; a cloudy morning on the Kuroyama pass; a clear night at Isvik, under the northern lights. Then the weather of the season: at Porto
+ * Vela the dusk starts dry under cloud and the rain comes during the race (when and how hard is fixed for the season, so a restart repeats
+ * it), Brennwald is the thunderstorm, and the night at Xenon Ring starts in the rain, the road a mirror for the neon, and dries as the race
+ * goes on. The last round leaves the ground: Hyperion Ring from its golden hour, where a sunset, a night and a sunrise go by before the flag.
+ * The cup came to five circuits twice (ten rounds) before there were seven; a season saved then keeps the calendar it was saved with.
  */
 export const CALENDAR: readonly { trackId: string; environment: EnvironmentSettings; forecast?: Forecast }[] = [
   { trackId: 'aurelia', environment: { timeOfDay: 'golden', weather: 'clear' } },
   { trackId: 'kuroyama', environment: { timeOfDay: 'morning', weather: 'cloudy' } },
-  { trackId: 'portovela', environment: { timeOfDay: 'dusk', weather: 'clear' } },
-  { trackId: 'xenon', environment: { timeOfDay: 'night', weather: 'rain' }, forecast: 'clearing' },
-  { trackId: 'brennwald', environment: { timeOfDay: 'morning', weather: 'clear' } },
-  { trackId: 'kuroyama', environment: { timeOfDay: 'dusk', weather: 'rain' } },
-  { trackId: 'xenon', environment: { timeOfDay: 'dusk', weather: 'cloudy' } },
-  { trackId: 'aurelia', environment: { timeOfDay: 'night', weather: 'clear' } },
-  { trackId: 'portovela', environment: { timeOfDay: 'night', weather: 'cloudy' }, forecast: 'rainLater' },
+  { trackId: 'isvik', environment: { timeOfDay: 'night', weather: 'clear' } },
+  { trackId: 'portovela', environment: { timeOfDay: 'dusk', weather: 'cloudy' }, forecast: 'rainLater' },
   { trackId: 'brennwald', environment: { timeOfDay: 'noon', weather: 'storm' } },
+  { trackId: 'xenon', environment: { timeOfDay: 'night', weather: 'rain' }, forecast: 'clearing' },
+  { trackId: 'hyperion', environment: { timeOfDay: 'golden', weather: 'clear' } },
 ];
 
 /** The weather change a round really runs at this many laps (a one-lap race is over before it would come). */

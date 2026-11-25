@@ -517,9 +517,9 @@ export function championshipHint(def: ChampionshipDef | null | undefined, view: 
     const n = def?.rounds.length ?? 0;
     const circuits = new Set(def?.rounds.map((r) => r.trackId)).size;
     const name = def?.name ?? 'cup';
-    return n > 0
-      ? `${n} rounds across ${circuits} ${circuits === 1 ? 'circuit' : 'circuits'}, in changing light and weather. Score points in every race and take the ${name}.`
-      : CHAMPIONSHIP_INFO.blurb;
+    // (a calendar that comes to every circuit once says so: "7 rounds across 7 circuits" would be counting the same thing twice)
+    const where = circuits === n && n > 1 ? `${n} circuits, one round at each` : `${n} ${n === 1 ? 'round' : 'rounds'} across ${circuits} ${circuits === 1 ? 'circuit' : 'circuits'}`;
+    return n > 0 ? `${where}, in changing light and weather. Score points in every race and take the ${name}.` : CHAMPIONSHIP_INFO.blurb;
   }
   const me = view.player;
   const pts = `${me.points} ${me.points === 1 ? 'point' : 'points'}`;

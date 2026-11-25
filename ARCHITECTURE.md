@@ -306,8 +306,8 @@ sets none of them gets the very same objects, numbers and shader programs as bef
 - **Cost** (High, 1920x1080, a night race of twelve, sampled every 2.5 s round a lap): 381 draw calls and 1.38 M triangles on average, 594 and
   2.0 M at the most. Porto Vela in the same race, run
   side by side: 447 and 1.66 M on average, 774 and 2.27 M at the most, and a frame a tenth longer.
-- **The Xeno Cup** comes to Xenon Ring twice (rounds four and seven: a night in the rain that clears, a dusk under broken cloud), in the two rounds
-  that were Isvik's. Isvik is raced on its own; a season saved with it keeps its calendar (`tests/championship.test.ts`, `tests/isvik.test.ts`).
+- **The Xeno Cup** comes to Xenon Ring once, in round six of seven, the last one on the ground: the night in the rain that clears. (The cup came
+  to five circuits twice while there were fewer; a season saved then keeps its calendar: `tests/championship.test.ts`, `tests/isvik.test.ts`.)
 
 ## Orbital circuits
 
@@ -376,7 +376,7 @@ before: the sky's ordinary program is the same source with `XR_ORBITAL` undefine
 - **The future at the trackside** (`SceneryDef.hover`; `src/track/scene/hover.ts` and `hoverKit`, `hoverTerrace`, `hoverDrones`, `hoverSky`, `hoverBanner`): seven hovering grandstands (a white hull, tiers of spectators that are strips of the hull's own mesh, a canopy, a ring of pale light under each and a pool of it on the ground that is always drawn, black by day, so that it comes up with the dark without a step), camera drones every 150 m and four marshal drones in one instanced draw call, six lanes of traffic in the sky that follow the ring's floor, and the event's name in the air over the back of the grid. The quiet lines of light (the pit wall, the grandstand fence, the wall of the Edge) and the ring over the start line are the neon kit's, with options Xenon Ring sets none of: `NeonDef.stripSpans` (strips on stretches only), a ring's inner colour, the frames' colour, `chunk`.
 - **No shader after the start** holds through a whole day: `renderer.info.programs` is 83 on the grid of a twelve-car race started at golden hour and 83 four minutes later, after a sunset, a night and a sunrise.
 - **Cost** (High, 1920x1080, that race, in stretches of 30 s): 347 to 536 draw calls and 1.58 to 2.40 M triangles on average per stretch, a frame in 7.0 ms at the median. Brennwald in a night race of twelve, counted the same way: 405 to 651 calls and 2.7 to 4.1 M triangles.
-- **Not in the Xeno Cup**: like Isvik, Hyperion Ring is raced on its own in the other modes (`tests/hyperion.test.ts`).
+- **The last round of the Xeno Cup** (`CALENDAR` in `src/game/championship.ts`): the cup comes to every circuit once, each on the day that is most its own, and ends here, from the golden hour, on a clear day with nothing in the forecast (the sky is the round). A round's hour is the hour its day starts at: a standard race of three laps sees the sunset in its first corners, Saturn in the night, and the sunrise before the flag (`tests/hyperion.test.ts`).
 
 ## The Mammoth: all-wheel drive and the all-terrain tyre
 

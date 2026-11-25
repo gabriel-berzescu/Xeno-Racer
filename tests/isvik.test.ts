@@ -8,7 +8,7 @@ import { Quaternion, Vector3 } from 'three';
 import { DrivingGuide } from '../src/ai';
 import { lineSurfaces } from '../src/ai/racing-line';
 import { CARS, getCar } from '../src/cars';
-import { buildView, CALENDAR, championshipDef, createChampionship, isPlayable, lapsFor, roundConfig, roundForecast } from '../src/game/championship';
+import { buildView, CALENDAR, championshipDef, createChampionship, isPlayable, lapsFor, roundConfig, roundForecast, type ChampionshipRound } from '../src/game/championship';
 import { createDrivingLine } from '../src/render';
 import { LINE } from '../src/render/drivingLine';
 import type { GroundSample, TrackPoint } from '../src/core/contracts';
@@ -299,11 +299,9 @@ describe('Isvik Circuit pack racing', () => {
 });
 
 describe('Isvik Circuit and the Xeno Cup', () => {
-  // the season as it was saved while the cup came to Isvik: a clear night under the northern lights in round four, a golden hour of
-  // falling snow that clears in round seven
-  const savedWithIsvik = () => {
+  const season = () => {
     const car = CARS[0];
-    const state = createChampionship({
+    return createChampionship({
       setup: { carId: car.id, livery: { primary: '#16e0bd', driver: 'Gabriel' }, difficulty: 'pro', opponents: 7, length: 'standard', startPosition: 'back', grid: 'standings' },
       tracks: TRACKS.map((t) => t.info),
       playerName: 'Gabriel',
@@ -311,33 +309,53 @@ describe('Isvik Circuit and the Xeno Cup', () => {
       car,
       seed: 4242,
     });
+  };
+  // the season as it was saved while the cup came to Isvik twice (ten rounds then): a clear night under the northern lights in round four,
+  // a golden hour of falling snow that clears in round seven
+  const savedWithIsvik = () => {
+    const state = season();
     const laps = lapsFor(info.defaultLaps, 'standard');
-    return {
-      ...state,
-      calendar: state.calendar.map((c, i) =>
-        i === 3
-          ? { trackId: 'isvik', environment: { timeOfDay: 'night' as const, weather: 'clear' as const }, laps }
-          : i === 6
-            ? { trackId: 'isvik', environment: { timeOfDay: 'golden' as const, weather: 'rain' as const }, laps, forecast: 'clearing' as const, forecastSeed: 4242 }
-            : c,
-      ),
-    };
+    const day = (trackId: string, timeOfDay: ChampionshipRound['environment']['timeOfDay'], weather: ChampionshipRound['environment']['weather']): ChampionshipRound => ({
+      trackId,
+      environment: { timeOfDay, weather },
+      laps: lapsFor(TRACKS.find((t) => t.info.id === trackId)!.info.defaultLaps, 'standard'),
+    });
+    const calendar: ChampionshipRound[] = [
+      day('aurelia', 'golden', 'clear'),
+      day('kuroyama', 'morning', 'cloudy'),
+      day('portovela', 'dusk', 'clear'),
+      { trackId: 'isvik', environment: { timeOfDay: 'night', weather: 'clear' }, laps },
+      day('brennwald', 'morning', 'clear'),
+      day('kuroyama', 'dusk', 'rain'),
+      { trackId: 'isvik', environment: { timeOfDay: 'golden', weather: 'rain' }, laps, forecast: 'clearing', forecastSeed: 4242 },
+      day('aurelia', 'night', 'clear'),
+      { ...day('portovela', 'night', 'cloudy'), forecast: 'rainLater', forecastSeed: 4243 },
+      day('brennwald', 'noon', 'storm'),
+    ];
+    return { ...state, calendar };
   };
 
-  it('is raced on its own: the cup of this build does not come to Isvik (Xenon Ring has its two rounds)', () => {
+  it('has one round of the cup: its night, clear, under the northern lights', () => {
     const def = championshipDef(TRACKS.map((t) => t.info));
-    expect(CALENDAR.some((c) => c.trackId === 'isvik')).toBe(false);
-    expect(def.rounds.some((r) => r.trackId === 'isvik')).toBe(false);
-    expect([def.rounds[3].trackId, def.rounds[6].trackId]).toEqual(['xenon', 'xenon']);
-    // a night race is still offered here
+    const rounds = def.rounds.map((r, i) => ({ ...r, i })).filter((r) => r.trackId === 'isvik');
+    expect(rounds.map((r) => [r.i, r.environment.timeOfDay, r.environment.weather, r.forecast ?? 'stable'])).toEqual([[2, 'night', 'clear', 'stable']]);
+    expect(CALENDAR.filter((c) => c.trackId === 'isvik')).toHaveLength(1);
+    expect(rounds[0].laps.standard).toBe(lapsFor(info.defaultLaps, 'standard'));
+    // a night race needs the lights
     expect(info.floodlit).toBe(true);
+    const state = season();
+    expect(isPlayable(state, TRACKS.map((t) => t.info.id), CARS.map((c) => c.id))).toBe(true);
+    const night = roundConfig(state, 2);
+    expect(night).toMatchObject({ trackId: 'isvik', environment: { timeOfDay: 'night', weather: 'clear' }, championship: { round: 3, rounds: 7 } });
+    expect(night.forecast).toBeUndefined();
+    expect(buildView(state).rounds[2].trackId).toBe('isvik');
   });
 
   it('a season saved while the cup came to Isvik is raced as it was saved: a clear night, and a golden hour of snow that clears', () => {
     const state = savedWithIsvik();
     expect(isPlayable(state, TRACKS.map((t) => t.info.id), CARS.map((c) => c.id))).toBe(true);
     const night = roundConfig(state, 3);
-    expect(night).toMatchObject({ trackId: 'isvik', environment: { timeOfDay: 'night', weather: 'clear' } });
+    expect(night).toMatchObject({ trackId: 'isvik', environment: { timeOfDay: 'night', weather: 'clear' }, championship: { round: 4, rounds: 10 } });
     expect(night.forecast).toBeUndefined();
     const snow = roundConfig(state, 6);
     expect(snow.trackId).toBe('isvik');
