@@ -8,7 +8,7 @@
  */
 import { BAR_CODE } from '../types';
 import { rowAtD } from './barriers';
-import { NEON_CHUNK, type NeonKit, type RGB, nquad, nv, rgb } from './neonKit';
+import { type NeonKit, type RGB, nquad, nv, rgb } from './neonKit';
 
 /** Where the strip sits on a barrier: its lower front corner, q metres out from the wall line and y above the ground. */
 const MOUNT: Partial<Record<number, { q: number; y: number }>> = {
@@ -171,8 +171,8 @@ export function buildStrips(kit: NeonKit): void {
         nquad(gb, v0, v1, v2, v3, 0, 1, 0);
       }
     };
-    for (let c0 = 0; c0 < N; c0 += NEON_CHUNK) {
-      const c1 = Math.min(N, c0 + NEON_CHUNK);
+    for (let c0 = 0; c0 < N; c0 += kit.chunk) {
+      const c1 = Math.min(N, c0 + kit.chunk);
       let a = c0;
       while (a < c1) {
         if (!on[a] || !on[a + 1]) {

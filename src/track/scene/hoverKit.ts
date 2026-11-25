@@ -5,7 +5,8 @@
  * Everything solid that hovers (the terraces' hulls and canopies, the drones) is one material in two programs (plain and instanced):
  * a white composite whose colour is in its vertices, and whose light is in them too (`aGlow`): a vertex shines by its own colour
  * times one of two levels the environment sets. That is how a hull carries its ring of light, its lines and the wash of its canopy
- * without a mesh, a material or a draw call of their own.
+ * without a mesh, a material or a draw call of their own. The terraces' material has a map as well, the stands' crowd over a band of
+ * plain white (`crowdAtlas`): the spectators are strips of the hull's own mesh, and everything else of it reads the white.
  */
 import * as THREE from 'three';
 import type { EnvironmentState } from '../../core/contracts';
@@ -40,12 +41,48 @@ const POOL_NIGHT = 0.05;
 /** The least a lamp is drawn at (radians of the view), so that a point of light never falls between the pixels. */
 const LAMP_MIN_ANGLE = 0.0011;
 
+/** The crowd's atlas: the crowd over a band of plain white, this share of the height. Where a plain vertex reads it. */
+const PLAIN_BAND = 1 / 6;
+const PLAIN_U = 0.5;
+const PLAIN_V = PLAIN_BAND / 2;
+
+/** The v of the atlas for a v of the crowd (0 at the spectators' seats .. 1 over their heads). */
+export function crowdV(v: number): number {
+  return PLAIN_BAND + v * (1 - PLAIN_BAND);
+}
+
+/**
+ * The stands' crowd texture with a band of opaque white under it, for a material that draws spectators and plain painted surfaces
+ * in one mesh. (A plain vertex has one uv for all its triangles, so it reads the middle of the band whatever the distance.)
+ */
+export function crowdAtlas(crowd: THREE.CanvasTexture): THREE.CanvasTexture {
+  const src = crowd.image as HTMLCanvasElement;
+  const c = document.createElement('canvas');
+  c.width = src.width;
+  c.height = Math.round(src.height / (1 - PLAIN_BAND));
+  const g = c.getContext('2d')!;
+  g.clearRect(0, 0, c.width, c.height);
+  g.drawImage(src, 0, 0);
+  g.fillStyle = '#ffffff';
+  g.fillRect(0, src.height, c.width, c.height - src.height);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = THREE.RepeatWrapping;
+  t.wrapT = THREE.ClampToEdgeWrapping;
+  t.anisotropy = crowd.anisotropy;
+  t.generateMipmaps = true;
+  t.minFilter = THREE.LinearMipmapLinearFilter;
+  t.needsUpdate = true;
+  return t;
+}
+
 export class HoverBuf {
   pos: number[] = [];
   nor: number[] = [];
   col: number[] = [];
   glow: number[] = [];
   bill: number[] = [];
+  uv: number[] = [];
   idx: number[] = [];
   count = 0;
 
@@ -57,7 +94,14 @@ export class HoverBuf {
     if (g) this.glow.push(g[0] * k, g[1] * k, g[2] * k, mode);
     else this.glow.push(0, 0, 0, 0);
     this.bill.push(0, 0, 0);
+    this.uv.push(PLAIN_U, PLAIN_V);
     return this.count++;
+  }
+  /** The last vertex is a spectators': where of the crowd it is (u in repeats, v from the seats to over the heads). */
+  crowd(u: number, v: number): void {
+    const i = this.uv.length - 2;
+    this.uv[i] = u;
+    this.uv[i + 1] = crowdV(v);
   }
   /** The last vertex is a corner of a lamp: a disc that faces the eye, `r` m in radius, round the vertex's own position. */
   lamp(cx: number, cy: number, r: number): void {
@@ -93,8 +137,9 @@ export class HoverBuf {
   get triangles(): number {
     return this.idx.length / 3;
   }
-  build(lamps = false): THREE.BufferGeometry {
+  build(lamps = false, uv = false): THREE.BufferGeometry {
     const g = new THREE.BufferGeometry();
+    if (uv) g.setAttribute('uv', new THREE.Float32BufferAttribute(this.uv, 2));
     g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3));
     g.setAttribute('normal', new THREE.Float32BufferAttribute(this.nor, 3));
     g.setAttribute('color', new THREE.Float32BufferAttribute(this.col, 3));
@@ -217,18 +262,21 @@ export function surface(buf: HoverBuf, ni: number, nj: number, closed: boolean, 
 }
 
 export interface HoverMats {
-  /** The hulls and canopies. */
+  /** The hulls, the canopies and the spectators. */
   solid: THREE.MeshStandardMaterial;
   /** The drones: the same material for instances that turn and bob, with lamps that face the eye. */
   drone: THREE.MeshStandardMaterial;
-  crowd: THREE.MeshStandardMaterial;
   glass: THREE.MeshStandardMaterial;
   /** The light on the ground under a hull: an additive sheet, its colour in the vertices. */
   pool: THREE.MeshBasicMaterial;
 }
 
-function solidMaterial(shared: { value: THREE.Vector4 }, drone: boolean): THREE.MeshStandardMaterial {
+function solidMaterial(shared: { value: THREE.Vector4 }, drone: boolean, atlas: THREE.Texture | null): THREE.MeshStandardMaterial {
   const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.44, metalness: 0, vertexColors: true, envMapIntensity: 0.85 });
+  if (atlas) {
+    m.map = atlas;
+    m.alphaTest = 0.5;
+  }
   m.name = drone ? 'hoverDrone' : 'hoverSolid';
   m.onBeforeCompile = (shader) => {
     shader.uniforms.uHover = shared;
@@ -289,23 +337,20 @@ function solidMaterial(shared: { value: THREE.Vector4 }, drone: boolean): THREE.
     shader.vertexShader = vs;
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vGlow;')
-      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n\ttotalEmissiveRadiance = vGlow;');
+      // (the spectators shine in their own colours: a vertex's light is through the map)
+      .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>\n\ttotalEmissiveRadiance = vGlow${atlas ? ' * sampledDiffuseColor.rgb' : ''};`);
   };
-  m.customProgramCacheKey = () => (drone ? 'xr-hover-drone-v1' : 'xr-hover-solid-v1');
+  m.customProgramCacheKey = () => (drone ? 'xr-hover-drone-v1' : 'xr-hover-solid-v2');
   // (a composite hull looks the same wet or dry)
   m.userData.noWet = true;
   return m;
 }
 
-export function makeHoverMats(ctx: Ctx, crowdTex: THREE.Texture): HoverMats {
+export function makeHoverMats(ctx: Ctx, atlas: THREE.Texture): HoverMats {
   // x: the lift light's level, y: the night lights' level (0 by day .. 1), z: the clock (s), w: the beacons' level
   const shared = { value: new THREE.Vector4(LIFT_DAY, 0, 0, BEACON_DAY) };
-  const solid = solidMaterial(shared, false);
-  const drone = solidMaterial(shared, true);
-  // the spectators: the stands' own crowd, with a little light of its own after dark (the canopy's)
-  const crowd = new THREE.MeshStandardMaterial({ map: crowdTex, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.95, metalness: 0, vertexColors: true, emissive: 0xffeedd, emissiveMap: crowdTex, emissiveIntensity: 0 });
-  crowd.name = 'hoverCrowd';
-  crowd.userData.noWet = true;
+  const solid = solidMaterial(shared, false, atlas);
+  const drone = solidMaterial(shared, true, null);
   const glass = new THREE.MeshStandardMaterial({ color: 0xcfe6ee, roughness: 0.08, metalness: 0, transparent: true, opacity: 0.24, side: THREE.DoubleSide, depthWrite: false, envMapIntensity: 1.5 });
   glass.name = 'hoverGlass';
   glass.userData.noWet = true;
@@ -319,8 +364,7 @@ export function makeHoverMats(ctx: Ctx, crowdTex: THREE.Texture): HoverMats {
   pool.blendSrcAlpha = THREE.ZeroFactor;
   pool.blendDstAlpha = THREE.OneFactor;
   pool.color.setScalar(0);
-  ctx.disposables.push(solid, drone, crowd, glass, pool);
-  ctx.nightGlow.push({ mat: crowd, day: 0, night: 0.16 });
+  ctx.disposables.push(solid, drone, glass, pool);
   ctx.updaters.push((dt) => {
     shared.value.z += dt;
   });
@@ -333,5 +377,5 @@ export function makeHoverMats(ctx: Ctx, crowdTex: THREE.Texture): HoverMats {
     // the light on the ground comes up later than the lights do (at dusk the ground is still lit by the sky), and less on a wet one
     pool.color.setScalar(POOL_NIGHT * k * k * (1 - 0.45 * Math.min(1, env.wetness * 2)));
   });
-  return { solid, drone, crowd, glass, pool };
+  return { solid, drone, glass, pool };
 }

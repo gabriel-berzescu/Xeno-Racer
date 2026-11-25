@@ -18,7 +18,7 @@ import * as THREE from 'three';
 import type { Ctx } from './ctx';
 import { buildBanner } from './hoverBanner';
 import { buildDrones } from './hoverDrones';
-import { makeHoverMats } from './hoverKit';
+import { crowdAtlas, makeHoverMats } from './hoverKit';
 import { buildSkyLanes } from './hoverSky';
 import { type TvCam, buildTerraces } from './hoverTerrace';
 import { makeCrowdTexture } from './propTextures';
@@ -29,9 +29,12 @@ export function buildHover(ctx: Ctx, cams: readonly TvCam[]): THREE.Group | null
   if (!def) return null;
   const group = new THREE.Group();
   group.name = 'hover';
-  const crowdTex = makeCrowdTexture(1);
-  ctx.disposables.push(crowdTex);
-  const mats = makeHoverMats(ctx, crowdTex);
+  // the stands' crowd (other people than theirs) over a band of white: the spectators are part of the hulls' own meshes
+  const crowd = makeCrowdTexture(1);
+  const atlas = crowdAtlas(crowd);
+  crowd.dispose();
+  ctx.disposables.push(atlas);
+  const mats = makeHoverMats(ctx, atlas);
   let triangles = 0;
   const terraces = buildTerraces(ctx, def.terraces ?? [], mats, cams);
   group.add(terraces.group);

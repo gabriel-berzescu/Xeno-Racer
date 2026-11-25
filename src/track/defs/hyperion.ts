@@ -206,6 +206,8 @@ export const hyperion: TrackDef = {
       ],
       rings: [{ at: m('main', 0), color: 0xbbb1a2, inner: 0x5d7bff }],
       frame: 0xe6e3da,
+      // (three lines and a ring: in long stretches, a few meshes)
+      chunk: 1800,
     },
     // the 27th century, come to watch: hovering grandstands, camera drones, traffic in the sky, the event's name in the air
     hover: {
@@ -236,7 +238,7 @@ export const hyperion: TrackDef = {
         { from: [-1100, -1700], to: [4700, -1700], height: 660, gap: 680 },
       ],
       // over the back of the grid: coming out of Phoebe one reads it above the ring
-      banner: { at: m('main', -130), text: 'HYPERION HERITAGE GRAND PRIX · 2626', height: 19, width: 46 },
+      banner: { at: m('main', -130), text: 'HYPERION HERITAGE GRAND PRIX · 2626', height: 19, width: 56 },
     },
     stands: [
       { at: m('main', 215), length: 340, side: 'R', gap: 13, rows: 22, roof: true },

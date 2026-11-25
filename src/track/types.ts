@@ -439,6 +439,8 @@ export interface NeonDef {
   rings?: { at: Mark; color?: number; inner?: number }[];
   /** The colour of the rings' frames and plinths (default: dark steel). */
   frame?: number;
+  /** Metres of lap per merged mesh of strips and rings (default 320; a whole number). */
+  chunk?: number;
   /** Hoops of light inside the tunnels, every this many metres (default 24), in these colours in turn. */
   hoops?: { every?: number; colors?: number[]; /** The arch of light round each mouth (default a cold white). */ portal?: number };
   /**

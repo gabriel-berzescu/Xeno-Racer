@@ -3,8 +3,8 @@
  * behind a glass balustrade, tiers of spectators, and a thin canopy that floats over them, held by nothing. Under the hull, and
  * under the canopy, a ring of pale light: that is what holds them up, and at night it lies on the ground as a faint pool.
  *
- * A terrace is a group of three meshes (the solid parts, the crowd, the glass) that rides the air: a slow bob and drift of a few
- * decimetres, a roll of a fraction of a degree. It casts a shadow, so by day one sees at a glance that nothing stands under it.
+ * A terrace is a group of two meshes (the solid parts with the spectators, and the glass) that rides the air: a slow bob and drift
+ * of a few decimetres, a roll of a fraction of a degree. It casts a shadow, so by day one sees at a glance that nothing stands under it.
  * The pools of all the terraces are one mesh on the ground.
  *
  * Where it hangs: beside the road at a mark, beyond the barrier, and then further out and higher until no part of it is over the
@@ -47,9 +47,10 @@ const RIM = 0.42;
 const GLADE = 34;
 /** The least air under the keel (m). */
 const CLEAR = 4.5;
-/** Glass and spectators are not drawn beyond these distances (m): a few pixels of them, three draw calls a terrace. */
-const GLASS_RANGE = 520;
-const CROWD_RANGE = 1100;
+/** The glass is not drawn beyond this distance (m): a few pixels of it, and a draw call a terrace. */
+const GLASS_RANGE = 280;
+/** A crowd's light of its own after dark (the canopy's on it), per unit of its colours. */
+const CROWD_NIGHT = 0.16;
 
 export interface TvCam {
   position: THREE.Vector3;
@@ -213,8 +214,8 @@ function place(ctx: Ctx, def: HoverTerraceDef, cams: readonly TvCam[]): Place {
   return p;
 }
 
-/** The solid parts, the crowd and the glass of one terrace, in its own frame (the deck at y = 0). */
-function shape(def: HoverTerraceDef, p: Place, solid: HoverBuf, crowd: GeoBuf, glass: GeoBuf): void {
+/** The solid parts (with the spectators) and the glass of one terrace, in its own frame (the deck at y = 0). */
+function shape(def: HoverTerraceDef, p: Place, solid: HoverBuf, glass: GeoBuf): void {
   const { a, b } = p;
   const bent = new Bent(p.bend);
   const tiers = def.tiers ?? 3;
@@ -369,21 +370,23 @@ function shape(def: HoverTerraceDef, p: Place, solid: HoverBuf, crowd: GeoBuf, g
       const y = t * (rows * RISE + WALK_RISE) + (r + 1) * RISE;
       band(-ue, ue, va, yPrev, va, y, -1, 0, HULL);
       band(-ue, ue, va, y, va + ROW, y, 0, 1, SEAT);
-      // the spectators of the row: a strip of the stands' crowd
-      const shade = 0.78 + 0.22 * (row / (tiers * rows));
-      const base = crowd.count;
+      // the spectators of the row: a strip of the stands' crowd, seen from both sides
+      const sh = 0.78 + 0.22 * (row / (tiers * rows));
+      const shade: RGB = [sh, sh, sh];
+      const base = solid.count;
       const nc = Math.max(nu, 2);
       for (let i = 0; i <= nc; i++) {
         const u = -ue + 0.3 + ((2 * ue - 0.6) * i) / nc;
         const vv = va + ROW * 0.55;
         for (const [yy, tv] of [[y - 0.05, 0], [y + 1.18, 1]] as const) {
-          crowd.v(bent.x(u, vv), yy, bent.z(u, vv), bent.dx(u, 0, -1), 0.05, bent.dz(u, 0, -1), u / 8 + row * 0.37, tv);
-          crowd.color(shade, shade, shade);
+          solid.v(bent.x(u, vv), yy, bent.z(u, vv), bent.dx(u, 0, -1), 0.05, bent.dz(u, 0, -1), shade, WARM, GLOW.night, CROWD_NIGHT);
+          solid.crowd(u / 8 + row * 0.37, tv);
         }
       }
       for (let i = 0; i < nc; i++) {
         const q = base + i * 2;
-        gquad(crowd, q, q + 2, q + 3, q + 1, crowd.nor[q * 3], 0, crowd.nor[q * 3 + 2]);
+        solid.quad(q, q + 2, q + 3, q + 1);
+        solid.quad(q, q + 1, q + 3, q + 2);
       }
       yPrev = y;
     }
@@ -525,35 +528,31 @@ export function buildTerraces(ctx: Ctx, defs: readonly HoverTerraceDef[], mats: 
   group.name = 'hover_terraces';
   const pools = new GeoBuf();
   let triangles = 0;
-  const items: { g: THREE.Group; crowd: THREE.Mesh; glass: THREE.Mesh; p: Place; ph: number }[] = [];
+  const items: { g: THREE.Group; glass: THREE.Mesh; p: Place; ph: number }[] = [];
   defs.forEach((def, n) => {
     const p = place(ctx, def, cams);
     const solid = new HoverBuf();
-    const crowd = new GeoBuf();
     const glass = new GeoBuf();
-    shape(def, p, solid, crowd, glass);
+    shape(def, p, solid, glass);
     pool(ctx, p, pools);
     const g = new THREE.Group();
     g.name = `hover_terrace_${n}`;
     g.position.set(p.x, p.y, p.z);
     g.rotation.order = 'YXZ';
     g.rotation.y = p.yaw;
-    const sm = new THREE.Mesh(solid.build(), mats.solid);
+    const sm = new THREE.Mesh(solid.build(false, true), mats.solid);
     sm.name = 'hover_solid';
     sm.castShadow = true;
     sm.receiveShadow = true;
-    const cm = new THREE.Mesh(crowd.build(), mats.crowd);
-    cm.name = 'hover_crowd';
-    cm.receiveShadow = true;
     const gg = glass.build();
     gg.deleteAttribute('uv');
     const gm = new THREE.Mesh(gg, mats.glass);
     gm.name = 'hover_glass';
     gm.renderOrder = 2;
-    g.add(sm, cm, gm);
+    g.add(sm, gm);
     group.add(g);
-    triangles += solid.triangles + crowd.idx.length / 3 + glass.idx.length / 3;
-    items.push({ g, crowd: cm, glass: gm, p, ph: (n * 0.618 + 0.13) % 1 });
+    triangles += solid.triangles + glass.idx.length / 3;
+    items.push({ g, glass: gm, p, ph: (n * 0.618 + 0.13) % 1 });
   });
   let poolMesh: THREE.Mesh | null = null;
   if (!pools.empty) {
@@ -588,7 +587,6 @@ export function buildTerraces(ctx: Ctx, defs: readonly HoverTerraceDef[], mats: 
       it.g.rotation.z = 0.0028 * Math.sin(w / 21 + f * 5.9);
       const d2 = (cam.x - p.x) * (cam.x - p.x) + (cam.z - p.z) * (cam.z - p.z);
       it.glass.visible = d2 < GLASS_RANGE * GLASS_RANGE;
-      it.crowd.visible = d2 < CROWD_RANGE * CROWD_RANGE;
     }
   });
   return { group, triangles, places: items.map((it) => ({ x: it.p.x, y: it.p.y, z: it.p.z, a: it.p.a, b: it.p.b, yaw: it.p.yaw, gap: it.p.gap, clear: it.p.clear })) };

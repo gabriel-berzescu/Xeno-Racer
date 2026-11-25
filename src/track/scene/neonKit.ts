@@ -100,12 +100,16 @@ export class NeonKit {
   readonly tunnelTube = new GeoBuf();
   readonly tunnelGlow = new GeoBuf();
 
+  /** Metres of lap per merged mesh (a circuit with a few lines of light asks for longer stretches: fewer meshes). */
+  readonly chunk: number;
+
   constructor(readonly ctx: Ctx, readonly def: NeonDef) {
     this.rt = ctx.rt;
+    this.chunk = def.chunk ?? NEON_CHUNK;
   }
 
   private slot(list: (GeoBuf | undefined)[], s: number): GeoBuf {
-    const k = Math.min(Math.floor(this.rt.wrapS(s) / NEON_CHUNK), Math.ceil(this.rt.length / NEON_CHUNK) - 1);
+    const k = Math.min(Math.floor(this.rt.wrapS(s) / this.chunk), Math.ceil(this.rt.length / this.chunk) - 1);
     return (list[k] ??= new GeoBuf());
   }
   /** The tube buffer of the stretch of the lap that holds s. */
