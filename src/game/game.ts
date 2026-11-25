@@ -446,13 +446,15 @@ export class Game {
     const winter = TRACKS.find((t) => t.info.id === trackId)?.info.winter === true;
     // (and a megacity the light of the city in its air)
     const megacity = TRACKS.find((t) => t.info.id === trackId)?.info.megacity === true;
+    // (and a circuit inside an orbital ring the ring itself: its sky is the rest of its world)
+    const orbital = TRACKS.find((t) => t.info.id === trackId)?.info.orbital;
     const xr = this.render as XenoRenderSystem;
     // the scene is reused for the same track, unless the quality or vegetation it was built with has changed since
     const built = `${trackId}|${this.settings.graphics.quality}|${this.settings.graphics.vegetation}`;
     const kept = this.track?.info.id === trackId && this.trackScene !== null && this.trackBuilt === built;
     // (a new circuit: the ground of the one before has nothing to say about this race's sun; a kept one has its map remade by setEnvironment if the sun moved)
     if (!kept) await xr.setTerrain(null);
-    await xr.setEnvironment(winter ? { ...env, winter } : megacity ? { ...env, megacity } : env, forecastTo);
+    await xr.setEnvironment(winter ? { ...env, winter } : megacity ? { ...env, megacity } : orbital ? { ...env, orbital } : env, forecastTo);
     if (token !== this.loadToken) return false;
     if (kept && this.trackScene) {
       this.trackScene.setEnvironment(this.render.env);

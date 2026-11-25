@@ -199,8 +199,25 @@ export interface SeaDef {
   levelled: number;
 }
 
+/**
+ * The floor of an orbital ring (see `OrbitalRing` in the contracts): the ground rises along world z as the inside of a cylinder
+ * does, flat under the circuit (within `flat` metres of the lowest line) and the true circle from `full` metres on, and it ends at
+ * the two rims in a bank `berm` metres high and `bermW` wide.
+ */
+export interface RingFloor {
+  radius: number;
+  z: number;
+  flat: number;
+  full: number;
+  rims: [number, number];
+  berm: number;
+  bermW: number;
+}
+
 export interface TerrainParams {
   seed: number;
+  /** The circuit lies inside an orbital ring: the ground curls up to the north and south, and ends at the rims. */
+  ring?: RingFloor;
   sea?: SeaDef;
   /** Large-scale slopes (mountain flanks, ridges). */
   tilts?: Tilt[];

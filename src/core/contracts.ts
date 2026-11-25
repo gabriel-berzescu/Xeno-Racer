@@ -125,6 +125,28 @@ export interface TrackInfo {
    * towers fade into, hardly a star), see `EnvironmentSettings.megacity`.
    */
   megacity?: boolean;
+  /**
+   * A circuit on the floor of an orbital ring (a rotating habitat): the ground curls up ahead and behind and closes overhead, the
+   * sky between is space, see `OrbitalRing` and `EnvironmentSettings.orbital`.
+   */
+  orbital?: OrbitalRing;
+}
+
+/**
+ * The world of a circuit that lies inside a rotating habitat ring: a band of land on the inside of a cylinder whose axis is
+ * horizontal, along world x, and high overhead. Under the wheels the floor is flat and gravity is 1 g, as anywhere; what the ring
+ * changes is everything one sees beyond the circuit (the terrain rises with the floor, the sky draws the rest of the ring).
+ */
+export interface OrbitalRing {
+  /** Radius of the floor (m): the axis is this high above the lowest line of the floor. */
+  radius: number;
+  /** The lowest line of the floor under the circuit: its world z and its elevation (m). */
+  z: number;
+  y: number;
+  /** World x of the two rims (the glass walls the air ends at): [the lower x, the higher x]. */
+  rims: [number, number];
+  /** Height of the canopy over the floor (m): the air ends there too. */
+  canopy: number;
 }
 
 /**
@@ -553,6 +575,12 @@ export interface EnvironmentSettings {
    * horizon, in the haze and under the clouds, and few stars. By day it is an ordinary sky in a little more haze. Set by the game from the track.
    */
   megacity?: boolean;
+  /**
+   * A circuit inside an orbital ring (`TrackInfo.orbital`): the sun rolls round the eastern sky and is never high, the air is clear and
+   * thin (it ends at the canopy and at the rims), and the sky draws the ring: the land climbing ahead and behind and closing overhead,
+   * half of it in its day and half in its night, the glass of the rims, and beyond them the stars and the planet. Set by the game from the track.
+   */
+  orbital?: OrbitalRing;
 }
 
 /** Live environment info other modules may read (e.g. headlights on at night). */

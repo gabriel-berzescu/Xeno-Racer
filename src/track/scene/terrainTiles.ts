@@ -60,7 +60,14 @@ export async function buildTerrainTiles(ctx: Ctx, mats: TrackMaterials): Promise
   const gz0 = Math.floor((b.minZ - REACH) / ROOT) * ROOT;
   const gx1 = Math.ceil((b.maxX + REACH) / ROOT) * ROOT;
   const gz1 = Math.ceil((b.maxZ + REACH) / ROOT) * ROOT;
-  for (let z = gz0; z < gz1; z += ROOT) for (let x = gx0; x < gx1; x += ROOT) visit({ x0: x, z0: z, size: ROOT });
+  // (the floor of an orbital ring ends at its rims: no tile beyond them)
+  const rims = rt.def.terrain.ring?.rims;
+  for (let z = gz0; z < gz1; z += ROOT) {
+    for (let x = gx0; x < gx1; x += ROOT) {
+      if (rims && (x >= rims[1] + 64 || x + ROOT <= rims[0] - 64)) continue;
+      visit({ x0: x, z0: z, size: ROOT });
+    }
+  }
 
   // Tiles are built individually, then merged per block of 4x4 (small) or 2x2 (large) same-size tiles: one draw call per block instead of
   // one per tile (the frustum-culling granularity stays coarse but the call count drops by ~5x).
