@@ -495,4 +495,65 @@ export interface SceneryDef {
   roadSigns?: { chevrons?: string[]; warn?: { corner: string; dist: number }[]; mirrors?: string[] };
   /** Pedestrian footbridges across the track (columns outside the barriers, advertising on both faces). */
   bridges?: { at: Mark; brand: number }[];
+  /** The built world of an orbital habitat beyond the circuit: the works at the foot of the rim's glass, the stalks, the settlements. */
+  habitat?: HabitatDef;
+}
+
+/**
+ * The built world of a circuit inside an orbital ring (src/track/scene/habitat.ts; the ring itself is `TrackInfo.orbital`). Positions
+ * are world x and z (x = -east), heights in metres.
+ */
+export interface HabitatDef {
+  /**
+   * The works at the foot of a rim's wall of glass: a plinth on the crest of the bank, a pier under each of the wall's ribs (one every
+   * `pitch` m of the ring's turn, counted from its lowest line; the sky draws the ribs from `pier` m above the ground) and a slimmer
+   * one between, as far as `reach` m of the turn each way. `galleries`: a glazed gallery on top of the plinth, centred at this
+   * distance along the turn (m, north positive) and this long; `lawn`: a meadow in front of it where no tree grows,
+   * this deep (m) from the plinth toward the circuit, so that the gallery and the foot of the glass are seen from the road.
+   */
+  rim?: { side: 0 | 1; reach: number; pitch?: number; pier?: number; galleries?: { at: number; length: number; lawn?: number }[] };
+  /** The stalks: very tall, slender towers standing on the floor of the ring, each leaning with the floor it stands on. */
+  stalks?: StalkDef[];
+  /** Clusters of low white shells, domes and terraced pavilions among the trees. */
+  settlements?: SettlementDef[];
+  /** Slender white viaducts far out on the land. */
+  viaducts?: ViaductDef[];
+}
+
+export interface StalkDef {
+  x: number;
+  z: number;
+  /** The top of the stem (m above the ground); the mast stands on it. */
+  height: number;
+  /** The radius of the stem above the flare of its foot, and of the foot on the ground (m; defaults from the height). */
+  stem?: number;
+  foot?: number;
+  /**
+   * What the stem carries, from the bottom: `at` is the share of the height, `r` the radius (m). A `dish` is a wide garden held up
+   * like a cup, with trees on it; a `collar` a glazed ring of rooms round the stem; a `halo` a ring standing off the stem on struts.
+   */
+  tiers: { kind: 'dish' | 'collar' | 'halo'; at: number; r: number }[];
+  /** The tallest and the most elaborate: more sides, a terraced foot, a longer mast. */
+  landmark?: boolean;
+  seed?: number;
+}
+
+export interface SettlementDef {
+  x: number;
+  z: number;
+  /** How far from its centre the settlement spreads (m) and how many buildings it has. */
+  r: number;
+  count: number;
+  /** The height of its spire (m; none when 0, default 38) and whether a great hall stands at its centre (default yes). */
+  spire?: number;
+  hall?: boolean;
+  seed?: number;
+}
+
+export interface ViaductDef {
+  /** The line it follows on the map (world x, z), eased into a curve. */
+  pts: [number, number][];
+  /** The deck's height over the ground under its lowest point (m) and the span of an arch (m). */
+  height: number;
+  span: number;
 }
