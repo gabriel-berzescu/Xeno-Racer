@@ -208,7 +208,8 @@ vec3 ringLand(vec2 au, vec2 gx, vec2 gy, vec2 q, vec3 d) {
   vec4 cm = LANDW(104.0, w * 2.3 + vec2(0.09, 0.61), (cw.ra - 0.5) * 260.0);
   float cl = LANDW(26.0, w + vec2(0.55, 0.07), (cm.ra - 0.5) * 1100.0).r * 0.46 + cm.a * 0.34 + cw.r * 0.2;
   float cth = mix(0.76, 0.4, uCoverage);
-  float cloud = smoothstep(cth, cth + 0.17, cl);
+  // (the land next to the circuit is under the sky's own clouds: none is painted on it, and it meets the terrain mesh as one meadow)
+  float cloud = smoothstep(cth, cth + 0.17, cl) * smoothstep(7000.0, 16000.0, abs(au.x));
   vec3 ccol = 0.8 * (sun * (0.3 + 0.7 * ndl) + amb * (0.3 + 0.7 * lit));
   col = mix(col, ccol, cloud * 0.92);
   // the lights of the towns, and of the houses scattered between them, where it is night

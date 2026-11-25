@@ -230,7 +230,7 @@ export const hyperion: TrackDef = {
     // the old forest of the park: oak before anything else
     vegetation: {
       species: [['oak', 0.5], ['birch', 0.2], ['pine', 0.18], ['poplar', 0.12]],
-      density: 2.0,
+      density: 1.7,
       forestThreshold: -0.12,
       forestScale: 260,
       clearance: 2.4,
