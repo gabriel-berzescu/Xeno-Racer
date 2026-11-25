@@ -213,7 +213,7 @@ export function emitRim(ctx: Ctx, def: NonNullable<HabitatDef['rim']>, ring: Orb
       const cuts1 = [-1, -0.75 / w1, 0.75 / w1, 1];
       for (let c = 0; c < 3; c++) {
         const mid = c === 1;
-        const sf: Surf = mid && shaft ? { ...PAL.glassLit, win: 0.55, seed: 0.3 + s * 0.001 } : mid && !gold ? PAL.shell : body;
+        const sf: Surf = mid && shaft ? { ...PAL.glassLit, win: 0.4, seed: 0.3 + s * 0.001 } : mid && !gold ? PAL.shell : body;
         const uv: [number, number][] | undefined = mid && shaft ? [[0, h0 / 3], [1, h0 / 3], [1, h1 / 3], [0, h1 / 3]] : undefined;
         buf.quad(W(s + cuts[c] * w0, d0, h0), W(s + cuts[c + 1] * w0, d0, h0), W(s + cuts1[c + 1] * w1, d1, h1), W(s + cuts1[c] * w1, d1, h1), sf, { toward, uv });
       }

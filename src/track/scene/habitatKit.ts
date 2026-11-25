@@ -53,13 +53,13 @@ export const PAL = {
   /** Pale structure seen against the sky (masts, struts). */
   bone: surf(0xf1eee6, 0.5),
   /** Pale blue-green glass: a third of its rooms lit after dark. */
-  glass: surf(0x8fb7b2, 0.16, 0.35, 0.34),
+  glass: surf(0x5e9092, 0.14, 0.45, 0.34),
   /** Glass with most of its rooms lit: galleries, halls, lanterns. */
-  glassLit: surf(0x9cc2ba, 0.16, 0.35, 0.8),
+  glassLit: surf(0x6a9d9a, 0.14, 0.45, 0.6),
   /** Deeper glass, few rooms lit: the long bands of a stem. */
-  glassDim: surf(0x7da6a6, 0.18, 0.4, 0.18),
+  glassDim: surf(0x557f88, 0.16, 0.5, 0.18),
   /** A cove of warm light (the lip of a disc, the line under a coping). */
-  cove: surf(0xe6dcc4, 0.6, 0, 2.55),
+  cove: surf(0xe6dcc4, 0.6, 0, 2.45),
   /** Brushed gold. */
   gold: surf(0xc9a35a, 0.34, 0.85),
   copper: surf(0xb87a4e, 0.4, 0.8),
@@ -483,7 +483,7 @@ float habHash(vec2 p) {
       )
       .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n  roughnessFactor = clamp(vHabSurf.x, 0.04, 1.0);')
       .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\n  metalnessFactor = clamp(vHabSurf.y, 0.0, 1.0);')
-      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n  totalEmissiveRadiance += gHabEmit * 1.7;');
+      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n  totalEmissiveRadiance += gHabEmit * 0.62;');
   };
   structure.customProgramCacheKey = () => 'habitat-structure-v1';
 
