@@ -311,12 +311,14 @@ export const hyperion: TrackDef = {
       { corner: 'Dione', dist: [200, 150, 100, 50] },
       { corner: 'Phoebe', dist: [150, 100, 50] },
     ],
-    // floodlight masts on the grandstand side of Skyward (the pit side carries the start-straight TV camera), and round the two
-    // slowest corners; the rest of the lap is lit by the land overhead
+    // floodlight masts all the way round: half of every race is a night, and under a rain deck the land overhead lights nothing.
+    // On Skyward the grandstand side only (the pit side carries the start-straight TV camera); on the Edge the park side only (the
+    // rim side is the glass, the planet and a line of light along the wall); staggered from side to side everywhere else
     lamps: [
       { from: m('main0', 40), to: m('Janus', -30), spacing: 38, side: 'R' },
-      { from: m('Dione', -200), to: m('Dione2/e', 60), spacing: 36, side: 'L' },
-      { from: m('Phoebe', -120), to: m('Phoebe/e', 20), spacing: 36, side: 'R' },
+      { from: m('Janus', -20), to: m('Atlas/e', 20), spacing: 44, side: 'B', stagger: true },
+      { from: m('Atlas/e', 45), to: m('Titan', -45), spacing: 50, side: 'L' },
+      { from: m('Titan', -30), to: m('Phoebe/e', 20), spacing: 44, side: 'B', stagger: true },
     ],
     // the old forest of the park: oak before anything else
     vegetation: {
