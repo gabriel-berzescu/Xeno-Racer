@@ -114,9 +114,11 @@ export function emitRim(ctx: Ctx, def: NonNullable<HabitatDef['rim']>, ring: Orb
     return hg[i] + (hg[i + 1] - hg[i]) * (f - i);
   };
   /** The world point at s along the turn, d in from the glass, h above the crest. */
-  const W = (s: number, d: number, h: number): V3 => {
+  const W = (s: number, d: number, h: number): V3 => Wat(s, d, h, s);
+  /** The same, measured from the crest at `ref`: what stands at one place (a pier, a fin) is level across its own width. */
+  const Wat = (s: number, d: number, h: number, ref: number): V3 => {
     const th = s / R;
-    const r = R - crest(s) - h;
+    const r = R - crest(ref) - h;
     return [X - sg * d, ring.y + R - r * Math.cos(th), ring.z + r * Math.sin(th)];
   };
   /** A direction in the section's plane at s: `nd` inward, `nh` up. */
@@ -173,6 +175,7 @@ export function emitRim(ctx: Ctx, def: NonNullable<HabitatDef['rim']>, ring: Orb
 
   // ── fins, lamps, pilasters, mullions and piers ────────────────────────────────────────────────────────────────────────────────
   const fin = (buf: HabBuf, s: number, hw: number, proud: number, top: number, surfc: Surf): void => {
+    const W = (q: number, d: number, h: number): V3 => Wat(q, d, h, s);
     // a rib standing on the batter: its front edge `proud` m out at the foot, flush under the recess
     const batter = (h: number): number => 9.0 + ((6.6 - 9.0) * (h + 1.5)) / 10.1;
     const hs = [-1.5, top];
@@ -189,10 +192,11 @@ export function emitRim(ctx: Ctx, def: NonNullable<HabitatDef['rim']>, ring: Orb
   };
 
   const pier = (buf: HabBuf, s: number): void => {
+    const W = (q: number, d: number, h: number): V3 => Wat(q, d, h, s);
     const top = pierTop;
     const dOf = (h: number): number => (h <= 0 ? 13 - h * 0.8 : 13 * Math.pow(Math.max(0, 1 - h / top), 1.6));
     const wOf = (h: number): number => 9 - 3 * Math.min(1, Math.max(0, h / top));
-    const hs = [-4, 0, 3, 6.5, 10.5, 14.6, 16, 20, 24.5, 29.5, 35, 41, top - 2.4, top];
+    const hs = [-4, 0, 3, 6.5, 10.5, 14.6, 16, 20, 24.5, 29.5, 35, 41, top - 1.1, top];
     for (let k = 0; k + 1 < hs.length; k++) {
       const h0 = hs[k];
       const h1 = hs[k + 1];
@@ -200,7 +204,7 @@ export function emitRim(ctx: Ctx, def: NonNullable<HabitatDef['rim']>, ring: Orb
       const d1 = dOf(h1);
       const w0 = wOf(h0) / 2;
       const w1 = wOf(h1) / 2;
-      const gold = h0 >= top - 2.5;
+      const gold = h0 >= top - 1.2;
       const shaft = h0 >= 16 && h1 <= 41;
       const body = gold ? PAL.gold : PAL.white;
       const toward = N(s, h1 - h0, d0 - d1);
@@ -221,6 +225,7 @@ export function emitRim(ctx: Ctx, def: NonNullable<HabitatDef['rim']>, ring: Orb
   };
 
   const mullion = (buf: HabBuf, s: number): void => {
+    const W = (q: number, d: number, h: number): V3 => Wat(q, d, h, s);
     // a slim secondary rib from the roof of the plinth, narrowing into the glass
     const hs = [14.4, 20, 27, 34, 40];
     const top = 40;
@@ -267,9 +272,59 @@ export function emitRim(ctx: Ctx, def: NonNullable<HabitatDef['rim']>, ring: Orb
     }
   }
 
+  // ── the meadows ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  // In front of a gallery the park is kept open: a rounded square of grass from the plinth toward the circuit, where no tree grows,
+  // with two low white terraces across it (a bench the length of the meadow) and a lamp on them every dozen metres.
+  const lawns = galleries.filter((g) => (g.lawn ?? 0) > 0).map((g) => ({ zc: W(g.at, 0, 0)[2], a: g.length / 2 + 55, b: g.lawn!, s: g.at }));
+  for (const l of lawns) {
+    const buf = bufAt(l.s);
+    for (const fr of [0.42, 0.74]) {
+      const len = Math.PI * Math.sqrt((l.a * l.a + l.b * l.b) / 2) * fr;
+      const steps = Math.max(8, Math.round(len / 7));
+      const ring: { p: V3; q: V3; g: number }[] = [];
+      for (let k = 0; k <= steps; k++) {
+        const phi = Math.PI * (0.05 + (0.9 * k) / steps);
+        // the centre line of the terrace, and the way out of the meadow there (square to the ellipse)
+        const cz = l.zc + l.a * fr * Math.cos(phi);
+        const cd = l.b * fr * Math.sin(phi);
+        let nz = Math.cos(phi) / l.a;
+        let nd = Math.sin(phi) / l.b;
+        const nl = Math.hypot(nz, nd) || 1;
+        nz /= nl;
+        nd /= nl;
+        const px = X - sg * (cd + nd * 0.5);
+        const pz = cz + nz * 0.5;
+        const qx = X - sg * (cd - nd * 0.5);
+        const qz = cz - nz * 0.5;
+        const g = rt.fieldHeight(X - sg * cd, cz);
+        ring.push({ p: [px, g, pz], q: [qx, g, qz], g });
+        if (k % 2 === 1) lights.add([X - sg * cd, g + 1.25, cz], LAMP.warm, 1.3, 2.4);
+      }
+      for (let k = 0; k < steps; k++) {
+        const a = ring[k];
+        const b = ring[k + 1];
+        const up = (v: V3, h: number): V3 => [v[0], v[1] + h, v[2]];
+        const out: V3 = [a.p[0] - a.q[0], 0, a.p[2] - a.q[2]];
+        buf.quad(up(a.p, -1), up(b.p, -1), up(b.p, 0.75), up(a.p, 0.75), PAL.white, { toward: out, k: [0.8, 0.8, 1, 1] });
+        buf.quad(up(a.q, -1), up(b.q, -1), up(b.q, 0.75), up(a.q, 0.75), PAL.shell, { toward: [-out[0], 0, -out[2]] });
+        buf.quad(up(a.p, 0.75), up(b.p, 0.75), up(b.q, 0.75), up(a.q, 0.75), PAL.bone, { toward: [0, 1, 0] });
+      }
+    }
+  }
+
   const inner = X - sg * KEEP;
   return {
     bufs: [...chunks.keys()].sort((a, b) => a - b).map((k) => chunks.get(k)!),
-    reserve: (x, _z, m) => (x - inner) * sg > -m,
+    reserve: (x, z, m) => {
+      if ((x - inner) * sg > -m) return true;
+      for (let i = 0; i < lawns.length; i++) {
+        const l = lawns[i];
+        const u = (z - l.zc) / (l.a + m);
+        const v = ((X - x) * sg) / (l.b + m);
+        // (a rounded square, not an ellipse: the meadow is as wide at the road, where it is looked into, as at the plinth)
+        if (v > -0.2 && u * u * u * u + v * v * v * v < 1) return true;
+      }
+      return false;
+    },
   };
 }

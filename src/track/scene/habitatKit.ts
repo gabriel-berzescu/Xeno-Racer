@@ -64,9 +64,9 @@ export const PAL = {
   gold: surf(0xc9a35a, 0.34, 0.85),
   copper: surf(0xb87a4e, 0.4, 0.8),
   /** Living green: lawns and terraces, and the two greens of a crown of trees. */
-  lawn: surf(0x5f8a3c, 0.95),
-  leaf: surf(0x3f6f2c, 0.95),
-  leaf2: surf(0x5b8a36, 0.95),
+  lawn: surf(0x587f38, 0.95),
+  leaf: surf(0x2f5a26, 0.95),
+  leaf2: surf(0x4c7a30, 0.95),
   /** Water held in a basin. */
   water: surf(0x4f8f96, 0.08, 0.3),
 };

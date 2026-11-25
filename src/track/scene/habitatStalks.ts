@@ -41,7 +41,7 @@ export function placeStalk(rt: TrackRuntimeImpl, ring: OrbitalRing, def: StalkDe
     const a = (k / 8) * Math.PI * 2;
     y = Math.min(y, rt.fieldHeight(def.x + Math.cos(a) * keep, def.z + Math.sin(a) * keep));
   }
-  return { def, frame: frameAt([def.x, y, def.z], ringUp(ring.radius, ring.z, def.z)), keep, top: def.height * (def.landmark ? 1.2 : 1.13) };
+  return { def, frame: frameAt([def.x, y, def.z], ringUp(ring.radius, ring.z, def.z)), keep, top: def.height * (def.landmark ? 1.2 : 1.13) + 30 };
 }
 
 export function emitStalk(buf: HabBuf, lights: HabLights, place: StalkPlace, index: number): void {
@@ -93,7 +93,8 @@ export function emitStalk(buf: HabBuf, lights: HabLights, place: StalkPlace, ind
   };
 
   const tiers = [...def.tiers].sort((a, b) => a.at - b.at);
-  const gardens: { hd: number; R: number; rIn: number; yIn: number }[] = [];
+  /** A lawn: its level at its outer edge R, its inner edge and its level there, and the radius of the rim it may spill over (a dish's). */
+  const gardens: { hd: number; R: number; rIn: number; yIn: number; lip?: number }[] = [];
   let cur = -16;
 
   // the landmark stands on two terraces of garden
@@ -152,7 +153,7 @@ export function emitStalk(buf: HabBuf, lights: HabLights, place: StalkPlace, ind
         { r: rIn, h: yIn, k: 0.9 },
         { r: rs(yIn + 2) + 0.01, h: yIn + 2, k: 0.8 },
       );
-      gardens.push({ hd: yTop, R: R - 7, rIn: rIn + 2, yIn });
+      gardens.push({ hd: yTop, R: R - 7, rIn: rIn + 2, yIn, lip: R + 1.2 });
       cur = yIn + 2;
     } else if (t.kind === 'collar') {
       const R = t.r;
@@ -184,28 +185,82 @@ export function emitStalk(buf: HabBuf, lights: HabLights, place: StalkPlace, ind
     }
   }
 
-  // the lantern, the cap and the mast
-  const lan = Math.min(18, H * 0.03);
-  stem(cur, H - lan);
-  const rl = rs(H) + 1.2;
-  const mast = H * (def.landmark ? 0.2 : 0.13);
-  pts.push(
-    { r: rs(H - lan), h: H - lan, s: PAL.gold, crease: true },
-    { r: rl, h: H - lan + 1.2, s: { ...PAL.glassLit, win: 0.9, seed: seed0 + 0.5 }, win: [Math.round((2 * Math.PI * rl) / 3), Math.max(2, Math.round(lan / 3.4))], crease: true },
-    { r: rl, h: H - 1.2, s: white, crease: true },
-    { r: rl + 0.6, h: H - 1, crease: true },
-    { r: rl + 0.6, h: H, crease: true },
-    { r: rl * 0.55, h: H + rl * 0.7 },
-    { r: 1.5, h: H + rl * 1.5, s: PAL.bone, crease: true },
-    { r: 1.1, h: H + mast * 0.55 },
-    { r: 2.6, h: H + mast * 0.58, s: PAL.gold, crease: true },
-    { r: 2.6, h: H + mast * 0.6, s: PAL.bone, crease: true },
-    { r: 0.8, h: H + mast * 0.63 },
-    { r: 0.35, h: H + mast },
-  );
-  lathe(buf, f, pts, segs, white);
-  lights.add(at(f, 0, H + mast + 1, 0), LAMP.white, 3.2, 16, rnd());
-  lights.add(at(f, 0, H + mast * 0.6, 0), LAMP.warm, 1.6, 9);
+  // the top: a lantern, a cap and a mast; the landmark's stem opens into a cup that holds a sphere of gold, the mast standing on it
+  const mast = H * (def.landmark ? 0.16 : 0.13);
+  let tip: number;
+  let bead: number;
+  if (def.landmark) {
+    const cupH = 34;
+    const cupR = 24;
+    stem(cur, H - cupH);
+    const rb = rs(H - cupH);
+    pts.push({ r: rb, h: H - cupH, s: PAL.shell, crease: true, k: 0.7 });
+    for (let k = 1; k <= 6; k++) {
+      const u = k / 6;
+      pts.push({ r: rb + (cupR - rb) * Math.pow(u, 1.7), h: H - cupH + (cupH - 7) * u, k: 0.7 + 0.28 * u });
+    }
+    pts.push(
+      { r: cupR, h: H - 7, s: white, crease: true },
+      { r: cupR + 0.7, h: H - 6.7, s: { ...PAL.glassLit, win: 0.9, seed: seed0 + 0.5 }, win: [Math.round((2 * Math.PI * cupR) / 3), 2], crease: true },
+      { r: cupR + 0.4, h: H - 0.6, s: white, crease: true },
+      { r: cupR + 1, h: H - 0.4, crease: true },
+      { r: cupR + 1, h: H, s: PAL.bone, crease: true },
+      { r: cupR - 2.5, h: H, s: PAL.shell, crease: true, k: 0.8 },
+      { r: 9, h: H - 3.5, k: 0.6 },
+    );
+    lathe(buf, f, pts, segs, white);
+    // the sphere, and the mast on it
+    const sr = 17;
+    const sc = H + sr - 5;
+    const ball: LPt[] = [];
+    for (let k = 0; k <= 10; k++) {
+      const a = -Math.PI / 2 + (k / 10) * Math.PI;
+      ball.push({ r: Math.max(0, sr * Math.cos(a)), h: sc + sr * Math.sin(a), k: 0.82 + 0.18 * Math.sin(a) });
+    }
+    lathe(buf, f, ball, 24, PAL.gold);
+    tip = sc + sr + mast;
+    bead = sc + sr + mast * 0.5;
+    lathe(
+      buf,
+      f,
+      [
+        { r: 2.2, h: sc + sr - 1.5, s: PAL.bone, crease: true },
+        { r: 1.3, h: sc + sr + mast * 0.2 },
+        { r: 0.9, h: bead - 2 },
+        { r: 2.4, h: bead - 1, s: PAL.gold, crease: true },
+        { r: 2.4, h: bead + 1, s: PAL.bone, crease: true },
+        { r: 0.8, h: bead + 2.5 },
+        { r: 0.3, h: tip },
+      ],
+      8,
+      PAL.bone,
+    );
+    // (the sphere glows a little after dark: four lamps round its foot)
+    for (let k = 0; k < 4; k++) lights.add(at(f, Math.cos(k * 1.571) * (cupR - 4), H + 1.5, Math.sin(k * 1.571) * (cupR - 4)), LAMP.warm, 1.8, 12);
+  } else {
+    const lan = Math.min(18, H * 0.03);
+    stem(cur, H - lan);
+    const rl = rs(H) + 1.2;
+    tip = H + mast;
+    bead = H + mast * 0.6;
+    pts.push(
+      { r: rs(H - lan), h: H - lan, s: PAL.gold, crease: true },
+      { r: rl, h: H - lan + 1.2, s: { ...PAL.glassLit, win: 0.9, seed: seed0 + 0.5 }, win: [Math.round((2 * Math.PI * rl) / 3), Math.max(2, Math.round(lan / 3.4))], crease: true },
+      { r: rl, h: H - 1.2, s: white, crease: true },
+      { r: rl + 0.6, h: H - 1, crease: true },
+      { r: rl + 0.6, h: H, crease: true },
+      { r: rl * 0.55, h: H + rl * 0.7 },
+      { r: 1.5, h: H + rl * 1.5, s: PAL.bone, crease: true },
+      { r: 1.1, h: H + mast * 0.55 },
+      { r: 2.6, h: H + mast * 0.58, s: PAL.gold, crease: true },
+      { r: 2.6, h: H + mast * 0.6, s: PAL.bone, crease: true },
+      { r: 0.8, h: H + mast * 0.63 },
+      { r: 0.35, h: tip },
+    );
+    lathe(buf, f, pts, segs, white);
+  }
+  lights.add(at(f, 0, tip + 1, 0), LAMP.white, 3.2, 16, rnd());
+  lights.add(at(f, 0, bead, 0), LAMP.warm, 1.6, 9);
 
   // ── the halos ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────
   for (const t of tiers) {
@@ -261,12 +316,50 @@ export function emitStalk(buf: HabBuf, lights: HabLights, place: StalkPlace, ind
     if (span < 8) continue;
     const yAt = (r: number): number => g.hd + ((g.yIn - g.hd) * (g.R - r)) / span;
     const area = Math.PI * (g.R * g.R - g.rIn * g.rIn);
-    const n = Math.min(110, Math.max(8, Math.round(area / 240)));
+    // trees: more of them toward the edge, where they show from the ground, and a ring of the tallest along the walk
+    const n = Math.min(80, Math.max(6, Math.round(area / 330)));
     for (let k = 0; k < n; k++) {
-      const r = Math.sqrt(g.rIn * g.rIn + rnd() * ((g.R - 5) * (g.R - 5) - g.rIn * g.rIn));
+      const r = Math.sqrt(g.rIn * g.rIn + Math.pow(rnd(), 0.6) * ((g.R - 5) * (g.R - 5) - g.rIn * g.rIn));
       const a = rnd() * Math.PI * 2;
-      const cr = 5.5 + rnd() * 6;
+      const cr = 6 + rnd() * 6.5;
       crown(buf, f, Math.cos(a) * r, yAt(r) + 1.5 + rnd() * 3, Math.sin(a) * r, cr, cr * (1.1 + rnd() * 0.7), rnd);
+    }
+    const ne = Math.min(46, Math.max(8, Math.round((2 * Math.PI * g.R) / 15)));
+    const e0 = rnd() * 6.28;
+    for (let k = 0; k < ne; k++) {
+      if (rnd() < 0.22) continue;
+      const a = e0 + ((k + rnd() * 0.6) / ne) * Math.PI * 2;
+      const r = g.R - 2.5 - rnd() * 5;
+      const cr = 6.5 + rnd() * 5;
+      crown(buf, f, Math.cos(a) * r, yAt(r) + 2 + rnd() * 3, Math.sin(a) * r, cr, cr * (1.5 + rnd() * 0.9), rnd);
+    }
+    // the hanging gardens: green spilling over the lip in a few places, each a ragged curtain of narrow strips
+    if (g.lip) {
+      const nd = 4 + Math.floor(rnd() * 4);
+      for (let k = 0; k < nd; k++) {
+        const a0 = rnd();
+        const strips = 3 + Math.floor(rnd() * 4);
+        const sw = (2.2 + rnd() * 2.2) / (2 * Math.PI * g.lip);
+        for (let j = 0; j < strips; j++) {
+          const len = 5 + rnd() * 13 * Math.sin(((j + 0.5) / strips) * Math.PI);
+          const sf = rnd() < 0.5 ? PAL.leaf : PAL.leaf2;
+          const kk = 0.7 + rnd() * 0.4;
+          lathe(
+            buf,
+            f,
+            [
+              { r: g.lip + 0.4, h: g.hd - len, s: sf, crease: true, k: kk * 0.6 },
+              { r: g.lip + 1.9, h: g.hd - len * 0.55, k: kk * 0.8 },
+              { r: g.lip + 2.1, h: g.hd - 0.6, k: kk },
+              { r: g.lip + 0.4, h: g.hd + 1.2, k: kk * 1.1 },
+              { r: g.lip - 3, h: g.hd + 0.6, k: kk },
+            ],
+            1,
+            sf,
+            [a0 + j * sw, a0 + (j + 1) * sw],
+          );
+        }
+      }
     }
     // a pavilion or two: a small white dome on a ring of glass, and a few lamps along the walk
     const np = span > 30 ? 2 + Math.floor(rnd() * 2) : 1;

@@ -508,9 +508,10 @@ export interface HabitatDef {
    * The works at the foot of a rim's wall of glass: a plinth on the crest of the bank, a pier under each of the wall's ribs (one every
    * `pitch` m of the ring's turn, counted from its lowest line; the sky draws the ribs from `pier` m above the ground) and a slimmer
    * one between, as far as `reach` m of the turn each way. `galleries`: a glazed gallery on top of the plinth, centred at this
-   * distance along the turn (m, north positive) and this long.
+   * distance along the turn (m, north positive) and this long; `lawn`: a meadow in front of it where no tree grows,
+   * this deep (m) from the plinth toward the circuit, so that the gallery and the foot of the glass are seen from the road.
    */
-  rim?: { side: 0 | 1; reach: number; pitch?: number; pier?: number; galleries?: { at: number; length: number }[] };
+  rim?: { side: 0 | 1; reach: number; pitch?: number; pier?: number; galleries?: { at: number; length: number; lawn?: number }[] };
   /** The stalks: very tall, slender towers standing on the floor of the ring, each leaning with the floor it stands on. */
   stalks?: StalkDef[];
   /** Clusters of low white shells, domes and terraced pavilions among the trees. */

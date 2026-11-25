@@ -12,6 +12,7 @@ import * as THREE from 'three';
 import type { Ctx } from './ctx';
 import { HabBuf, HabLights, makeHabMaterials } from './habitatKit';
 import { emitRim } from './habitatRim';
+import { emitViaduct, viaductFeet } from './habitatSpan';
 import { emitStalk, placeStalk } from './habitatStalks';
 import { emitTown, type Plot } from './habitatTown';
 
@@ -72,6 +73,25 @@ export function buildHabitat(ctx: Ctx): THREE.Group | null {
     });
   }
 
+  // ── the viaducts ──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  const feet: [number, number, number][] = [];
+  (def.viaducts ?? []).forEach((v, i) => {
+    const buf = new HabBuf();
+    emitViaduct(buf, lights, rt, ring, v);
+    add(buf, `habitat_viaduct_${i}`);
+    feet.push(...viaductFeet(v));
+  });
+  if (feet.length) {
+    ctx.reserved.push((x, z, m) => {
+      for (let i = 0; i < feet.length; i++) {
+        const f = feet[i];
+        const r = f[2] + m;
+        if ((x - f[0]) * (x - f[0]) + (z - f[1]) * (z - f[1]) < r * r) return true;
+      }
+      return false;
+    });
+  }
+
   // ── the settlements: a mesh each, drawn within sight ──────────────────────────────────────────────────────────────────────────
   const towns: { mesh: THREE.Mesh; x: number; z: number; r: number }[] = [];
   const plots: Plot[] = [];
@@ -115,7 +135,10 @@ export function buildHabitat(ctx: Ctx): THREE.Group | null {
       camera.getWorldPosition(cam);
       for (let i = 0; i < towns.length; i++) {
         const t = towns[i];
-        t.mesh.visible = Math.hypot(t.x - cam.x, t.z - cam.z) - t.r < range;
+        const d = Math.hypot(t.x - cam.x, t.z - cam.z) - t.r;
+        t.mesh.visible = d < range;
+        // (the sun's cascades reach a few hundred metres: a settlement nearer than that stands in its own shadow on the grass)
+        t.mesh.castShadow = d < 280;
       }
     });
   }

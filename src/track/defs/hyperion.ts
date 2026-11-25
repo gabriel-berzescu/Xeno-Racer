@@ -167,21 +167,22 @@ const terrain: TerrainParams = {
 
 // The built world beyond the fences (world x = -east, z = north): white, glass, gardens and a little gold.
 const habitat: HabitatDef = {
-  // the foot of the western rim's glass: 4 km of plinth each way along the turn of the ring, a pier under every rib, and two
-  // galleries opposite the Edge (its middle, and the braking for Titan)
+  // the foot of the western rim's glass: 4.8 km of plinth each way along the turn of the ring, a pier under every rib, and two
+  // galleries opposite the Edge (its middle, and the braking for Titan), each with a meadow in front of it: the two places where
+  // the forest between the Edge and the rim opens and the foot of the wall is seen from the road
   rim: {
     side: 1,
-    reach: 4080,
+    reach: 4800,
     galleries: [
-      { at: 120, length: 170 },
-      { at: -360, length: 110 },
+      { at: 120, length: 170, lawn: 212 },
+      { at: -360, length: 110, lawn: 178 },
     ],
   },
   // the stalks: east and north-east of the circuit on the open land beyond the main grandstand, one ahead on each long straight
   // where the land has begun to climb (they lean with it); none to the west, where the rim is
   stalks: [
     // the Hyperion stalk: ahead and to the right all the way down Skyward
-    { x: -520, z: 2350, height: 1100, landmark: true, tiers: [{ kind: 'dish', at: 0.27, r: 150 }, { kind: 'dish', at: 0.47, r: 112 }, { kind: 'halo', at: 0.66, r: 96 }, { kind: 'dish', at: 0.81, r: 58 }, { kind: 'collar', at: 0.92, r: 24 }] },
+    { x: -520, z: 2350, height: 1100, landmark: true, tiers: [{ kind: 'dish', at: 0.27, r: 150 }, { kind: 'dish', at: 0.47, r: 112 }, { kind: 'halo', at: 0.66, r: 96 }, { kind: 'dish', at: 0.83, r: 58 }] },
     // beyond the main grandstand
     { x: -820, z: 150, height: 640, tiers: [{ kind: 'dish', at: 0.42, r: 88 }, { kind: 'dish', at: 0.68, r: 58 }, { kind: 'collar', at: 0.87, r: 21 }] },
     { x: -1700, z: 1100, height: 820, tiers: [{ kind: 'collar', at: 0.3, r: 36 }, { kind: 'dish', at: 0.53, r: 108 }, { kind: 'halo', at: 0.75, r: 68 }] },
@@ -205,6 +206,8 @@ const habitat: HabitatDef = {
     { x: -570, z: 250, r: 190, count: 54 },
     { x: -1750, z: -450, r: 210, count: 56, spire: 52 },
   ],
+  // the high line: a viaduct from stalk to stalk across the eastern land, 190 m over the floor
+  viaducts: [{ pts: [[-1500, -1100], [-820, 150], [-1700, 1100], [-520, 2350]], height: 190, span: 140 }],
 };
 
 export const hyperion: TrackDef = {
