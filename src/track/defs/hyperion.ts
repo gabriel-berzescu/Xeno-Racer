@@ -28,7 +28,7 @@
 import type { OrbitalRing } from '../../core/contracts';
 import type { LayoutReport, TStep } from '../layout';
 import { polyLayout, turtleVerts } from '../layout';
-import type { Band, BarrierKind, Key, Pvi, RingFloor, SideStyle, TerrainParams, TrackDef, Zone } from '../types';
+import type { Band, BarrierKind, HabitatDef, Key, Pvi, RingFloor, SideStyle, TerrainParams, TrackDef, Zone } from '../types';
 import { band, m } from './dsl';
 
 const g = (w: number): Band => band('grass', w);
@@ -165,6 +165,48 @@ const terrain: TerrainParams = {
   xfade: 6,
 };
 
+// The built world beyond the fences (world x = -east, z = north): white, glass, gardens and a little gold.
+const habitat: HabitatDef = {
+  // the foot of the western rim's glass: 4 km of plinth each way along the turn of the ring, a pier under every rib, and two
+  // galleries opposite the Edge (its middle, and the braking for Titan)
+  rim: {
+    side: 1,
+    reach: 4080,
+    galleries: [
+      { at: 120, length: 170 },
+      { at: -360, length: 110 },
+    ],
+  },
+  // the stalks: east and north-east of the circuit on the open land beyond the main grandstand, one ahead on each long straight
+  // where the land has begun to climb (they lean with it); none to the west, where the rim is
+  stalks: [
+    // the Hyperion stalk: ahead and to the right all the way down Skyward
+    { x: -520, z: 2350, height: 1100, landmark: true, tiers: [{ kind: 'dish', at: 0.27, r: 150 }, { kind: 'dish', at: 0.47, r: 112 }, { kind: 'halo', at: 0.66, r: 96 }, { kind: 'dish', at: 0.81, r: 58 }, { kind: 'collar', at: 0.92, r: 24 }] },
+    // beyond the main grandstand
+    { x: -820, z: 150, height: 640, tiers: [{ kind: 'dish', at: 0.42, r: 88 }, { kind: 'dish', at: 0.68, r: 58 }, { kind: 'collar', at: 0.87, r: 21 }] },
+    { x: -1700, z: 1100, height: 820, tiers: [{ kind: 'collar', at: 0.3, r: 36 }, { kind: 'dish', at: 0.53, r: 108 }, { kind: 'halo', at: 0.75, r: 68 }] },
+    { x: -2600, z: -200, height: 900, tiers: [{ kind: 'dish', at: 0.36, r: 120 }, { kind: 'dish', at: 0.58, r: 84 }, { kind: 'dish', at: 0.78, r: 52 }] },
+    { x: -1500, z: -1100, height: 560, tiers: [{ kind: 'dish', at: 0.5, r: 80 }, { kind: 'collar', at: 0.76, r: 21 }] },
+    { x: -2300, z: 2600, height: 680, tiers: [{ kind: 'collar', at: 0.34, r: 30 }, { kind: 'dish', at: 0.6, r: 90 }] },
+    // ahead on the Edge, where the land climbs to the south
+    { x: 250, z: -2700, height: 760, tiers: [{ kind: 'dish', at: 0.4, r: 100 }, { kind: 'halo', at: 0.63, r: 74 }, { kind: 'collar', at: 0.86, r: 21 }] },
+    { x: -350, z: -2000, height: 480, tiers: [{ kind: 'dish', at: 0.56, r: 70 }, { kind: 'collar', at: 0.82, r: 17 }] },
+    // far ahead on Skyward, to the left of the road
+    { x: 500, z: 3700, height: 700, tiers: [{ kind: 'dish', at: 0.45, r: 95 }, { kind: 'dish', at: 0.71, r: 58 }] },
+  ],
+  // the settlements: on the north shore of Lake Huygens, in the park inside the circuit, beyond the run-off of Janus, of Pandora
+  // and of Phoebe, round the foot of the nearest stalk, and one far out to the east
+  settlements: [
+    { x: 245, z: 590, r: 112, count: 34 },
+    { x: 715, z: 420, r: 118, count: 36 },
+    { x: 40, z: 1215, r: 150, count: 44 },
+    { x: 770, z: 1370, r: 130, count: 34 },
+    { x: 230, z: -990, r: 140, count: 40 },
+    { x: -570, z: 250, r: 190, count: 54 },
+    { x: -1750, z: -450, r: 210, count: 56, spire: 52 },
+  ],
+};
+
 export const hyperion: TrackDef = {
   info: {
     id: 'hyperion',
@@ -239,5 +281,6 @@ export const hyperion: TrackDef = {
       slopeMax: 0.9,
       scale: 16,
     },
+    habitat,
   },
 };

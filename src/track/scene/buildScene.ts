@@ -8,6 +8,7 @@ import type { TrackRuntimeImpl } from '../runtime';
 import { newCtx, qualityParams, yieldFrame } from './ctx';
 import { buildBarriers, makeBarrierMaterials } from './barriers';
 import { buildCity, occludersNear } from './city';
+import { buildHabitat } from './habitat';
 import { buildHarbour } from './harbour';
 import { buildHarbourProps } from './harbourProps';
 import { buildStreet } from './street';
@@ -84,6 +85,9 @@ export async function buildTrackScene(rt: TrackRuntimeImpl, opts: TrackSceneOpti
   if (neon) root.add(neon);
   // a winter circuit's snowbanks, cabins, poles, reeds and crowds (after the props: they keep clear of the TV cameras)
   if (rt.def.winter) root.add(buildWinterScenery(ctx, mats.terrain));
+  // an orbital habitat's rim works, stalks and settlements (before the trees: they keep off what it builds)
+  const habitat = buildHabitat(ctx);
+  if (habitat) root.add(habitat);
   await yieldFrame();
 
   ctx.progress(0.3, 'terrain');
