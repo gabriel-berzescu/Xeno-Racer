@@ -8,8 +8,10 @@ import type { TrackRuntimeImpl } from '../runtime';
 import { newCtx, qualityParams, yieldFrame } from './ctx';
 import { buildBarriers, makeBarrierMaterials } from './barriers';
 import { buildCity, occludersNear } from './city';
+import { buildHabitat } from './habitat';
 import { buildHarbour } from './harbour';
 import { buildHarbourProps } from './harbourProps';
+import { buildHover } from './hover';
 import { buildStreet } from './street';
 import { makeMaterials } from './materials';
 import { buildNeon, reserveNeon } from './neon';
@@ -82,8 +84,14 @@ export async function buildTrackScene(rt: TrackRuntimeImpl, opts: TrackSceneOpti
   // a megacity circuit's light strips, rings and sky traffic (after the city and the props: it dresses what they built)
   const neon = buildNeon(ctx);
   if (neon) root.add(neon);
+  // an orbital circuit's hovering grandstands, drones and sky traffic (after the props: they keep clear of the TV cameras)
+  const hover = buildHover(ctx, props.tvCameras);
+  if (hover) root.add(hover);
   // a winter circuit's snowbanks, cabins, poles, reeds and crowds (after the props: they keep clear of the TV cameras)
   if (rt.def.winter) root.add(buildWinterScenery(ctx, mats.terrain));
+  // an orbital habitat's rim works, stalks and settlements (before the trees: they keep off what it builds)
+  const habitat = buildHabitat(ctx);
+  if (habitat) root.add(habitat);
   await yieldFrame();
 
   ctx.progress(0.3, 'terrain');

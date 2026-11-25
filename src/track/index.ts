@@ -7,6 +7,7 @@ import type { TrackEntry, TrackScene, TrackSceneOptions } from '../core/systems'
 import { buildRuntime } from './build';
 import { aurelia } from './defs/aurelia';
 import { brennwald } from './defs/brennwald';
+import { hyperion } from './defs/hyperion';
 import { kuroyama } from './defs/kuroyama';
 import { isvik } from './defs/isvik';
 import { portovela } from './defs/portovela';
@@ -14,7 +15,7 @@ import { xenon } from './defs/xenon';
 import type { TrackRuntimeImpl } from './runtime';
 import type { TrackDef } from './types';
 
-const DEFS: Record<string, TrackDef> = { aurelia, kuroyama, brennwald, portovela, isvik, xenon };
+const DEFS: Record<string, TrackDef> = { aurelia, kuroyama, brennwald, portovela, isvik, xenon, hyperion };
 
 export const TRACKS: TrackEntry[] = Object.values(DEFS).map((d) => ({ info: d.info }));
 

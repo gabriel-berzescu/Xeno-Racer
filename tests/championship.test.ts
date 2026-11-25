@@ -145,8 +145,8 @@ describe('calendar and race length', () => {
     // render presets of a winter night are not those of a summer one, see the environment key in src/render/environment.ts)
     const cup = ['aurelia', 'kuroyama', 'portovela', 'xenon', 'brennwald'];
     for (const id of cup) expect(CALENDAR.filter((c) => c.trackId === id), id).toHaveLength(2);
-    // Isvik's winter is raced on its own: Xenon Ring has its two rounds
-    expect(TRACKS.map((t) => t.info.id).filter((id) => !cup.includes(id))).toEqual(['isvik']);
+    // Isvik's winter is raced on its own (Xenon Ring has its two rounds), and so is Hyperion Ring
+    expect(TRACKS.map((t) => t.info.id).filter((id) => !cup.includes(id))).toEqual(['isvik', 'hyperion']);
     for (let i = 1; i < CALENDAR.length; i++) expect(CALENDAR[i].trackId).not.toBe(CALENDAR[i - 1].trackId);
     const winter = (id: string) => TRACKS.find((t) => t.info.id === id)?.info.winter === true;
     expect(new Set(CALENDAR.map((c) => `${winter(c.trackId) ? 'winter/' : ''}${c.environment.timeOfDay}/${c.environment.weather}`)).size).toBe(CALENDAR.length);

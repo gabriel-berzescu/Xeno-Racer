@@ -76,6 +76,13 @@ export function makeNeonMats(ctx: Ctx): NeonMats {
   tunnelTube.name = 'neonTubeTunnel';
   const frame = new THREE.MeshStandardMaterial({ color: 0x2c3038, roughness: 0.5, metalness: 0.65, envMapIntensity: 0.9 });
   frame.name = 'neonFrame';
+  // (a circuit may ask for frames of its own colour: painted, not bare steel)
+  const paint = ctx.rt.def.scenery?.neon?.frame;
+  if (paint !== undefined) {
+    frame.color.set(paint);
+    frame.roughness = 0.42;
+    frame.metalness = 0.1;
+  }
   const glow = glowMaterial();
   const tunnelGlow = glowMaterial();
   tunnelGlow.name = 'neonGlowTunnel';
@@ -93,12 +100,16 @@ export class NeonKit {
   readonly tunnelTube = new GeoBuf();
   readonly tunnelGlow = new GeoBuf();
 
+  /** Metres of lap per merged mesh (a circuit with a few lines of light asks for longer stretches: fewer meshes). */
+  readonly chunk: number;
+
   constructor(readonly ctx: Ctx, readonly def: NeonDef) {
     this.rt = ctx.rt;
+    this.chunk = def.chunk ?? NEON_CHUNK;
   }
 
   private slot(list: (GeoBuf | undefined)[], s: number): GeoBuf {
-    const k = Math.min(Math.floor(this.rt.wrapS(s) / NEON_CHUNK), Math.ceil(this.rt.length / NEON_CHUNK) - 1);
+    const k = Math.min(Math.floor(this.rt.wrapS(s) / this.chunk), Math.ceil(this.rt.length / this.chunk) - 1);
     return (list[k] ??= new GeoBuf());
   }
   /** The tube buffer of the stretch of the lap that holds s. */

@@ -4,7 +4,7 @@
  * Pure math (headless).
  */
 import { Noise2, smoothstep } from './math';
-import type { LakeDef, MapRect, TerrainParams } from './types';
+import type { LakeDef, MapRect, RingFloor, TerrainParams } from './types';
 
 export interface TerrainFn {
   (x: number, z: number): number;
@@ -23,6 +23,20 @@ export function rectDistance(e: number, n: number, r: MapRect): number {
   const dx = Math.abs(e - (r[0] + r[2]) / 2) - hx;
   const dy = Math.abs(n - (r[1] + r[3]) / 2) - hy;
   return Math.hypot(Math.max(dx, 0), Math.max(dy, 0)) + Math.min(Math.max(dx, dy), 0);
+}
+
+/**
+ * What the floor of an orbital ring adds to the ground at (x, z): the rise of the cylinder away from its lowest line (none under the
+ * circuit, the true circle from `full` metres on), and the bank the floor ends in at each rim. Beyond a rim there is no ground: the
+ * function falls away steeply there (the terrain tiles stop at the rims).
+ */
+export function ringRise(ring: RingFloor, x: number, z: number): number {
+  const c = Math.min(Math.abs(z - ring.z), ring.radius * 0.999);
+  let h = (ring.radius - Math.sqrt(ring.radius * ring.radius - c * c)) * smoothstep(ring.flat, ring.full, c);
+  const edge = Math.min(x - ring.rims[0], ring.rims[1] - x);
+  h += ring.berm * (1 - smoothstep(0, ring.bermW, edge));
+  if (edge < 0) h -= Math.min(400, -edge * 4);
+  return h;
 }
 
 export interface TerrainBounds {
@@ -45,6 +59,7 @@ export function makeTerrain(p: TerrainParams, b: TerrainBounds, ice?: LakeDef | 
   const tilts = p.tilts ?? [];
   const mt = p.mountains;
   const sea = p.sea;
+  const ring = p.ring;
   // the sea on the layout's map (east = -x, north = +z): water minus the land standing in it
   const seaDistance = (x: number, z: number): number => {
     if (!sea) return Infinity;
@@ -123,6 +138,7 @@ export function makeTerrain(p: TerrainParams, b: TerrainBounds, ice?: LakeDef | 
         h += mt.amp * k * k * base + 0.18 * mt.amp * k * (0.5 + 0.5 * n1.noise(x / (mt.scale * 3), z / (mt.scale * 3)));
       }
     }
+    if (ring) h += ringRise(ring, x, z);
     if (sea) {
       const sd = seaDistance(x, z);
       // (a far hill that reaches the water comes down to it over twice its height, in a slope and not a cliff)

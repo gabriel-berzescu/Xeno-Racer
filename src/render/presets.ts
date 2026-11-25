@@ -38,6 +38,16 @@ export interface TodPreset {
   trueSunAzDeg?: number;
   /** Northern lights in a clear sky (0..1): winter circuits only. */
   aurora?: number;
+  /**
+   * Inside an orbital ring (orbital.ts): the elevation the sky's colours are those of (the true sun's, when the light-casting body is
+   * the lit side of the ring), the colour of that body's light, and how bright the planet is drawn.
+   */
+  skyElDeg?: number;
+  lightRGB?: [number, number, number];
+  planetLum?: number;
+  /** The sky's radiance scale, in place of sunE * skyGain (the light there is not always the sun's), and the phase of the ring's day (degrees). */
+  skyScale?: number;
+  phaseDeg?: number;
 }
 
 export const TOD: Record<TimeOfDay, TodPreset> = {

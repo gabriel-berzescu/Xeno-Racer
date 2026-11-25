@@ -27,6 +27,8 @@ function numbers(s: EnvSolution): Record<string, number[]> {
   const out: Record<string, number[]> = {};
   for (const [k, v] of Object.entries(s)) {
     if (k === 'settings' || k === 'tod' || k === 'model') continue;
+    // (what only a circuit inside an orbital ring has: the ring to draw, a second LUT)
+    if (v === null) continue;
     if (k === 'weather') {
       for (const [wk, wv] of Object.entries(v as unknown as Record<string, number>)) out['weather.' + wk] = [wv];
     } else if (typeof v === 'number') out[k] = [v];

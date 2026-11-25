@@ -17,8 +17,15 @@ void main() {
 }
 `;
 
+import { orbitalSkyChunk } from './orbitalShader';
+
 export const skyFragmentShader = /* glsl */ `
 uniform sampler2D uLut;
+#ifdef XR_ORBITAL
+uniform sampler2D uLutB;
+uniform float uSkyScaleB;
+uniform float uLutMix;
+#endif
 uniform sampler2D uNoise;
 uniform vec3 uSunDir;
 uniform vec2 uSunAz;
@@ -82,7 +89,12 @@ vec3 atmosphere(vec3 d) {
   }
   float u = sqrt(phi / PI);
   float v = sqrt(clamp((el + uLutE0) / (1.57079632679 + uLutE0), 0.0, 1.0));
+#ifdef XR_ORBITAL
+  // (a turning day: the sky is between two solved hours)
+  vec3 c = mix(texture2D(uLut, vec2(u, v)).rgb * uSkyScale, texture2D(uLutB, vec2(u, v)).rgb * uSkyScaleB, uLutMix);
+#else
   vec3 c = texture2D(uLut, vec2(u, v)).rgb * uSkyScale;
+#endif
   // overcast: converge toward a neutral luminance-matched grey
   c = mix(c, vec3(lum3(c)), uOvercast);
   return c;
@@ -241,6 +253,10 @@ vec3 galaxy(vec3 d) {
   return vec3(0.46, 0.52, 0.74) * band * (0.15 + 0.85 * dust) * (0.55 + 1.2 * core);
 }
 
+#ifdef XR_ORBITAL
+${orbitalSkyChunk}
+#endif
+
 // ---- northern lights -------------------------------------------------------------------------
 // Two slow, wavy curtains over the north: a sharp bright lower edge that fades upward, vertical rays (noise that varies quickly along
 // the arc and slowly with height), green at the foot shading to violet and a pink fringe on high. A few texture reads, only where the
@@ -334,6 +350,10 @@ void main() {
     return;
   }
 
+#ifdef XR_ORBITAL
+  // inside an orbital ring: the rest of the ring, its glass, and space beyond it, through the ring's own air
+  vec3 col = orbitalSky(d);
+#else
   vec3 col = atmosphere(d);
 
   // sun disc + halo
@@ -353,6 +373,7 @@ void main() {
   }
   if (uMoonVis > 0.01) col += moon(d, uMoonVis);
   if (uAurora > 0.01) col += aurora(d) * uAurora * 0.13;
+#endif
 
   // clouds (high cirrus first, cumulus over it)
   if (d.y > -0.02) {

@@ -21,6 +21,10 @@ colours are the city's light (see Megacity circuits). The rule still holds insid
 glass, light in thin lines and a few signs, levels set against the bloom so that a line stays a line,
 and by day nothing glows.
 
+Hyperion Ring is the other one, the other way: six hundred years on, bright, calm and spacious (see
+Orbital circuits). The circuit itself keeps to the rule above, as a heritage circuit would; what stands
+round it is white composite, pale glass and living green, with warm window light after dark and no neon.
+
 ## Layout and ownership
 
 | Path | Owner | What |
@@ -304,6 +308,75 @@ sets none of them gets the very same objects, numbers and shader programs as bef
   side by side: 447 and 1.66 M on average, 774 and 2.27 M at the most, and a frame a tenth longer.
 - **The Xeno Cup** comes to Xenon Ring twice (rounds four and seven: a night in the rain that clears, a dusk under broken cloud), in the two rounds
   that were Isvik's. Isvik is raced on its own; a season saved with it keeps its calendar (`tests/championship.test.ts`, `tests/isvik.test.ts`).
+
+## Orbital circuits
+
+Hyperion Ring lies on the floor of an orbital ring: a habitat that turns about an axis 22.4 km overhead, in orbit around Saturn, six hundred
+years from now. The race is a heritage event (the circuit is built the way circuits were, and the cars are the game's own); the future is
+everything round it. What makes a circuit one of these is `TrackInfo.orbital` (an `OrbitalRing`: the radius of the floor, the lowest line of it
+under the circuit, the two rims, the height of the canopy), which the game hands to the environment as it does `winter` and `megacity`, and
+`TerrainParams.ring` (the same floor, for the ground). A circuit that sets neither gets the very same objects, numbers and shader programs as
+before: the sky's ordinary program is the same source with `XR_ORBITAL` undefined.
+
+- **The physics is untouched**, by decision: gravity is 1 g, straight down, everywhere. A floor 22.4 km from the axis weighs 1 g when the ring
+  turns once in five minutes (`g = w^2 r`), which is where the length of its day comes from; what a real ring would add is left out (a car driving with
+  the spin weighs more and one driving against it less: 1.39 g and 0.68 g at 300 km/h on this one, and its two long straights run that way). The floor is flat under the
+  circuit: the ring's rise starts 980 m from its lowest line, where the true circle would stand 21 m up, a hill nobody could see and the cars
+  would feel.
+- **Track** (`src/track/defs/hyperion.ts`): the turtle layout, counter-clockwise, turned a quarter to the left so that the start straight runs
+  north, along the ring (the land ahead of the grid is the land that climbs into the sky); the Edge and the edge into the last corner are the free
+  ones. The ring's axis is world x: north and south are the way the floor curls, the rims are east and west, and the circuit lies 240 m inside the
+  western one, with the Edge on a terrace 15 m above the park. Grass, gravel, armco and tyres; an oak forest; a lake inside the circuit. The lap's
+  brief is in numbers in `tests/hyperion.test.ts`.
+- **The ground** (`ringRise` in `src/track/terrain.ts`): the terrain function gains the rise of the cylinder away from its lowest line (none
+  within `flat` metres, the true circle from `full` on, a smoothstep between), a bank at each rim, and a fall beyond it; the terrain tiles stop at
+  the rims. The tiles reach 5 km past the circuit, by which the floor is half a kilometre up and tilted by 13 degrees: the near part of the land
+  that climbs is real ground, and the sky draws the rest.
+- **The sky** (`src/render/orbitalShader.ts`, compiled into the sky dome's second program, `SkyDome.orbitalMaterial`): nothing in it is a picture.
+  Every pixel of sky is a ray from the eye, tested against the ring: the floor (a cylinder), the canopy (a second cylinder inside it), the glass
+  of the rims (two planes). A ray ends on **the land** of the far floor or leaves through glass into **space**.
+  - The land is a few octaves of the shared cloud noise in (metres round the ring, world x), which tiles round the ring (the octaves' periods
+    divide the circumference); each octave is read where the finer one pushes it, and only the two fbm channels draw outlines (value noise on a
+    lattice shows the lattice until it is warped, and the two worley channels are cells). The texture is read with `textureGrad` and gradients
+    worked out from the hit point outside every branch (the angle round the axis has a seam overhead that derivatives must not see). Meadow, forest,
+    lakes, towns and cloud; lit by the true sun where that land is in its day (half the ring always is, and a sunset runs along the line between),
+    with the ring's own land hiding the sun from land near the far rim first (`ringSun`, the same sum as `orbitalSunSeen`); the sun's glint on its
+    lakes; and where it is night the lights of its towns and roads, one to a cell of 90 m where a density says so, never drawn smaller than a
+    pixel and melting into an even glow where a pixel holds many (the way the stars are drawn).
+  - Space is the stars and the galaxy, turned by the phase of the ring's day, the sun's disc, and the planet: a flattened, banded globe and its
+    rings, ray-traced in the plane across the line of sight, the rings' shadow on the globe and the globe's on the rings.
+  - The glass is lines with a width in metres, covered by a pixel's footprint: ribs every 240 m and rails every 200 m of height on the rim wall,
+    arches and spines on the canopy, and a sheen where glass is seen along its length.
+  - The air is the scene's own fog over the metres of air on the ray's way (under the canopy, between the rims: a ray to the land overhead
+    crosses the shell twice), plus the thin blue of a short way through it. Land the terrain mesh could have been keeps to the scene's fog
+    alone and is lit by the scene's light (`uLocalLight`, `uLocalAmb`), so the mesh and the sky meet without a line; from 4.5 to 15 km round the
+    ring the light becomes that land's own hour's.
+- **The hours** (`src/render/orbital.ts`): one number, the phase of the ring's day, says where everything is. The sun stands 35 degrees from the
+  east end of the axis and rolls round it (up in the north-east, 35 degrees high and due east at noon, down in the south-east); Saturn stands 16
+  degrees from the west end, nearly opposite it, and turns about itself as it goes. `orbitalHour(ring, phase)` is the look of any moment as a
+  preset the solver understands: the dials (straight lines between eight hours round the clock: the game's six, and the two ends of a night whose
+  twilight is short) and the light-casting body. That is the sun while the circuit sees it; near the ends of the day the ring's own land stands in
+  front of the sun, and while it is down the light is the lit side of the ring's (north of the zenith in the evening, overhead at midnight, south
+  before dawn). One directional light does both: `orbitalLight` goes from +1 to -1 through 0, the light dims to nothing as it changes hands, and
+  its direction only jumps there. The sky keeps the colours of the true sun's hour (`TodPreset.skyElDeg`) and its bright side is the true sun's
+  (`EnvSolution.skyAz`, which the scene fog reads too). The air is 3.2 times as clear as an ordinary day's (`ORBITAL.clarity`): the land has to be
+  seen for tens of kilometres.
+- **A day that turns** (`RenderSystemImpl.day`): inside the ring the day turns as the race goes on, a day and a night in five minutes, from the
+  hour the race starts at. Thirty-four phases round the clock are solved behind the loading screen (`orbitalKeyPhases`: close together at the ends
+  of the day, the six hours and the two hand-overs among them; a sky model takes about 90 ms), in both weathers of a weather that changes.
+  Every frame `mixHours` writes the look between two of them into one solution kept for it: numbers and colours blended, the sky between the two
+  hours' LUTs (the orbital program reads two, each at its own brightness; their textures are made at load, `SkyDome.warmDay`), and the bodies put
+  where they are at that very phase. `applyLook` runs every frame, the cascades are turned in steps of a fifth of a degree (every sixth of a
+  second), the environment map is captured again every 2.5 s with its light scaled in between, and the sun visibility map is not made (it is for
+  one sun; what it would show here, the land hiding the sun at the ends of the day, is in the light itself). The lamps, the headlights and the
+  stars follow the darkness as they do under a storm, `peakDarkness` is 1 from the start so that everything the night needs is built, and
+  `renderer.info.programs` does not move through a sunset, a night and a sunrise. `EnvironmentSettings.stillDay` (the dev URL's `day=still`)
+  keeps the hour: a still hour is exactly the look the turning day has when it passes it.
+- **The built world** (`SceneryDef.habitat`; `src/track/scene/habitat.ts` and `habitatKit`, `habitatRim`, `habitatStalks`, `habitatTown`, `habitatSpan`): the opposite of the megacity, white shapes in sunlight, glass, gardens and a little gold, all of it merged geometry in one lit material and one draw call of small lights, built only when the block is there. The works at the foot of the western rim's glass (a plinth along 4.8 km of the ring's turn each way, a pier under every rib where the sky shader's rib takes over, two galleries opposite the Edge with a meadow in front of each); nine stalks placed by hand (bodies of revolution with garden dishes, collars and halos, 480 m to the 1100 m of the Hyperion stalk, leaning with the ring where the land has begun to climb); seven settlements of domes, shells and terraced pavilions; and the high line, a viaduct from stalk to stalk 190 m over the floor. Their window light follows the darkness. `tests/track-habitat.test.ts` checks the placement headless.
+- **The future at the trackside** (`SceneryDef.hover`; `src/track/scene/hover.ts` and `hoverKit`, `hoverTerrace`, `hoverDrones`, `hoverSky`, `hoverBanner`): seven hovering grandstands (a white hull, tiers of spectators that are strips of the hull's own mesh, a canopy, a ring of pale light under each and a pool of it on the ground that is always drawn, black by day, so that it comes up with the dark without a step), camera drones every 150 m and four marshal drones in one instanced draw call, six lanes of traffic in the sky that follow the ring's floor, and the event's name in the air over the back of the grid. The quiet lines of light (the pit wall, the grandstand fence, the wall of the Edge) and the ring over the start line are the neon kit's, with options Xenon Ring sets none of: `NeonDef.stripSpans` (strips on stretches only), a ring's inner colour, the frames' colour, `chunk`.
+- **No shader after the start** holds through a whole day: `renderer.info.programs` is 83 on the grid of a twelve-car race started at golden hour and 83 four minutes later, after a sunset, a night and a sunrise.
+- **Cost** (High, 1920x1080, that race, in stretches of 30 s): 347 to 536 draw calls and 1.58 to 2.40 M triangles on average per stretch, a frame in 7.0 ms at the median. Brennwald in a night race of twelve, counted the same way: 405 to 651 calls and 2.7 to 4.1 M triangles.
+- **Not in the Xeno Cup**: like Isvik, Hyperion Ring is raced on its own in the other modes (`tests/hyperion.test.ts`).
 
 ## The Mammoth: all-wheel drive and the all-terrain tyre
 
