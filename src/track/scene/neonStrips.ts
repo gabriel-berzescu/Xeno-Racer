@@ -8,7 +8,7 @@
  */
 import { BAR_CODE } from '../types';
 import { rowAtD } from './barriers';
-import { NEON_CHUNK, type NeonKit, type RGB, nquad, nv, rgb } from './neonKit';
+import { type NeonKit, type RGB, nquad, nv, rgb } from './neonKit';
 
 /** Where the strip sits on a barrier: its lower front corner, q metres out from the wall line and y above the ground. */
 const MOUNT: Partial<Record<number, { q: number; y: number }>> = {
@@ -43,6 +43,18 @@ export function buildStrips(kit: NeonKit): void {
   for (const sgn of [1, -1] as const) {
     const S = sgn > 0 ? rt.L : rt.R;
     const col: RGB = rgb(strips[sgn > 0 ? 0 : 1]);
+    // (a circuit may keep its strips to a few stretches: the samples of this side that are in one)
+    let span: Uint8Array | null = null;
+    if (kit.def.stripSpans) {
+      span = new Uint8Array(N);
+      for (const sp of kit.def.stripSpans) {
+        if ((sp.side === 'L') !== sgn > 0) continue;
+        const i0 = kit.index(kit.sOf(sp.from));
+        let n = kit.index(kit.sOf(sp.to)) - i0;
+        if (n < 0) n += N;
+        for (let i = 0; i <= n; i++) span[(i0 + i) % N] = 1;
+      }
+    }
     // the mount at every sample, eased from one kind of barrier to the next
     const on = new Uint8Array(N + 1);
     const tun = new Uint8Array(N + 1);
@@ -50,7 +62,7 @@ export function buildStrips(kit: NeonKit): void {
     const y0 = new Float32Array(N);
     for (let i = 0; i < N; i++) {
       const m = MOUNT[S.barrier[i]];
-      if (!m) continue;
+      if (!m || (span && !span[i])) continue;
       on[i] = 1;
       tun[i] = S.barrier[i] === BAR_CODE.tunnel ? 1 : 0;
       q0[i] = m.q;
@@ -159,8 +171,8 @@ export function buildStrips(kit: NeonKit): void {
         nquad(gb, v0, v1, v2, v3, 0, 1, 0);
       }
     };
-    for (let c0 = 0; c0 < N; c0 += NEON_CHUNK) {
-      const c1 = Math.min(N, c0 + NEON_CHUNK);
+    for (let c0 = 0; c0 < N; c0 += kit.chunk) {
+      const c1 = Math.min(N, c0 + kit.chunk);
       let a = c0;
       while (a < c1) {
         if (!on[a] || !on[a + 1]) {

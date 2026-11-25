@@ -190,6 +190,7 @@ export function buildRings(kit: NeonKit): void {
   for (const ring of kit.def.rings ?? []) {
     const p = placeRing(rt, ring.at);
     const col = rgb(ring.color ?? RING_COLOR);
+    const inner = ring.inner === undefined ? col : rgb(ring.inner);
     const R = p.R;
     const ro = R + THICK;
     const rm = R + THICK / 2;
@@ -217,9 +218,9 @@ export function buildRings(kit: NeonKit): void {
     }
     // ... and the one inside, over the road
     const ri = R - out;
-    band(tube, p, a0, a1, ri, -0.17, ri, 0.17, -1, 0, col);
-    band(tube, p, a0, a1, ri, -0.17, R, -0.17, 0, -1, col);
-    band(tube, p, a0, a1, ri, 0.17, R, 0.17, 0, 1, col);
+    band(tube, p, a0, a1, ri, -0.17, ri, 0.17, -1, 0, inner);
+    band(tube, p, a0, a1, ri, -0.17, R, -0.17, 0, -1, inner);
+    band(tube, p, a0, a1, ri, 0.17, R, 0.17, 0, 1, inner);
     for (const f of p.feet) plinth(frame, p, p.cx + p.lx * f.x, f.y - 0.4, p.cz + p.lz * f.x, 1.2, 0.95, 1.3);
     underRing(kit, p, col);
   }
