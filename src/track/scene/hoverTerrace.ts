@@ -554,20 +554,16 @@ export function buildTerraces(ctx: Ctx, defs: readonly HoverTerraceDef[], mats: 
     triangles += solid.triangles + glass.idx.length / 3;
     items.push({ g, glass: gm, p, ph: (n * 0.618 + 0.13) % 1 });
   });
-  let poolMesh: THREE.Mesh | null = null;
   if (!pools.empty) {
     const geo = pools.build();
     geo.deleteAttribute('uv');
     geo.deleteAttribute('normal');
-    poolMesh = new THREE.Mesh(geo, mats.pool);
+    const poolMesh = new THREE.Mesh(geo, mats.pool);
     poolMesh.name = 'hover_pools';
     poolMesh.renderOrder = 3;
     group.add(poolMesh);
     triangles += pools.idx.length / 3;
-    const pm = poolMesh;
-    ctx.envListeners.push((env) => {
-      pm.visible = env.darkness > 0.17;
-    });
+    // (always drawn, black by day: its light comes up with the darkness without a step, and its program is there from the start)
   }
   // they ride the air: a bob of a few decimetres over twenty seconds and more, a drift, a roll one cannot quite see
   let clock = 0;
