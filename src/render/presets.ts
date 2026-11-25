@@ -45,6 +45,9 @@ export interface TodPreset {
   skyElDeg?: number;
   lightRGB?: [number, number, number];
   planetLum?: number;
+  /** The sky's radiance scale, in place of sunE * skyGain (the light there is not always the sun's), and the phase of the ring's day (degrees). */
+  skyScale?: number;
+  phaseDeg?: number;
 }
 
 export const TOD: Record<TimeOfDay, TodPreset> = {

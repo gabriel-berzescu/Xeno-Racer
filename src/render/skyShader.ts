@@ -21,6 +21,11 @@ import { orbitalSkyChunk } from './orbitalShader';
 
 export const skyFragmentShader = /* glsl */ `
 uniform sampler2D uLut;
+#ifdef XR_ORBITAL
+uniform sampler2D uLutB;
+uniform float uSkyScaleB;
+uniform float uLutMix;
+#endif
 uniform sampler2D uNoise;
 uniform vec3 uSunDir;
 uniform vec2 uSunAz;
@@ -84,7 +89,12 @@ vec3 atmosphere(vec3 d) {
   }
   float u = sqrt(phi / PI);
   float v = sqrt(clamp((el + uLutE0) / (1.57079632679 + uLutE0), 0.0, 1.0));
+#ifdef XR_ORBITAL
+  // (a turning day: the sky is between two solved hours)
+  vec3 c = mix(texture2D(uLut, vec2(u, v)).rgb * uSkyScale, texture2D(uLutB, vec2(u, v)).rgb * uSkyScaleB, uLutMix);
+#else
   vec3 c = texture2D(uLut, vec2(u, v)).rgb * uSkyScale;
+#endif
   // overcast: converge toward a neutral luminance-matched grey
   c = mix(c, vec3(lum3(c)), uOvercast);
   return c;

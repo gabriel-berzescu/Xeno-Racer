@@ -41,6 +41,8 @@ export class SkyDome {
   private lutTexture: DataTexture | null = null;
   /** The sky model the LUT texture was made from: a solution made of the same model (a blend) keeps the texture. */
   private lutModel: SkyModel | null = null;
+  /** The LUT textures of a turning day's hours, by model: made once (`warmLut`, behind the loading screen) and kept until the next day. */
+  private readonly dayLuts = new Map<SkyModel, DataTexture>();
   private readonly noiseTexture: DataTexture;
   private time = 0;
 
@@ -112,6 +114,9 @@ export class SkyDome {
         uFogDens: { value: 0 },
         uLocalLight: { value: new Vector3() },
         uLocalAmb: { value: new Vector3() },
+        uLutB: { value: null },
+        uSkyScaleB: { value: 1 },
+        uLutMix: { value: 0 },
       },
       vertexShader: skyVertexShader,
       fragmentShader: skyFragmentShader,
@@ -163,27 +168,52 @@ export class SkyDome {
     this.material.uniforms.uShowSun.value = on ? 1 : 0;
   }
 
+  private static lutOf(m: SkyModel): DataTexture {
+    const half = new Uint16Array(m.lut.length);
+    for (let i = 0; i < m.lut.length; i++) half[i] = DataUtils.toHalfFloat(Math.min(m.lut[i], 65000));
+    const tex = new DataTexture(half, m.width, m.height, RGBAFormat, HalfFloatType);
+    tex.magFilter = LinearFilter;
+    tex.minFilter = LinearFilter;
+    tex.wrapS = ClampToEdgeWrapping;
+    tex.wrapT = ClampToEdgeWrapping;
+    tex.generateMipmaps = false;
+    tex.needsUpdate = true;
+    tex.name = 'xr.skyLut';
+    return tex;
+  }
+
+  /** The hours of a turning day: their LUT textures are made now (replacing the last day's), so that none is made while the day turns. */
+  warmDay(models: readonly SkyModel[]): void {
+    const keep = new Set(models);
+    for (const [m, t] of this.dayLuts) {
+      if (!keep.has(m)) {
+        t.dispose();
+        this.dayLuts.delete(m);
+      }
+    }
+    for (const m of models) if (!this.dayLuts.has(m)) this.dayLuts.set(m, SkyDome.lutOf(m));
+  }
+
   apply(sol: EnvSolution): void {
     const u = this.material.uniforms;
     // LUT -> half float texture (only when the sky model is a new one: every frame of a changing weather applies a blend of two
-    // solutions that share the dry one's model)
+    // solutions that share the dry one's model; the hours of a turning day have theirs ready)
     const m = sol.model;
-    if (m !== this.lutModel) {
-      const half = new Uint16Array(m.lut.length);
-      for (let i = 0; i < m.lut.length; i++) half[i] = DataUtils.toHalfFloat(Math.min(m.lut[i], 65000));
-      const tex = new DataTexture(half, m.width, m.height, RGBAFormat, HalfFloatType);
-      tex.magFilter = LinearFilter;
-      tex.minFilter = LinearFilter;
-      tex.wrapS = ClampToEdgeWrapping;
-      tex.wrapT = ClampToEdgeWrapping;
-      tex.generateMipmaps = false;
-      tex.needsUpdate = true;
-      tex.name = 'xr.skyLut';
+    const dayTex = this.dayLuts.get(m);
+    if (dayTex) {
+      u.uLut.value = dayTex;
+      this.lutModel = null;
+    } else if (m !== this.lutModel) {
+      const tex = SkyDome.lutOf(m);
       this.lutTexture?.dispose();
       this.lutTexture = tex;
       this.lutModel = m;
       u.uLut.value = tex;
-    }
+    } else u.uLut.value = this.lutTexture;
+    const lb = sol.lutB;
+    const texB = lb ? this.dayLuts.get(lb.model) : undefined;
+    u.uLutB.value = texB ?? u.uLut.value;
+    u.uLutMix.value = lb && texB ? lb.mix : 0;
 
     const sd = sol.sunDir;
     (u.uSunDir.value as Vector3).set(sd[0], sd[1], sd[2]);
@@ -208,7 +238,8 @@ export class SkyDome {
       (u.uLocalLight.value as Vector3).set(sol.lightColor[0] * li, sol.lightColor[1] * li, sol.lightColor[2] * li);
       (u.uLocalAmb.value as Vector3).set(sol.skyAmbient[0], sol.skyAmbient[1], sol.skyAmbient[2]);
     }
-    u.uSkyScale.value = sol.skyScale;
+    u.uSkyScale.value = sol.skyScale * (lb && texB ? lb.shareA : 1);
+    u.uSkyScaleB.value = sol.skyScale * (lb && texB ? lb.shareB : 1);
     (u.uSunRadiance.value as Vector3).set(sol.sunRadiance[0], sol.sunRadiance[1], sol.sunRadiance[2]);
     (u.uGround.value as Vector3).set(sol.ground[0], sol.ground[1], sol.ground[2]);
     u.uOvercast.value = sol.weather.overcast;
@@ -252,6 +283,8 @@ export class SkyDome {
     this.material.dispose();
     this.orbitalMaterial.dispose();
     this.lutTexture?.dispose();
+    for (const t of this.dayLuts.values()) t.dispose();
+    this.dayLuts.clear();
     this.noiseTexture.dispose();
   }
 }

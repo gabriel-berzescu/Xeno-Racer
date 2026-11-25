@@ -2,9 +2,9 @@
  * Environment solver (owner: render). Pure maths, no three.js: turns (TimeOfDay, Weather) into the
  * numbers the sky shader, light rig, fog and tone mapper consume. Cached per (tod, weather).
  */
-import { WEATHER_WATER, type EnvironmentSettings } from '../core/contracts';
+import { WEATHER_WATER, type EnvironmentSettings, type OrbitalRing } from '../core/contracts';
 import { computeSkyModel, FOG_TABLE_SIZE, type RGB, type SkyModel } from './atmosphere';
-import { ORBITAL, orbitalLook, orbitalSunSeen, TOD_ORBITAL, type OrbitalLook } from './orbital';
+import { ORBITAL, ORBITAL_PHASE, orbitalHour, orbitalLight, orbitalLook, orbitalRingLight, orbitalSun, orbitalTurn, type OrbitalLook } from './orbital';
 import { directionFromAngles, TOD, TOD_WINTER, WEATHER, WEATHER_WINTER, type TodPreset, type WeatherPreset } from './presets';
 
 const DEG = Math.PI / 180;
@@ -72,6 +72,11 @@ export interface EnvSolution {
   skyAz: [number, number];
   /** Inside an orbital ring: what the sky draws the ring with (null everywhere else). */
   orbital: OrbitalLook | null;
+  /**
+   * A look between two solved hours of a turning day (`mixHours`): the sky is the blend of two LUTs, `model`'s and this one's
+   * (`mix` of the way to it), each at its own share of `skyScale`. Null for a solved look.
+   */
+  lutB: { model: SkyModel; mix: number; shareA: number; shareB: number } | null;
 }
 
 const cache = new Map<string, EnvSolution>();
@@ -124,15 +129,37 @@ export function envKey(s: EnvironmentSettings): string {
  */
 export const MEGACITY = { glow: [0.03, 0.0105, 0.046] as RGB, fogDay: 1.3, fogNight: 2.3, stars: 0.9 };
 
+/** The ring a circuit's settings put it in, if any (a winter or megacity circuit is not in one). */
+function ringOf(settings: EnvironmentSettings): OrbitalRing | null {
+  return settings.winter !== true && settings.megacity !== true ? (settings.orbital ?? null) : null;
+}
+
 export async function solveEnvironment(settings: EnvironmentSettings, yieldFn?: () => Promise<void>): Promise<EnvSolution> {
   const key = envKey(settings);
   const hit = cache.get(key);
   if (hit) return hit;
+  const ring = ringOf(settings);
+  const tod = ring ? orbitalHour(ring, ORBITAL_PHASE[settings.timeOfDay]) : (settings.winter === true ? TOD_WINTER : TOD)[settings.timeOfDay];
+  return solveLook(settings, tod, key, yieldFn);
+}
 
+/**
+ * The look of a circuit inside an orbital ring at any phase of the ring's day (degrees; see orbital.ts), in the settings' weather.
+ * A turning day is a few dozen of these (`orbitalKeyPhases`) and `mixHours` between them.
+ */
+export async function solveOrbitalHour(settings: EnvironmentSettings, phaseDeg: number, yieldFn?: () => Promise<void>): Promise<EnvSolution> {
+  const ring = ringOf(settings);
+  if (!ring) return solveEnvironment(settings, yieldFn);
+  const key = `${envKey(settings)}@${phaseDeg.toFixed(3)}`;
+  const hit = cache.get(key);
+  if (hit) return hit;
+  return solveLook(settings, orbitalHour(ring, phaseDeg), key, yieldFn);
+}
+
+async function solveLook(settings: EnvironmentSettings, tod: TodPreset, key: string, yieldFn?: () => Promise<void>): Promise<EnvSolution> {
   const winter = settings.winter === true;
   const megacity = settings.megacity === true && !winter;
-  const ring = !winter && !megacity ? (settings.orbital ?? null) : null;
-  const tod = (winter ? TOD_WINTER : ring ? TOD_ORBITAL : TOD)[settings.timeOfDay];
+  const ring = ringOf(settings);
   const weather = (winter ? WEATHER_WINTER : WEATHER)[settings.weather];
   const el = tod.elDeg * DEG;
 
@@ -160,8 +187,6 @@ export async function solveEnvironment(settings: EnvironmentSettings, yieldFn?: 
   } else if (tMax > 1e-4) {
     lightColor = [T[0] / tMax, T[1] / tMax, T[2] / tMax];
     lightIntensity = tod.sunE * tMax * weather.sun;
-    // (near the ends of a ring's day its own land stands in front of the sun: the circuit lies 700 m inside the higher rim)
-    if (ring) lightIntensity *= orbitalSunSeen(ring, [sd.x, sd.y, sd.z], ring.rims[1] - 700, sd.y);
   } else {
     lightColor = [1, 0.25, 0.08];
     lightIntensity = 0;
@@ -169,7 +194,7 @@ export async function solveEnvironment(settings: EnvironmentSettings, yieldFn?: 
 
   // under a night rain deck there is no moon and no sky glow: far darker than the dry night
   const nightDim = weather.deck > 0 ? 1 - 0.5 * tod.darkness : 1;
-  const skyScale = tod.sunE * tod.skyGain * weather.sky * nightDim;
+  const skyScale = (tod.skyScale ?? tod.sunE * tod.skyGain) * weather.sky * nightDim;
   const od = weather.overcast;
 
   // (inside a ring the disc that is drawn is always the true sun's: the land hides it when it is down)
@@ -317,7 +342,8 @@ export async function solveEnvironment(settings: EnvironmentSettings, yieldFn?: 
     aurora: winter ? (tod.aurora ?? 0) * (1 - Math.min(1, weather.overcast * 1.1)) : 0,
     city,
     skyAz: horizontal(ring ? ts : sd),
-    orbital: ring ? orbitalLook(ring, settings.timeOfDay, tod, skyCos, lightVec) : null,
+    orbital: ring ? orbitalLook(ring, tod.phaseDeg ?? ORBITAL_PHASE[settings.timeOfDay], tod.planetLum ?? 0.1, skyCos, lightVec) : null,
+    lutB: null,
   };
   cache.set(key, sol);
   return sol;
@@ -398,6 +424,10 @@ export function cloneSolution(a: EnvSolution): EnvSolution {
     glow: rgb(a.glow),
     city: rgb(a.city),
     skyAz: [a.skyAz[0], a.skyAz[1]],
+    orbital: a.orbital
+      ? { ...a.orbital, rot: [a.orbital.rot[0], a.orbital.rot[1]], planet: [a.orbital.planet[0], a.orbital.planet[1], a.orbital.planet[2]], pole: [a.orbital.pole[0], a.orbital.pole[1], a.orbital.pole[2]], structure: rgb(a.orbital.structure) }
+      : null,
+    lutB: a.lutB ? { ...a.lutB } : null,
   };
 }
 
@@ -495,6 +525,96 @@ export function blendInto(out: EnvSolution, dry: EnvSolution, wet: EnvSolution, 
   o.skyAz[0] = dry.skyAz[0];
   o.skyAz[1] = dry.skyAz[1];
   o.orbital = dry.orbital;
+  o.lutB = dry.lutB;
   o.moonVis = mix(dry.moonVis, wet.moonVis, c.cloud);
+  return o;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A day that turns (inside an orbital ring)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The look of a turning day at `phaseDeg`, `t` of the way from the solved hour `a` to the next one `b` (the same weather), written
+ * into `out` (a `cloneSolution` of a look of that ring). Like `blendInto`, nothing is solved again: the numbers and colours are
+ * blended, the sky is the blend of the two hours' LUTs, and the bodies of the sky are put where they are at that very phase (the
+ * sun or the lit side of the ring for the light, the true sun, the planet and its pole, the turn of the stars). Runs every frame.
+ */
+export function mixHours(out: EnvSolution, a: EnvSolution, b: EnvSolution, t: number, phaseDeg: number): EnvSolution {
+  const o = out;
+  const look = o.orbital;
+  const la = a.orbital;
+  const lb = b.orbital;
+  if (!look || !la || !lb) return o;
+  // whose light it is now: the two hours either side agree, except where one of them is the hand-over itself (no light at all)
+  const sunLit = orbitalLight(look.ring, phaseDeg) > 0;
+  o.tod = sunLit === !a.tod.moon ? a.tod : b.tod;
+  o.model = a.model;
+  o.settings.timeOfDay = a.settings.timeOfDay;
+  o.settings.weather = a.settings.weather;
+
+  mixRgb(a.lightColor, b.lightColor, t, o.lightColor);
+  // (colour and strength go together: an hour with no light has a colour that means nothing)
+  const ia = a.lightIntensity;
+  const ib = b.lightIntensity;
+  o.lightIntensity = mix(ia, ib, t);
+  if (ia + ib > 1e-6) {
+    const wa = (ia * (1 - t)) / Math.max(o.lightIntensity, 1e-6);
+    mixRgb(b.lightColor, a.lightColor, Math.min(1, Math.max(0, wa)), o.lightColor);
+  }
+  o.skyScale = mix(a.skyScale, b.skyScale, t);
+  mixRgb(a.sunRadiance, b.sunRadiance, t, o.sunRadiance);
+  mixRgb(a.ground, b.ground, t, o.ground);
+  mixRgb(a.skyAmbient, b.skyAmbient, t, o.skyAmbient);
+  mixRgb(a.cloudLight, b.cloudLight, t, o.cloudLight);
+  mixRgb(a.cloudAmbient, b.cloudAmbient, t, o.cloudAmbient);
+  mixRgb(a.haze, b.haze, t, o.haze);
+  mixRgb(a.hemiSky, b.hemiSky, t, o.hemiSky);
+  mixRgb(a.hemiGround, b.hemiGround, t, o.hemiGround);
+  o.fogDensity = mixLog(a.fogDensity, b.fogDensity, t);
+  const ft = o.fogTable;
+  for (let i = 0; i < ft.length; i++) ft[i] = a.fogTable[i] + (b.fogTable[i] - a.fogTable[i]) * t;
+  const fs = o.fogTableSun;
+  for (let i = 0; i < fs.length; i++) fs[i] = a.fogTableSun[i] + (b.fogTableSun[i] - a.fogTableSun[i]) * t;
+  const last = ft.length - 3;
+  o.fogColor[0] = ft[last];
+  o.fogColor[1] = ft[last + 1];
+  o.fogColor[2] = ft[last + 2];
+  o.exposure = mixLog(a.exposure, b.exposure, t);
+  o.darkness = mix(a.darkness, b.darkness, t);
+  o.envIntensity = mix(a.envIntensity, b.envIntensity, t);
+  o.shadowIntensity = a.shadowIntensity;
+  o.warmth = mix(a.warmth, b.warmth, t);
+  o.stars = mix(a.stars, b.stars, t);
+  mixRgb(a.moonLight, b.moonLight, t, o.moonLight);
+  o.deck = a.deck;
+  o.deckDark = a.deckDark;
+  o.scud = a.scud;
+  mixRgb(a.deckLo, b.deckLo, t, o.deckLo);
+  mixRgb(a.deckHi, b.deckHi, t, o.deckHi);
+  mixRgb(a.glow, b.glow, t, o.glow);
+  o.rainFog = mix(a.rainFog, b.rainFog, t);
+  o.aurora = 0;
+  o.moonVis = 0;
+
+  // the sky: two LUTs, each at its own hour's brightness
+  const lut = o.lutB ?? (o.lutB = { model: b.model, mix: 0, shareA: 1, shareB: 1 });
+  lut.model = b.model;
+  lut.mix = t;
+  const sc = Math.max(o.skyScale, 1e-9);
+  lut.shareA = a.skyScale / sc;
+  lut.shareB = b.skyScale / sc;
+
+  // the bodies, where they are at this phase
+  if (sunLit) orbitalSun(phaseDeg, o.sunDir);
+  else orbitalRingLight(phaseDeg, o.sunDir);
+  orbitalSun(phaseDeg, o.trueSunDir);
+  o.sunElevation = Math.asin(Math.max(-1, Math.min(1, o.sunDir[1])));
+  const hl = Math.hypot(o.trueSunDir[0], o.trueSunDir[2]);
+  o.skyAz[0] = hl > 1e-5 ? o.trueSunDir[0] / hl : 1;
+  o.skyAz[1] = hl > 1e-5 ? o.trueSunDir[2] / hl : 0;
+  orbitalTurn(look, phaseDeg);
+  look.planetLum = mix(la.planetLum, lb.planetLum, t);
+  mixRgb(la.structure, lb.structure, t, look.structure);
   return o;
 }

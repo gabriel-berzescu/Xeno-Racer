@@ -454,7 +454,7 @@ export class Game {
     const kept = this.track?.info.id === trackId && this.trackScene !== null && this.trackBuilt === built;
     // (a new circuit: the ground of the one before has nothing to say about this race's sun; a kept one has its map remade by setEnvironment if the sun moved)
     if (!kept) await xr.setTerrain(null);
-    await xr.setEnvironment(winter ? { ...env, winter } : megacity ? { ...env, megacity } : orbital ? { ...env, orbital } : env, forecastTo);
+    await xr.setEnvironment(winter ? { ...env, winter } : megacity ? { ...env, megacity } : orbital ? { ...env, orbital, stillDay: this.params.get('day') === 'still' } : env, forecastTo);
     if (token !== this.loadToken) return false;
     if (kept && this.trackScene) {
       this.trackScene.setEnvironment(this.render.env);

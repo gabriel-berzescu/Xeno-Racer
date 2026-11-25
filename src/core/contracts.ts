@@ -581,6 +581,11 @@ export interface EnvironmentSettings {
    * half of it in its day and half in its night, the glass of the rims, and beyond them the stars and the planet. Set by the game from the track.
    */
   orbital?: OrbitalRing;
+  /**
+   * Inside an orbital ring the day turns as the race goes on (a day and a night in five minutes; `timeOfDay` is the hour the race
+   * starts at). Set this for a day that stands still at that hour: a photograph, a test.
+   */
+  stillDay?: boolean;
 }
 
 /** Live environment info other modules may read (e.g. headlights on at night). */

@@ -61,11 +61,11 @@ float landLights(vec2 au, float foot, float dens) {
   float on = step(1.0 - dens, h.x);
   vec2 sp = 0.2 + 0.6 * h.yz;
   vec2 dv = fp - sp;
-  const float base = 0.07;
-  float s = max(base, foot * (0.7 / 90.0));
+  const float base = 0.09;
+  float s = max(base, foot * (0.6 / 90.0));
   float amp = (base * base) / (s * s);
   float point = on * exp(-dot(dv, dv) / (s * s)) * amp * (0.4 + 1.6 * h.y);
-  return mix(point, dens * 0.0154, smoothstep(0.25, 0.7, s));
+  return mix(point, dens * 0.0254, smoothstep(0.3, 0.8, s));
 }
 
 // ---- the planet ------------------------------------------------------------------------------
@@ -167,17 +167,22 @@ vec3 ringLand(vec2 au, vec2 gx, vec2 gy, vec2 q, vec3 d) {
   float R = uRing.x;
   float k = 1.0 / (TWO_PI * R);
   #define LAND(N, off) textureGrad(uNoise, au * (k * N) + off, gx * (k * N), gy * (k * N))
-  vec4 a = LAND(14.0, vec2(0.13, 0.71));    // 10 km
-  vec4 b = LAND(58.0, vec2(0.37, 0.19));    // 2.4 km
-  vec4 c = LAND(236.0, vec2(0.61, 0.43));   // 600 m
+  // (each octave is read where the finer one pushes it: value noise on a lattice shows the lattice, as square blobs, until it is warped)
+  #define LANDW(N, off, push) textureGrad(uNoise, (au + push) * (k * N) + off, gx * (k * N), gy * (k * N))
+  vec4 e = LAND(940.0, vec2(0.29, 0.83));                              // 150 m
+  vec4 c = LANDW(236.0, vec2(0.61, 0.43), (e.ra - 0.5) * 90.0);        // 600 m
+  vec4 b = LANDW(58.0, vec2(0.37, 0.19), (c.ra - 0.5) * 420.0);        // 2.4 km
+  vec4 a = LANDW(14.0, vec2(0.13, 0.71), (b.ra - 0.5) * 1700.0);       // 10 km
   // lakes (none near the circuit, where the terrain mesh is the land), forest and meadow, the pale roofs of towns
-  float water = (1.0 - smoothstep(0.3, 0.33, a.r * 0.62 + b.g * 0.3 + c.b * 0.08)) * smoothstep(3000.0, 6500.0, abs(au.x));
-  float forest = smoothstep(0.44, 0.56, a.g * 0.45 + b.r * 0.4 + c.g * 0.15);
-  float town = smoothstep(0.55, 0.63, a.b * 0.5 + b.a * 0.5) * (1.0 - water) * smoothstep(2500.0, 5500.0, abs(au.x));
-  vec3 meadow = mix(vec3(0.1, 0.15, 0.05), vec3(0.165, 0.185, 0.075), c.r);
-  vec3 woods = mix(vec3(0.028, 0.058, 0.02), vec3(0.045, 0.082, 0.03), c.a);
+  // (the outlines come from the two fbm channels of the noise, R and A: the other two are cells, and would show as blocks)
+  vec4 f = LANDW(31.0, vec2(0.83, 0.37), (b.ar - 0.5) * 900.0);        // 4.5 km
+  float water = (1.0 - smoothstep(0.3, 0.35, a.r * 0.5 + b.a * 0.3 + c.r * 0.14 + e.a * 0.06)) * smoothstep(3000.0, 6500.0, abs(au.x));
+  float forest = smoothstep(0.42, 0.6, a.a * 0.34 + b.r * 0.34 + c.a * 0.22 + e.r * 0.1);
+  float town = smoothstep(0.56, 0.66, f.r * 0.5 + f.a * 0.2 + c.r * 0.3) * (1.0 - water) * smoothstep(2500.0, 5500.0, abs(au.x));
+  vec3 meadow = mix(vec3(0.1, 0.15, 0.05), vec3(0.165, 0.185, 0.075), c.r * 0.6 + e.a * 0.4);
+  vec3 woods = mix(vec3(0.028, 0.058, 0.02), vec3(0.045, 0.082, 0.03), c.a * 0.5 + e.r * 0.5);
   vec3 alb = mix(meadow, woods, forest);
-  alb = mix(alb, vec3(0.4, 0.38, 0.34), town * (0.3 + 0.5 * c.b));
+  alb = mix(alb, vec3(0.4, 0.38, 0.34), town * (0.3 + 0.5 * e.a));
   alb = mix(alb, vec3(0.012, 0.03, 0.055), water);
 
   vec2 ls = ringSun(q, au.y);
@@ -199,21 +204,24 @@ vec3 ringLand(vec2 au, vec2 gx, vec2 gy, vec2 q, vec3 d) {
   col += uLandSun * (water * lit * gl * 5.0);
   // the weather of that land, seen from over it
   vec2 w = uWind * uTime * 6.0;
-  float cl = LAND(26.0, w + vec2(0.55, 0.07)).r * 0.6 + LAND(104.0, w * 2.3 + vec2(0.09, 0.61)).g * 0.4;
-  float cth = mix(0.78, 0.4, uCoverage);
-  float cloud = smoothstep(cth, cth + 0.13, cl);
+  vec4 cw = LAND(410.0, w * 5.0 + vec2(0.73, 0.21));
+  vec4 cm = LANDW(104.0, w * 2.3 + vec2(0.09, 0.61), (cw.ra - 0.5) * 260.0);
+  float cl = LANDW(26.0, w + vec2(0.55, 0.07), (cm.ra - 0.5) * 1100.0).r * 0.46 + cm.a * 0.34 + cw.r * 0.2;
+  float cth = mix(0.76, 0.4, uCoverage);
+  float cloud = smoothstep(cth, cth + 0.17, cl);
   vec3 ccol = 0.8 * (sun * (0.3 + 0.7 * ndl) + amb * (0.3 + 0.7 * lit));
   col = mix(col, ccol, cloud * 0.92);
   // the lights of the towns, and of the houses scattered between them, where it is night
   // (the roads: a wide net pulled out of true by the noise; 54 meshes of it go round the ring)
-  vec2 rw = au + (b.rg - 0.5) * 1100.0;
+  vec2 rw = au + (b.ra - 0.5) * 1100.0;
   float rp = TWO_PI * R / 54.0;
   float road = max(1.0 - smoothstep(0.0, 45.0, abs(fract(rw.x / rp + 0.5) - 0.5) * rp), 1.0 - smoothstep(0.0, 45.0, abs(fract(rw.y / 1490.0 + 0.5) - 0.5) * 1490.0));
-  float dens = town * (0.4 + 0.5 * c.b) + road * (0.2 + 0.4 * a.b) + 0.08 * smoothstep(0.5, 0.75, c.g * 0.6 + b.b * 0.4);
+  float dens = town * (0.3 + 0.5 * c.a) + road * (0.18 + 0.3 * f.a) + 0.07 * smoothstep(0.5, 0.75, c.a * 0.6 + b.r * 0.4);
   dens = clamp(dens, 0.0, 0.9) * (1.0 - water) * smoothstep(2500.0, 5500.0, abs(au.x));
   float foot = max(length(gx), length(gy));
-  col += vec3(1.0, 0.78, 0.5) * (uLandLights * 44.0 * landLights(au, foot, dens) * (1.0 - lit) * (1.0 - 0.9 * cloud));
+  col += vec3(1.0, 0.74, 0.42) * (uLandLights * 30.0 * landLights(au, foot, dens) * (1.0 - lit) * (1.0 - 0.9 * cloud));
   #undef LAND
+  #undef LANDW
   return col;
 }
 

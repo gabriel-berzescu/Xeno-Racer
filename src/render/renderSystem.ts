@@ -54,7 +54,8 @@ import { splitGeometry, splitGraphics, type Rect, type SplitGeometry } from '../
 import type { RenderSystem, TerrainSource } from '../core/systems';
 import { FOG_TABLE_SIZE } from './atmosphere';
 import { casterKinds } from './casters';
-import { blendInto, cloneSolution, solveEnvironment, type EnvSolution } from './environment';
+import { blendInto, cloneSolution, mixHours, solveEnvironment, solveOrbitalHour, type EnvSolution } from './environment';
+import { ORBITAL, ORBITAL_PHASE, orbitalKeyPhases } from './orbital';
 import { FinalEffect, SpeedEffect } from './effects-post';
 import { ParticlePass, particleUniforms, ShaftsPass } from './post';
 import { MirrorSystem, type MirrorFrame } from './mirrors';
@@ -405,6 +406,24 @@ class RenderSystemImpl implements XenoRenderSystem {
   } | null = null;
   /** Seconds of render time (the environment map is captured at most once a second). */
   private clock = 0;
+  /**
+   * A day that turns (a circuit inside an orbital ring, see orbital.ts): the hours it was solved at, in the race's weather (`hours`)
+   * and in the other one of a weather that changes (`hoursTo`), the look between two of them that is on screen (`mix`, rewritten in
+   * place every frame; `mixTo` its twin in the other weather), the phase the race started at and the seconds since, the direction
+   * the cascades were last turned to, and what the environment map was last captured for.
+   */
+  private day: {
+    phases: number[];
+    hours: EnvSolution[];
+    hoursTo: EnvSolution[] | null;
+    mix: EnvSolution;
+    mixTo: EnvSolution | null;
+    phase0: number;
+    t: number;
+    dir: Vector3;
+    capAt: number;
+    capAmbient: number;
+  } | null = null;
   /** Light of the environment map now over the light it was captured with: it carries the picture between two captures. */
   private envScale = 1;
   /**
@@ -523,11 +542,37 @@ class RenderSystemImpl implements XenoRenderSystem {
     const sol = await solveEnvironment(e, yieldToBrowser);
     // the other end of a weather that changes: the same light, the other weather (cached, so a restart costs nothing)
     const other = forecastTo && forecastTo !== e.weather ? await solveEnvironment({ ...e, weather: forecastTo }, yieldToBrowser) : null;
+    // inside an orbital ring the day turns: its hours are solved now, round the clock (cached, like every look)
+    let day: RenderSystemImpl['day'] = null;
+    if (sol.orbital && e.stillDay !== true) {
+      const phases = orbitalKeyPhases(sol.orbital.ring);
+      const hours: EnvSolution[] = [];
+      for (const p of phases) hours.push(await solveOrbitalHour(e, p, yieldToBrowser));
+      let hoursTo: EnvSolution[] | null = null;
+      if (other && forecastTo && (other.deck > 0) !== (sol.deck > 0)) {
+        hoursTo = [];
+        for (const p of phases) hoursTo.push(await solveOrbitalHour({ ...e, weather: forecastTo }, p, yieldToBrowser));
+      }
+      day = { phases, hours, hoursTo, mix: cloneSolution(sol), mixTo: hoursTo ? cloneSolution(other ?? sol) : null, phase0: ORBITAL_PHASE[e.timeOfDay], t: 0, dir: new Vector3(0, 1, 0), capAt: 0, capAmbient: 1 };
+    }
     if (token !== this.envToken || this.disposed) return;
     this.fc = null;
-    // (a forecast has to join a dry weather and a wet one: anything else is just the start weather)
-    if (other && (other.deck > 0) !== (sol.deck > 0)) this.applyForecast(sol, other);
-    else this.applySolution(sol);
+    this.day = day;
+    if (day) {
+      this.sky.warmDay(day.hoursTo ? [...day.hours, ...day.hoursTo].map((h) => h.model) : day.hours.map((h) => h.model));
+      this.dayLook(day, day.phase0);
+      if (day.mixTo) this.applyForecast(day.mix, day.mixTo);
+      else this.applySolution(day.mix);
+      const now = this.solution ?? day.mix;
+      day.dir.set(now.sunDir[0], now.sunDir[1], now.sunDir[2]);
+      day.capAt = this.clock;
+      day.capAmbient = lumOf(now.skyAmbient);
+    } else {
+      this.sky.warmDay([]);
+      // (a forecast has to join a dry weather and a wet one: anything else is just the start weather)
+      if (other && (other.deck > 0) !== (sol.deck > 0)) this.applyForecast(sol, other);
+      else this.applySolution(sol);
+    }
     // (the sun may be somewhere else than the map in use was made for: a race on the same circuit at another hour)
     void this.syncSunVis();
     // Dry <-> wet swaps the shadow programs of everything that receives shadows. With a track already in the scene
@@ -555,7 +600,8 @@ class RenderSystemImpl implements XenoRenderSystem {
   private syncSunVis(): Promise<void> {
     const sol = this.solution;
     if (!sol) return Promise.resolve();
-    const run = this.sunVis.update(this.terrainSrc, sol.sunDir, SUN_ANGULAR_RADIUS, yieldToBrowser).catch((e: unknown) => {
+    // (a turning day has no one sun to make the map for: the ring's own land hiding the sun at the ends of the day is in the light itself)
+    const run = this.sunVis.update(this.day ? null : this.terrainSrc, sol.sunDir, SUN_ANGULAR_RADIUS, yieldToBrowser).catch((e: unknown) => {
       console.warn('The sun visibility map could not be made; the picture has no terrain shade.', e);
     });
     this.sunMap = run;
@@ -911,6 +957,7 @@ class RenderSystemImpl implements XenoRenderSystem {
 
     this.sky.update(dt);
     this.updateWeatherLook(dt);
+    this.updateDay(dt);
     this.updateFlash(dt);
     // (the warm-up frame runs the wet-road reflections too wherever rain can come, so their programs are built behind the loading screen)
     if (this.ssrPass) this.ssrPass.enabled = this.env.wetness > 0.02 || (this.warmPasses && this.wetPossible);
@@ -1614,14 +1661,16 @@ class RenderSystemImpl implements XenoRenderSystem {
     const env = this.env;
     env.sunIntensity = sol.lightIntensity;
     env.darkness = sol.darkness;
-    env.peakDarkness = this.fc ? Math.max(this.fc.dry.darkness, this.fc.wet.darkness) : sol.darkness;
+    // (a turning day comes to its night, whatever hour it starts at)
+    env.peakDarkness = this.day ? 1 : this.fc ? Math.max(this.fc.dry.darkness, this.fc.wet.darkness) : sol.darkness;
   }
 
   /** setWeatherState's sky, on screen: blend the two looks and apply the result. Runs at the top of every render(). */
   private updateWeatherLook(dt: number): void {
     this.clock += dt;
     const fc = this.fc;
-    if (!fc) return;
+    // (a turning day blends the weather itself, every frame: updateDay)
+    if (!fc || this.day) return;
     const wx = this.wx;
     if (Math.abs(wx.sky - fc.sky) < 1e-4 && Math.abs(wx.rain - fc.rain) < 1e-4) return;
     fc.sky = wx.sky;
@@ -1629,6 +1678,56 @@ class RenderSystemImpl implements XenoRenderSystem {
     blendInto(fc.mix, fc.dry, fc.wet, wx.sky, wx.rain);
     this.applyLook(fc.mix);
     this.refreshEnvironment(fc);
+  }
+
+  /** The look of a turning day at a phase (degrees): between the two solved hours either side of it, in the day's weather or weathers. */
+  private dayLook(d: NonNullable<RenderSystemImpl['day']>, phase: number): void {
+    const p = ((phase % 360) + 360) % 360;
+    const ph = d.phases;
+    const n = ph.length;
+    let i = n - 1;
+    for (let k = 0; k < n; k++) if (ph[k] <= p) i = k;
+    const j = (i + 1) % n;
+    const span = (((ph[j] - ph[i]) % 360) + 360) % 360 || 360;
+    const t = ((((p - ph[i]) % 360) + 360) % 360) / span;
+    mixHours(d.mix, d.hours[i], d.hours[j], t, p);
+    if (d.mixTo && d.hoursTo) mixHours(d.mixTo, d.hoursTo[i], d.hoursTo[j], t, p);
+  }
+
+  /**
+   * A day that turns, on screen: the look of this moment (and the weather's blend over it), the light turned to where its body is
+   * now, and the environment map now and then. Runs at the top of every render().
+   */
+  private updateDay(dt: number): void {
+    const d = this.day;
+    if (!d) return;
+    d.t += dt;
+    this.dayLook(d, d.phase0 + (360 * d.t) / ORBITAL.daySeconds);
+    const fc = this.fc;
+    let sol = d.mix;
+    if (fc) {
+      fc.sky = this.wx.sky;
+      fc.rain = this.wx.rain;
+      blendInto(fc.mix, fc.dry, fc.wet, this.wx.sky, this.wx.rain);
+      sol = fc.mix;
+    }
+    this.applyLook(sol);
+    // the cascades are turned (and drawn again) when the light has moved by a fifth of a degree, not every frame
+    const sd = sol.sunDir;
+    if (d.dir.x * sd[0] + d.dir.y * sd[1] + d.dir.z * sd[2] < 0.9999939) {
+      d.dir.set(sd[0], sd[1], sd[2]);
+      this.sun.setDirection(d.dir);
+    }
+    this.env.sunDirection.set(sd[0], sd[1], sd[2]);
+    // the environment map: captured again every two seconds and a half, its light scaled in between by how the sky's has moved
+    const ambient = lumOf(sol.skyAmbient);
+    if (this.clock - d.capAt >= 2.5) {
+      this.captureEnvironment(sol);
+      d.capAt = this.clock;
+      d.capAmbient = ambient;
+    }
+    this.envScale = d.capAmbient > 1e-9 ? ambient / d.capAmbient : 1;
+    this.scene.environmentIntensity = sol.envIntensity * this.envScale;
   }
 
   /**
