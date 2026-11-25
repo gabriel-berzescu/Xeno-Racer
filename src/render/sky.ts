@@ -18,6 +18,7 @@ import {
   UnsignedByteType,
   Vector2,
   Vector3,
+  Vector4,
 } from 'three';
 import { LUT_E0, type SkyModel } from './atmosphere';
 import type { EnvSolution } from './environment';
@@ -35,6 +36,8 @@ export class SkyDome {
   readonly mesh: Mesh;
   readonly envMesh: Mesh;
   readonly material: ShaderMaterial;
+  /** The same shader compiled with the sky of an orbital ring (orbitalShader.ts): the two meshes wear it on a circuit inside one. */
+  readonly orbitalMaterial: ShaderMaterial;
   private lutTexture: DataTexture | null = null;
   /** The sky model the LUT texture was made from: a solution made of the same model (a blend) keeps the texture. */
   private lutModel: SkyModel | null = null;
@@ -97,7 +100,33 @@ export class SkyDome {
         uFogTab: { value: Array.from({ length: 8 }, () => new Vector3()) },
         uAurora: { value: 0 },
         uCity: { value: new Vector3() },
+        uRing: { value: new Vector4(22400, 0, 0, 2600) },
+        uRims: { value: new Vector2(-3000, 3000) },
+        uSkyRot: { value: new Vector2(1, 0) },
+        uPlanet: { value: new Vector4(1, 0, 0, 0) },
+        uPlanetPole: { value: new Vector3(0, 1, 0) },
+        uLandSun: { value: new Vector3() },
+        uLandAmb: { value: new Vector3() },
+        uLandLights: { value: 0 },
+        uStructure: { value: new Vector3() },
+        uFogDens: { value: 0 },
+        uLocalLight: { value: new Vector3() },
+        uLocalAmb: { value: new Vector3() },
       },
+      vertexShader: skyVertexShader,
+      fragmentShader: skyFragmentShader,
+      depthWrite: false,
+      depthTest: true,
+      depthFunc: LessEqualDepth,
+      toneMapped: false,
+      fog: false,
+    });
+
+    // (it shares the uniform table; the extra uniforms are simply not in the ordinary program)
+    this.orbitalMaterial = new ShaderMaterial({
+      name: 'xr.sky.orbital',
+      uniforms: this.material.uniforms,
+      defines: { XR_ORBITAL: '' },
       vertexShader: skyVertexShader,
       fragmentShader: skyFragmentShader,
       depthWrite: false,
@@ -158,8 +187,27 @@ export class SkyDome {
 
     const sd = sol.sunDir;
     (u.uSunDir.value as Vector3).set(sd[0], sd[1], sd[2]);
-    const hl = Math.hypot(sd[0], sd[2]);
-    (u.uSunAz.value as Vector2).set(hl > 1e-5 ? sd[0] / hl : 1, hl > 1e-5 ? sd[2] / hl : 0);
+    (u.uSunAz.value as Vector2).set(sol.skyAz[0], sol.skyAz[1]);
+    // a circuit inside an orbital ring wears the ring's sky
+    const ob = sol.orbital;
+    const mat = ob ? this.orbitalMaterial : this.material;
+    this.mesh.material = mat;
+    this.envMesh.material = mat;
+    if (ob) {
+      (u.uRing.value as Vector4).set(ob.ring.radius, ob.ring.y, ob.ring.z, ob.ring.canopy);
+      (u.uRims.value as Vector2).set(ob.ring.rims[0], ob.ring.rims[1]);
+      (u.uSkyRot.value as Vector2).set(ob.rot[0], ob.rot[1]);
+      (u.uPlanet.value as Vector4).set(ob.planet[0], ob.planet[1], ob.planet[2], ob.planetLum);
+      (u.uPlanetPole.value as Vector3).set(ob.pole[0], ob.pole[1], ob.pole[2]);
+      (u.uLandSun.value as Vector3).set(ob.landSun[0], ob.landSun[1], ob.landSun[2]);
+      (u.uLandAmb.value as Vector3).set(ob.landAmb[0], ob.landAmb[1], ob.landAmb[2]);
+      u.uLandLights.value = ob.lights;
+      (u.uStructure.value as Vector3).set(ob.structure[0], ob.structure[1], ob.structure[2]);
+      u.uFogDens.value = sol.fogDensity;
+      const li = sol.lightIntensity / Math.PI;
+      (u.uLocalLight.value as Vector3).set(sol.lightColor[0] * li, sol.lightColor[1] * li, sol.lightColor[2] * li);
+      (u.uLocalAmb.value as Vector3).set(sol.skyAmbient[0], sol.skyAmbient[1], sol.skyAmbient[2]);
+    }
     u.uSkyScale.value = sol.skyScale;
     (u.uSunRadiance.value as Vector3).set(sol.sunRadiance[0], sol.sunRadiance[1], sol.sunRadiance[2]);
     (u.uGround.value as Vector3).set(sol.ground[0], sol.ground[1], sol.ground[2]);
@@ -202,6 +250,7 @@ export class SkyDome {
   dispose(): void {
     this.mesh.geometry.dispose();
     this.material.dispose();
+    this.orbitalMaterial.dispose();
     this.lutTexture?.dispose();
     this.noiseTexture.dispose();
   }

@@ -1572,9 +1572,8 @@ class RenderSystemImpl implements XenoRenderSystem {
     this.fog.density = sol.fogDensity;
     this.fog.color.setRGB(sol.fogColor[0], sol.fogColor[1], sol.fogColor[2]);
     const fa = xrFogUniform.value;
-    const hl = Math.hypot(sol.sunDir[0], sol.sunDir[2]);
-    fa[0] = hl > 1e-5 ? sol.sunDir[0] / hl : 1;
-    fa[1] = hl > 1e-5 ? sol.sunDir[2] / hl : 0;
+    fa[0] = sol.skyAz[0];
+    fa[1] = sol.skyAz[1];
     fa[2] = sol.rainFog;
     fa[3] = 1 + sol.deck;
     for (let k = 0; k < FOG_TABLE_SIZE; k++) {

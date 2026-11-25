@@ -4,6 +4,7 @@
  */
 import { WEATHER_WATER, type EnvironmentSettings } from '../core/contracts';
 import { computeSkyModel, FOG_TABLE_SIZE, type RGB, type SkyModel } from './atmosphere';
+import { ORBITAL, orbitalLook, orbitalSunSeen, TOD_ORBITAL, type OrbitalLook } from './orbital';
 import { directionFromAngles, TOD, TOD_WINTER, WEATHER, WEATHER_WINTER, type TodPreset, type WeatherPreset } from './presets';
 
 const DEG = Math.PI / 180;
@@ -67,6 +68,10 @@ export interface EnvSolution {
    * horizon. The fog table, the haze, the deck's colours and the sky's ambient already carry their share of it.
    */
   city: RGB;
+  /** The horizontal direction (x, z, unit) the bright side of the sky and of the haze is at: the sun's, or at night the moon's. */
+  skyAz: [number, number];
+  /** Inside an orbital ring: what the sky draws the ring with (null everywhere else). */
+  orbital: OrbitalLook | null;
 }
 
 const cache = new Map<string, EnvSolution>();
@@ -88,6 +93,12 @@ function mul(a: RGB, b: RGB): RGB {
   return [a[0] * b[0], a[1] * b[1], a[2] * b[2]];
 }
 
+/** The horizontal direction of a body in the sky (x, z, unit); +x when it stands at the zenith. */
+function horizontal(d: { x: number; z: number }): [number, number] {
+  const l = Math.hypot(d.x, d.z);
+  return l > 1e-5 ? [d.x / l, d.z / l] : [1, 0];
+}
+
 function smoothstep(a: number, b: number, x: number): number {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
   return t * t * (3 - 2 * t);
@@ -103,7 +114,7 @@ export function lightningStrength(distanceKm: number): number {
 }
 
 export function envKey(s: EnvironmentSettings): string {
-  return `${s.winter ? 'winter/' : s.megacity ? 'megacity/' : ''}${s.timeOfDay}/${s.weather}`;
+  return `${s.winter ? 'winter/' : s.megacity ? 'megacity/' : s.orbital ? `orbital${s.orbital.radius}/` : ''}${s.timeOfDay}/${s.weather}`;
 }
 
 /**
@@ -120,11 +131,13 @@ export async function solveEnvironment(settings: EnvironmentSettings, yieldFn?: 
 
   const winter = settings.winter === true;
   const megacity = settings.megacity === true && !winter;
-  const tod = (winter ? TOD_WINTER : TOD)[settings.timeOfDay];
+  const ring = !winter && !megacity ? (settings.orbital ?? null) : null;
+  const tod = (winter ? TOD_WINTER : ring ? TOD_ORBITAL : TOD)[settings.timeOfDay];
   const weather = (winter ? WEATHER_WINTER : WEATHER)[settings.weather];
   const el = tod.elDeg * DEG;
 
-  const model = await computeSkyModel({ sunElevation: el, mieScale: weather.mie * (tod.haze > 1.2 ? 1.25 : 1) }, yieldFn);
+  // (inside a ring the sky keeps the colours of the true sun's hour when the light comes from the lit side of the ring)
+  const model = await computeSkyModel({ sunElevation: (tod.skyElDeg ?? tod.elDeg) * DEG, mieScale: weather.mie * (tod.haze > 1.2 ? 1.25 : 1) }, yieldFn);
 
   const sd = { x: 0, y: 0, z: 0 };
   directionFromAngles(tod.elDeg, tod.azDeg, sd);
@@ -134,18 +147,21 @@ export async function solveEnvironment(settings: EnvironmentSettings, yieldFn?: 
 
   // Directional light: sunlight attenuated by the atmosphere; at night a cool moonlight.
   let T = model.sunTransmittance;
+  const Tsun = T;
   const tMax = Math.max(T[0], T[1], T[2]);
   let lightColor: RGB;
   let lightIntensity: number;
   let moonLight: RGB = [0, 0, 0];
   if (tod.moon) {
-    lightColor = [0.58, 0.7, 1.0];
+    lightColor = tod.lightRGB ?? [0.58, 0.7, 1.0];
     lightIntensity = tod.sunE * weather.sun;
     moonLight = [0.85, 0.9, 1.0];
     T = [1, 1, 1];
   } else if (tMax > 1e-4) {
     lightColor = [T[0] / tMax, T[1] / tMax, T[2] / tMax];
     lightIntensity = tod.sunE * tMax * weather.sun;
+    // (near the ends of a ring's day its own land stands in front of the sun: the circuit lies 700 m inside the higher rim)
+    if (ring) lightIntensity *= orbitalSunSeen(ring, [sd.x, sd.y, sd.z], ring.rims[1] - 700, sd.y);
   } else {
     lightColor = [1, 0.25, 0.08];
     lightIntensity = 0;
@@ -156,12 +172,13 @@ export async function solveEnvironment(settings: EnvironmentSettings, yieldFn?: 
   const skyScale = tod.sunE * tod.skyGain * weather.sky * nightDim;
   const od = weather.overcast;
 
-  const sunRadiance: RGB = tod.moon ? [0, 0, 0] : scale(T, 110 * (1 - od));
+  // (inside a ring the disc that is drawn is always the true sun's: the land hides it when it is down)
+  const sunRadiance: RGB = ring ? scale(Tsun, 110 * (1 - od)) : tod.moon ? [0, 0, 0] : scale(T, 110 * (1 - od));
   const sinEl = Math.max(0, sd.y);
   // A floodlit circuit under a night rain deck is not pitch black: the lamps and the glow of the track fill the
   // ambient (so cars and trackside things keep their shape). The sky itself stays black above.
   const fill = weather.deck > 0 ? 0.0034 * tod.darkness * tod.darkness : 0;
-  const skyBase = desat(scale(model.skyMeanCos, skyScale), od);
+  const skyBase = desat(scale(model.skyMeanCos, skyScale * (ring ? ORBITAL.ambient : 1)), od);
   // The light of a megacity: it comes on with the dark (a storm at noon lights the signs too), it is in the air at the horizon, in the
   // haze the towers fade into and on the underside of every cloud, and a share of it comes back down as ambient light.
   const darkness = Math.min(1, tod.darkness + weather.darken * (1 - tod.darkness));
@@ -189,7 +206,7 @@ export async function solveEnvironment(settings: EnvironmentSettings, yieldFn?: 
   const hemiGround = scale(ground, Math.PI * tod.hemi * 0.45);
 
   // Visibility -> exp2 fog density.
-  const visibility = 9000 / (tod.haze * weather.fog * (megacity ? MEGACITY.fogDay + (MEGACITY.fogNight - MEGACITY.fogDay) * cityK : 1));
+  const visibility = (9000 * (ring ? ORBITAL.clarity : 1)) / (tod.haze * weather.fog * (megacity ? MEGACITY.fogDay + (MEGACITY.fogNight - MEGACITY.fogDay) * cityK : 1));
   const fogDensity = 2 / visibility;
 
   // A low sun still warms the horizon under a rain deck: the fog toward the sun keeps part of its colour.
@@ -296,9 +313,11 @@ export async function solveEnvironment(settings: EnvironmentSettings, yieldFn?: 
     deckHi,
     glow,
     rainFog: weather.rainFog * (0.8 + 0.2 * tod.haze),
-    moonVis: tod.moon ? (deck > 0 ? 0.6 : 1 - weather.overcast * 0.85) : 0,
+    moonVis: tod.moon && !ring ? (deck > 0 ? 0.6 : 1 - weather.overcast * 0.85) : 0,
     aurora: winter ? (tod.aurora ?? 0) * (1 - Math.min(1, weather.overcast * 1.1)) : 0,
     city,
+    skyAz: horizontal(ring ? ts : sd),
+    orbital: ring ? orbitalLook(ring, settings.timeOfDay, tod, skyCos, lightVec) : null,
   };
   cache.set(key, sol);
   return sol;
@@ -378,6 +397,7 @@ export function cloneSolution(a: EnvSolution): EnvSolution {
     deckHi: rgb(a.deckHi),
     glow: rgb(a.glow),
     city: rgb(a.city),
+    skyAz: [a.skyAz[0], a.skyAz[1]],
   };
 }
 
@@ -472,6 +492,9 @@ export function blendInto(out: EnvSolution, dry: EnvSolution, wet: EnvSolution, 
   o.rainFog = rainFogFor(rain, dry.settings.winter === true) * (0.8 + 0.2 * dry.tod.haze);
   o.aurora = mix(dry.aurora, wet.aurora, c.cloud);
   mixRgb(dry.city, wet.city, c.amb, o.city);
+  o.skyAz[0] = dry.skyAz[0];
+  o.skyAz[1] = dry.skyAz[1];
+  o.orbital = dry.orbital;
   o.moonVis = mix(dry.moonVis, wet.moonVis, c.cloud);
   return o;
 }
