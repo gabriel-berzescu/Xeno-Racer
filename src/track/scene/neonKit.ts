@@ -76,6 +76,13 @@ export function makeNeonMats(ctx: Ctx): NeonMats {
   tunnelTube.name = 'neonTubeTunnel';
   const frame = new THREE.MeshStandardMaterial({ color: 0x2c3038, roughness: 0.5, metalness: 0.65, envMapIntensity: 0.9 });
   frame.name = 'neonFrame';
+  // (a circuit may ask for frames of its own colour: painted, not bare steel)
+  const paint = ctx.rt.def.scenery?.neon?.frame;
+  if (paint !== undefined) {
+    frame.color.set(paint);
+    frame.roughness = 0.42;
+    frame.metalness = 0.1;
+  }
   const glow = glowMaterial();
   const tunnelGlow = glowMaterial();
   tunnelGlow.name = 'neonGlowTunnel';

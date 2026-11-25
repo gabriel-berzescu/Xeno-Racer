@@ -194,6 +194,50 @@ export const hyperion: TrackDef = {
   sectors: [m('Atlas/e'), m('Dione2/e')],
   terrain,
   scenery: {
+    // quiet lines of light: a warm white (#ffe9c4 at a quarter of a megacity's level: a colour carries its own brightness) along the
+    // top of the pit wall, of the grandstand fence and of the white wall of the Edge, and one ring over the start line, white with
+    // the circuit's blue inside it
+    neon: {
+      strips: [0x8b7e6a, 0x8b7e6a],
+      stripSpans: [
+        { from: m('main0', 30), to: m('main', 340), side: 'L' },
+        { from: m('main0', 30), to: m('main', 440), side: 'R' },
+        { from: m('Atlas/e', 30), to: m('Titan', -210), side: 'R' },
+      ],
+      rings: [{ at: m('main', 0), color: 0xbbb1a2, inner: 0x5d7bff }],
+      frame: 0xe6e3da,
+    },
+    // the 27th century, come to watch: hovering grandstands, camera drones, traffic in the sky, the event's name in the air
+    hover: {
+      terraces: [
+        // beside the grid, over the fence opposite the pits: the background of every start
+        { at: m('main', -80), side: 'R', gap: 15, length: 60, height: 9.5, rows: 3 },
+        // dead ahead at the end of Skyward, round the outside of Janus beyond its gravel
+        { at: m('Janus/a', 16), side: 'R', gap: 16, length: 54, height: 11.5, curve: 115 },
+        // the Edge, on the park side: the road, the glass and the planet in front of them, the park 15 m under their keels
+        { at: m('S4/m', -150), side: 'L', gap: 12, length: 40, height: 5.5, tiers: 2, rows: 3 },
+        { at: m('S4/m', 130), side: 'L', gap: 14, length: 46, height: 7 },
+        // at the end of the Edge, in front of the glass
+        { at: m('Titan/a', 60), side: 'R', gap: 16, length: 50, height: 10.5, curve: 200 },
+        // over the shore of the lake, facing the hairpin
+        { at: m('Dione2/b', 14), side: 'L', gap: 13, length: 44, height: 10, curve: 90 },
+        // round the outside of the last corner
+        { at: m('Phoebe/a', 66), side: 'R', gap: 16, length: 50, height: 11, curve: 115 },
+      ],
+      drones: { every: 150, marshals: ['Dione2', 'Janus', 'Phoebe', 'Rhea'] },
+      // (east, north; the start straight is east 0, the rims are at east 4800 and -1160) three lanes along the ring over the open
+      // land to the east and one high over the circuit, and two across it
+      lanes: [
+        { from: [900, -9000], to: [900, 9400], height: 420 },
+        { from: [2300, -9000], to: [2300, 9400], height: 760, gap: 640 },
+        { from: [3700, -9000], to: [3700, 9400], height: 1150, gap: 700, speed: 30 },
+        { from: [-470, -9000], to: [-470, 9400], height: 980, gap: 760, speed: 30 },
+        { from: [-1100, 2100], to: [4700, 2100], height: 540, gap: 600 },
+        { from: [-1100, -1700], to: [4700, -1700], height: 660, gap: 680 },
+      ],
+      // over the back of the grid: coming out of Phoebe one reads it above the ring
+      banner: { at: m('main', -130), text: 'HYPERION HERITAGE GRAND PRIX · 2626', height: 19, width: 46 },
+    },
     stands: [
       { at: m('main', 215), length: 340, side: 'R', gap: 13, rows: 22, roof: true },
       { at: m('Janus', -90), length: 150, side: 'R', gap: 40, rows: 14, roof: false },

@@ -431,10 +431,14 @@ export interface WinterSceneryDef {
  * in the tunnels, traffic in the sky. Colours are sRGB hex.
  */
 export interface NeonDef {
-  /** The colours of the light strips along the top of the barriers: [left of the road, right of the road]. */
+  /** The colours of the light strips along the top of the barriers: [left of the road, right of the road]. A darker colour is a fainter light. */
   strips?: [number, number];
-  /** Rings of light standing over the road (the cars drive through them) at these marks. */
-  rings?: { at: Mark; color?: number }[];
+  /** The strips run along these stretches only (default: all the way round, on every barrier that can carry one). */
+  stripSpans?: { from: Mark; to: Mark; side: 'L' | 'R' }[];
+  /** Rings of light standing over the road (the cars drive through them) at these marks; `inner` is the colour of the tube inside (default: the ring's). */
+  rings?: { at: Mark; color?: number; inner?: number }[];
+  /** The colour of the rings' frames and plinths (default: dark steel). */
+  frame?: number;
   /** Hoops of light inside the tunnels, every this many metres (default 24), in these colours in turn. */
   hoops?: { every?: number; colors?: number[]; /** The arch of light round each mouth (default a cold white). */ portal?: number };
   /**
@@ -448,9 +452,65 @@ export interface NeonDef {
   lampTint?: number;
 }
 
+/**
+ * A hovering grandstand (src/track/scene/hoverTerrace.ts): a shallow hull with tiers of spectators under a canopy that floats over
+ * it, beside the road at a mark. It is moved further out, and up, until it hangs clear of the run-off, the TV cameras and the ground.
+ */
+export interface HoverTerraceDef {
+  at: Mark;
+  side: 'L' | 'R';
+  /** From the barrier to the hull's front edge (m). */
+  gap: number;
+  /** The hull's length along the road (m, 30 to 60). */
+  length: number;
+  /** The deck above the road at the mark (m). */
+  height: number;
+  /** Tiers of seats (default 3) and rows in a tier (default 2). */
+  tiers?: number;
+  rows?: number;
+  /** The hull is bent round a centre this far in front of it (m): it wraps the outside of a corner. Default: straight. */
+  curve?: number;
+  /** Turned by this much from the road's direction (degrees, counter-clockwise seen from above). */
+  yaw?: number;
+}
+
+/**
+ * A lane of flying traffic in the sky of an orbital circuit (src/track/scene/hoverSky.ts), from one point of the map to another
+ * (east, north in metres) at a height over the floor (m). Inside a ring a lane follows the floor: one that runs north or south
+ * climbs into the sky with the land.
+ */
+export interface SkyLaneDef {
+  from: [number, number];
+  to: [number, number];
+  height: number;
+  /** Metres between two craft, on average (default 520), and their speed (m/s, default 24). */
+  gap?: number;
+  speed?: number;
+}
+
+/**
+ * The future at the trackside of an orbital circuit (src/track/scene/hover.ts): hovering grandstands, camera drones, traffic in the
+ * sky, the event's name in the air. Nothing of it is physical.
+ */
+export interface HoverDef {
+  terraces?: HoverTerraceDef[];
+  /**
+   * Camera drones holding station over the outside of the corners and along the straights, one every `every` m of straight (default
+   * 150), and a larger marshal drone with an amber beacon over the marshal post of each of these corners.
+   */
+  drones?: { every?: number; marshals?: string[] };
+  lanes?: SkyLaneDef[];
+  /** A banner of light across the road at a mark, `height` m over it (default 16), `width` m wide (default 46). */
+  banner?: { at: Mark; text: string; height?: number; width?: number };
+  /** The colour of the lights that are not white (default: the circuit's own). sRGB hex. */
+  accent?: number;
+}
+
 export interface SceneryDef {
   /** A megacity circuit's light strips, rings, tunnel hoops and sky traffic. */
   neon?: NeonDef;
+  /** An orbital circuit's hovering grandstands, drones and sky traffic. */
+  hover?: HoverDef;
   /** A winter circuit's cabins, paddock, crowds, poles and reeds. */
   winter?: WinterSceneryDef;
   /** Pedestrian crossings, yellow box junctions, lane arrows and manhole covers on the road. */

@@ -10,6 +10,7 @@ import { buildBarriers, makeBarrierMaterials } from './barriers';
 import { buildCity, occludersNear } from './city';
 import { buildHarbour } from './harbour';
 import { buildHarbourProps } from './harbourProps';
+import { buildHover } from './hover';
 import { buildStreet } from './street';
 import { makeMaterials } from './materials';
 import { buildNeon, reserveNeon } from './neon';
@@ -82,6 +83,9 @@ export async function buildTrackScene(rt: TrackRuntimeImpl, opts: TrackSceneOpti
   // a megacity circuit's light strips, rings and sky traffic (after the city and the props: it dresses what they built)
   const neon = buildNeon(ctx);
   if (neon) root.add(neon);
+  // an orbital circuit's hovering grandstands, drones and sky traffic (after the props: they keep clear of the TV cameras)
+  const hover = buildHover(ctx, props.tvCameras);
+  if (hover) root.add(hover);
   // a winter circuit's snowbanks, cabins, poles, reeds and crowds (after the props: they keep clear of the TV cameras)
   if (rt.def.winter) root.add(buildWinterScenery(ctx, mats.terrain));
   await yieldFrame();
