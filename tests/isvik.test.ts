@@ -346,7 +346,7 @@ describe('Isvik Circuit and the Xeno Cup', () => {
     const state = season();
     expect(isPlayable(state, TRACKS.map((t) => t.info.id), CARS.map((c) => c.id))).toBe(true);
     const night = roundConfig(state, 2);
-    expect(night).toMatchObject({ trackId: 'isvik', environment: { timeOfDay: 'night', weather: 'clear' }, championship: { round: 3, rounds: 7 } });
+    expect(night).toMatchObject({ trackId: 'isvik', environment: { timeOfDay: 'night', weather: 'clear' }, championship: { round: 3, rounds: 8 } });
     expect(night.forecast).toBeUndefined();
     expect(buildView(state).rounds[2].trackId).toBe('isvik');
   });

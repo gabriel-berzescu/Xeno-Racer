@@ -357,10 +357,10 @@ export const GREAT = {
   /** The phase of the hour called night (degrees): two hours after sunset, when the lit half of the arch stands from the north over the zenith. */
   nightPhase: 210,
   /** The light of the arch on the circuit at night (the directional light's strength: a little under twice the moon's on the ground). */
-  archLight: 1.1,
+  archLight: 0.92,
   /** The night sky's own share of that light, the exposure of the night and how many of the stars it leaves. */
-  nightSky: 0.8,
-  nightExposure: 3.7,
+  nightSky: 0.62,
+  nightExposure: 3.4,
   nightStars: 0.8,
   /** The air is an island's, far from anything: the visibility is this many times an ordinary day's. */
   clarity: 1.6,
@@ -369,7 +369,7 @@ export const GREAT = {
   /** The light of its own sky on it. */
   landAmb: [0.06, 0.075, 0.1] as RGB,
   /** The lights of its night side (radiance of a bright stretch of coast). */
-  lights: 0.05,
+  lights: 0.14,
 };
 
 /** The phase of a great ring's day at which the sun stands `elDeg` high, before noon or after it. */

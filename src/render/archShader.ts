@@ -32,9 +32,11 @@ vec4 archOf(vec3 d) {
   // the angle round the ring from here: 0 at our feet to the north, pi overhead, 2 pi at our feet to the south
   float turn = 2.0 * atan(dy, d.z);
   // A pixel of sky is some 4000 km of the ring's turn at any height (the turn runs at twice the angle), while across the band it is
-  // a few hundred near the horizon and as many overhead: seen so slantwise, a world's weather is hairlines. So the land is drawn
-  // long (its features run four times as far round the ring as across it: what the eye then sees is about round), and read from
-  // the texture at the pixel's longer side, so that nothing finer than a pixel is ever asked for.
+  // a few hundred near the horizon and as many overhead: seen so slantwise, the weather of a world is hairlines, and drawn as it
+  // is it would be a column of dashes. What the eye can have of it is its largest shapes: oceans, continents and the great cloud
+  // masses, tens of thousands of kilometres long. So the land is drawn long (four times as far round the ring as across it: what
+  // is then seen is about round), read from the texture at the pixel's longer side, and an octave says less and less as a pixel
+  // comes to hold a whole feature of it (OCT): nothing finer than a few pixels is ever drawn.
   vec2 uv = vec2(turn / (ARCH_TWO_PI * 4.0), lx / (ARCH_TWO_PI * R));
   float fp = max(length(dFdx(uv)), length(dFdy(uv)));
   vec2 gx = vec2(fp, 0.0);
@@ -45,19 +47,19 @@ vec4 archOf(vec3 d) {
   if (cover <= 0.0) return vec4(0.0);
 
   #define ARCH(N, off) textureGrad(uNoise, uv * N + off, gx * N, gy * N)
+  #define OCT(N) (1.0 - smoothstep(0.02, 0.06, fp * N))
   // (each octave is read where the coarser one pushes it: value noise on a lattice shows the lattice until it is warped; the
   // outlines come from the two fbm channels of the noise, R and A)
-  vec4 a = ARCH(292.0, vec2(0.13, 0.71));                                   // 40 000 km to a tile: oceans and continents
-  vec4 b = ARCH(1160.0, vec2(0.37, 0.19) + (a.ra - 0.5) * 0.9);             // 10 000 km
-  vec4 c = ARCH(4640.0, vec2(0.61, 0.43) + (b.ra - 0.5) * 1.1);             // 2500 km
-  vec4 e = ARCH(18560.0, vec2(0.29, 0.83) + (c.ra - 0.5) * 1.2);            // 630 km
-  float lh = a.r * 0.5 + b.a * 0.27 + c.r * 0.15 + e.a * 0.08;
-  float land = smoothstep(0.545, 0.575, lh);
-  float shelf = smoothstep(0.47, 0.545, lh) * (1.0 - land);
-  float dry = smoothstep(0.38, 0.7, b.r * 0.55 + c.a * 0.3 + e.r * 0.15);
+  vec4 a = ARCH(148.0, vec2(0.13, 0.71));                                   // oceans and continents
+  vec4 b = ARCH(444.0, vec2(0.37, 0.19) + (a.ra - 0.5) * 0.6);
+  float kb = OCT(444.0);
+  float lh = a.r * 0.62 + mix(0.19, b.a * 0.38, kb);
+  float land = smoothstep(0.53, 0.58, lh);
+  float shelf = smoothstep(0.44, 0.53, lh) * (1.0 - land);
+  float dry = smoothstep(0.36, 0.66, a.a * 0.7 + mix(0.15, b.r * 0.3, kb));
   vec3 ground = mix(vec3(0.03, 0.07, 0.022), vec3(0.2, 0.165, 0.09), dry);
   ground = mix(ground, vec3(0.5, 0.5, 0.52), smoothstep(0.66, 0.74, lh));    // the snow of the high ranges
-  vec3 sea = mix(vec3(0.006, 0.022, 0.06), vec3(0.02, 0.17, 0.19), shelf);
+  vec3 sea = mix(vec3(0.006, 0.024, 0.065), vec3(0.02, 0.17, 0.19), shelf);
   vec3 alb = mix(sea, ground, land);
 
   // that land's own hour: its floor faces the axis, which from here is this way
@@ -73,28 +75,30 @@ vec4 archOf(vec3 d) {
   float gl = pow(max(dot(reflect(-uTrueSunDir, n), -d), 0.0), 140.0);
   col += uLandSun * ((1.0 - land) * lit * gl * 2.2);
 
-  // the weather of that world, seen from over it: systems a few thousand kilometres across, and the small stuff
-  vec2 w = uWind * uTime * 0.012;
-  vec4 w1 = ARCH(360.0, w + vec2(0.73, 0.21));
-  vec4 w2 = ARCH(1440.0, w * 2.0 + vec2(0.09, 0.61) + (w1.ra - 0.5) * 1.4);
-  vec4 w3 = ARCH(5760.0, w * 4.0 + vec2(0.55, 0.07) + (w2.ra - 0.5) * 1.5);
-  float cl = w1.r * 0.46 + w2.a * 0.34 + w3.r * 0.2;
-  float cloud = smoothstep(0.44, 0.72, cl);
+  // the weather of that world, seen from over it: the cloud masses of whole oceans
+  vec2 w = uWind * uTime * 0.004;
+  vec4 w1 = ARCH(204.0, w + vec2(0.73, 0.21));
+  vec4 w2 = ARCH(512.0, w * 2.0 + vec2(0.09, 0.61) + (w1.ra - 0.5) * 0.7);
+  float cl = w1.r * 0.6 + mix(0.2, w2.a * 0.4, OCT(512.0));
+  float cloud = smoothstep(0.4, 0.68, cl);
   vec3 ccol = 0.84 * (sun * (0.25 + 0.75 * cosl) + amb);
   col = mix(col, ccol, cloud * 0.93);
 
   // the lights of the night side: few, on the coasts
   float coast = land * (1.0 - smoothstep(0.575, 0.63, lh));
-  float dens = coast * smoothstep(0.42, 0.7, b.r * 0.6 + a.a * 0.4);
+  float dens = coast * smoothstep(0.4, 0.65, a.a);
   col += vec3(1.0, 0.72, 0.4) * (uLandLights * dens * (1.0 - lit) * (1.0 - cloud));
 
   // its own air over it: a veil of blue where that land is in its day, thicker the more slantwise it is seen (the ray meets the
   // far floor at the angle it left this one: d.y)
   float slant = 1.0 / max(d.y, 0.03);
   float veil = 1.0 - exp(-0.24 * slant);
-  vec3 air = uLandSun * vec3(0.24, 0.37, 0.62) * lit * (0.35 + 0.65 * cosl) + uLandAmb * 0.6 * lit;
+  // (it goes out with the day too: warm and dim along the line between day and night, as the land under it is)
+  float dayk = smoothstep(-0.02, 0.22, ndl);
+  vec3 air = uLandSun * vec3(0.24, 0.37, 0.62) * mix(vec3(1.0, 0.5, 0.3), vec3(1.0), dayk) * dayk * (0.4 + 0.6 * cosl) + uLandAmb * 0.6 * dayk;
   col = mix(col, air, veil * 0.9);
   #undef ARCH
+  #undef OCT
 
   // our own air on the way out: it takes the blue first (a rising moon is orange), and nearly all of it at the horizon
   vec3 T = exp(-vec3(0.05, 0.085, 0.165) * slant);

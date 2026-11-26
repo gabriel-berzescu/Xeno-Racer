@@ -262,6 +262,15 @@ const LOOKS: Record<string, TerrainLook> = {
     canopy: [0.9, 140, 800, 0.15],
     canopyCol: [0.045, 0.08, 0.04],
   },
+  // an atoll: lush ground, pale rock wherever it is steep (the shoulders of a causeway, a cliff over the sea), a little forest on the far land
+  halcyon: {
+    tint: [1.05, 1.7, 2.2],
+    rockRange: [0.07, 0.19],
+    dirtSlope: [0.3, 0.6, 0.3],
+    rockTint: [1.12, 1.06, 0.96],
+    canopy: [0.6, 300, 1400, 1],
+    canopyCol: [0.05, 0.1, 0.04],
+  },
 };
 
 export function makeTerrainMaterial(ctx: Ctx): THREE.MeshStandardMaterial {
