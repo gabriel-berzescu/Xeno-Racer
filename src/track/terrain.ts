@@ -3,6 +3,7 @@
  * The final ground = T + E, where E (see runtime.ts) carves the terrain around the road corridor.
  * Pure math (headless).
  */
+import type { CoastFn, CoastSample } from './coast';
 import { Noise2, smoothstep } from './math';
 import type { LakeDef, MapRect, RingFloor, TerrainParams } from './types';
 
@@ -46,7 +47,7 @@ export interface TerrainBounds {
   halfH: number;
 }
 
-export function makeTerrain(p: TerrainParams, b: TerrainBounds, ice?: LakeDef | null): TerrainFn {
+export function makeTerrain(p: TerrainParams, b: TerrainBounds, ice?: LakeDef | null, coast?: CoastFn | null): TerrainFn {
   const n1 = new Noise2(p.seed);
   const n2 = new Noise2(p.seed * 31 + 7);
   const n3 = new Noise2(p.seed * 131 + 11);
@@ -60,6 +61,10 @@ export function makeTerrain(p: TerrainParams, b: TerrainBounds, ice?: LakeDef | 
   const mt = p.mountains;
   const sea = p.sea;
   const ring = p.ring;
+  const ocean = coast ? p.ocean : undefined;
+  const warp = ocean?.warp ?? [34, 300];
+  const islets = ocean?.islets ?? [];
+  const cs: CoastSample = { d: 0, width: 0, rise: 0.07, bed: 10, slope: 0.05 };
   // the sea on the layout's map (east = -x, north = +z): water minus the land standing in it
   const seaDistance = (x: number, z: number): number => {
     if (!sea) return Infinity;
@@ -139,6 +144,34 @@ export function makeTerrain(p: TerrainParams, b: TerrainBounds, ice?: LakeDef | 
       }
     }
     if (ring) h += ringRise(ring, x, z);
+    if (ocean && coast) {
+      // an island: the land is capped by the shore's profile (it rises from the waterline), and beyond the coast the bed falls away
+      coast(x, z, cs);
+      // (the coast wanders: bays and points. Never by more than half the land there is beside the road: a causeway hardly at all)
+      const wk = Math.min(warp[0], 0.45 * Math.max(0, cs.width - 16)) / 1.36;
+      const d = cs.d + wk * (n3.noise(x / warp[1] + 13.7, z / warp[1] - 4.2) + 0.36 * n3.noise(x / (warp[1] * 0.31) - 6.1, z / (warp[1] * 0.31) + 9.9));
+      if (d >= 0) {
+        // a berm above the wash, then the shore's own slope
+        const shore = ocean.level + Math.min(d, 9) * 0.085 + d * cs.rise;
+        if (shore < h) h = shore;
+      } else {
+        h = ocean.level - cs.bed * (1 - Math.exp((d * cs.slope) / cs.bed));
+      }
+      for (let i = 0; i < islets.length; i++) {
+        const it = islets[i];
+        const dx = x - it.x;
+        const dz = z - it.z;
+        const r = Math.sqrt(dx * dx + dz * dz);
+        if (r > it.r + 90) continue;
+        // (a ragged outline, and a top that is not a table)
+        const rr = it.r * (1 + 0.22 * n3.noise(x / (it.r * 0.9) + 3.3, z / (it.r * 0.9) - 7.1));
+        const di = rr - r;
+        const sheer = it.sheer ?? 0.5;
+        const top = it.h * (0.82 + 0.18 * n2.noise(x / 23 + 1.9, z / 23 + 5.5));
+        const hi = di >= 0 ? ocean.level + top * smoothstep(0, rr * (1 - 0.8 * sheer), di) + Math.min(di, 4) * 0.12 : ocean.level + di * 0.3;
+        if (hi > h) h = hi;
+      }
+    }
     if (sea) {
       const sd = seaDistance(x, z);
       // (a far hill that reaches the water comes down to it over twice its height, in a slope and not a cliff)
@@ -155,7 +188,7 @@ export function makeTerrain(p: TerrainParams, b: TerrainBounds, ice?: LakeDef | 
     }
     return h;
   }) as TerrainFn;
-  fn.lakeLevel = lake ? lake.level : sea ? sea.level : null;
+  fn.lakeLevel = lake ? lake.level : sea ? sea.level : ocean ? ocean.level : null;
   fn.seaDistance = seaDistance;
   fn.iceMask = iceMask;
   return fn;

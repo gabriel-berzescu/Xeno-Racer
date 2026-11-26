@@ -17,6 +17,7 @@ void main() {
 }
 `;
 
+import { archSkyChunk } from './archShader';
 import { orbitalSkyChunk } from './orbitalShader';
 
 export const skyFragmentShader = /* glsl */ `
@@ -256,6 +257,9 @@ vec3 galaxy(vec3 d) {
 #ifdef XR_ORBITAL
 ${orbitalSkyChunk}
 #endif
+#ifdef XR_ARCH
+${archSkyChunk}
+#endif
 
 // ---- northern lights -------------------------------------------------------------------------
 // Two slow, wavy curtains over the north: a sharp bright lower edge that fades upward, vertical rays (noise that varies quickly along
@@ -355,6 +359,11 @@ void main() {
   vec3 col = orbitalSky(d);
 #else
   vec3 col = atmosphere(d);
+#ifdef XR_ARCH
+  // on a great ring: the rest of the ring, an arch beyond the air and in front of the stars
+  vec4 arch = archOf(d);
+  col += arch.rgb;
+#endif
 
   // sun disc + halo
   if (uShowSun > 0.5 && mu > 0.0) {
@@ -369,6 +378,9 @@ void main() {
   // night: stars, galaxy, moon
   if (uStars > 0.01) {
     float horizonFade = smoothstep(0.0, 0.25, d.y);
+#ifdef XR_ARCH
+    horizonFade *= 1.0 - arch.a;
+#endif
     col += (stars(d) * 2.4 + galaxy(d) * 0.07) * uStars * horizonFade;
   }
   if (uMoonVis > 0.01) col += moon(d, uMoonVis);

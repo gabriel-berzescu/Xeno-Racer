@@ -38,6 +38,8 @@ export class SkyDome {
   readonly material: ShaderMaterial;
   /** The same shader compiled with the sky of an orbital ring (orbitalShader.ts): the two meshes wear it on a circuit inside one. */
   readonly orbitalMaterial: ShaderMaterial;
+  /** And with the sky of a great ring (archShader.ts): the ordinary sky, and the arch of the ring across it. */
+  readonly archMaterial: ShaderMaterial;
   private lutTexture: DataTexture | null = null;
   /** The sky model the LUT texture was made from: a solution made of the same model (a blend) keeps the texture. */
   private lutModel: SkyModel | null = null;
@@ -141,6 +143,19 @@ export class SkyDome {
       fog: false,
     });
 
+    this.archMaterial = new ShaderMaterial({
+      name: 'xr.sky.arch',
+      uniforms: this.material.uniforms,
+      defines: { XR_ARCH: '' },
+      vertexShader: skyVertexShader,
+      fragmentShader: skyFragmentShader,
+      depthWrite: false,
+      depthTest: true,
+      depthFunc: LessEqualDepth,
+      toneMapped: false,
+      fog: false,
+    });
+
     this.mesh = new Mesh(geometry, this.material);
     this.mesh.name = 'xr.sky';
     this.mesh.frustumCulled = false;
@@ -220,7 +235,7 @@ export class SkyDome {
     (u.uSunAz.value as Vector2).set(sol.skyAz[0], sol.skyAz[1]);
     // a circuit inside an orbital ring wears the ring's sky
     const ob = sol.orbital;
-    const mat = ob ? this.orbitalMaterial : this.material;
+    const mat = ob ? (ob.ring.great ? this.archMaterial : this.orbitalMaterial) : this.material;
     this.mesh.material = mat;
     this.envMesh.material = mat;
     if (ob) {
@@ -282,6 +297,7 @@ export class SkyDome {
     this.mesh.geometry.dispose();
     this.material.dispose();
     this.orbitalMaterial.dispose();
+    this.archMaterial.dispose();
     this.lutTexture?.dispose();
     for (const t of this.dayLuts.values()) t.dispose();
     this.dayLuts.clear();

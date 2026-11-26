@@ -24,7 +24,7 @@
  */
 import type { OrbitalRing, TimeOfDay } from '../core/contracts';
 import type { RGB } from './atmosphere';
-import type { TodPreset } from './presets';
+import { TOD, type TodPreset } from './presets';
 
 const DEG = Math.PI / 180;
 
@@ -59,9 +59,12 @@ export const ORBITAL_PHASE: Record<TimeOfDay, number> = { dawn: 8, morning: 32, 
 
 const wrap360 = (p: number): number => ((p % 360) + 360) % 360;
 
-/** Unit direction toward the sun at a phase of the day (world axes: east = -x, up = +y, north = +z). */
-export function orbitalSun(phaseDeg: number, out: [number, number, number] = [0, 0, 0]): [number, number, number] {
-  const a = ORBITAL.sunAxis * DEG;
+/**
+ * Unit direction toward the sun at a phase of the day (world axes: east = -x, up = +y, north = +z). `axisDeg`: the angle between
+ * the sun and the east end of the ring's axis (a habitat ring's by default; a great ring has its own, `GREAT.sunAxis`).
+ */
+export function orbitalSun(phaseDeg: number, out: [number, number, number] = [0, 0, 0], axisDeg: number = ORBITAL.sunAxis): [number, number, number] {
+  const a = axisDeg * DEG;
   const p = phaseDeg * DEG;
   out[0] = -Math.cos(a);
   out[1] = Math.sin(a) * Math.sin(p);
@@ -311,6 +314,7 @@ export function orbitalTurn(look: OrbitalLook, phaseDeg: number): OrbitalLook {
 }
 
 export function orbitalLook(ring: OrbitalRing, phaseDeg: number, planetLum: number, skyAmbient: RGB, light: RGB): OrbitalLook {
+  const world = ring.great ? GREAT : ORBITAL;
   return orbitalTurn(
     {
       ring,
@@ -319,11 +323,112 @@ export function orbitalLook(ring: OrbitalRing, phaseDeg: number, planetLum: numb
       planet: [1, 0, 0],
       pole: [0, 1, 0],
       planetLum,
-      landSun: ORBITAL.landSun,
-      landAmb: ORBITAL.landAmb,
-      lights: ORBITAL.lights,
+      landSun: world.landSun,
+      landAmb: world.landAmb,
+      lights: world.lights,
       structure: [skyAmbient[0] * 0.5 + light[0] * 0.05, skyAmbient[1] * 0.5 + light[1] * 0.05, skyAmbient[2] * 0.5 + light[2] * 0.05],
     },
     phaseDeg,
   );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A great ring (an Orbital): `OrbitalRing.great`
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// The same geometry at another size. A ring 1.855 million km in radius weighs 1 g when it turns once in 24 hours: it is in orbit
+// about its star as a planet is (it does not go round the star: the star would stand at its zenith for ever), tilted to its orbit
+// as the Earth is to its own, and its day is its turning. Everything above holds, with other numbers: the axis lies along world x,
+// the sun circles the east end of it, one phase says where everything is. But the floor is flat (a kilometre of it rises a
+// quarter of a millimetre), the air is a whole atmosphere under an open sky, and an hour lasts an hour: the look of a race is one
+// of the game's six times of day, as on the ground, with the sun where the ring's geometry puts it.
+//
+//   the sun    66.6 degrees from the east end of the axis (the ring's midsummer: 90 less the tilt of 23.4): it rises in the
+//              north-north-east, stands 66.6 degrees high due east at noon and sets in the south-south-east
+//   the arch   the rest of the ring: it stands on the horizon due north and due south and goes over the zenith. Half of it is in
+//              its day: the half toward the north in the evening (from the horizon to the zenith at sunset), the half toward the
+//              south in the morning, the top of it at midnight. That half is the light of the night: several hundred full moons.
+
+export const GREAT = {
+  /** Seconds the ring takes to turn once (2 pi sqrt(r / g) for a floor 1.855 million km from the axis): a day. */
+  daySeconds: 86400,
+  /** Degrees between the sun and the east end of the axis: the sun's height at noon. */
+  sunAxis: 66.6,
+  /** The phase of the hour called night (degrees): two hours after sunset, when the lit half of the arch stands from the north over the zenith. */
+  nightPhase: 210,
+  /** The light of the arch on the circuit at night (the directional light's strength: a little under twice the moon's on the ground). */
+  archLight: 1.1,
+  /** The night sky's own share of that light, the exposure of the night and how many of the stars it leaves. */
+  nightSky: 0.8,
+  nightExposure: 3.7,
+  nightStars: 0.8,
+  /** The air is an island's, far from anything: the visibility is this many times an ordinary day's. */
+  clarity: 1.6,
+  /** Sunlight on the ring's land, radiance per unit albedo at normal incidence (the half of the arch that is in its day). */
+  landSun: [1.0, 0.97, 0.92] as RGB,
+  /** The light of its own sky on it. */
+  landAmb: [0.06, 0.075, 0.1] as RGB,
+  /** The lights of its night side (radiance of a bright stretch of coast). */
+  lights: 0.05,
+};
+
+/** The phase of a great ring's day at which the sun stands `elDeg` high, before noon or after it. */
+function greatPhaseAt(elDeg: number, afternoon: boolean): number {
+  const p = Math.asin(Math.min(1, Math.sin(elDeg * DEG) / Math.sin(GREAT.sunAxis * DEG))) / DEG;
+  return afternoon ? 180 - p : p;
+}
+
+/**
+ * The phase of a great ring's day at each of the game's times of day: the sun stands as high as it does at that hour on the
+ * ground (noon is its highest: 66.6 degrees), and night is `GREAT.nightPhase`.
+ */
+export const GREAT_PHASE: Record<TimeOfDay, number> = {
+  dawn: greatPhaseAt(TOD.dawn.elDeg, false),
+  morning: greatPhaseAt(TOD.morning.elDeg, false),
+  noon: 90,
+  golden: greatPhaseAt(TOD.golden.elDeg, true),
+  dusk: greatPhaseAt(TOD.dusk.elDeg, true),
+  night: GREAT.nightPhase,
+};
+
+/**
+ * Unit direction toward the middle of the lit half of the arch while the sun is down: the lit half runs from the north horizon to
+ * the zenith at sunset, lies across the zenith at midnight and runs from the zenith to the south horizon at sunrise, so its middle
+ * goes from 45 degrees above the north horizon over the top to 45 degrees above the south. Written into `out`.
+ */
+export function greatArchLight(phaseDeg: number, out: [number, number, number] = [0, 0, 0]): [number, number, number] {
+  const psi = wrap360(phaseDeg - 90) - 180; // -90 at sunset, 0 at midnight, +90 at sunrise
+  const tilt = (-psi / 2) * DEG;
+  out[0] = 0;
+  out[1] = Math.cos(tilt);
+  out[2] = Math.sin(tilt);
+  return out;
+}
+
+/**
+ * The look of a circuit on a great ring at one of the game's times of day, as a preset the solver understands: the ground's own
+ * preset for that hour (the sky is an ordinary sky), with the sun where the ring's geometry puts it; and at night the light of the
+ * lit half of the arch in place of the moon's, from where that half stands.
+ */
+export function greatHour(timeOfDay: TimeOfDay): TodPreset {
+  const base = TOD[timeOfDay];
+  const phase = GREAT_PHASE[timeOfDay];
+  const sun = angles(orbitalSun(phase, _sun, GREAT.sunAxis));
+  if (timeOfDay !== 'night') return { ...base, elDeg: sun.el, azDeg: sun.az, phaseDeg: phase };
+  const body = angles(greatArchLight(phase));
+  return {
+    ...base,
+    elDeg: body.el,
+    azDeg: body.az,
+    sunE: GREAT.archLight,
+    skyGain: GREAT.nightSky / GREAT.archLight,
+    exposure: GREAT.nightExposure,
+    stars: GREAT.nightStars,
+    moon: true,
+    trueSunElDeg: sun.el,
+    trueSunAzDeg: sun.az,
+    // the daylight of a world, given back: white, a little to the blue of its seas and its air
+    lightRGB: [0.84, 0.91, 1.0],
+    phaseDeg: phase,
+  };
 }

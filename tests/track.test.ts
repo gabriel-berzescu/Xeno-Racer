@@ -39,6 +39,7 @@ const LIMITS: Record<string, Limits> = {
   // megacity grand-prix circuit: 4.8 km, 34 m of relief on a 3 % slope, an R24 hairpin, a carousel banked 8 degrees
   xenon: { minRadius: 23, maxGrade: 0.06, minCrestR: 600, minSagR: 500, maxBankDeg: 8.5, elev: [30, 38], length: [4600, 5000], maxFieldStep: 1.0 },
   hyperion: { minRadius: 30, maxGrade: 0.05, minCrestR: 600, minSagR: 500, maxBankDeg: 4.5, elev: [15, 20], length: [5100, 5450], maxFieldStep: 1.0 },
+  halcyon: { minRadius: 40, maxGrade: 0.07, minCrestR: 600, minSagR: 500, maxBankDeg: 4.5, elev: [20, 26], length: [5200, 5550], maxFieldStep: 1.0 },
 };
 
 function newGround(): GroundSample {

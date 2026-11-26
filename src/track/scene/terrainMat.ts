@@ -39,6 +39,9 @@ uniform vec3 uAvgDry;
 uniform vec3 uAvgDirt;
 uniform vec3 uAvgRock;
 uniform float uWet;
+#ifdef XR_SHORE
+uniform vec2 uShore;
+#endif
 varying vec3 vWPos;
 varying vec3 vWNormal;
 varying float vSurf;
@@ -49,6 +52,9 @@ varying float vUrban;
 #ifdef XR_CITY_NEON
 uniform float uCityNight;
 vec3 gCityGlow;
+#endif
+#ifdef XR_SHORE
+float gShore;
 #endif
 float gWRock;
 float gWDirt;
@@ -135,6 +141,22 @@ const FRAG_MAP = /* glsl */ `
     cCan *= mix(1.0, 0.55 + 0.9 * mix(gN4.r, gN5.g, 0.5), smoothstep(150.0, 650.0, camDist));
     col = mix(col, cCan, cw);
   }
+#ifdef XR_SHORE
+  // an island: sand from the bed of the sea to a little above the wash (how far above wanders), and in the run-offs that are beach.
+  // Pale and dry up the beach, darker where the sea wets it; the rock of a cliff stays rock.
+  {
+    float hs = vWPos.y - uShore.x;
+    float top = uShore.y * (0.55 + 0.9 * gN1.r) + 0.5 * (gN3.g - 0.5);
+    float sandW = max(1.0 - smoothstep(top * 0.5, top, hs), smoothstep(0.35, 0.8, vSurf)) * (1.0 - gWRock);
+    vec3 cSand = vec3(0.6, 0.52, 0.375) * (0.9 + 0.2 * gN2.r) * (0.93 + 0.14 * gN3.r) * (0.95 + 0.1 * gN5.g);
+    cSand *= mix(0.6, 1.0, smoothstep(0.02, 0.55, hs));
+    col = mix(col, cSand, sandW);
+    gWGrass *= 1.0 - sandW;
+    gWMoss *= 1.0 - sandW;
+    gWDirt = max(gWDirt * (1.0 - sandW), 0.0);
+    gShore = sandW;
+  }
+#endif
 #ifdef XR_URBAN
 #ifdef XR_CITY_NEON
   // a megacity: no meadow anywhere. Asphalt between the towers, slabs of concrete paving at their feet, and after dark the light of
@@ -167,7 +189,11 @@ const FRAG_MAP = /* glsl */ `
 #endif
 #endif
   // wet ground is darker: grass a little, bare earth and rock a lot
+#ifdef XR_SHORE
+  col *= mix(1.0, 0.74 * gWGrass + 0.6 * gWRock + 0.5 * gWDirt + 0.68 * gWMoss + 0.66 * gShore, uWet);
+#else
   col *= mix(1.0, 0.74 * gWGrass + 0.6 * gWRock + 0.5 * gWDirt + 0.68 * gWMoss, uWet);
+#endif
   diffuseColor.rgb *= col;
 `;
 
@@ -260,6 +286,7 @@ export function makeTerrainMaterial(ctx: Ctx): THREE.MeshStandardMaterial {
   const canopy = new THREE.Vector4(...look.canopy);
   const canopyCol = new THREE.Vector3(...look.canopyCol);
   const neon = ctx.rt.def.scenery?.city?.style === 'neon';
+  const shore = ctx.rt.def.terrain.ocean;
   const uCityNight = { value: 0 };
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uGrass = { value: t.moss.diff }; // lush meadow is the base layer
@@ -282,6 +309,7 @@ export function makeTerrainMaterial(ctx: Ctx): THREE.MeshStandardMaterial {
     shader.uniforms.uAvgDirt = { value: t.dirt.avg.clone() };
     shader.uniforms.uAvgRock = { value: t.rock.avg.clone() };
     shader.uniforms.uWet = ctx.wet.uWet;
+    if (shore) shader.uniforms.uShore = { value: new THREE.Vector2(shore.level, 1.9) };
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\n' + VERT_DECL)
       .replace('#include <begin_vertex>', '#include <begin_vertex>\n vWPos = (modelMatrix * vec4(transformed, 1.0)).xyz; vWNormal = normalize(mat3(modelMatrix) * objectNormal); vSurf = aSurf; vEdge = aEdge;\n#ifdef XR_URBAN\n vUrban = aUrban;\n#endif');
@@ -304,7 +332,9 @@ export function makeTerrainMaterial(ctx: Ctx): THREE.MeshStandardMaterial {
       uCityNight.value = Math.min(1, Math.max(0, (env.darkness - 0.12) / 0.3));
     });
   }
-  mat.customProgramCacheKey = () => 'terrain-splat-v11-' + ctx.q.splatLayers + (neon ? '-neon' : '');
+  // an island's ground is sand at the sea's edge and under it; the other circuits do not pay for it
+  if (shore) mat.defines = { ...(mat.defines ?? {}), XR_SHORE: '' };
+  mat.customProgramCacheKey = () => 'terrain-splat-v11-' + ctx.q.splatLayers + (neon ? '-neon' : '') + (shore ? '-shore' : '');
   mat.userData.wetShader = true;
   return mat;
 }

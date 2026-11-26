@@ -214,8 +214,34 @@ export interface RingFloor {
   bermW: number;
 }
 
+/**
+ * The sea of an island circuit: everything below `level` is water (src/track/scene/water.ts draws it), and the land is the circuit's
+ * own, the ground beside its road: as far as `left` / `right` metres from the centreline (keys along the lap), with a coast that
+ * noise pulls in and out. Where the widths are small the road runs on a causeway. Off the coast the bed falls away: to a shallow
+ * lagoon on one side of the road and to the open sea on the other. See src/track/coast.ts and makeTerrain.
+ */
+export interface OceanDef {
+  /** Water surface elevation (m). */
+  level: number;
+  /** How far the land reaches from the centreline on each side of the road (m), keyed along the lap. */
+  left: Key[];
+  right: Key[];
+  /** How steeply the land rises from the waterline on each side (rise/run), keyed along the lap: 0.06 a beach, 1 a cliff. Default 0.07 all round. */
+  rise?: { left?: Key[]; right?: Key[] };
+  /** The sea bed off the shore on each side of the road: [its depth far out (m below the level), how fast it gets there (rise/run)]. */
+  bed: { left: [number, number]; right: [number, number] };
+  /** Which side of the road the open sea is on (the other side is the inside of the circuit): the sea far from the map is this one's. */
+  outside: 'L' | 'R';
+  /** The coast is pulled in and out by noise: amplitude (m) and wavelength (m). Default [34, 300]. */
+  warp?: [number, number];
+  /** Islets and stacks standing in the sea: world x and z, the radius of the shore (m), the height (m), and how sheer the sides are (0..1, default 0.5). */
+  islets?: { x: number; z: number; r: number; h: number; sheer?: number }[];
+}
+
 export interface TerrainParams {
   seed: number;
+  /** An island circuit: the sea, and the land beside the road. */
+  ocean?: OceanDef;
   /** The circuit lies inside an orbital ring: the ground curls up to the north and south, and ends at the rims. */
   ring?: RingFloor;
   sea?: SeaDef;
@@ -559,6 +585,10 @@ export interface SceneryDef {
   bridges?: { at: Mark; brand: number }[];
   /** The built world of an orbital habitat beyond the circuit: the works at the foot of the rim's glass, the stalks, the settlements. */
   habitat?: HabitatDef;
+  /** An island circuit's old wood: colossal trees, thousands of years old, and the rocks that stand in its sea (src/track/scene/giants.ts). */
+  giants?: GiantsDef;
+  /** Who came to watch an island circuit: the boats at anchor and under sail, and the great ship in the sky (src/track/scene/fleet.ts). */
+  fleet?: FleetDef;
 }
 
 /**
@@ -618,4 +648,24 @@ export interface ViaductDef {
   /** The deck's height over the ground under its lowest point (m) and the span of an arch (m). */
   height: number;
   span: number;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The old wood and the sea rocks of an island circuit (src/track/scene/giants*.ts)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** The old wood of an island circuit and the rocks in its sea. Positions are world x and z (x = -east), heights in metres. */
+export interface GiantsDef {
+  /** Fixes what is random about it. */
+  seed?: number;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The fleet of an island circuit (src/track/scene/fleet*.ts)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Who came to watch an island circuit. Positions are world x and z (x = -east), heights in metres. */
+export interface FleetDef {
+  /** Fixes what is random about it. */
+  seed?: number;
 }

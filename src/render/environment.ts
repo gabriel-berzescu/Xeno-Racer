@@ -4,7 +4,7 @@
  */
 import { WEATHER_WATER, type EnvironmentSettings, type OrbitalRing } from '../core/contracts';
 import { computeSkyModel, FOG_TABLE_SIZE, type RGB, type SkyModel } from './atmosphere';
-import { ORBITAL, ORBITAL_PHASE, orbitalHour, orbitalLight, orbitalLook, orbitalRingLight, orbitalSun, orbitalTurn, type OrbitalLook } from './orbital';
+import { GREAT, GREAT_PHASE, greatHour, ORBITAL, ORBITAL_PHASE, orbitalHour, orbitalLight, orbitalLook, orbitalRingLight, orbitalSun, orbitalTurn, type OrbitalLook } from './orbital';
 import { directionFromAngles, TOD, TOD_WINTER, WEATHER, WEATHER_WINTER, type TodPreset, type WeatherPreset } from './presets';
 
 const DEG = Math.PI / 180;
@@ -139,7 +139,7 @@ export async function solveEnvironment(settings: EnvironmentSettings, yieldFn?: 
   const hit = cache.get(key);
   if (hit) return hit;
   const ring = ringOf(settings);
-  const tod = ring ? orbitalHour(ring, ORBITAL_PHASE[settings.timeOfDay]) : (settings.winter === true ? TOD_WINTER : TOD)[settings.timeOfDay];
+  const tod = ring ? (ring.great ? greatHour(settings.timeOfDay) : orbitalHour(ring, ORBITAL_PHASE[settings.timeOfDay])) : (settings.winter === true ? TOD_WINTER : TOD)[settings.timeOfDay];
   return solveLook(settings, tod, key, yieldFn);
 }
 
@@ -149,7 +149,8 @@ export async function solveEnvironment(settings: EnvironmentSettings, yieldFn?: 
  */
 export async function solveOrbitalHour(settings: EnvironmentSettings, phaseDeg: number, yieldFn?: () => Promise<void>): Promise<EnvSolution> {
   const ring = ringOf(settings);
-  if (!ring) return solveEnvironment(settings, yieldFn);
+  // (the hours of a great ring are the game's six: its day does not turn during a race)
+  if (!ring || ring.great) return solveEnvironment(settings, yieldFn);
   const key = `${envKey(settings)}@${phaseDeg.toFixed(3)}`;
   const hit = cache.get(key);
   if (hit) return hit;
@@ -160,6 +161,8 @@ async function solveLook(settings: EnvironmentSettings, tod: TodPreset, key: str
   const winter = settings.winter === true;
   const megacity = settings.megacity === true && !winter;
   const ring = ringOf(settings);
+  // (a habitat ring's sky is its own: thin air under a canopy, the land for a horizon. A great ring's is an ordinary sky with an arch in it)
+  const habitat = ring && !ring.great ? ring : null;
   const weather = (winter ? WEATHER_WINTER : WEATHER)[settings.weather];
   const el = tod.elDeg * DEG;
 
@@ -198,12 +201,12 @@ async function solveLook(settings: EnvironmentSettings, tod: TodPreset, key: str
   const od = weather.overcast;
 
   // (inside a ring the disc that is drawn is always the true sun's: the land hides it when it is down)
-  const sunRadiance: RGB = ring ? scale(Tsun, 110 * (1 - od)) : tod.moon ? [0, 0, 0] : scale(T, 110 * (1 - od));
+  const sunRadiance: RGB = habitat ? scale(Tsun, 110 * (1 - od)) : tod.moon ? [0, 0, 0] : scale(T, 110 * (1 - od));
   const sinEl = Math.max(0, sd.y);
   // A floodlit circuit under a night rain deck is not pitch black: the lamps and the glow of the track fill the
   // ambient (so cars and trackside things keep their shape). The sky itself stays black above.
   const fill = weather.deck > 0 ? 0.0034 * tod.darkness * tod.darkness : 0;
-  const skyBase = desat(scale(model.skyMeanCos, skyScale * (ring ? ORBITAL.ambient : 1)), od);
+  const skyBase = desat(scale(model.skyMeanCos, skyScale * (habitat ? ORBITAL.ambient : 1)), od);
   // The light of a megacity: it comes on with the dark (a storm at noon lights the signs too), it is in the air at the horizon, in the
   // haze the towers fade into and on the underside of every cloud, and a share of it comes back down as ambient light.
   const darkness = Math.min(1, tod.darkness + weather.darken * (1 - tod.darkness));
@@ -231,7 +234,7 @@ async function solveLook(settings: EnvironmentSettings, tod: TodPreset, key: str
   const hemiGround = scale(ground, Math.PI * tod.hemi * 0.45);
 
   // Visibility -> exp2 fog density.
-  const visibility = (9000 * (ring ? ORBITAL.clarity : 1)) / (tod.haze * weather.fog * (megacity ? MEGACITY.fogDay + (MEGACITY.fogNight - MEGACITY.fogDay) * cityK : 1));
+  const visibility = (9000 * (habitat ? ORBITAL.clarity : ring ? GREAT.clarity : 1)) / (tod.haze * weather.fog * (megacity ? MEGACITY.fogDay + (MEGACITY.fogNight - MEGACITY.fogDay) * cityK : 1));
   const fogDensity = 2 / visibility;
 
   // A low sun still warms the horizon under a rain deck: the fog toward the sun keeps part of its colour.
@@ -341,8 +344,8 @@ async function solveLook(settings: EnvironmentSettings, tod: TodPreset, key: str
     moonVis: tod.moon && !ring ? (deck > 0 ? 0.6 : 1 - weather.overcast * 0.85) : 0,
     aurora: winter ? (tod.aurora ?? 0) * (1 - Math.min(1, weather.overcast * 1.1)) : 0,
     city,
-    skyAz: horizontal(ring ? ts : sd),
-    orbital: ring ? orbitalLook(ring, tod.phaseDeg ?? ORBITAL_PHASE[settings.timeOfDay], tod.planetLum ?? 0.1, skyCos, lightVec) : null,
+    skyAz: horizontal(habitat ? ts : sd),
+    orbital: ring ? orbitalLook(ring, tod.phaseDeg ?? (ring.great ? GREAT_PHASE : ORBITAL_PHASE)[settings.timeOfDay], tod.planetLum ?? (ring.great ? 0 : 0.1), skyCos, lightVec) : null,
     lutB: null,
   };
   cache.set(key, sol);

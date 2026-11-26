@@ -433,7 +433,8 @@ describe('Hyperion Ring in the menus', () => {
     expect(info.winter).toBeUndefined();
     expect(info.megacity).toBeUndefined();
     expect(info.defaultTimeOfDay).toBe('golden');
-    expect(TRACKS.filter((t) => t.info.orbital).map((t) => t.info.id)).toEqual(['hyperion']);
+    // (the one habitat ring; a great ring is another kind of orbital circuit: tests/halcyon.test.ts)
+    expect(TRACKS.filter((t) => t.info.orbital && !t.info.orbital.great).map((t) => t.info.id)).toEqual(['hyperion']);
     expect(new Set(TRACKS.map((t) => t.info.color.toLowerCase())).size).toBe(TRACKS.length);
     expect(new Set(TRACKS.map((t) => trackCode(t.info.name))).size).toBe(TRACKS.length);
   });

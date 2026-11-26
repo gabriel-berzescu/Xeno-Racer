@@ -147,6 +147,8 @@ ${GRASS_MACRO_GLSL}`,
   const col = new THREE.Color();
   const mown = rt.def.mowing !== false;
   const lake = rt.terrain.lakeLevel;
+  // (no grass on the sand of an island's beaches)
+  const beach = rt.def.terrain.ocean ? 2.3 : 0.5;
   const b = rt.bounds;
   const pad = 130 + rt.maxWall;
   const STEP = 1.25;
@@ -187,7 +189,7 @@ ${GRASS_MACRO_GLSL}`,
       if (blocked) continue;
       rt.groundAt(px, pz, g, hint);
       if (g.surface !== 'grass' || g.normal.y < 0.82) continue;
-      if (lake !== null && g.height < lake + 0.5) continue;
+      if (lake !== null && g.height < lake + beach) continue;
       c.items.push(px, g.height - 0.015, pz, r2, r3);
     }
     c.row++;
