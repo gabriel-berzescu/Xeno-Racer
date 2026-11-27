@@ -718,8 +718,67 @@ export interface BoulderFieldDef {
 // The fleet of an island circuit (src/track/scene/fleet*.ts)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Who came to watch an island circuit. Positions are world x and z (x = -east), heights in metres. */
+/**
+ * The kinds of boat, from the smallest: an outrigger canoe under a crab-claw sail, a catamaran, a sloop, a two-masted ketch and a
+ * three-masted ship.
+ */
+export type BoatKind = 'proa' | 'cat' | 'sloop' | 'ketch' | 'tall';
+
+/**
+ * Who came to watch an island circuit. Positions are world x and z (x = -east), heights in metres, headings compass degrees (0 is
+ * the north, 90 the east).
+ */
 export interface FleetDef {
   /** Fixes what is random about it. */
   seed?: number;
+  /** Where the wind comes from (default 90). A boat at anchor lies head to it; one under sail trims to it. */
+  wind?: number;
+  /** Boats at anchor, a stretch of water at a time. */
+  moorings?: MooringDef[];
+  /** Boats at anchor placed one by one (the big ships). */
+  berths?: BerthDef[];
+  /** Boats under sail. */
+  courses?: CourseDef[];
+  /** The great ship in the sky. */
+  ship?: GreatShipDef;
+}
+
+export interface MooringDef {
+  /** The line the boats lie along, and how far to either side of it they are scattered (m). */
+  line: [number, number][];
+  spread: number;
+  /** How many boats (at High quality: fewer below it), and the share of each kind among them. A boat that draws too much for the water it would lie in gives way to a smaller one. */
+  count: number;
+  kinds: Partial<Record<BoatKind, number>>;
+  /** They lie in groups of about this many (default 1: each on its own). */
+  group?: number;
+}
+
+export interface BerthDef {
+  x: number;
+  z: number;
+  kind: BoatKind;
+  /** Where its bow points (default: into the wind). */
+  heading?: number;
+}
+
+export interface CourseDef {
+  kind: BoatKind;
+  /** The marks it rounds, in order: a closed course, every corner as wide a turn as its two legs allow. */
+  marks: [number, number][];
+  /** How many boats sail it (default 1) and how fast on a reach (m/s, default 2.4). */
+  boats?: number;
+  speed?: number;
+}
+
+export interface GreatShipDef {
+  /** The middle of it, and the height of its keel over the sea. */
+  x: number;
+  z: number;
+  altitude: number;
+  /** Its length, and where its bow points. */
+  length: number;
+  heading: number;
+  /** How many sails stand on its back (default 3; 0: none). */
+  masts?: number;
 }
