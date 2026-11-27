@@ -26,8 +26,9 @@ export const halcyonGiants: GiantsDef = {
       { x: 40, z: 965, r: 80, density: 0.3 },
     ],
     glades: [
-      // the cliff top outside Osprey: the view to the north
+      // the cliff top outside Osprey and the last of the climb to it: the view to the north (no tree of any kind stands in a glade)
       { x: 790, z: 1645, r: 100 },
+      { x: 885, z: 1590, r: 75 },
       // the way of the evening light up the road from Jackdaw 3
       { x: 262, z: 930, r: 46 },
     ],
@@ -39,11 +40,12 @@ export const halcyonGiants: GiantsDef = {
     // the sentinel on the south-west point, outside Curlew: the mark the Strand is driven toward
     { x: 1132, z: -362, height: 121, girth: 10.4 },
   ],
-  // due north of the last of the climb to Osprey, 340 m off the cliff: from the road there the arch of the world rises behind it
-  arch: { x: 905, z: 1840, bearing: 0, span: 50, rise: 52, cap: 15 },
+  // due north of the last of the climb to Osprey, 290 m off the cliff, its eastern end grown out of one of the stacks: from the road
+  // there the arch of the world rises behind it and through it
+  arch: { x: 905, z: 1792, bearing: 0, span: 56, rise: 58, cap: 17 },
   boulders: [
     { x: 800, z: 1612, r: 60, n: 16, size: 5 },
-    { x: 905, z: 1838, r: 62, n: 10, size: 4.5 },
+    { x: 905, z: 1790, r: 70, n: 10, size: 4.5 },
     { x: 770, z: 1715, r: 44, n: 8, size: 4 },
   ],
 };

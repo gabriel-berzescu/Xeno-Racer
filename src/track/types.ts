@@ -674,7 +674,7 @@ export interface GiantWoodDef {
    * thinning out over the outer third. Where a road runs through a grove, a row of trunks stands close behind its barriers.
    */
   groves: { x: number; z: number; r: number; density?: number }[];
-  /** Glades: discs where no giant stands (a view kept open, a place where the light comes down). */
+  /** Glades: discs where no giant stands, nor any other tree of the island (a view kept open, a place where the light comes down). */
   glades?: { x: number; z: number; r: number }[];
   /** Metres between trunks deep in the wood (default 30). */
   spacing?: number;
@@ -687,6 +687,8 @@ export interface GiantWoodDef {
   /** Young trees and ferns under the giants, per giant (default 1.6 and 9). */
   young?: number;
   ferns?: number;
+  /** Giants that fell long ago and lie in the wood within sight of the road (default 6). */
+  logs?: number;
 }
 
 export interface SeaArchDef {

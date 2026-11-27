@@ -8,7 +8,7 @@
  * the reach of the shadow maps carries the number of a probe (giantsShade.ts): the share of the sun it sees is worked out there.
  */
 import { mulberry32 } from '../math';
-import type { Giant } from './giantsPlace';
+import type { Giant, Log } from './giantsPlace';
 import { NO_PROBE, type ShadeModel } from './giantsShade';
 
 /** A growable vertex buffer: position, normal, uv, colour, the probe of its sunlight and (leaves) how far the wind moves it. */
@@ -51,8 +51,8 @@ export interface GiantLod {
 }
 
 export const GIANT_LODS: GiantLod[] = [
-  { sides: 24, step: 18, boughs: 13, bSegs: 3, bSides: 5, pads: 3, cards: 5, core: 6, beards: 0.6 },
-  { sides: 12, step: 24, boughs: 10, bSegs: 2, bSides: 4, pads: 2, cards: 4, core: 5, beards: 0.25 },
+  { sides: 20, step: 18, boughs: 13, bSegs: 3, bSides: 5, pads: 3, cards: 6, core: 5, beards: 0.6 },
+  { sides: 10, step: 24, boughs: 10, bSegs: 2, bSides: 4, pads: 2, cards: 4, core: 4, beards: 0.25 },
   { sides: 8, step: 32, boughs: 7, bSegs: 2, bSides: 3, pads: 2, cards: 2, core: 4, beards: 0 },
 ];
 
@@ -214,8 +214,9 @@ function tube(b: GBuf, path: number[], radius: number[], sides: number, shade: n
 }
 
 /**
- * A pad of foliage: a dark core (what shows between the cards is shade, not sky) and cards lying on and round it, most of them
- * nearly level, as the sprays of a conifer lie. Lit from above in its colours: the underside is dark.
+ * A pad of foliage: a dark core (what shows between the cards is shade, not sky) and cards on and round it, half of them lying
+ * nearly level, as the sprays of a conifer lie (what the pad is from under it and from over it), half standing on edge (what it is
+ * from the side). Lit from above in its colours: the underside is dark.
  */
 function pad(b: GBuf, rnd: () => number, cx: number, cy: number, cz: number, rh: number, rv: number, lod: GiantLod, tint: [number, number, number], probe: number, deep: number): void {
   // the core
@@ -228,7 +229,7 @@ function pad(b: GBuf, rnd: () => number, cx: number, cy: number, cz: number, rh:
   for (let i = 0; i < sides; i++) {
     const a = yaw + (i / sides) * Math.PI * 2;
     const k = 0.34 * deep;
-    b.v(cx + Math.cos(a) * rh * 0.7, cy - rv * 0.12, cz + Math.sin(a) * rh * 0.7, Math.cos(a) * 0.8, 0.6, Math.sin(a) * 0.8, u, 0.5, tint[0] * k, tint[1] * k, tint[2] * k, probe, 0.1);
+    b.v(cx + Math.cos(a) * rh * 0.62, cy - rv * 0.12, cz + Math.sin(a) * rh * 0.62, Math.cos(a) * 0.8, 0.6, Math.sin(a) * 0.8, u, 0.5, tint[0] * k, tint[1] * k, tint[2] * k, probe, 0.1);
   }
   for (let i = 0; i < sides; i++) {
     const a = ring + i;
@@ -240,30 +241,44 @@ function pad(b: GBuf, rnd: () => number, cx: number, cy: number, cz: number, rh:
   for (let i = 0; i < lod.cards; i++) {
     const a = yaw + i * GOLD + (rnd() - 0.5) * 0.6;
     const out = i === 0 ? 0.1 : 0.45 + 0.45 * rnd();
-    const px = cx + Math.cos(a) * rh * out;
-    const pz = cz + Math.sin(a) * rh * out;
-    const py = cy + rv * (i === 0 ? 0.55 : 0.5 - 0.65 * out + 0.3 * rnd());
+    const px = cx + Math.cos(a) * rh * out * (i % 2 === 1 ? 0.5 : 1);
+    const pz = cz + Math.sin(a) * rh * out * (i % 2 === 1 ? 0.5 : 1);
+    const py = cy + rv * (i === 0 ? 0.55 : i % 2 === 1 ? 0.1 + 0.2 * rnd() : 0.5 - 0.65 * out + 0.3 * rnd());
     // the card's plane: level, tipped outward and down by a quarter of a turn at most, rolled a little
     const tip = (i === 0 ? 0.1 : 0.3 + 0.9 * out * rnd()) * (rnd() < 0.85 ? 1 : -0.5);
     const half = rh * (0.52 + 0.2 * rnd()) * (lod.cards <= 2 ? 1.35 : lod.cards <= 4 ? 1.12 : 1);
     const ox = Math.cos(a);
     const oz = Math.sin(a);
     // axes: e1 outward and down, e2 square to it and level
-    const e1x = ox * Math.cos(tip);
-    const e1y = -Math.sin(tip);
-    const e1z = oz * Math.cos(tip);
+    let e1x = ox * Math.cos(tip);
+    let e1y = -Math.sin(tip);
+    let e1z = oz * Math.cos(tip);
     const roll = (rnd() - 0.5) * 0.5;
-    const e2x = -oz * Math.cos(roll);
-    const e2y = Math.sin(roll);
-    const e2z = ox * Math.cos(roll);
+    let e2x = -oz * Math.cos(roll);
+    let e2y = Math.sin(roll);
+    let e2z = ox * Math.cos(roll);
+    let h1 = half;
+    let h2 = half;
+    if (i % 2 === 1) {
+      // every other card stands on edge instead, across the pad and leaning out a little: what the pad is from the side
+      const lean = (rnd() - 0.3) * 0.6;
+      e1x = -oz;
+      e1y = roll * 0.4;
+      e1z = ox;
+      e2x = ox * Math.sin(lean);
+      e2y = Math.cos(lean);
+      e2z = oz * Math.sin(lean);
+      h1 = half * 1.25;
+      h2 = Math.max(rv * 1.35, half * 0.62);
+    }
     const [u0, u1] = PAD_U[rnd() < 0.5 ? 0 : 1];
     const fu = rnd() < 0.5;
     const fv = rnd() < 0.5;
     const base = b.n;
     for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
-      const x = px + (e1x * sx + e2x * sy) * half;
-      const y = py + (e1y * sx + e2y * sy) * half;
-      const z = pz + (e1z * sx + e2z * sy) * half;
+      const x = px + e1x * sx * h1 + e2x * sy * h2;
+      const y = py + e1y * sx * h1 + e2y * sy * h2;
+      const z = pz + e1z * sx * h1 + e2z * sy * h2;
       // soft normals: away from a point under the pad, and upward
       let nx = x - cx;
       let ny = y - (cy - rv * 1.6);
@@ -494,5 +509,65 @@ export function emitFern(b: GBuf, x: number, y: number, z: number, s: number, ya
       b.v(x + dx * sx, y - 0.1 + sy * s, z + dz * sx, dx * sx * 0.25, 0.9, dz * sx * 0.25, u0 + (u1 - u0) * (sx * 0.5 + 0.5), 0.02 + 0.96 * sy, c * 0.92, c, c * 0.8, NO_PROBE, sy * 0.35);
     }
     b.idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+  }
+}
+
+/**
+ * A giant that fell long ago: its trunk lying on the ground, a third of it sunk in, the roots' flare at one end and a broken end at
+ * the other (both hollow: dark in the middle), moss along its back.
+ */
+export function emitLog(b: GBuf, l: Log, sides: number): void {
+  const rnd = mulberry32(l.seed);
+  const SEG = 9;
+  const dx = Math.cos(l.yaw);
+  const dz = Math.sin(l.yaw);
+  const nU = Math.max(3, Math.round((2 * Math.PI * l.r) / BARK_U));
+  const tone = 0.8 + 0.25 * rnd();
+  const uOff = rnd();
+  const base = b.n;
+  const cx: number[] = [];
+  const cyy: number[] = [];
+  const cz: number[] = [];
+  for (let k = 0; k <= SEG; k++) {
+    const t = k / SEG;
+    // the flare of the roots at the butt, then the long taper; a little out of true all the way
+    const r = l.r * (1 - 0.42 * t) * (1 + 0.55 * Math.pow(Math.max(0, 1 - t / 0.12), 2)) * (0.95 + 0.1 * rnd());
+    const x = l.x + dx * l.len * t;
+    const z = l.z + dz * l.len * t;
+    const y = l.y + l.dy * t + r * 0.3;
+    cx.push(x);
+    cyy.push(y);
+    cz.push(z);
+    for (let j = 0; j <= sides; j++) {
+      const a = (j / sides) * Math.PI * 2;
+      // (round the trunk: up, then across)
+      const ny = Math.cos(a);
+      const ns = Math.sin(a);
+      const rr = r * (1 + 0.06 * Math.sin(a * 3 + k));
+      const moss = Math.min(1, Math.max(0, ny * 1.4 + 0.1)) * (0.5 + 0.5 * rnd());
+      const k0 = tone * (0.5 + 0.5 * Math.max(0, ny * 0.5 + 0.5)) * (0.85 + 0.3 * rnd());
+      b.v(x - dz * ns * rr, y + ny * rr, z + dx * ns * rr, -dz * ns, ny, dx * ns, (j / sides) * nU + uOff, (l.len * t) / BARK_V, k0 * (1 - 0.5 * moss), k0 * (1 - 0.12 * moss), k0 * (1 - 0.62 * moss), NO_PROBE);
+    }
+  }
+  const row = sides + 1;
+  for (let k = 0; k < SEG; k++) {
+    for (let j = 0; j < sides; j++) {
+      const a = base + k * row + j;
+      b.idx.push(a, a + 1, a + row, a + 1, a + row + 1, a + row);
+    }
+  }
+  // the two ends: rings of pale broken wood round a dark hollow
+  for (const end of [0, SEG]) {
+    const dir = end === 0 ? -1 : 1;
+    const c = b.v(cx[end] - dir * dx * 1.2, cyy[end], cz[end] - dir * dz * 1.2, dir * dx, 0, dir * dz, uOff, 0, 0.05, 0.04, 0.03, NO_PROBE);
+    const ring = b.n;
+    for (let j = 0; j <= sides; j++) {
+      const src = (base + end * row + j) * 3;
+      b.v(b.pos[src], b.pos[src + 1], b.pos[src + 2], dir * dx, 0, dir * dz, uOff + j * 0.3, 0.5, 0.62, 0.5, 0.38, NO_PROBE);
+    }
+    for (let j = 0; j < sides; j++) {
+      if (end === 0) b.idx.push(c, ring + j, ring + j + 1);
+      else b.idx.push(c, ring + j + 1, ring + j);
+    }
   }
 }

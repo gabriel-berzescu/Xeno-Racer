@@ -50,7 +50,7 @@ export function barkPixels(W = 256, H = 512): { color: Uint8Array; normal: Uint8
       const c2 = x2 - Math.floor(x2);
       const ridge2 = Math.pow(1 - Math.abs(2 * c2 - 1), 0.6);
       // where a ridge has broken across, and the fibres of the bark
-      const gap = Math.max(0, pnoise(u * 9 + 0.5, v * 14, 9, 14, 4) - 0.7) * 2.4;
+      const gap = Math.max(0, pnoise(u * 9 + 0.5, v * 10, 9, 10, 4) - 0.76) * 1.6;
       const f = pnoise(u * 128, v * 16, 128, 16, 5) * 0.2 + pnoise(u * 64, v * 60, 64, 60, 6) * 0.1;
       hgt[j * W + i] = Math.min(1, Math.max(0, 0.56 * ridge + 0.22 * ridge2 - gap + f - 0.08));
     }
@@ -58,8 +58,8 @@ export function barkPixels(W = 256, H = 512): { color: Uint8Array; normal: Uint8
   const color = new Uint8Array(W * H * 4);
   const normal = new Uint8Array(W * H * 4);
   const deep = [24, 14, 10];
-  const mid = [104, 56, 35];
-  const crest = [158, 96, 62];
+  const mid = [96, 55, 37];
+  const crest = [146, 93, 65];
   const grey = [138, 122, 110];
   for (let j = 0; j < H; j++) {
     for (let i = 0; i < W; i++) {

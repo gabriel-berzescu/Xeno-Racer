@@ -39,6 +39,18 @@ export interface Under {
   s: number;
 }
 
+/** A giant that fell: from its butt (x, z; y: the ground there) along `yaw` for `len` metres, the ground rising by `dy` on the way; `r`: its radius at the butt. */
+export interface Log {
+  x: number;
+  y: number;
+  z: number;
+  yaw: number;
+  len: number;
+  dy: number;
+  r: number;
+  seed: number;
+}
+
 /** Asks whether ground is taken: `ground` for anything built there, `view` for a TV camera's line of sight (tall things only). */
 export interface Blocked {
   ground(x: number, z: number, margin: number): boolean;
@@ -56,6 +68,7 @@ const DEFAULTS = {
   rowGap: [1.2, 4] as [number, number],
   young: 1.6,
   ferns: 9,
+  logs: 6,
 };
 
 /** How much of the full wood stands at (x, z): 0 outside every grove and in a glade, up to 1. */
@@ -251,10 +264,60 @@ export function placeGiants(rt: TrackRuntimeImpl, def: GiantsDef, blocked: Block
 }
 
 /**
+ * The fallen giants: a handful of trunks lying in the wood, ten to sixty metres behind a barrier where they are seen from the road,
+ * on ground that is even enough to lie on, clear of the standing trunks and of the cameras' lines of sight (a trunk lying down is
+ * still higher than a camera stands).
+ */
+export function placeLogs(rt: TrackRuntimeImpl, def: GiantsDef, giants: Giant[], blocked: Blocked): Log[] {
+  const wood = def.wood;
+  const out: Log[] = [];
+  const want = wood ? (wood.logs ?? DEFAULTS.logs) : 0;
+  if (!wood || want <= 0) return out;
+  const rnd = mulberry32((def.seed ?? 1) ^ 0x7ed55d16);
+  const sea = rt.terrain.lakeLevel ?? -1e9;
+  const standing = giants.filter((g) => g.kind !== 'lone');
+  for (let tries = 0; tries < 8000 && out.length < want; tries++) {
+    // its middle a little way behind a barrier, lying more or less along the road: seen from the cars broadside on
+    const k = Math.floor(rnd() * rt.count);
+    const sgn = rnd() < 0.5 ? 1 : -1;
+    const len = 34 + 30 * rnd();
+    const r = 2.1 + 1.5 * rnd();
+    const off = (sgn > 0 ? rt.L : rt.R).wall[k] + r + 7 + 22 * rnd() * rnd();
+    const yaw = Math.atan2(rt.HTZ[k], rt.HTX[k]) + (rnd() - 0.5) * 1.3 + (rnd() < 0.5 ? Math.PI : 0);
+    const seed = Math.floor(rnd() * 0x7fffffff);
+    const mx = rt.X[k] + sgn * rt.HLX[k] * off;
+    const mz = rt.Z[k] + sgn * rt.HLZ[k] * off;
+    const x = mx - (Math.cos(yaw) * len) / 2;
+    const z = mz - (Math.sin(yaw) * len) / 2;
+    if (woodDensity(wood, mx, mz) < 0.4) continue;
+    const y0 = rt.heightFast(x, z);
+    const y1 = rt.heightFast(x + Math.cos(yaw) * len, z + Math.sin(yaw) * len);
+    let ok = true;
+    for (let k = 0; k <= 12 && ok; k++) {
+      const t = k / 12;
+      const px = x + Math.cos(yaw) * len * t;
+      const pz = z + Math.sin(yaw) * len * t;
+      const py = rt.heightFast(px, pz);
+      // it lies on the ground all its length: no hollow or hump under it deeper than half its radius
+      if (py < sea + 1.2 || Math.abs(py - (y0 + (y1 - y0) * t)) > r * 0.5) ok = false;
+      else if (roadSide(rt, px, pz).back < r + 5) ok = false;
+      else if (blocked.ground(px, pz, r + 1) || blocked.view(px, pz, r + 1)) ok = false;
+      for (let i = 0; i < standing.length && ok; i++) if (Math.hypot(standing[i].x - px, standing[i].z - pz) < standing[i].root + r + 0.5) ok = false;
+      for (let i = 0; i < out.length && ok; i++) {
+        const o = out[i];
+        for (let u = 0; u <= 8; u++) if (Math.hypot(o.x + (Math.cos(o.yaw) * o.len * u) / 8 - px, o.z + (Math.sin(o.yaw) * o.len * u) / 8 - pz) < o.r + r + 6) ok = false;
+      }
+    }
+    if (ok) out.push({ x, y: y0, z, yaw, len, dy: y1 - y0, r, seed });
+  }
+  return out;
+}
+
+/**
  * What grows under the giants: young trees of their own kind between the trunks (none within reach of a barrier or in a camera's
  * line of sight), and ferns at the feet of the trunks that stand near the road and along the back of its barriers.
  */
-export function placeUnder(rt: TrackRuntimeImpl, def: GiantsDef, giants: Giant[], blocked: Blocked, share = 1): { young: Under[]; ferns: Under[] } {
+export function placeUnder(rt: TrackRuntimeImpl, def: GiantsDef, giants: Giant[], blocked: Blocked, share = 1, logs: Log[] = []): { young: Under[]; ferns: Under[] } {
   const young: Under[] = [];
   const ferns: Under[] = [];
   const wood = def.wood;
@@ -265,6 +328,21 @@ export function placeUnder(rt: TrackRuntimeImpl, def: GiantsDef, giants: Giant[]
   const fernsPer = (wood.ferns ?? DEFAULTS.ferns) * share;
   const trunks = new Near(32);
   for (const g of giants) trunks.add(g.x, g.z, g.root);
+  // (nothing grows through a fallen trunk; ferns grow along its flanks)
+  for (const l of logs) {
+    for (let k = 0; k <= 16; k++) {
+      const px = l.x + (Math.cos(l.yaw) * l.len * k) / 16;
+      const pz = l.z + (Math.sin(l.yaw) * l.len * k) / 16;
+      trunks.add(px, pz, l.r);
+      for (const side of [-1, 1]) {
+        if (rnd() < 0.45) continue;
+        const d = l.r * (0.9 + 0.5 * rnd()) * side;
+        const x = px - Math.sin(l.yaw) * d;
+        const z = pz + Math.cos(l.yaw) * d;
+        ferns.push({ x, y: rt.heightFast(x, z), z, s: 1.4 + 1.6 * rnd() });
+      }
+    }
+  }
   const taken = new Near(16);
   const p = new Vector3();
   for (const g of giants) {

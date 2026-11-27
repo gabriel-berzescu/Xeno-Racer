@@ -229,14 +229,29 @@ export function placeBoulders(rt: TrackRuntimeImpl, f: BoulderFieldDef, seed: nu
   return out;
 }
 
-export function buildSeaRocks(ctx: Ctx, def: GiantsDef): { mesh: THREE.Mesh; triangles: number } | null {
+/** Is (x, z) within `margin` of the arch's rock? (The fin's plan: a strip along its length, as wide as it is thick at the water.) */
+export function archFootprint(a: SeaArchDef, x: number, z: number, margin: number): boolean {
+  const size = archSize(a);
+  const bearing = ((a.bearing ?? 0) * Math.PI) / 180;
+  const along = (x - a.x) * Math.cos(bearing) + (z - a.z) * Math.sin(bearing);
+  const across = -(x - a.x) * Math.sin(bearing) + (z - a.z) * Math.cos(bearing);
+  return along > size.from - margin && along < size.to + margin && Math.abs(across) < size.thick / 2 + 4 + margin;
+}
+
+export function buildSeaRocks(ctx: Ctx, def: GiantsDef): { mesh: THREE.Mesh; triangles: number; reserve: (x: number, z: number, margin: number) => boolean } | null {
   if (!def.arch && !def.boulders?.length) return null;
   const seed = def.seed ?? 1;
   const b = new RockBuf();
   const detail = [0.6, 0.8, 1, 1.2][ctx.q.tier];
   if (def.arch) emitArch(b, def.arch, seed, detail);
+  const stones: { x: number; y: number; z: number; size: number }[] = [];
   (def.boulders ?? []).forEach((f, i) => {
-    placeBoulders(ctx.rt, f, seed + 31 * (i + 1)).forEach((p, j) => emitBoulder(b, p.x, p.y, p.z, p.size, seed + i * 977 + j * 13));
+    placeBoulders(ctx.rt, f, seed + 31 * (i + 1)).forEach((p, j) => {
+      // (none inside the arch's own rock)
+      if (def.arch && archFootprint(def.arch, p.x, p.z, 0)) return;
+      emitBoulder(b, p.x, p.y, p.z, p.size, seed + i * 977 + j * 13);
+      stones.push(p);
+    });
   });
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(b.pos), 3));
@@ -260,5 +275,14 @@ export function buildSeaRocks(ctx: Ctx, def: GiantsDef): { mesh: THREE.Mesh; tri
   mesh.castShadow = false;
   mesh.receiveShadow = false;
   ctx.disposables.push(geo, mat);
-  return { mesh, triangles: b.idx.length / 3 };
+  const arch = def.arch;
+  const reserve = (x: number, z: number, m: number): boolean => {
+    if (arch && archFootprint(arch, x, z, m)) return true;
+    for (let i = 0; i < stones.length; i++) {
+      const r = stones[i].size * 1.4 + m;
+      if ((x - stones[i].x) * (x - stones[i].x) + (z - stones[i].z) * (z - stones[i].z) < r * r) return true;
+    }
+    return false;
+  };
+  return { mesh, triangles: b.idx.length / 3, reserve };
 }
