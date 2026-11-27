@@ -145,7 +145,7 @@ const FRAG_MAP = /* glsl */ `
     col = mix(col, cCan, cw);
   }
 #ifdef XR_WOOD
-  // under an old wood (the groves of `SceneryDef.giants`: x, z and radius) no meadow grows: the ground is centuries of fallen bark
+  // under an old wood (the groves of SceneryDef.giants: x, z and radius) no meadow grows: the ground is centuries of fallen bark
   // and needles, red-brown and dark, with a little green where the light gets in. The mown verge beside the road stays a verge.
   {
     float wood = 0.0;
