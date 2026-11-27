@@ -175,6 +175,10 @@ float mirLeaf(float t) {
 	}`,
       );
   };
+  // (a sheet lies three centimetres over the sea, which a depth buffer cannot tell from the bed of a shallow lagoon a kilometre off)
+  m.polygonOffset = true;
+  m.polygonOffsetFactor = -2;
+  m.polygonOffsetUnits = -8;
   m.customProgramCacheKey = () => 'xr-fleet-mirror-v1';
   m.userData.noWet = true;
   return m;
@@ -195,6 +199,9 @@ export interface Mirror {
   move: (boat: number, matrix: THREE.Matrix4, trim: number) => void;
   flush: () => void;
 }
+
+/** Triangles in a sheet. */
+export const SHEET_TRIANGLES = (ROWS.length - 1) * 2;
 
 export function buildMirror(ctx: Ctx, shared: { value: THREE.Vector4 }, level: number, boats: Mirrored[], moving: boolean): Mirror | null {
   const count = boats.reduce((s, b) => s + b.images.length, 0);

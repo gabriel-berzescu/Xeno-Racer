@@ -4,8 +4,8 @@
  *
  * A vertex is one of four things (`aRig.x`):
  *   solid  a hull, a deck, a mast. `aRig.y`: its own light after dark, per unit of its colour (a line of light; below 0, a window
- *          with a warm lamp behind it);
- *          `aRig.z`: 1 where the colour is the boat's own hull colour times the vertex's; `aRig.w`: its roughness (0: the material's).
+ *          with a warm lamp behind it); `aRig.z`: 1 where the colour is the boat's own hull colour times the vertex's; `aRig.w`:
+ *          its roughness (0: the material's).
  *   sail   a membrane. Its vertices lie on its luff, and the shader spreads them: `aRig.y` m along the chord and `aRig.z` m of belly
  *          across it, turned about the luff by the boat's trim and drawn in by its furl. The colour is the boat's sail colour, and
  *          the vertex's own colour says where on the sail it is: red from the luff (0) to the leech (1), green from the foot (0) to
@@ -19,6 +19,8 @@
  * back) and the great ship's. A boat's roll, pitch and heave, its swing about its anchor, the trim of its sails and the breath in
  * them are the vertex shader's, from one clock and the instance's own numbers. A sail with the sun behind it is lit through: that
  * is what a membrane is, and it is most of what a fleet looks like against a low sun.
+ *
+ * A buffer also keeps what the water is to show of the thing built in it (`images`: fleetMirror.ts draws them).
  */
 import * as THREE from 'three';
 import type { EnvironmentState } from '../../core/contracts';

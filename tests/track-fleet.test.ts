@@ -7,7 +7,8 @@ import { TRACKS, loadTrackRuntime } from '../src/track';
 import type { TrackRuntimeImpl } from '../src/track';
 import { BOATS, BOAT_KINDS, boatBuffer } from '../src/track/scene/fleetBoats';
 import type { FleetBuf } from '../src/track/scene/fleetKit';
-import { KIND } from '../src/track/scene/fleetKit';
+import { IMAGE, KIND } from '../src/track/scene/fleetKit';
+import { SHEET_TRIANGLES } from '../src/track/scene/fleetMirror';
 import { type PointOfSail, planFleet, pointOfSail, waterAtAnchor, waterUnderSail } from '../src/track/scene/fleetPlan';
 import { greatShipBuffer } from '../src/track/scene/fleetShip';
 
@@ -224,10 +225,25 @@ describe("Halcyon Ring's fleet", () => {
       expect(maxX - minX, k).toBeLessThan(c.length * 1.3);
       expect(sails, k).toBeGreaterThan(20);
       expect(lamps, k).toBeGreaterThanOrEqual(14);
+      // what the water shows of it: every sail (a boat has as many images of sails as it has membranes), its hulls, some of its lamps
+      const sailImages = buf.images.filter((im) => im.kind < IMAGE.hull);
+      expect(sailImages.length, k).toBe({ proa: 1, cat: 2, sloop: 2, ketch: 3, tall: 5 }[k]);
+      expect(buf.images.filter((im) => im.kind === IMAGE.hull).length, k).toBe(k === 'sloop' || k === 'ketch' || k === 'tall' ? 1 : 2);
+      const lampImages = buf.images.filter((im) => im.kind === IMAGE.lamp);
+      expect(lampImages.length, k).toBeGreaterThanOrEqual(2);
+      // (a lamp is seven vertices)
+      expect(lampImages.length, k).toBeLessThanOrEqual(lamps / 7);
+      for (const im of buf.images) {
+        for (const v of [...im.foot, ...im.head, im.bend, im.c, ...im.clew, im.z]) expect(Number.isFinite(v), k).toBe(true);
+        expect(im.head[1], k).toBeGreaterThan(im.foot[1]);
+        // within the boat: no image of something that is not there
+        expect(Math.max(Math.abs(im.foot[0]), Math.abs(im.head[0])), k).toBeLessThan(c.length * 0.7);
+        if (im.kind !== IMAGE.lamp) expect(im.head[1], k).toBeLessThan(c.height * 1.02);
+      }
       const n = plan.berths.filter((b) => b.kind === k).length + plan.sailors.filter((b) => b.kind === k).length;
-      tris += buf.triangles * n;
+      tris += (buf.triangles + buf.images.length * SHEET_TRIANGLES) * n;
     }
-    // (every boat is drawn whatever the view: all of it counts)
+    // (every boat and every image is drawn whatever the view: all of it counts)
     expect(tris).toBeLessThan(150_000);
     expect(per.proa).toBeLessThan(450);
     expect(per.tall).toBeLessThan(3200);

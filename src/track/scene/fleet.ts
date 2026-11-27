@@ -5,7 +5,9 @@
  * draw call each; where they lie and where they sail is worked out from the def and the depth of the water (fleetPlan.ts). The great
  * ship (fleetShip.ts) is one mesh. All of it is one lit material in two programs (fleetKit.ts): the sun, the sky and the haze of
  * the scene are on it at every hour, its lamps and its lines of light come up with the dark, and nothing is made after the scene
- * is built. The images of the sails and of the lamps in the water are one draw call more (fleetMirror.ts). Nothing casts into the sun's cascades: the nearest boat is forty metres from the road, on water, which shows no shadow.
+ * is built. The images of the sails, the hulls and the lamps in the water are one draw call and one program more
+ * (fleetMirror.ts). Nothing casts into the sun's cascades: the nearest boat is forty metres from the road, on water, which shows
+ * no shadow.
  *
  * A circuit without the block gets nothing of this: no object, no material, no program.
  */
