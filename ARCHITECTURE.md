@@ -455,7 +455,7 @@ nothing of what a habitat ring changes applies to it. A circuit that is neither 
 - **No shader after the start** holds: `renderer.info.programs` is 79 on the grid of a twelve-car race at golden hour and 79 a lap later.
 - **Cost** (High, 1920x1080, that race, in stretches of about 20 s round the lap): 268 to 549 draw calls and 1.77 to 2.52 M triangles on average
   per stretch (the most on the grid, the least in the wood, where the giants keep the island's own trees off), a frame in 7.7 ms at the
-  median. On Low from the cockpit: 244 calls, 0.98 M triangles.
+  median. On Low from the cockpit: 297 calls, 1.39 M triangles. A rainy night that clears: 81 programs at the start and 81 after the sky has opened.
 - **The last round of the Xeno Cup**: at dawn, on a clear day (`CALENDAR` in `src/game/championship.ts`, `tests/halcyon.test.ts`). At dawn the
   lit half of the arch is the southern one, which stands over Meridian ahead of the grid, and the Causeway is driven toward the rising sun.
   A season that began in a golden hour at Aurelia ends in a sunrise.
