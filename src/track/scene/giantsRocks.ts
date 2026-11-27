@@ -1,11 +1,11 @@
 /**
  * The rocks in the sea of an island circuit that a height field cannot make (`GiantsDef.arch`, `GiantsDef.boulders`): one natural
  * arch, a fin of layered rock with the sea running through it, and boulders in the shallows under the cliff and round the feet of
- * the stacks. One mesh in the rock of the island's cliffs; it stands too far from the road to cast into the sun's cascades, so the
- * shade under the arch is painted into it.
+ * the stacks. One mesh in the rock of the island's cliffs, shaded in facets (the rock is broken, not worn round); it stands too far from
+ * the road to cast into the sun's cascades, so the shade under the arch is painted into it.
  */
 import * as THREE from 'three';
-import { mulberry32, Noise2, smoothstep } from '../math';
+import { hash2, mulberry32, Noise2, smoothstep } from '../math';
 import type { TrackRuntimeImpl } from '../runtime';
 import type { BoulderFieldDef, GiantsDef, SeaArchDef } from '../types';
 import type { Ctx } from './ctx';
@@ -14,8 +14,6 @@ import type { Ctx } from './ctx';
 const TILE = 6.5;
 
 export class RockBuf {
-  /** The first and last vertex of each closed loop: one place, two vertices (the texture has a seam there, the shading must not). */
-  seams: number[] = [];
   pos: number[] = [];
   uv: number[] = [];
   col: number[] = [];
@@ -77,60 +75,87 @@ export function emitArch(b: RockBuf, a: SeaArchDef, seed: number, detail: number
   const n2 = new Noise2(seed + 11);
   const half = a.span / 2;
   const BED = -9;
-  const M = Math.max(10, Math.round(18 * detail));
+  const M = Math.max(16, Math.round(40 * detail));
   // stations: even along the fin, close together at the two jambs of the opening
   const st: number[] = [];
-  const N = Math.max(24, Math.round(54 * detail));
+  const N = Math.max(28, Math.round(60 * detail));
   for (let i = 0; i <= N; i++) st.push(size.from + ((size.to - size.from) * i) / N);
   for (const j of [-1, 1]) st.push(j * half, j * half * 0.992, j * half * 0.95, j * half * 0.86, j * (half + 1.5));
   st.sort((p, q) => p - q);
   const tone: [number, number, number] = [0, 0, 0];
   const lean = (mulberry32(seed)() - 0.5) * 0.08;
+  /** The strata: beds of rock some seven metres thick, each standing a little proud of the next or behind it, each its own shade. */
+  const BEDS = 7;
+  const bedOf = (y: number, f: number): number => Math.floor(y / BEDS + f * 0.6 + 40);
   let prev = -1;
   for (let i = 0; i < st.length; i++) {
     const at = st[i];
     if (i > 0 && at - st[i - 1] < 0.05) continue;
     const s = (at - size.from) / (size.to - size.from);
     const inside = Math.abs(at) < half;
-    const top = Math.max(BED + 1.5, size.height * skyline(s) + n1.noise(at * 0.05, 3.7) * size.height * 0.07);
+    // the skyline: the fin's long outline, broken into steps where a bed ends
+    const smooth = size.height * skyline(s) + n1.noise(at * 0.05, 3.7) * size.height * 0.07;
+    const top = Math.max(BED + 1.5, smooth > 6 ? smooth * 0.45 + Math.round(smooth / 4.5) * 4.5 * 0.55 : smooth);
     // the underside of the span: a flattened arch, upright at its jambs
     const foot = inside ? a.rise * Math.pow(1 - Math.pow(Math.abs(at) / half, 2.6), 1 / 2.2) : BED;
     const bot = Math.min(foot, top - 1.5);
     const tHalf = (size.thick / 2) * (0.5 + 0.5 * Math.sqrt(Math.max(0, Math.sin(Math.PI * Math.min(1, Math.max(0, s))))));
+    // joints: upright grooves down the faces, the same from the skyline to the sea
+    const joint1 = n1.noise(at * 0.21, 9.3) * 1.5 + n1.noise(at * 0.6, 2.2) * 0.5;
+    const joint2 = n2.noise(at * 0.21, 4.1) * 1.5 + n2.noise(at * 0.6, 7.7) * 0.5;
     const base = b.n;
     let arc = 0;
     let px = 0;
     let py = 0;
     for (let m = 0; m <= M; m++) {
-      const ph = (m / M) * Math.PI * 2;
-      const cs = Math.cos(ph);
-      const sn = Math.sin(ph);
-      const yn = Math.sign(sn) * Math.pow(Math.abs(sn), 0.7);
-      const bn = Math.sign(cs) * Math.pow(Math.abs(cs), 0.55);
+      // round the section: half the foot, up the north face, over the top, down the south face, the other half of the foot
+      const q = m / M;
+      let bn: number;
+      let yn: number;
+      if (q < 0.06) {
+        bn = q / 0.06;
+        yn = -1;
+      } else if (q < 0.44) {
+        bn = 1;
+        yn = -1 + (2 * (q - 0.06)) / 0.38;
+      } else if (q < 0.56) {
+        bn = 1 - (2 * (q - 0.44)) / 0.12;
+        yn = 1;
+      } else if (q < 0.94) {
+        bn = -1;
+        yn = 1 - (2 * (q - 0.56)) / 0.38;
+      } else {
+        bn = -1 + (q - 0.94) / 0.06;
+        yn = -1;
+      }
+      // (which way is out of the rock here: the corners of the section are rounded by it)
+      const ol = Math.hypot(bn * bn * bn, yn * yn * yn) || 1;
+      const cs = (bn * bn * bn) / ol;
+      const sn = (yn * yn * yn) / ol;
       let y = (top + bot) / 2 + ((top - bot) / 2) * yn;
       // thick at the water, half as thick at the skyline
       const rel = Math.min(1, Math.max(0, y / size.height));
       const tb = tHalf * (0.5 + 0.5 * Math.pow(1 - rel, 1.3));
       let off = tb * bn + lean * y;
-      // the weather's work: the two faces each have their own, blended over the top and the foot; ledges where the strata lie
+      // the weather's work: the two faces each have their own, blended over the top and the foot
       const w = 0.5 + 0.5 * cs;
-      const f1 = n1.fbm(at * 0.045, y * 0.06, 3);
-      const f2 = n2.fbm(at * 0.045, y * 0.06, 3);
-      const rough = (w * f1 + (1 - w) * f2) * 3.4 + Math.sin(y * 0.5 + (w * f1 + (1 - w) * f2) * 3) * 0.5;
-      const d = rough * Math.min(1, tb / 6);
+      const f = w * n1.fbm(at * 0.045, y * 0.06, 3) + (1 - w) * n2.fbm(at * 0.045, y * 0.06, 3);
+      const bed = bedOf(y, f);
+      const proud = (hash2(bed, seed) - 0.5) * 3.2;
+      const d = (f * 3 + proud + (w * joint1 + (1 - w) * joint2)) * Math.min(1, tb / 6);
       off += d * cs;
-      y += d * sn * 0.6;
+      y += f * 2 * sn;
       const x = a.x + ax * at + bx * off;
       const z = a.z + az * at + bz * off;
       if (m > 0) arc += Math.hypot(off - px, y - py);
       px = off;
       py = y;
-      // under the span, and where a face overhangs, the rock is in its own shade
-      const under = inside && sn < -0.2 ? 0.55 + 0.45 * smoothstep(0.75, 1, Math.abs(at) / half) * 0.4 : 1;
-      rockTone(y, (0.92 + 0.16 * (w * f1 + (1 - w) * f2)) * under, tone);
-      // grass and salt bush on what is level at the top
-      const cap = sn > 0.86 && y > 12 ? 0.55 : 0;
-      b.v(x, y, z, at / TILE, arc / TILE, tone[0] * (1 - 0.3 * cap), tone[1] * (1 - 0.08 * cap), tone[2] * (1 - 0.45 * cap));
+      // under the span the rock is in its own shade
+      const under = inside && yn < -0.5 ? 0.5 : 1;
+      rockTone(y, (0.8 + 0.34 * hash2(bed, seed + 5) + 0.1 * f) * under, tone);
+      // grass and salt bush on the top, hanging a little way over its edge
+      const cap = y > 12 ? (yn > 0.99 ? 0.75 : yn > 0.8 ? 0.4 * hash2(m, i) : 0) : 0;
+      b.v(x, y, z, at / TILE, arc / TILE, tone[0] * (1 - 0.5 * cap), tone[1] * (1 - 0.2 * cap), tone[2] * (1 - 0.62 * cap));
     }
     if (prev >= 0) {
       for (let m = 0; m < M; m++) {
@@ -140,7 +165,6 @@ export function emitArch(b: RockBuf, a: SeaArchDef, seed: number, detail: number
       }
     }
     prev = base;
-    b.seams.push(base, base + M);
   }
 }
 
@@ -219,18 +243,6 @@ export function buildSeaRocks(ctx: Ctx, def: GiantsDef): { mesh: THREE.Mesh; tri
   geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(b.uv), 2));
   geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(b.col), 3));
   geo.setIndex(new THREE.BufferAttribute(b.n > 65535 ? new Uint32Array(b.idx) : new Uint16Array(b.idx), 1));
-  geo.computeVertexNormals();
-  const nor = geo.getAttribute('normal') as THREE.BufferAttribute;
-  for (let i = 0; i < b.seams.length; i += 2) {
-    const p = b.seams[i];
-    const q = b.seams[i + 1];
-    const x = nor.getX(p) + nor.getX(q);
-    const y = nor.getY(p) + nor.getY(q);
-    const z = nor.getZ(p) + nor.getZ(q);
-    const l = Math.hypot(x, y, z) || 1;
-    nor.setXYZ(p, x / l, y / l, z / l);
-    nor.setXYZ(q, x / l, y / l, z / l);
-  }
   geo.computeBoundingSphere();
   const r = ctx.tex.rock;
   const rep = (t: THREE.Texture): THREE.Texture => {
@@ -240,7 +252,7 @@ export function buildSeaRocks(ctx: Ctx, def: GiantsDef): { mesh: THREE.Mesh; tri
     ctx.disposables.push(c);
     return c;
   };
-  const mat = new THREE.MeshStandardMaterial({ map: rep(r.diff), normalMap: rep(r.nor), roughnessMap: rep(r.rough), roughness: 1, vertexColors: true, color: 0xb5ada0, envMapIntensity: 0.5 });
+  const mat = new THREE.MeshStandardMaterial({ map: rep(r.diff), normalMap: rep(r.nor), roughnessMap: rep(r.rough), roughness: 1, vertexColors: true, color: 0xaaa59c, envMapIntensity: 0.5, flatShading: true });
   mat.name = 'giantsRock';
   const mesh = new THREE.Mesh(geo, mat);
   mesh.name = 'giants_rocks';

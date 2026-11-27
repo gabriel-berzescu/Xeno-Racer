@@ -36,49 +36,50 @@ function pnoise(x: number, y: number, px: number, py: number, seed: number): num
 /** The bark as numbers: colour (sRGB bytes) and relief (a tangent-space normal map), both repeating. Headless. */
 export function barkPixels(W = 256, H = 512): { color: Uint8Array; normal: Uint8Array; width: number; height: number } {
   const hgt = new Float32Array(W * H);
-  const fib = new Float32Array(W * H);
   for (let j = 0; j < H; j++) {
     for (let i = 0; i < W; i++) {
       const u = i / W;
       const v = j / H;
-      // long ridges that wander, part and join: six to the tile, and a finer set between them
-      const warp = (pnoise(u * 3, v * 4, 3, 4, 1) - 0.5) * 0.11 + (pnoise(u * 8, v * 10, 8, 10, 2) - 0.5) * 0.035;
-      const x = (u + warp) * 6;
+      // long ridges that wander, part and join, no two as wide as each other: about nine to the tile, and a finer set on their backs
+      const warp = (pnoise(u * 3, v * 3, 3, 3, 1) - 0.5) * 0.13 + (pnoise(u * 9, v * 8, 9, 8, 2) - 0.5) * 0.05 + (pnoise(u * 20, v * 24, 20, 24, 8) - 0.5) * 0.016;
+      const x = (u + warp) * 9;
       const c = x - Math.floor(x);
-      const ridge = Math.pow(1 - Math.abs(2 * c - 1), 0.62);
-      const x2 = (u + warp * 0.6 + (pnoise(u * 5, v * 7, 5, 7, 3) - 0.5) * 0.05) * 17;
+      // (a ridge is a wide back between two narrow furrows)
+      const ridge = Math.pow(1 - Math.abs(2 * c - 1), 0.42);
+      const x2 = (u + warp * 0.5 + (pnoise(u * 6, v * 9, 6, 9, 3) - 0.5) * 0.06) * 23;
       const c2 = x2 - Math.floor(x2);
-      const ridge2 = 1 - Math.abs(2 * c2 - 1);
-      // where a ridge has broken across
-      const gap = Math.max(0, pnoise(u * 6 + 0.5, v * 11, 6, 11, 4) - 0.72) * 2.2;
-      const f = pnoise(u * 96, v * 12, 96, 12, 5) * 0.2 + pnoise(u * 48, v * 44, 48, 44, 6) * 0.08;
-      hgt[j * W + i] = Math.min(1, Math.max(0, 0.6 * ridge + 0.24 * ridge2 - gap + f - 0.1));
-      fib[j * W + i] = f;
+      const ridge2 = Math.pow(1 - Math.abs(2 * c2 - 1), 0.6);
+      // where a ridge has broken across, and the fibres of the bark
+      const gap = Math.max(0, pnoise(u * 9 + 0.5, v * 14, 9, 14, 4) - 0.7) * 2.4;
+      const f = pnoise(u * 128, v * 16, 128, 16, 5) * 0.2 + pnoise(u * 64, v * 60, 64, 60, 6) * 0.1;
+      hgt[j * W + i] = Math.min(1, Math.max(0, 0.56 * ridge + 0.22 * ridge2 - gap + f - 0.08));
     }
   }
   const color = new Uint8Array(W * H * 4);
   const normal = new Uint8Array(W * H * 4);
-  const deep = [34, 18, 12];
-  const mid = [122, 62, 35];
-  const crest = [178, 104, 60];
-  const grey = [152, 130, 112];
+  const deep = [24, 14, 10];
+  const mid = [104, 56, 35];
+  const crest = [158, 96, 62];
+  const grey = [138, 122, 110];
   for (let j = 0; j < H; j++) {
     for (let i = 0; i < W; i++) {
       const o = j * W + i;
       const h = hgt[o];
-      const w = Math.min(1, Math.max(0, (pnoise((i / W) * 2, (j / H) * 3, 2, 3, 7) - 0.45) / 0.35)) * 0.34 * h;
-      const sp = 0.93 + 0.14 * hash2(i * 3 + 11, j * 5 + 7);
+      const w = Math.min(1, Math.max(0, (pnoise((i / W) * 4, (j / H) * 5, 4, 5, 7) - 0.4) / 0.35)) * 0.4 * h;
+      const sp = 0.9 + 0.2 * hash2(i * 3 + 11, j * 5 + 7);
+      // (the furrows are narrow and nearly black, the backs of the ridges take the colour)
+      const t = h < 0.34 ? 0 : (h - 0.34) / 0.66;
       for (let k = 0; k < 3; k++) {
-        const base = h < 0.5 ? deep[k] + (mid[k] - deep[k]) * (h / 0.5) : mid[k] + (crest[k] - mid[k]) * ((h - 0.5) / 0.5);
+        const base = h < 0.34 ? deep[k] + (mid[k] - deep[k]) * Math.pow(h / 0.34, 1.6) : mid[k] + (crest[k] - mid[k]) * t;
         color[o * 4 + k] = Math.min(255, (base + (grey[k] - base) * w) * sp);
       }
       color[o * 4 + 3] = 255;
       const l = hgt[j * W + ((i + W - 1) % W)];
       const r = hgt[j * W + ((i + 1) % W)];
       const d = hgt[((j + H - 1) % H) * W + i];
-      const t = hgt[((j + 1) % H) * W + i];
-      const nx = -(r - l) * 4.2;
-      const ny = -(t - d) * 4.2;
+      const tp = hgt[((j + 1) % H) * W + i];
+      const nx = -(r - l) * 4.6;
+      const ny = -(tp - d) * 4.6;
       const nl = Math.hypot(nx, ny, 1);
       normal[o * 4] = (nx / nl) * 127.5 + 127.5;
       normal[o * 4 + 1] = (ny / nl) * 127.5 + 127.5;
@@ -186,8 +187,8 @@ function paintBeard(g: CanvasRenderingContext2D, ox: number, rnd: () => number):
   g.rect(ox, 0, TILE, TILE);
   g.clip();
   g.lineCap = 'round';
-  const cols = ['#8ea48a', '#a6b79b', '#7c977a', '#bcc8ad', '#97ad8f'];
-  for (let i = 0; i < 120; i++) {
+  const cols = ['#5d7559', '#6d8565', '#4e684f', '#80926f', '#657d5e'];
+  for (let i = 0; i < 64; i++) {
     const t = rnd();
     const x0 = ox + 12 + (TILE - 24) * t;
     const mid = 1 - Math.abs(t - 0.5) * 1.5;
@@ -196,7 +197,7 @@ function paintBeard(g: CanvasRenderingContext2D, ox: number, rnd: () => number):
     let y = -2;
     const sway = (rnd() - 0.5) * 16;
     g.strokeStyle = cols[Math.floor(rnd() * cols.length)];
-    const w0 = 2.2 + rnd() * 2.6;
+    const w0 = 2.0 + rnd() * 2.2;
     const N = 5;
     for (let k = 0; k < N; k++) {
       const nx = x0 + sway * ((k + 1) / N) + (rnd() - 0.5) * 7;
@@ -220,7 +221,7 @@ function paintFern(g: CanvasRenderingContext2D, ox: number, rnd: () => number): 
   g.rect(ox, 0, TILE, TILE);
   g.clip();
   g.lineCap = 'round';
-  const cols = ['#1d481b', '#2a6022', '#3a7a2b', '#549538', '#78b24a'];
+  const cols = ['#18381a', '#234c20', '#2f6127', '#43772f', '#5e8f3c'];
   const fx = ox + TILE / 2;
   const fy = TILE - 4;
   const n = 13;

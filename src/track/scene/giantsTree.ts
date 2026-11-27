@@ -51,11 +51,13 @@ export interface GiantLod {
 }
 
 export const GIANT_LODS: GiantLod[] = [
-  { sides: 24, step: 14, boughs: 13, bSegs: 4, bSides: 5, pads: 3, cards: 6, core: 6, beards: 1.2 },
-  { sides: 14, step: 20, boughs: 10, bSegs: 3, bSides: 4, pads: 2, cards: 4, core: 5, beards: 0.5 },
+  { sides: 24, step: 18, boughs: 13, bSegs: 3, bSides: 5, pads: 3, cards: 5, core: 6, beards: 0.6 },
+  { sides: 12, step: 24, boughs: 10, bSegs: 2, bSides: 4, pads: 2, cards: 4, core: 5, beards: 0.25 },
   { sides: 8, step: 32, boughs: 7, bSegs: 2, bSides: 3, pads: 2, cards: 2, core: 4, beards: 0 },
 ];
 
+/** The pads of a giant built in part are fewer and larger: the crown is as full from far away. */
+const PAD_GROW = [1, 1.28, 1.6];
 /** The bark tile is this wide and this high on the trunk (m). */
 const BARK_U = 2.6;
 const BARK_V = 5.2;
@@ -75,6 +77,8 @@ export const FERN_U = tileU(3);
 /** The shape of one trunk: radius at an angle and a height, and where its axis is at a height. */
 export interface TrunkShape {
   rho(th: number, h: number): number;
+  /** How deep in the fire scar a place on the bark is, 0..1. */
+  scar(th: number, h: number): number;
   /** Mean radius at a height (no lobes). */
   mean(h: number): number;
   axis(h: number): [number, number];
@@ -92,7 +96,7 @@ export function trunkShape(g: Giant): TrunkShape {
   const r = g.r;
   const nL = 5 + Math.floor(rnd() * 3);
   const lobes: [number, number, number][] = [];
-  for (let i = 0; i < nL; i++) lobes.push([((i + 0.6 * rnd()) / nL) * Math.PI * 2, 0.5 + 0.5 * rnd(), 0.2 + 0.2 * rnd()]);
+  for (let i = 0; i < nL; i++) lobes.push([((i + 0.6 * rnd()) / nL) * Math.PI * 2, 0.5 + 0.5 * rnd(), 0.16 + 0.16 * rnd()]);
   const lobe = (th: number): number => {
     let v = 0;
     for (const [a, w, s] of lobes) {
@@ -112,11 +116,25 @@ export function trunkShape(g: Giant): TrunkShape {
     const tip = Math.min(1, Math.max(0, (t - 0.8) / 0.2));
     return r * (1 - 0.5 * Math.pow(t, 1.25)) * (1 - 0.9 * tip * tip * (3 - 2 * tip));
   };
-  // the flare of the roots: three quarters of a radius more at the ground, gone a radius and a half up; under the ground they run on outward
-  const flare = (h: number): number => (h >= 0 ? r * 0.75 * Math.exp(-h / (0.5 * r + 0.6)) : r * 0.75 - h * 0.6);
+  // the flare of the roots: two thirds of a radius more at the ground, gone a radius and a half up; under the ground they run on outward
+  const flare = (h: number): number => (h >= 0 ? r * 0.68 * Math.exp(-h / (0.5 * r + 0.6)) : r * 0.68 - h * 0.6);
+  // a fire went through, centuries ago: on two trunks in five a black hollow at the foot, narrowing upward to a point
+  const scarred = rnd() < 0.4;
+  const scarA = rnd() * 6.28;
+  const scarH = 7 + 9 * rnd();
+  const scarW = 0.45 + 0.35 * rnd();
+  const scar = (th: number, h: number): number => {
+    if (!scarred || h >= scarH) return 0;
+    let d = th - scarA;
+    d -= Math.round(d / (Math.PI * 2)) * Math.PI * 2;
+    const w = scarW * (1 - Math.max(0, h) / scarH);
+    const t = Math.min(1, Math.max(0, 1 - Math.abs(d) / w));
+    return t * t * (3 - 2 * t);
+  };
   const first = Math.min(46, Math.max(30, H * (0.3 + 0.1 * rnd())));
   return {
-    rho: (th, h) => mean(h) * (1 + 0.085 * Math.exp(-Math.max(0, h) / 28) * (lobe(th + twist * h) - 0.45) + 0.02 * Math.sin(3 * th + ph + h * 0.07)) + flare(h) * (0.28 + 0.72 * lobe(th)),
+    rho: (th, h) => mean(h) * (1 + 0.13 * Math.exp(-Math.max(0, h) / 34) * (lobe(th + twist * h) - 0.45) + 0.02 * Math.sin(3 * th + ph + h * 0.07) - 0.2 * scar(th, h)) + flare(h) * (0.16 + 0.84 * lobe(th)),
+    scar,
     mean,
     axis: (h) => {
       const k = (Math.max(0, h) * Math.max(0, h)) / H;
@@ -125,7 +143,7 @@ export function trunkShape(g: Giant): TrunkShape {
     first,
     top: snag ? H * (0.86 + 0.05 * rnd()) : H,
     snag,
-    crown: 6 + 0.055 * H + r,
+    crown: 8 + 0.07 * H + r,
   };
 }
 
@@ -299,6 +317,8 @@ export function emitGiant(g: Giant, li: number, bark: GBuf, leaf: GBuf, shade: S
   const warm = 0.9 + 0.2 * rnd();
   const tone: [number, number, number] = [(0.92 + 0.16 * rnd()) * warm, 0.94 + 0.1 * rnd(), (0.96 + 0.1 * rnd()) / warm];
   const mossA = rnd() * 6.28;
+  const uOff = rnd();
+  const vOff = rnd();
   shade.addTrunk(g.x, g.z, g.y, sh.snag ? H : H * 0.97, g.r, sh.mean(H * 0.8), tree);
   for (let k = 0; k < rings.length; k++) {
     const h = rings[k];
@@ -328,11 +348,13 @@ export function emitGiant(g: Giant, li: number, bark: GBuf, leaf: GBuf, shade: S
       // between two roots the bark is in a fold: darker; moss up the foot on one side
       const fold = 0.72 + 0.28 * Math.min(1, (rho - sh.mean(h)) / (0.5 * g.r * Math.exp(-Math.max(0, h) / (0.5 * g.r + 0.6)) + 0.3) + 0.35);
       const moss = Math.max(0, 1 - Math.max(0, h) / (7 + 5 * Math.sin(th * 2 + mossA))) * (0.5 + 0.5 * Math.cos(th - mossA));
-      const k0 = foot * under * (h < 12 ? fold : 1);
+      // (and no two patches of it the same: the tile of bark repeats, the light on it does not)
+      const char = sh.scar(th, h);
+      const k0 = foot * under * (h < 12 ? fold : 1) * (0.84 + 0.3 * rnd()) * (1 - 0.86 * char);
       const cr = k0 * tone[0] * (1 - 0.42 * moss) * (1 + 0.5 * dead);
       const cg = k0 * tone[1] * (1 - 0.1 * moss) * (1 + 0.75 * dead);
       const cb = k0 * tone[2] * (1 - 0.5 * moss) * (1 + 1.0 * dead);
-      bark.v(wx(x, z), g.y + h, wz(x, z), nx * cy - nz * sy, ny, nx * sy + nz * cy, (i / S) * nU, h / BARK_V, cr, cg, cb, probe);
+      bark.v(wx(x, z), g.y + h, wz(x, z), nx * cy - nz * sy, ny, nx * sy + nz * cy, (i / S) * nU + uOff, h / BARK_V + vOff, cr, cg, cb, probe);
     }
   }
   const row = S + 1;
@@ -385,10 +407,10 @@ export function emitGiant(g: Giant, li: number, bark: GBuf, leaf: GBuf, shade: S
     // pads along the outer half of the limb, and one beyond its tip
     const nP = lod.pads;
     for (let j = 0; j < nP; j++) {
-      const t = nP === 1 ? 0.9 : 0.5 + (0.55 * j) / (nP - 1);
+      const t = nP === 1 ? 0.9 : nP === 2 ? 0.52 + 0.53 * j : 0.4 + (0.65 * j) / (nP - 1);
       const p = at(Math.min(1, t));
-      const rh = Math.min(6.8, Math.max(2.8, L * (0.25 + 0.12 * rnd()))) * (li === 2 ? 1.25 : 1) * (t > 1 ? 0.85 : 1);
-      const rv = rh * (0.4 + 0.12 * rnd());
+      const rh = Math.min(9, Math.max(3.8, L * (0.33 + 0.14 * rnd()))) * PAD_GROW[li] * (t > 1 ? 0.85 : 1);
+      const rv = rh * (0.44 + 0.14 * rnd());
       const side = (rnd() - 0.5) * rh * 0.9;
       const px = p[0] + ox * Math.max(0, t - 1) * L - oz * side;
       const pz = p[2] + oz * Math.max(0, t - 1) * L + ox * side;
@@ -408,18 +430,33 @@ export function emitGiant(g: Giant, li: number, bark: GBuf, leaf: GBuf, shade: S
       const w = 1.6 + 2.2 * rnd();
       const cyw = ox * cy - oz * sy;
       const czw = ox * sy + oz * cy;
-      beard(leaf, wx(p[0], p[2]), g.y + p[1] - rb * (1 - 0.7 * t) * 0.6, wz(p[0], p[2]), cyw, czw, w, 4 + 7 * rnd(), 0.8 + 0.3 * rnd(), bp, rnd() < 0.5);
+      beard(leaf, wx(p[0], p[2]), g.y + p[1] - rb * (1 - 0.7 * t) * 0.6, wz(p[0], p[2]), cyw, czw, w, 4 + 7 * rnd(), 0.5 + 0.25 * rnd(), bp, rnd() < 0.5);
     }
   }
+  // pads close in to the trunk all the way up the crown: an old giant is clothed, not a pole with a wreath round it
+  const nI = [7, 4, 2][li];
+  for (let i = 0; i < nI; i++) {
+    const h = sh.first + span * (0.1 + (0.86 * (i + rnd())) / nI);
+    const a = az0 + 2 + i * GOLD + (rnd() - 0.5);
+    const [ax, az] = sh.axis(h);
+    const rh = (3.2 + 2.4 * rnd()) * PAD_GROW[li];
+    const rv = rh * 0.5;
+    const d = sh.mean(h) + rh * (0.35 + 0.4 * rnd());
+    const X = wx(ax + Math.cos(a) * d, az + Math.sin(a) * d);
+    const Z = wz(ax + Math.cos(a) * d, az + Math.sin(a) * d);
+    const pi = shade.addPad(X, g.y + h, Z, rh, rv, tree);
+    const pp = shade.addProbe(X, g.y + h + rv * 0.3, Z, 0, tree, pi);
+    pad(leaf, rnd, X, g.y + h, Z, rh, rv, lod, tint, pp, 0.74);
+  }
   // the top: pads round the leader (a dead top has them under the spike)
-  const nT = li === 0 ? 5 : li === 1 ? 3 : 2;
+  const nT = [5, 4, 3][li];
   for (let i = 0; i < nT; i++) {
     const a = az0 + 1 + i * GOLD;
     const t = i / nT;
     const h = sh.top * (0.985 - 0.085 * t);
     const [ax, az] = sh.axis(h);
     const d = i === 0 && !sh.snag ? 0 : sh.crown * (0.12 + 0.2 * t);
-    const rh = (3.4 + 1.8 * rnd()) * (li === 2 ? 1.3 : 1);
+    const rh = (4.2 + 2.2 * rnd()) * PAD_GROW[li];
     const rv = rh * 0.5;
     const X = wx(ax + Math.cos(a) * d, az + Math.sin(a) * d);
     const Z = wz(ax + Math.cos(a) * d, az + Math.sin(a) * d);

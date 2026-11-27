@@ -94,7 +94,7 @@ export function buildGiants(ctx: Ctx): THREE.Object3D | null {
         emitGiant(g, li, bark, leaf, shade, i);
       });
       if (!lone) {
-        for (const f of under.ferns) emitFern(leaf, f.x, f.y, f.z, f.s, rnd() * 6.28, 0.8 + 0.4 * rnd());
+        for (const f of under.ferns) emitFern(leaf, f.x, f.y, f.z, f.s, rnd() * 6.28, 0.5 + 0.3 * rnd());
       }
       const name = lone ? 'giants_lone' : 'giants_wood';
       const bm = meshOf(bark, mats.bark, `${name}_bark`, false);

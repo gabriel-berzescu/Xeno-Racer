@@ -31,7 +31,7 @@ export const halcyonGiants: GiantsDef = {
       // the way of the evening light up the road from Jackdaw 3
       { x: 262, z: 930, r: 46 },
     ],
-    spacing: 31,
+    spacing: 26,
     height: [88, 132],
     girth: [6, 11],
   },
@@ -40,7 +40,7 @@ export const halcyonGiants: GiantsDef = {
     { x: 1132, z: -362, height: 121, girth: 10.4 },
   ],
   // due north of the last of the climb to Osprey, 340 m off the cliff: from the road there the arch of the world rises behind it
-  arch: { x: 905, z: 1840, bearing: 0, span: 44, rise: 46, cap: 14 },
+  arch: { x: 905, z: 1840, bearing: 0, span: 50, rise: 52, cap: 15 },
   boulders: [
     { x: 800, z: 1612, r: 60, n: 16, size: 5 },
     { x: 905, z: 1838, r: 62, n: 10, size: 4.5 },
