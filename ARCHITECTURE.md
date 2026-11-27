@@ -431,6 +431,34 @@ nothing of what a habitat ring changes applies to it. A circuit that is neither 
 - **Sand** (`XR_SHORE` in `src/track/scene/terrainMat.ts`): the terrain material's variant for an island paints sand from the bed of the sea to a
   little above the wash, and in the run-offs that are beach (the `sand` surface, used here for the first time); pale and dry up the beach, darker
   where the sea wets it, and the rock of a cliff stays rock.
+- **The old wood** (`SceneryDef.giants`; `src/track/scene/giants.ts` and `giantsPlace`, `giantsTree`, `giantsShade`, `giantsMat`,
+  `giantsRocks`): 213 trees 88 to 132 m tall on the headland, in rows close behind the barriers of the three Jackdaw bends and in groves
+  behind them, merged into two meshes (bark and leaf), the nearer the road the more of each tree is built; one more stands alone on the
+  south-west point. Under them ferns, fallen trunks, litter, young conifers (the game's own pines, handed to the tree system) and, after dark
+  and out of the rain, fireflies. No meadow grows there: `XR_WOOD` in the terrain material paints the floor of the groves in bark and needles,
+  and five tufts of grass in six are left out.
+  - Their shade cannot be the cascades' own: those are fitted for casters up to 35 m above the car, and the crowns are a hundred metres up. So
+    stand-in casters (a prism for each trunk, a holed slab for each pad of foliage) have every vertex slid down the sun's own ray to 20 m above
+    the ground, where they cast the very same shadow from inside every cascade; and the trees themselves, above 14 m, carry a share of the sun
+    per vertex (`aSun`), from some twelve thousand probes ray-tested against the other trunks and pads. Both are worked out again when the
+    light moves, which on a great ring it does not during a race.
+  - The rocks: an arch of rock in the sea north of the cliff (56 m of opening, 75 m tall, grown out of one of the terrain's stacks), placed so
+    that from the road before Osprey the arch of the world rises behind it, and boulders at the foot of the cliff.
+- **The fleet** (`SceneryDef.fleet`; `src/track/scene/fleet.ts` and `fleetKit`, `fleetBoats`, `fleetPlan`, `fleetShip`, `fleetMirror`): some
+  150 boats at anchor in five kinds, one instanced draw call a kind (outrigger canoes, catamarans, sloops, ketches, three-masted ships), in
+  lines along the Causeway by what they draw, in the lagoon, off the beach and off the east shore, and eleven under sail on six closed
+  courses, trimmed and heeled to the wind. Where a boat lies is worked out from the depth of the water when the scene is built, so a change
+  of the coast moves the boats and strands none. Their images in the water are one more draw call of flat sheets (the sea is no mirror, see
+  above; not on Low). After dark: riding lights, lanterns in the rigging, lit windows. The great ship is one mesh in the western sky, 2.2 km
+  long, its keel 1000 m up, within the camera's far plane from every part of the road: the sun is in the eastern half of this sky all day, so
+  what hangs in the west is lit from dawn to dusk.
+- **No shader after the start** holds: `renderer.info.programs` is 79 on the grid of a twelve-car race at golden hour and 79 a lap later.
+- **Cost** (High, 1920x1080, that race, in stretches of about 20 s round the lap): 268 to 549 draw calls and 1.77 to 2.52 M triangles on average
+  per stretch (the most on the grid, the least in the wood, where the giants keep the island's own trees off), a frame in 7.7 ms at the
+  median. On Low from the cockpit: 244 calls, 0.98 M triangles.
+- **The last round of the Xeno Cup**: at dawn, on a clear day (`CALENDAR` in `src/game/championship.ts`, `tests/halcyon.test.ts`). At dawn the
+  lit half of the arch is the southern one, which stands over Meridian ahead of the grid, and the Causeway is driven toward the rising sun.
+  A season that began in a golden hour at Aurelia ends in a sunrise.
 
 ## The Mammoth: all-wheel drive and the all-terrain tyre
 
