@@ -9,7 +9,7 @@
  */
 import { mulberry32 } from '../math';
 import type { BoatKind } from '../types';
-import { FleetBuf, KIND, type RGB, type SurfaceFn, type V3, figure, lamp, lin, patch, solid, span, tube } from './fleetKit';
+import { FleetBuf, IMAGE, KIND, type RGB, type SurfaceFn, type V3, figure, lamp, lin, patch, scaled, solid, span, tube } from './fleetKit';
 
 const WHITE = lin(0xf6f3ea);
 const BOOT = lin(0x18262b);
@@ -102,6 +102,8 @@ function hull(buf: FleetBuf, h: HullSpec): Hull {
     o[2] = z0 + w * half(t);
   };
   patch(buf, us, h.plain ? [-1, 1] : [-1, 0, 1], deck, () => ({ c: h.plain ? WHITE : DECK }), { flip: true });
+  // what the water shows of it: its side, from the stem aft
+  buf.images.push({ kind: IMAGE.hull, foot: [x0 + h.L / 2 + h.rakeBow * 0.5, 0], head: [x0 + h.L / 2 + h.rakeBow * 0.5, h.F * (1 + 0.3 * (h.sheerBow + h.sheerStern))], bend: 1, c: h.L + 0.5 * (h.rakeBow + h.rakeStern), clew: [0, 0], z: z0, col: WHITE, plain: h.plain });
   const tOf = (x: number): number => Math.min(1, Math.max(0, (x - x0 + h.L / 2) / h.L));
   return { deckAt: (x) => sheer(tOf(x)) + crown * 0.6, halfAt: (x) => half(tOf(x)) };
 }
@@ -120,17 +122,32 @@ function house(buf: FleetBuf, cx: number, y0: number, cz: number, a: number, b: 
 
 // ── rigs ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
+/**
+ * The outline of a sail: the chord (m) at a height (0 the foot .. 1 the head). The water draws the same outline (fleetMirror.ts
+ * has the three formulas again in its shader), so an outline is one of three kinds and a width, not any function.
+ */
+interface Outline {
+  kind: number;
+  c: number;
+  /** A crab claw's clew: where its boom ends (x, y). */
+  clew?: [number, number];
+  at: (t: number) => number;
+}
+
 interface SailSpec {
   /** The luff: its foot and its head (x, y), and how it bends on the way (1: straight; more: the head curls aft). */
   foot: [number, number];
   head: [number, number];
   bend?: number;
-  /** The chord (m) at a height (0 the foot .. 1 the head), and the belly as a share of it. */
-  chord: (t: number) => number;
+  /** Its outline, and the belly as a share of the chord. */
+  chord: Outline;
   camber?: number;
   nu: number;
   nt: number;
 }
+
+/** How far a crab claw's leech is hollowed (m; the water's shader has the number too). */
+export const CLAW_HOLLOW = 0.95;
 
 /** A membrane has a batten every so many metres of its height: the veins of the leaf. */
 const BATTEN = 2.6;
@@ -143,8 +160,9 @@ function luffOf(s: SailSpec, t: number): [number, number] {
 /** A membrane from its luff aft: the vertices lie on the luff and carry how far along the chord and how far out in the belly they belong. */
 function sail(buf: FleetBuf, s: SailSpec): void {
   const camber = s.camber ?? 0.1;
-  const along = (u: number, t: number): number => u * s.chord(t);
-  const belly = (u: number, t: number): number => camber * s.chord(t) * 4 * u * (1 - u) * (0.62 + 0.38 * Math.sin(Math.PI * t));
+  const along = (u: number, t: number): number => u * s.chord.at(t);
+  const belly = (u: number, t: number): number => camber * s.chord.at(t) * 4 * u * (1 - u) * (0.62 + 0.38 * Math.sin(Math.PI * t));
+  buf.images.push({ kind: s.chord.kind, foot: s.foot, head: s.head, bend: s.bend ?? 1, c: s.chord.c, clew: s.chord.clew ?? [0, 0], z: 0, col: null });
   const f: SurfaceFn = (u, t, o) => {
     const l = luffOf(s, t);
     o[0] = l[0] - along(u, t);
@@ -182,20 +200,26 @@ function mast(buf: FleetBuf, s: SailSpec, deckY: number, r0: number, sides = 5):
   tube(buf, path, rad, sides, SPAR);
 }
 
-/** A leaf: nearly its full chord at the foot, fullest a third of the way up, round to a small head. */
-function leaf(c: number, foot = 0.8, peak = 0.3, head = 0.08): (t: number) => number {
-  return (t) => (t < peak ? c * (foot + (1 - foot) * Math.sin(((t / peak) * Math.PI) / 2)) : c * (head + (1 - head) * Math.sqrt(Math.max(0, 1 - ((t - peak) / (1 - peak)) ** 2))));
+/** A leaf: four fifths of its chord at the foot, fullest three tenths of the way up, round to a small head. */
+function leaf(c: number): Outline {
+  return { kind: IMAGE.leaf, c, at: (t) => (t < 0.3 ? c * (0.8 + 0.2 * Math.sin(((t / 0.3) * Math.PI) / 2)) : c * (0.08 + 0.92 * Math.sqrt(Math.max(0, 1 - ((t - 0.3) / 0.7) ** 2)))) };
 }
 /** A headsail: a triangle, a little hollow. */
-function jib(c: number): (t: number) => number {
-  return (t) => c * Math.pow(1 - t, 0.9);
+function jib(c: number): Outline {
+  return { kind: IMAGE.jib, c, at: (t) => c * Math.pow(1 - t, 0.9) };
 }
 
-/** Lanterns on a line from a to b, hanging `sag` m low in the middle. */
-function lanterns(buf: FleetBuf, a: V3, b: V3, n: number, sag: number, r: number): void {
+/** A lamp the water shows too: a streak of its light under it. */
+function light(buf: FleetBuf, p: V3, r: number, col: RGB, k = 1): void {
+  lamp(buf, p, r, col, k);
+  buf.images.push({ kind: IMAGE.lamp, foot: [p[0], p[1] * 0.35], head: [p[0], p[1] * 2.3], bend: 1, c: r * 1.3, clew: [0, 0], z: p[2], col: scaled(col, k) });
+}
+
+/** Lanterns on a line from a to b, hanging `sag` m low in the middle; the water shows every `every`th of them. */
+function lanterns(buf: FleetBuf, a: V3, b: V3, n: number, sag: number, r: number, every: number): void {
   for (let i = 1; i < n; i++) {
     const t = i / n;
-    lamp(buf, [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t - sag * 4 * t * (1 - t), a[2] + (b[2] - a[2]) * t], r, LANTERN, 0.55 + 0.25 * ((i * 7) % 3));
+    (i % every === 1 ? light : lamp)(buf, [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t - sag * 4 * t * (1 - t), a[2] + (b[2] - a[2]) * t], r, LANTERN, 0.55 + 0.25 * ((i * 7) % 3));
   }
 }
 
@@ -247,11 +271,16 @@ function proa(buf: FleetBuf): void {
     nu: 3,
     nt: 7,
     camber: 0.12,
-    chord: (t) => {
-      const lx = luffOf(spec, t)[0];
-      if (t <= tb) return Math.max(0, lx - (tack[0] + (clew[0] - tack[0]) * (t / tb)));
-      const s = (t - tb) / (1 - tb);
-      return Math.max(0, lx - (clew[0] + (peak[0] - clew[0]) * s + 0.95 * Math.sin(Math.PI * s)));
+    chord: {
+      kind: IMAGE.claw,
+      c: 0,
+      clew,
+      at: (t) => {
+        const lx = luffOf(spec, t)[0];
+        if (t <= tb) return Math.max(0, lx - (tack[0] + (clew[0] - tack[0]) * (t / tb)));
+        const s = (t - tb) / (1 - tb);
+        return Math.max(0, lx - (clew[0] + (peak[0] - clew[0]) * s + CLAW_HOLLOW * Math.sin(Math.PI * s)));
+      },
     },
   };
   sail(buf, spec);
@@ -263,16 +292,16 @@ function proa(buf: FleetBuf): void {
     const a = luffOf(spec, t0);
     const b = luffOf(spec, t1);
     const n: V3 = [0, 0, 1];
-    const k = buf.v([a[0], a[1] - 0.06, 0], n, SPAR, [KIND.sail, spec.chord(t0), 0, 1]);
-    buf.v([b[0], b[1] - 0.06, 0], n, SPAR, [KIND.sail, spec.chord(t1), 0, 1]);
-    buf.v([b[0], b[1] + 0.06, 0], n, SPAR, [KIND.sail, spec.chord(t1), 0, 1]);
-    buf.v([a[0], a[1] + 0.06, 0], n, SPAR, [KIND.sail, spec.chord(t0), 0, 1]);
+    const k = buf.v([a[0], a[1] - 0.06, 0], n, SPAR, [KIND.sail, spec.chord.at(t0), 0, 1]);
+    buf.v([b[0], b[1] - 0.06, 0], n, SPAR, [KIND.sail, spec.chord.at(t1), 0, 1]);
+    buf.v([b[0], b[1] + 0.06, 0], n, SPAR, [KIND.sail, spec.chord.at(t1), 0, 1]);
+    buf.v([a[0], a[1] + 0.06, 0], n, SPAR, [KIND.sail, spec.chord.at(t0), 0, 1]);
     buf.tri(k, k + 1, k + 2);
     buf.tri(k, k + 2, k + 3);
   }
   crew(buf, 11, 2, (i) => [i === 0 ? -1.9 : 0.1, 0.28, 0, true]);
-  lamp(buf, [peak[0], peak[1] + 0.15, 0], 0.26, RIDING);
-  lamp(buf, [-3.3, 1.05, 0], 0.22, LANTERN);
+  light(buf, [peak[0], peak[1] + 0.15, 0], 0.26, RIDING);
+  light(buf, [-3.3, 1.05, 0], 0.22, LANTERN);
 }
 
 /** The catamaran: two slim hulls, a net between them, a pod to sit in, one tall leaf and a small headsail. */
@@ -288,9 +317,9 @@ function cat(buf: FleetBuf): void {
   sail(buf, { foot: [5.4, 1.25], head: top, chord: jib(3.3), camber: 0.08, nu: 3, nt: 5 });
   tube(buf, [[1.7, 1.1, 0], [5.4, 1.2, 0]], [0.07, 0.05], 3, SPAR);
   crew(buf, 23, 4, (i, rnd) => (i < 2 ? [-3.1 + rnd() * 0.5, 1.04, i === 0 ? -1.5 : 1.3, true] : [0.4 + rnd() * 0.8, 1.04, i === 2 ? 1.7 : -1.6, false]));
-  lamp(buf, [main.head[0], main.head[1] + 0.3, 0], 0.3, RIDING);
-  lamp(buf, [-5.6, 1.5, -2.9], 0.24, LANTERN);
-  lamp(buf, [-5.6, 1.5, 2.9], 0.24, LANTERN);
+  light(buf, [main.head[0], main.head[1] + 0.3, 0], 0.3, RIDING);
+  light(buf, [-5.6, 1.5, -2.9], 0.24, LANTERN);
+  light(buf, [-5.6, 1.5, 2.9], 0.24, LANTERN);
 }
 
 /** The sloop: one hull, a low house, a tall leaf and a headsail. */
@@ -302,8 +331,8 @@ function sloop(buf: FleetBuf): void {
   mast(buf, main, h.deckAt(2.0), 0.14);
   sail(buf, { foot: [9.0, h.deckAt(8.0) + 0.3], head: luffOf(main, 0.8), chord: jib(4.9), camber: 0.08, nu: 3, nt: 6 });
   crew(buf, 37, 5, (i, rnd) => (i < 4 ? [-3.2 - i * 0.75, h.deckAt(-4) - 0.35, (i % 2 ? 1 : -1) * (0.75 + 0.3 * rnd()), i > 0] : [5.2, h.deckAt(5.2), 0.5, false]));
-  lamp(buf, [main.head[0], main.head[1] + 0.35, 0], 0.32, RIDING);
-  lamp(buf, [-8.6, h.deckAt(-7.8) + 0.9, 0], 0.26, LANTERN);
+  light(buf, [main.head[0], main.head[1] + 0.35, 0], 0.32, RIDING);
+  light(buf, [-8.6, h.deckAt(-7.8) + 0.9, 0], 0.26, LANTERN);
   lamp(buf, [6.2, h.deckAt(6.2) + 0.25, -h.halfAt(6.2)], 0.17, PORT);
   lamp(buf, [6.2, h.deckAt(6.2) + 0.25, h.halfAt(6.2)], 0.17, STARBOARD);
 }
@@ -330,12 +359,12 @@ function ketch(buf: FleetBuf): void {
   const stern: V3 = [-18.8, h.deckAt(-16) + 1.2, 0];
   const mh: V3 = [main.head[0], main.head[1] + 0.4, 0];
   const zh: V3 = [mizzen.head[0], mizzen.head[1] + 0.4, 0];
-  lanterns(buf, bow, mh, 8, 1.5, 0.27);
-  lanterns(buf, mh, zh, 5, 3.2, 0.27);
-  lanterns(buf, zh, stern, 6, 1.2, 0.27);
-  lamp(buf, mh, 0.38, RIDING);
-  lamp(buf, zh, 0.34, RIDING);
-  lamp(buf, stern, 0.3, LANTERN);
+  lanterns(buf, bow, mh, 8, 1.5, 0.27, 3);
+  lanterns(buf, mh, zh, 5, 3.2, 0.27, 3);
+  lanterns(buf, zh, stern, 6, 1.2, 0.27, 3);
+  light(buf, mh, 0.38, RIDING);
+  light(buf, zh, 0.34, RIDING);
+  light(buf, stern, 0.3, LANTERN);
   lamp(buf, [12, h.deckAt(12) + 0.3, -h.halfAt(12)], 0.2, PORT);
   lamp(buf, [12, h.deckAt(12) + 0.3, h.halfAt(12)], 0.2, STARBOARD);
 }
@@ -362,12 +391,12 @@ function tall(buf: FleetBuf): void {
   });
   const stern: V3 = [-47, h.deckAt(-40) + 2.2, 0];
   const heads = [fore, main, mizzen].map((s): V3 => [s.head[0], s.head[1] + 0.8, 0]);
-  lanterns(buf, bow, heads[0], 14, 3, 0.36);
-  lanterns(buf, heads[0], heads[1], 6, 5, 0.36);
-  lanterns(buf, heads[1], heads[2], 6, 5, 0.36);
-  lanterns(buf, heads[2], stern, 12, 2.5, 0.36);
-  for (const p of heads) lamp(buf, p, 0.55, RIDING);
-  lamp(buf, stern, 0.45, LANTERN);
+  lanterns(buf, bow, heads[0], 14, 3, 0.36, 4);
+  lanterns(buf, heads[0], heads[1], 6, 5, 0.36, 4);
+  lanterns(buf, heads[1], heads[2], 6, 5, 0.36, 4);
+  lanterns(buf, heads[2], stern, 12, 2.5, 0.36, 4);
+  for (const p of heads) light(buf, p, 0.55, RIDING);
+  light(buf, stern, 0.45, LANTERN);
   for (const x of [26, -4, -30]) {
     lamp(buf, [x, h.deckAt(x) + 0.4, -h.halfAt(x)], 0.3, PORT);
     lamp(buf, [x, h.deckAt(x) + 0.4, h.halfAt(x)], 0.3, STARBOARD);

@@ -48,6 +48,25 @@ export function solid(glow = 0, hull = false, rough = 0): Rig {
   return [KIND.solid, glow, hull ? 1 : 0, rough];
 }
 
+/** What the water shows of a boat (fleetMirror.ts): the outline of a sail, the side of a hull, or a lamp. */
+export const IMAGE = { leaf: 0, jib: 1, claw: 2, hull: 3, lamp: 4 } as const;
+
+export interface Image {
+  kind: number;
+  /** A sail's luff: its foot and its head (x, y in the boat's frame) and how it bends. A hull: its stem, from the water to the deck. A lamp's streak: from, to. */
+  foot: [number, number];
+  head: [number, number];
+  bend: number;
+  /** A sail's chord (m), a hull's length, a streak's width; a crab claw's clew. */
+  c: number;
+  clew: [number, number];
+  /** How far to starboard of the keel it is. */
+  z: number;
+  /** A lamp's colour, a hull's paint (times its boat's hull colour unless `plain`); a sail's is its boat's. */
+  col: RGB | null;
+  plain?: boolean;
+}
+
 // ── the buffer ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 export class FleetBuf {
@@ -57,6 +76,8 @@ export class FleetBuf {
   rig: number[] = [];
   idx: number[] = [];
   count = 0;
+  /** What the water shows of it. */
+  images: Image[] = [];
 
   v(p: V3, n: V3, c: RGB, rig: Rig = PLAIN): number {
     this.pos.push(p[0], p[1], p[2]);
@@ -321,8 +342,9 @@ export function figure(buf: FleetBuf, x: number, y: number, z: number, h: number
 
 // ── the material ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-/** Radiance of a lamp at night per unit of its colour, and the least a lamp is drawn at (radians of the view: about a pixel). */
-const LAMP = 7;
+/** Radiance of a lamp at night per unit of its colour (the water's image of it is drawn from the same number), and the least a lamp is drawn at (radians of the view: about a pixel). */
+export const LAMP_RADIANCE = 7;
+const LAMP = LAMP_RADIANCE;
 const LAMP_MIN_ANGLE = 0.0012;
 /** A lit window or a line of light, a sail's own light and the light under the great ship (by day and at night). */
 const WINDOW = 1.5;
@@ -335,6 +357,8 @@ export interface FleetMats {
   boats: THREE.MeshStandardMaterial;
   /** The great ship: one mesh, its outside only. */
   ship: THREE.MeshStandardMaterial;
+  /** What they read (`uFleet`): the lamps' level (0 by day .. 1), the clock (s), the sails' own light, the lift light. */
+  shared: { value: THREE.Vector4 };
 }
 
 /** How much of the night's light is on at a darkness: riding lights come on at dusk, well before the sky is black. */
@@ -508,5 +532,5 @@ export function makeFleetMats(ctx: Ctx): FleetMats {
     shared.value.z = SAIL_GLOW * k;
     shared.value.w = LIFT_DAY + (LIFT_NIGHT - LIFT_DAY) * k;
   });
-  return { boats, ship };
+  return { boats, ship, shared };
 }

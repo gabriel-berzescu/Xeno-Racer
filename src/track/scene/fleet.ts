@@ -5,7 +5,7 @@
  * draw call each; where they lie and where they sail is worked out from the def and the depth of the water (fleetPlan.ts). The great
  * ship (fleetShip.ts) is one mesh. All of it is one lit material in two programs (fleetKit.ts): the sun, the sky and the haze of
  * the scene are on it at every hour, its lamps and its lines of light come up with the dark, and nothing is made after the scene
- * is built. Nothing casts into the sun's cascades: the nearest boat is forty metres from the road, on water, which shows no shadow.
+ * is built. The images of the sails and of the lamps in the water are one draw call more (fleetMirror.ts). Nothing casts into the sun's cascades: the nearest boat is forty metres from the road, on water, which shows no shadow.
  *
  * A circuit without the block gets nothing of this: no object, no material, no program.
  */
@@ -15,6 +15,7 @@ import type { Ctx } from './ctx';
 import { BOATS, BOAT_KINDS, boatBuffer } from './fleetBoats';
 import { makeFleetMats } from './fleetKit';
 import { type Berth, type PointOfSail, type Sailor, planFleet, pointOfSail, yawOf } from './fleetPlan';
+import { type Mirrored, buildMirror } from './fleetMirror';
 import { greatShipBuffer } from './fleetShip';
 
 export function buildFleet(ctx: Ctx): THREE.Object3D | null {
@@ -36,11 +37,14 @@ export function buildFleet(ctx: Ctx): THREE.Object3D | null {
     mesh: THREE.InstancedMesh;
     boat: THREE.InstancedBufferAttribute;
     index: number;
+    /** Which of the boats the water shows it is. */
+    image: number;
     s: number;
     trim: number;
     heel: number;
   }
   const under: Under[] = [];
+  const mirrored: Mirrored[] = [];
   const m4 = new THREE.Matrix4();
   const q = new THREE.Quaternion();
   const qh = new THREE.Quaternion();
@@ -81,8 +85,9 @@ export function buildFleet(ctx: Ctx): THREE.Object3D | null {
     if (sailing.length) {
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       boatAttr.setUsage(THREE.DynamicDrawUsage);
-      sailing.forEach((sailor, j) => under.push({ sailor, mesh, boat: boatAttr, index: moored.length + j, s: sailor.s, trim: 0, heel: 0 }));
+      sailing.forEach((sailor, j) => under.push({ sailor, mesh, boat: boatAttr, index: moored.length + j, image: mirrored.length + moored.length + j, s: sailor.s, trim: 0, heel: 0 }));
     }
+    for (const berth of list) mirrored.push({ berth, images: buf.images });
     mesh.instanceMatrix.needsUpdate = true;
     // (they lie all round the island: one draw call whatever the view)
     mesh.frustumCulled = false;
@@ -94,6 +99,14 @@ export function buildFleet(ctx: Ctx): THREE.Object3D | null {
     triangles += buf.triangles * n;
     counts[kind] = n;
     parts[kind] = buf.triangles;
+  }
+
+  // ── the fleet in the water: the images of the sails and of the lamps, one more draw call (not at Low) ─────────────────────────
+  const mirror = ctx.q.tier >= 1 ? buildMirror(ctx, mats.shared, level, mirrored, under.length > 0) : null;
+  if (mirror) {
+    group.add(mirror.mesh);
+    triangles += mirror.triangles;
+    parts.mirror = mirror.triangles;
   }
 
   // ── the boats under sail: along their courses, trimmed to the wind ────────────────────────────────────────────────────────────
@@ -118,7 +131,9 @@ export function buildFleet(ctx: Ctx): THREE.Object3D | null {
         m4.compose(p.set(at.x, level, at.z), q, sv.setScalar(u.sailor.scale));
         u.mesh.setMatrixAt(u.index, m4);
         u.boat.setZ(u.index, u.trim);
+        mirror?.move(u.image, m4, u.trim);
       }
+      mirror?.flush();
       for (const m of meshes) m.instanceMatrix.needsUpdate = true;
       for (const u of under) u.boat.needsUpdate = true;
     });
