@@ -31,6 +31,11 @@ export const halcyonGiants: GiantsDef = {
       { x: 885, z: 1590, r: 75 },
       // the way of the evening light up the road from Jackdaw 3
       { x: 262, z: 930, r: 46 },
+      // the shore north of the straight from Albatross to Petrel: the arch of rock is seen over it from the braking for Albatross
+      // and all along that straight
+      { x: 1175, z: 1485, r: 62 },
+      { x: 1075, z: 1500, r: 62 },
+      { x: 985, z: 1520, r: 58 },
     ],
     spacing: 26,
     height: [88, 132],

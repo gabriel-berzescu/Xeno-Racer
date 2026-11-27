@@ -26,7 +26,7 @@ export const halcyonFleet: FleetDef = {
     // the middle line, 90 to 165 m: sloops among them
     { line: [[1164, 70], [1170, 600], [1160, 1120]], spread: 34, count: 24, kinds: { sloop: 3, cat: 2, proa: 1 }, group: 4 },
     // the far line, 170 to 260 m: ketches, whose mastheads stand over all the rest
-    { line: [[1086, 110], [1076, 600], [1086, 1060]], spread: 40, count: 14, kinds: { ketch: 3, sloop: 2 }, group: 2 },
+    { line: [[1086, 110], [1076, 600], [1086, 1060]], spread: 40, count: 17, kinds: { ketch: 3, sloop: 2 }, group: 2 },
     // ── the lagoon at large ──
     { line: [[640, 230], [520, 520], [450, 800], [560, 1000]], spread: 110, count: 22, kinds: { sloop: 2, cat: 2, ketch: 1.5, proa: 1 }, group: 3 },
     // under the pits, on the lagoon's east shore
