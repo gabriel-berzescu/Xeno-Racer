@@ -2,7 +2,7 @@
 
 A realistic racing game for the browser, built for a gamepad. A from-scratch vehicle simulation
 running at 1000 Hz, AI drivers that race wheel to wheel, eight hand-built circuits from a mountain
-pass to a floodlit harbour street circuit, a frozen lake, a megacity after dark, the inside of an orbital ring and an atoll on a ring as wide as the Moon's orbit is long, rain and snow that you can feel through
+pass to a floodlit harbour street circuit, a frozen lake, a megacity after dark, the inside of an orbital ring and an atoll on a ring 3.7 million km across, rain and snow that you can feel through
 the tyres, procedurally sculpted cars that crumple when they hit something, working mirrors,
 synthesized engine sound, and a TV director that films the race.
 
