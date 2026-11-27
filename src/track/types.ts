@@ -725,4 +725,6 @@ export interface GreatShipDef {
   /** Its length, and where its bow points. */
   length: number;
   heading: number;
+  /** How many sails stand on its back (default 3; 0: none). */
+  masts?: number;
 }

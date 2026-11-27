@@ -7,8 +7,10 @@
  *          with a warm lamp behind it);
  *          `aRig.z`: 1 where the colour is the boat's own hull colour times the vertex's; `aRig.w`: its roughness (0: the material's).
  *   sail   a membrane. Its vertices lie on its luff, and the shader spreads them: `aRig.y` m along the chord and `aRig.z` m of belly
- *          across it, turned about the luff by the boat's trim and drawn in by its furl. The colour is the boat's sail colour, paler by
- *          the vertex's red and shaded by its green; `aRig.w` = 1 is a spar that goes with the sail and keeps its own colour.
+ *          across it, turned about the luff by the boat's trim and drawn in by its furl. The colour is the boat's sail colour, and
+ *          the vertex's own colour says where on the sail it is: red from the luff (0) to the leech (1), green from the foot (0) to
+ *          the head (1), blue the height in battens over 32 (the veins of the leaf are drawn from it). `aRig.w` = 1 is a spar that
+ *          goes with the sail and keeps its own colour.
  *   lamp   a corner of a disc that faces the eye (`aRig.y`, `aRig.z`: which corner; `aRig.w`: the radius in metres), never drawn
  *          smaller than a pixel, dark by day.
  *   lift   a surface that shines by day too (`aRig.y` per unit of its colour): the light under the great ship that holds it up.
@@ -354,6 +356,7 @@ uniform vec4 uFleet; // the lamps' level (0 by day .. 1), the clock (s), the sai
 attribute vec4 aRig;
 varying vec4 vFleetGlow; // a vertex's own light, and what the vertex is
 varying float vFleetRough;
+varying vec3 vFleetSail; // on a membrane: from the luff to the leech, the height in battens, 1
 #ifdef USE_INSTANCING
 attribute vec4 aBoat; // phase, how far it rolls (rad; below 0: under way, it does not swing), the sails' trim (rad), how far they are furled
 attribute vec3 aTintA; // the sails' colour
@@ -368,14 +371,20 @@ attribute vec3 aTintB; // the hull's
 	bool fLamp = fKind > 1.5 && fKind < 2.5;
 	vec3 fGlow = vec3(0.0);
 	vFleetRough = 0.0;
+	vFleetSail = vec3(0.0);
 	if (fSail) {
 		if (aRig.w < 0.5) {
+			// paler toward the head, a pale line down the luff, a shade deeper toward the leech
+			// (the great ship's own sails: its hull's colour with a little gold in it)
+			vec3 fTint = vec3(0.96, 0.89, 0.74);
 #ifdef USE_INSTANCING
-			vColor.rgb = mix(aTintA, vec3(1.0), color.r) * color.g;
+			fTint = aTintA;
 #endif
+			vColor.rgb = mix(fTint, vec3(1.0), 0.03 + 0.4 * color.g * color.g + 0.25 * max(0.0, 1.0 - color.r * 5.0)) * (1.0 - 0.07 * color.r);
+			vFleetSail = vec3(color.r, color.b * 32.0, 1.0);
 			fGlow = vColor.rgb * uFleet.z;
 		}
-		vFleetRough = 0.78;
+		vFleetRough = 0.6;
 	} else if (fLamp) {
 		fGlow = color * (uFleet.x * ${LAMP.toFixed(1)});
 		vColor.rgb = vec3(0.0);
@@ -452,7 +461,18 @@ attribute vec3 aTintB; // the hull's
 	vFleetGlow = vec4(fGlow, fKind);`,
       );
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying vec4 vFleetGlow;\nvarying float vFleetRough;')
+      .replace('#include <common>', '#include <common>\nvarying vec4 vFleetGlow;\nvarying float vFleetRough;\nvarying vec3 vFleetSail;')
+      .replace(
+        '#include <color_fragment>',
+        /* glsl */ `#include <color_fragment>
+	if (vFleetSail.z > 0.5) {
+		// the veins of the leaf: battens that climb a little from the luff to the leech, gone where they would be finer than a pixel
+		float fV = vFleetSail.y - vFleetSail.x * 0.55;
+		float fW = fwidth(fV);
+		float fVein = (1.0 - smoothstep(0.03, 0.03 + 1.5 * fW, abs(fract(fV) - 0.5))) * (1.0 - smoothstep(0.12, 0.4, fW));
+		diffuseColor.rgb *= 1.0 - 0.13 * fVein;
+	}`,
+      )
       .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n\tif (vFleetRough > 0.0) roughnessFactor = vFleetRough;')
       .replace(
         '#include <normal_fragment_maps>',

@@ -177,7 +177,7 @@ describe("Halcyon Ring's fleet", () => {
       if (i % 30 === 0) expect(depth(x, z)).toBeGreaterThan(5);
     }
     expect(far).toBeLessThan(4700);
-    expect(low).toBeGreaterThan(600);
+    expect(low).toBeGreaterThan(500);
     expect(high).toBeLessThan(2300);
     // it carries its lights: lamps, lines that shine after dark and the lift light that shines by day
     const kinds = new Set<number>();
@@ -221,7 +221,7 @@ describe("Halcyon Ring's fleet", () => {
       expect(maxY, k).toBeGreaterThan(c.height * 0.93);
       expect(maxY, k).toBeLessThan(c.height * 1.07);
       expect(maxX - minX, k).toBeGreaterThan(c.length);
-      expect(maxX - minX, k).toBeLessThan(c.length * 1.25);
+      expect(maxX - minX, k).toBeLessThan(c.length * 1.3);
       expect(sails, k).toBeGreaterThan(20);
       expect(lamps, k).toBeGreaterThanOrEqual(14);
       const n = plan.berths.filter((b) => b.kind === k).length + plan.sailors.filter((b) => b.kind === k).length;

@@ -59,8 +59,10 @@ export const halcyonFleet: FleetDef = {
     { kind: 'cat', marks: [[940, 280], [940, 920], [1012, 920], [1012, 280]], boats: 3, speed: 3.4 },
     // canoes running along the Strand's beach beside the cars
     { kind: 'proa', marks: [[240, -112], [800, -232], [791, -273], [231, -153]], boats: 3, speed: 3 },
+    // a ship standing out to sea north of the headland and back, for whoever looks out from the cliff at Osprey
+    { kind: 'tall', marks: [[830, 1930], [650, 2430], [500, 2380], [680, 1880]], speed: 2.2 },
     // a ketch off the east shore, outside the big ships
     { kind: 'ketch', marks: [[-690, 80], [-690, 1150], [-810, 1150], [-810, 80]], speed: 2.4 },
   ],
-  ship: { x: 3750, z: -150, altitude: 1150, length: 2000, heading: 350 },
+  ship: { x: 3700, z: -150, altitude: 1000, length: 2200, heading: 350 },
 };

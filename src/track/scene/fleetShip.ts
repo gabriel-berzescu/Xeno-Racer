@@ -4,6 +4,11 @@
  * thin as a leaf, with one edge all the way round it and its ends lifted a little, the way the ends of a canoe are. The boats on the
  * water under it are its own shape made small (fleetBoats.ts).
  *
+ * And it is a sailing ship, as they are. Nothing crosses six thousand years in a hurry: what crosses them is light on a sail. On its
+ * back stand three leaves, the tallest a membrane half a kilometre high, what is left set of the sails that brought it; the sun
+ * comes through them as it comes through the sails on the lagoon, and from the beach it is a three-master hull up in the sky, the
+ * mirage of the ships at anchor under it (`GreatShipDef.masts`: 0 takes them away).
+ *
  * It is seen from below and from the side, three or four kilometres off, so what there is to see is its belly: pale, in three
  * shades between its lines; a line of the lift light along the keel, which shows by day (it is what holds the ship up) and is warm
  * where the hold is; and after dark a line of light all round the edge and two rows of ports. A few of its tenders hang under it and
@@ -78,8 +83,34 @@ function mirrored(half: number[]): number[] {
   return [...half.slice(1).reverse().map((v) => -v), ...half];
 }
 
+/** Where her masts stand (0 the stern .. 1 the bow), and the height and the chord of the leaf on each, as shares of her length. */
+const MASTS: [number, number, number][] = [
+  [0.77, 0.17, 0.056],
+  [0.56, 0.235, 0.068],
+  [0.36, 0.15, 0.05],
+];
+
+/**
+ * A leaf: a membrane standing on her back in the plane of her keel, its luff bending aft toward the head as the masts of the boats
+ * do, drawn from both sides (the ship's material shows the outside of things only, and a membrane is all outside).
+ */
+function emitLeaf(buf: FleetBuf, foot: [number, number], height: number, chord: number, L: number): void {
+  const luff = (t: number): number => foot[0] - height * 0.27 * Math.pow(t, 1.7);
+  // nearly its full chord at the foot, fullest a third of the way up, round to a point
+  const wide = (t: number): number => chord * (t < 0.3 ? 0.8 + 0.2 * Math.sin(((t / 0.3) * Math.PI) / 2) : 0.02 + 0.98 * Math.pow(Math.max(0, 1 - ((t - 0.3) / 0.7) ** 2), 0.62));
+  const f: SurfaceFn = (u, t, o) => {
+    o[0] = luff(t) - u * wide(t);
+    o[1] = foot[1] + height * t;
+    o[2] = 0.07 * wide(t) * 4 * u * (1 - u) * (0.62 + 0.38 * Math.sin(Math.PI * t));
+  };
+  // (a batten every 0.6 % of her length: a vein of the leaf every dozen metres)
+  const paint = (u: number, t: number): { c: [number, number, number]; rig: [number, number, number, number] } => ({ c: [u, t, (height * t) / (L * 0.006) / 32], rig: [KIND.sail, 0, 0, 0] });
+  patch(buf, span(6), span(16), f, paint, { flip: true });
+  patch(buf, span(6), span(16), f, paint);
+}
+
 /** The ship in its own frame. */
-function emitShip(buf: FleetBuf, L: number): void {
+function emitShip(buf: FleetBuf, L: number, masts: number): void {
   const b = body(L);
   const NS = 120;
   const us = span(NS);
@@ -98,7 +129,8 @@ function emitShip(buf: FleetBuf, L: number): void {
         return { c: hold ? HOLD : LIFT, rig: [KIND.lift, (hold ? 1.25 : 0.8) * k, 0, 0] };
       }
       if (a > EDGE) return { c: PEARL, rig: solid(1.5, false, 0.4) };
-      if (a > PORTS_IN && a < PORTS_OUT && s > 0.1 && s < 0.94) return cell % 4 === 3 ? { c: PEARL } : { c: PORTS, rig: solid(-1.1, false, 0.2) };
+      // the ports: runs of them of uneven length, as decks have rooms
+      if (a > PORTS_IN && a < PORTS_OUT && s > 0.1 && s < 0.94) return cell % 9 === 4 || cell % 5 === 0 ? { c: PEARL } : { c: PORTS, rig: solid(-1.1, false, 0.2) };
       if (a > SEAM_IN && a < SEAM_OUT && s > 0.16 && s < 0.9) return { c: SEAM, rig: solid(0.55, false, 0.3) };
       // three shades between the lines, and a faint rib every eighth of a kilometre
       const shade = (a < SEAM_IN ? 0.9 : a < PORTS_IN ? 0.97 : 1.03) * (cell % 8 === 0 ? 0.955 : 1);
@@ -107,8 +139,14 @@ function emitShip(buf: FleetBuf, L: number): void {
     { cells: true },
   );
   patch(buf, span(60), mirrored([0, 0.35, 0.65, 0.88, 1]), b.upper, () => ({ c: scaled(PEARL, 1.05) }), { flip: true });
-  // her lights: white at the ends, red and green at the beam, and the lamps of the hold
   const p: V3 = [0, 0, 0];
+  // her sails: leaves on her back like the leaves of the ships under her, the tallest amidships (see the head of the file)
+  for (let i = 0; i < masts; i++) {
+    const [s, h, c] = masts === 1 ? MASTS[1] : MASTS[Math.min(MASTS.length - 1, Math.round((i * (MASTS.length - 1)) / (masts - 1)))];
+    b.upper(s, 0, p);
+    emitLeaf(buf, [p[0], p[1] + L * 0.008], L * h, L * c, L);
+  }
+  // her lights: white at the ends, red and green at the beam
   b.lower(1, 0, p);
   lamp(buf, [p[0], p[1], p[2]], 3.2, WHITE_LAMP);
   b.lower(0, 0, p);
@@ -159,7 +197,7 @@ const TENDERS: [number, number, number, number, number][] = [
 export function greatShipBuffer(def: GreatShipDef): FleetBuf {
   const buf = new FleetBuf();
   const L = def.length;
-  emitShip(buf, L);
+  emitShip(buf, L, Math.max(0, Math.round(def.masts ?? 3)));
   for (const t of TENDERS) emitTender(buf, L * t[3], [L * t[0], L * t[1], L * t[2]], t[4]);
   // from its own frame to the world: turned to its heading, its keel at its altitude
   const [dx, dz] = compass(def.heading);

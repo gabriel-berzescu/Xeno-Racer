@@ -15,7 +15,7 @@ import { type RGB, lin } from './fleetKit';
 /** Strong sail colours and pale ones, and the colours of hulls (most are white). */
 const BRIGHT = [0xff6a55, 0xffb22e, 0x27c9c0, 0x8fe36a, 0xff86ad, 0xe23d28, 0x7d6bff, 0x4aa8ff, 0xffd94a, 0xff8a3a].map((h) => lin(h));
 const PALE = [0xf6f1e6, 0xf6f1e6, 0xf3e7c9, 0xf7dcd0, 0xd9eee9, 0xe9e2f4].map((h) => lin(h));
-const HULLS = [0xffffff, 0xffffff, 0xffffff, 0xffffff, 0xf4ecd8, 0xdfe9ea, 0x22364a, 0x2a2d31, 0xc8583a, 0xe6c064].map((h) => lin(h));
+const HULLS = [0xffffff, 0xffffff, 0xffffff, 0xffffff, 0xffffff, 0xf4ecd8, 0xdfe9ea, 0x22364a, 0x2a2d31, 0x1d4448, 0x6e2a26].map((h) => lin(h));
 
 /** How many of a mooring's boats there are at each quality tier. */
 const TIER_SHARE = [0.5, 0.75, 1, 1.15];

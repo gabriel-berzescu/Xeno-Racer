@@ -28,6 +28,7 @@ export function buildFleet(ctx: Ctx): THREE.Object3D | null {
   const plan = planFleet(rt, def, ctx.q.tier);
   let triangles = 0;
   const counts: Partial<Record<BoatKind, number>> = {};
+  const parts: Record<string, number> = {};
 
   // ── the boats: one draw call a kind ───────────────────────────────────────────────────────────────────────────────────────────
   interface Under {
@@ -92,6 +93,7 @@ export function buildFleet(ctx: Ctx): THREE.Object3D | null {
     ctx.disposables.push(geo);
     triangles += buf.triangles * n;
     counts[kind] = n;
+    parts[kind] = buf.triangles;
   }
 
   // ── the boats under sail: along their courses, trimmed to the wind ────────────────────────────────────────────────────────────
@@ -134,8 +136,9 @@ export function buildFleet(ctx: Ctx): THREE.Object3D | null {
     group.add(mesh);
     ctx.disposables.push(geo);
     triangles += buf.triangles;
+    parts.ship = buf.triangles;
   }
 
-  group.userData.xrFleet = { triangles, boats: counts, sailing: under.length, meshes: group.children.length };
+  group.userData.xrFleet = { triangles, boats: counts, parts, sailing: under.length, meshes: group.children.length };
   return group;
 }

@@ -115,7 +115,7 @@ function house(buf: FleetBuf, cx: number, y0: number, cz: number, a: number, b: 
     o[1] = y0 + c * Math.sin(el);
     o[2] = cz + b * Math.sin(an) * Math.cos(el);
   };
-  patch(buf, span(sides), [0, 0.2, 0.52, 0.8, 1], f, (_u, v) => (v > 0.2 && v < 0.52 ? { c: GLASS, rig: solid(-0.9, false, 0.12) } : { c: HOUSE }), { flip: true, cells: true });
+  patch(buf, span(sides), [0, 0.2, 0.52, 0.8, 1], f, (_u, v) => (v > 0.2 && v < 0.52 ? { c: GLASS, rig: solid(-0.42, false, 0.12) } : { c: HOUSE }), { flip: true, cells: true });
 }
 
 // ── rigs ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -131,6 +131,9 @@ interface SailSpec {
   nu: number;
   nt: number;
 }
+
+/** A membrane has a batten every so many metres of its height: the veins of the leaf. */
+const BATTEN = 2.6;
 
 /** The luff of a sail at t. */
 function luffOf(s: SailSpec, t: number): [number, number] {
@@ -153,8 +156,8 @@ function sail(buf: FleetBuf, s: SailSpec): void {
     span(s.nu),
     span(s.nt),
     f,
-    // red: how pale (toward the head, and a pale line down the luff); green: its shade
-    (u, t) => ({ c: [0.04 + 0.36 * t * t + 0.25 * Math.max(0, 1 - u * 5), 0.94 + 0.06 * u, 0], rig: [KIND.sail, along(u, t), belly(u, t), 0] }),
+    // where on the sail: red from the luff to the leech, green from the foot to the head, blue the height in battens (over 32)
+    (u, t) => ({ c: [u, t, ((s.head[1] - s.foot[1]) * t) / BATTEN / 32], rig: [KIND.sail, along(u, t), belly(u, t), 0] }),
     {
       flip: true,
       store: (_u, t) => {
@@ -227,7 +230,7 @@ export interface BoatClass {
  * a membrane between two spars that meet at the bow).
  */
 function proa(buf: FleetBuf): void {
-  hull(buf, { L: 7.4, B: 0.92, F: 0.52, draft: 0.25, sheerBow: 0.85, sheerStern: 0.7, rakeBow: 0.55, rakeStern: 0.45, n: 7 });
+  hull(buf, { L: 7.4, B: 0.92, F: 0.52, draft: 0.25, sheerBow: 0.95, sheerStern: 0.75, rakeBow: 0.95, rakeStern: 0.75, n: 7 });
   hull(buf, { L: 4.6, B: 0.4, F: 0.24, draft: 0.14, sheerBow: 0.5, sheerStern: 0.5, rakeBow: 0.3, rakeStern: 0.3, x0: -0.2, z0: 2.75, n: 4, plain: true });
   for (const x of [1.25, -1.5]) {
     tube(buf, [[x, 0.5, 0], [x - 0.05, 0.8, 0.9], [x - 0.12, 0.72, 1.9], [x - 0.2, 0.26, 2.75]], [0.05, 0.05, 0.045, 0.04], 3, SPAR);
@@ -274,7 +277,7 @@ function proa(buf: FleetBuf): void {
 
 /** The catamaran: two slim hulls, a net between them, a pod to sit in, one tall leaf and a small headsail. */
 function cat(buf: FleetBuf): void {
-  for (const z of [-2.9, 2.9]) hull(buf, { L: 11.8, B: 1.3, F: 0.98, draft: 0.4, sheerBow: 0.4, sheerStern: 0.12, rakeBow: 0.9, rakeStern: 0.5, z0: z, n: 8 });
+  for (const z of [-2.9, 2.9]) hull(buf, { L: 11.8, B: 1.3, F: 0.98, draft: 0.4, sheerBow: 0.45, sheerStern: 0.12, rakeBow: 1.9, rakeStern: 0.9, z0: z, n: 8 });
   for (const x of [1.7, -3.7]) tube(buf, [[x, 1.02, -2.9], [x, 1.14, 0], [x, 1.02, 2.9]], [0.12, 0.13, 0.12], 4, SPAR);
   buf.quad([-3.7, 1.04, -2.35], [-3.7, 1.04, 2.35], [1.7, 1.04, 2.35], [1.7, 1.04, -2.35], NET);
   house(buf, -1.5, 1.04, 0, 2.1, 1.3, 1.05, 8);
@@ -292,22 +295,22 @@ function cat(buf: FleetBuf): void {
 
 /** The sloop: one hull, a low house, a tall leaf and a headsail. */
 function sloop(buf: FleetBuf): void {
-  const h = hull(buf, { L: 15.6, B: 4.1, F: 1.25, draft: 1.1, sheerBow: 0.5, sheerStern: 0.18, rakeBow: 1.5, rakeStern: 1.0, n: 10 });
+  const h = hull(buf, { L: 15.6, B: 4.1, F: 1.25, draft: 1.1, sheerBow: 0.5, sheerStern: 0.2, rakeBow: 2.5, rakeStern: 1.7, n: 10 });
   house(buf, 1.3, h.deckAt(1.3) - 0.08, 0, 3.5, 1.35, 0.85);
   const main: SailSpec = { foot: [2.0, 2.75], head: [-1.2, 23.5], bend: 1.6, chord: leaf(6.6), nu: 4, nt: 9 };
   sail(buf, main);
   mast(buf, main, h.deckAt(2.0), 0.14);
-  sail(buf, { foot: [8.0, h.deckAt(8.0) + 0.25], head: luffOf(main, 0.8), chord: jib(4.9), camber: 0.08, nu: 3, nt: 6 });
+  sail(buf, { foot: [9.0, h.deckAt(8.0) + 0.3], head: luffOf(main, 0.8), chord: jib(4.9), camber: 0.08, nu: 3, nt: 6 });
   crew(buf, 37, 5, (i, rnd) => (i < 4 ? [-3.2 - i * 0.75, h.deckAt(-4) - 0.35, (i % 2 ? 1 : -1) * (0.75 + 0.3 * rnd()), i > 0] : [5.2, h.deckAt(5.2), 0.5, false]));
   lamp(buf, [main.head[0], main.head[1] + 0.35, 0], 0.32, RIDING);
-  lamp(buf, [-7.9, h.deckAt(-7.9) + 0.9, 0], 0.26, LANTERN);
+  lamp(buf, [-8.6, h.deckAt(-7.8) + 0.9, 0], 0.26, LANTERN);
   lamp(buf, [6.2, h.deckAt(6.2) + 0.25, -h.halfAt(6.2)], 0.17, PORT);
   lamp(buf, [6.2, h.deckAt(6.2) + 0.25, h.halfAt(6.2)], 0.17, STARBOARD);
 }
 
 /** The ketch: two masts, the taller ahead, a long house, lanterns from stem to stern over the mastheads. */
 function ketch(buf: FleetBuf): void {
-  const h = hull(buf, { L: 33, B: 7.3, F: 2.3, draft: 1.6, sheerBow: 0.55, sheerStern: 0.25, rakeBow: 3.3, rakeStern: 2.1, n: 12 });
+  const h = hull(buf, { L: 33, B: 7.3, F: 2.3, draft: 1.6, sheerBow: 0.55, sheerStern: 0.25, rakeBow: 4.8, rakeStern: 3.2, n: 12 });
   house(buf, 0.2, h.deckAt(0.2) - 0.1, 0, 6.6, 2.35, 1.6, 12);
   house(buf, -10.9, h.deckAt(-10.9) - 0.1, 0, 2.3, 1.7, 1.25, 8);
   const main: SailSpec = { foot: [6.4, 5.0], head: [1.6, 40.5], bend: 1.6, chord: leaf(12), nu: 5, nt: 9 };
@@ -316,7 +319,7 @@ function ketch(buf: FleetBuf): void {
     sail(buf, s);
     mast(buf, s, h.deckAt(s.foot[0]), 0.26);
   }
-  const bow: V3 = [18.6, h.deckAt(16.5) + 0.5, 0];
+  const bow: V3 = [20.2, h.deckAt(16.5) + 0.5, 0];
   sail(buf, { foot: [bow[0] - 0.6, bow[1]], head: luffOf(main, 0.82), chord: jib(9), camber: 0.08, nu: 4, nt: 6 });
   crew(buf, 53, 11, (i, rnd) => {
     // along the rails amidships and aft, and two at the bow
@@ -324,7 +327,7 @@ function ketch(buf: FleetBuf): void {
     const x = -15 + rnd() * 9 + (i % 3) * 6.5;
     return [x, h.deckAt(x) - 0.05, (i % 2 ? 1 : -1) * (h.halfAt(x) - 0.55), rnd() < 0.3];
   });
-  const stern: V3 = [-17.6, h.deckAt(-16) + 1.2, 0];
+  const stern: V3 = [-18.8, h.deckAt(-16) + 1.2, 0];
   const mh: V3 = [main.head[0], main.head[1] + 0.4, 0];
   const zh: V3 = [mizzen.head[0], mizzen.head[1] + 0.4, 0];
   lanterns(buf, bow, mh, 8, 1.5, 0.27);
@@ -339,7 +342,7 @@ function ketch(buf: FleetBuf): void {
 
 /** The ship: three masts, three great leaves and two headsails, a gallery and a great cabin, forty people at her rails. */
 function tall(buf: FleetBuf): void {
-  const h = hull(buf, { L: 84, B: 13.6, F: 4.8, draft: 3.6, sheerBow: 0.6, sheerStern: 0.32, rakeBow: 8, rakeStern: 4.6, n: 18 });
+  const h = hull(buf, { L: 84, B: 13.6, F: 4.8, draft: 3.6, sheerBow: 0.6, sheerStern: 0.32, rakeBow: 11, rakeStern: 6.5, n: 18 });
   house(buf, 9.5, h.deckAt(9.5) - 0.2, 0, 13.5, 3.9, 2.7, 14);
   house(buf, -16.5, h.deckAt(-16.5) - 0.2, 0, 8.5, 4.2, 3.3, 12);
   const fore: SailSpec = { foot: [23.5, 11], head: [16.5, 76], bend: 1.6, chord: leaf(21.5), nu: 5, nt: 10 };
@@ -349,7 +352,7 @@ function tall(buf: FleetBuf): void {
     sail(buf, s);
     mast(buf, s, h.deckAt(s.foot[0]), 0.55, 6);
   }
-  const bow: V3 = [48.5, h.deckAt(42) + 0.6, 0];
+  const bow: V3 = [51.5, h.deckAt(42) + 0.6, 0];
   sail(buf, { foot: [bow[0] - 1, bow[1]], head: luffOf(fore, 0.86), chord: jib(17.5), camber: 0.08, nu: 4, nt: 7 });
   sail(buf, { foot: [37.5, h.deckAt(37.5) + 0.8], head: luffOf(fore, 0.6), chord: jib(11.5), camber: 0.08, nu: 4, nt: 6 });
   crew(buf, 71, 40, (i, rnd) => {
@@ -357,7 +360,7 @@ function tall(buf: FleetBuf): void {
     const x = -36 + (i % 17) * 3.6 + rnd() * 2;
     return [x, h.deckAt(x) - 0.08, (i < 17 ? 1 : -1) * (h.halfAt(x) - 0.7), rnd() < 0.15];
   });
-  const stern: V3 = [-45, h.deckAt(-40) + 2.2, 0];
+  const stern: V3 = [-47, h.deckAt(-40) + 2.2, 0];
   const heads = [fore, main, mizzen].map((s): V3 => [s.head[0], s.head[1] + 0.8, 0]);
   lanterns(buf, bow, heads[0], 14, 3, 0.36);
   lanterns(buf, heads[0], heads[1], 6, 5, 0.36);
