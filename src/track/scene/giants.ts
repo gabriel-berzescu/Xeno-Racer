@@ -17,7 +17,7 @@ import { makeGiantMaterials } from './giantsMat';
 import { placeGiants, placeLogs, placeUnder, woodDensity, type Blocked, type Giant } from './giantsPlace';
 import { buildSeaRocks } from './giantsRocks';
 import { mulberry32 } from '../math';
-import { ShadeModel, slideToSun } from './giantsShade';
+import { rememberedGround, ShadeModel, slideToSun } from './giantsShade';
 import { emitFern, emitGiant, emitLog, GBuf } from './giantsTree';
 import type { Inst } from './trees';
 
@@ -126,7 +126,7 @@ export function buildGiants(ctx: Ctx): THREE.Object3D | null {
 
     // the shade follows the light: worked out when the scene is built and again whenever the light has moved by a fifth of a degree
     const last = new THREE.Vector3();
-    const ground = (x: number, z: number): number => Math.max(sea, rt.drawnHeight(x, z));
+    const ground = rememberedGround((x, z) => Math.max(sea, rt.drawnHeight(x, z)));
     ctx.envListeners.push((env) => {
       const s = env.sunDirection;
       if (last.lengthSq() > 0 && last.dot(s) > 0.999994) return;

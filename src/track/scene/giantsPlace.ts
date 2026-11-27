@@ -238,16 +238,16 @@ export function placeGiants(rt: TrackRuntimeImpl, def: GiantsDef, blocked: Block
     for (let i = 0; i < cand.length; i += 2) {
       const x = cand[i];
       const z = cand[i + 1];
-      const pick = rnd();
       const { h, r } = size(1.5);
       const jitter = 0.82 + 0.36 * rnd();
       const dens = woodDensity(wood, x, z);
       if (dens < 0.06) continue;
       // (the wood stands back from the barriers a little further than the rows do, and thins out with the quality tier away from the road)
       if (!free(x, z, r, 6)) continue;
+      // (thinner on the lower tiers: the trunks stand further apart there, and the more so the further from the road)
       const far = roadSide(rt, x, z).road;
-      if (share < 1 && far > 60 && pick > share + (1 - share) * smoothstep(140, 60, far)) continue;
-      if (near.hit(x, z, 0, (spacing / Math.sqrt(dens)) * jitter - r, spacing / Math.sqrt(0.06) + 12)) continue;
+      const here = dens * (share + (1 - share) * smoothstep(140, 50, far));
+      if (near.hit(x, z, 0, (spacing / Math.sqrt(here)) * jitter - r, spacing / Math.sqrt(0.03) + 12)) continue;
       const sx = (rt.heightFast(x + e, z) - rt.heightFast(x - e, z)) / (2 * e);
       const sz = (rt.heightFast(x, z + e) - rt.heightFast(x, z - e)) / (2 * e);
       if (Math.hypot(sx, sz) > 0.85) continue;

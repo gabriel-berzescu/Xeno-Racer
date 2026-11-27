@@ -270,6 +270,9 @@ export class ShadeModel {
 /**
  * Slide every vertex down the ray from the sun (unit vector toward it: sx, sy, sz) until it stands `PROXY_HEIGHT` above the ground
  * under it (`ground(x, z)`: the land, or the sea). A vertex already that low stays. Its shadow falls where it did.
+ *
+ * The ray is walked from the vertex, eight metres of the map at a time, to the first place where it is that low: under a low sun it
+ * crosses half the headland on its way down, and what it meets first (the hill, the cliff's edge) is where its shadow falls.
  */
 export function slideToSun(base: Float32Array, out: Float32Array, sx: number, sy: number, sz: number, ground: (x: number, z: number) => number): void {
   // (a light on the horizon would send them out of the world: no lower than three degrees)
@@ -280,17 +283,63 @@ export function slideToSun(base: Float32Array, out: Float32Array, sx: number, sy
     sz *= k;
     sy = lowest;
   }
+  const sh = Math.hypot(sx, sz);
+  const dt = sh > 0.02 ? 8 / sh : 1e9;
   for (let i = 0; i < base.length; i += 3) {
     const x = base[i];
     const y = base[i + 1];
     const z = base[i + 2];
     let t = 0;
-    if (y - ground(x, z) > PROXY_HEIGHT) {
-      // the ground under the ray is not level: a few rounds find the place (it is gentle ground, and the answer need not be exact)
-      for (let k = 0; k < 4; k++) t = Math.max(0, (y - ground(x - sx * t, z - sz * t) - PROXY_HEIGHT) / sy);
+    // how far over the height it is to end at: positive while it has further to go
+    let over = y - ground(x, z) - PROXY_HEIGHT;
+    while (over > 0) {
+      // (if the ground were level from here on it would be there in over / sy: never step past that)
+      const step = Math.min(dt, over / sy);
+      const next = y - sy * (t + step) - ground(x - sx * (t + step), z - sz * (t + step)) - PROXY_HEIGHT;
+      if (next <= 0) {
+        // between the two: halved six times (the ground between them may be a cliff's edge, which no straight line finds)
+        let lo = t;
+        let hi = t + step;
+        for (let k = 0; k < 6; k++) {
+          const mid = (lo + hi) / 2;
+          if (y - sy * mid - ground(x - sx * mid, z - sz * mid) - PROXY_HEIGHT > 0) lo = mid;
+          else hi = mid;
+        }
+        t = (lo + hi) / 2;
+        break;
+      }
+      t += step;
+      over = next;
+      if (step < 0.05) break;
     }
     out[i] = x - sx * t;
     out[i + 1] = y - sy * t;
     out[i + 2] = z - sz * t;
   }
+}
+
+/**
+ * The ground for slideToSun, remembered: heights on a grid of `cell` metres, each asked of `ground` once, read between the four
+ * nearest. The rays of a wood cross the same ground many thousands of times.
+ */
+export function rememberedGround(ground: (x: number, z: number) => number, cell = 6): (x: number, z: number) => number {
+  const seen = new Map<number, number>();
+  const at = (ix: number, iz: number): number => {
+    const k = ix * 65537 + iz;
+    let h = seen.get(k);
+    if (h === undefined) {
+      h = ground(ix * cell, iz * cell);
+      seen.set(k, h);
+    }
+    return h;
+  };
+  return (x, z) => {
+    const fx = x / cell;
+    const fz = z / cell;
+    const ix = Math.floor(fx);
+    const iz = Math.floor(fz);
+    const tx = fx - ix;
+    const tz = fz - iz;
+    return (at(ix, iz) * (1 - tx) + at(ix + 1, iz) * tx) * (1 - tz) + (at(ix, iz + 1) * (1 - tx) + at(ix + 1, iz + 1) * tx) * tz;
+  };
 }
