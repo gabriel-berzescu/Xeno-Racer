@@ -1,11 +1,11 @@
 /**
  * What the old wood is drawn with: the bark (a tile of furrowed, cinnamon-red bark and its relief, made from one height field), the
- * leaf atlas (two pads of foliage, a beard of lichen, a fern), and the three materials.
+ * leaf atlas (two pads of foliage, a beard of lichen, a fern, the litter under a trunk), and the materials.
  *
  * `bark` and `leaf` multiply the sun's light by `aSun`, the share of it each vertex sees past the rest of the wood (giantsShade.ts):
  * the crowns are far above anything the shadow maps hold. `caster` draws nothing: it is the material of the stand-ins that cast the
  * wood's shadows into the cascades (every vertex put outside the view; the shadow pass makes its own depth material from its
- * texture of holes).
+ * texture of holes). `flies` is the fireflies: one draw call of points.
  */
 import * as THREE from 'three';
 import { hash2, mulberry32 } from '../math';
@@ -264,6 +264,50 @@ function paintFern(g: CanvasRenderingContext2D, ox: number, rnd: () => number): 
   g.restore();
 }
 
+/** The litter under a giant, seen from above: a ragged round of fallen sprays and strips of bark, brown on brown, a few cones. */
+function paintLitter(g: CanvasRenderingContext2D, ox: number, rnd: () => number): void {
+  g.save();
+  g.beginPath();
+  g.rect(ox, 0, TILE, TILE);
+  g.clip();
+  g.lineCap = 'round';
+  const cx = ox + TILE / 2;
+  const cy = TILE / 2;
+  const cols = ['#2a1d14', '#3a281b', '#4a3423', '#5b422e', '#33241a', '#6a4f38'];
+  // its edge is not a circle: a dozen lobes, and it thins out toward each
+  const lobes: number[] = [];
+  for (let k = 0; k < 12; k++) lobes.push(0.72 + 0.28 * rnd());
+  const reach = (a: number): number => {
+    const f = ((a / (Math.PI * 2)) * 12 + 120) % 12;
+    const i = Math.floor(f);
+    const t = f - i;
+    return (lobes[i] * (1 - t) + lobes[(i + 1) % 12] * t) * (TILE / 2 - 6);
+  };
+  for (let i = 0; i < 5200; i++) {
+    const a = rnd() * Math.PI * 2;
+    const d = Math.pow(rnd(), 0.62) * reach(a);
+    const x = cx + Math.cos(a) * d;
+    const y = cy + Math.sin(a) * d;
+    const len = 4 + rnd() * 9;
+    const dir = rnd() * Math.PI;
+    g.strokeStyle = cols[Math.floor(rnd() * cols.length)];
+    g.lineWidth = 1.2 + rnd() * 2.2;
+    g.beginPath();
+    g.moveTo(x - Math.cos(dir) * len, y - Math.sin(dir) * len);
+    g.lineTo(x + Math.cos(dir) * len, y + Math.sin(dir) * len);
+    g.stroke();
+  }
+  for (let i = 0; i < 26; i++) {
+    const a = rnd() * Math.PI * 2;
+    const d = Math.sqrt(rnd()) * reach(a) * 0.85;
+    g.fillStyle = rnd() < 0.5 ? '#1f150e' : '#77593d';
+    g.beginPath();
+    g.ellipse(cx + Math.cos(a) * d, cy + Math.sin(a) * d, 2.5 + rnd() * 2, 1.6 + rnd() * 1.4, rnd() * 3, 0, Math.PI * 2);
+    g.fill();
+  }
+  g.restore();
+}
+
 /**
  * The canvas as an un-premultiplied RGBA texture whose clear texels carry their tile's mean colour (so that no level of the mip
  * chain turns grey at the cut-out edges) and whose levels keep the coverage of the alpha test (foliage.ts does the same for the
@@ -332,6 +376,7 @@ function leafAtlas(aniso: number): THREE.DataTexture {
   paintPad(g, TILE, rnd);
   paintBeard(g, TILE * 2, rnd);
   paintFern(g, TILE * 3, rnd);
+  paintLitter(g, TILE * 4, rnd);
   return atlasTexture(c, LEAF_TILES, aniso, ALPHA_TEST);
 }
 
@@ -358,6 +403,8 @@ export interface GiantMaterials {
   bark: THREE.MeshStandardMaterial;
   leaf: THREE.MeshLambertMaterial;
   caster: THREE.MeshBasicMaterial;
+  /** The fireflies of the wood: points of light that drift and breathe, at nothing by day (so that their program exists whatever the hour). */
+  flies: THREE.PointsMaterial;
 }
 
 const SUN_VERT = '#include <common>\nattribute float aSun;\nvarying float vGiantSun;';
@@ -385,7 +432,8 @@ export function makeGiantMaterials(ctx: Ctx): GiantMaterials {
   const uSunDir = { value: new THREE.Vector3(0, 1, 0) };
   const uSunCol = { value: new THREE.Vector3(0.3, 0.25, 0.18) };
   // (Lambert, as the game's trees are: no sheen of the sky on cards seen edge on)
-  const leaf = new THREE.MeshLambertMaterial({ map: atlas, vertexColors: true, side: THREE.DoubleSide, alphaTest: ALPHA_TEST, alphaToCoverage: true });
+  // (drawn a hair nearer than it lies: the litter is cards on the ground, and the ground is not as flat as a card)
+  const leaf = new THREE.MeshLambertMaterial({ map: atlas, vertexColors: true, side: THREE.DoubleSide, alphaTest: ALPHA_TEST, alphaToCoverage: true, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 });
   leaf.name = 'giantsLeaf';
   leaf.onBeforeCompile = (shader) => {
     shader.uniforms.uGiantTime = uTime;
@@ -430,13 +478,63 @@ export function makeGiantMaterials(ctx: Ctx): GiantMaterials {
   };
   caster.customProgramCacheKey = () => 'giants-caster-1';
 
+  // The fireflies: each wanders round its own place (aFly: a phase, a pace, a size in metres) and breathes its light in and out; they
+  // come out as it gets dark and stay in when it rains.
+  const uNight = { value: 0 };
+  const flies = new THREE.PointsMaterial({ color: 0xffffff, vertexColors: true, size: 1, sizeAttenuation: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: true });
+  flies.name = 'giantsFlies';
+  flies.onBeforeCompile = (shader) => {
+    shader.uniforms.uGiantTime = uTime;
+    shader.uniforms.uGiantNight = uNight;
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute vec3 aFly;\nuniform float uGiantTime;\nuniform float uGiantNight;\nvarying float vGiantFly;')
+      .replace(
+        '#include <begin_vertex>',
+        /* glsl */ `#include <begin_vertex>
+  {
+    float t = uGiantTime * aFly.y + aFly.x * 6.2832;
+    transformed += vec3(sin(t * 0.61) + 0.5 * sin(t * 1.7 + aFly.x * 40.0), 0.6 * sin(t * 0.83 + 1.3) + 0.25 * sin(t * 2.3), cos(t * 0.53) + 0.5 * cos(t * 1.9 + aFly.x * 23.0)) * 1.6;
+    // a breath of light every few seconds, each at its own moment
+    float f = fract(uGiantTime * 0.21 * aFly.y + aFly.x * 7.0);
+    vGiantFly = uGiantNight * smoothstep(0.0, 0.18, f) * (1.0 - smoothstep(0.3, 0.72, f));
+  }`,
+      )
+      .replace('gl_PointSize = size;', 'gl_PointSize = size * aFly.z;')
+      .replace(
+        '#include <fog_vertex>',
+        /* glsl */ `{
+    // never smaller than a pixel and a half: one too far to have a size keeps its light, spread over that
+    float px = gl_PointSize;
+    gl_PointSize = clamp(px, 1.6, 24.0);
+    vGiantFly *= min(1.0, (px * px) / (1.6 * 1.6));
+  }
+#include <fog_vertex>`,
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vGiantFly;')
+      .replace('#include <map_particle_fragment>', '{ float r = length(gl_PointCoord - 0.5) * 2.0; float g = 1.0 - smoothstep(0.0, 1.0, r); diffuseColor.a *= (0.25 * g + 0.75 * g * g * g * g) * vGiantFly; }')
+      .replace(
+        '#include <fog_fragment>',
+        /* glsl */ `#ifdef USE_FOG
+  #ifdef FOG_EXP2
+    gl_FragColor.rgb *= exp(-fogDensity * fogDensity * vFogDepth * vFogDepth);
+  #else
+    gl_FragColor.rgb *= 1.0 - smoothstep(fogNear, fogFar, vFogDepth);
+  #endif
+#endif`,
+      );
+  };
+  flies.customProgramCacheKey = () => 'giants-flies-1';
+
   ctx.updaters.push((_dt, _camera, time) => {
     uTime.value = time % 3600;
   });
   ctx.envListeners.push((env) => {
     uSunDir.value.copy(env.sunDirection).normalize();
     sunGlow(env.sunIntensity, uSunCol.value);
+    const dark = Math.min(1, Math.max(0, (env.darkness - 0.35) / 0.4));
+    uNight.value = dark * dark * (3 - 2 * dark) * Math.max(0, 1 - 2.5 * env.rain);
   });
-  ctx.disposables.push(barkMap, barkNor, atlas, holes, bark, leaf, caster);
-  return { bark, leaf, caster };
+  ctx.disposables.push(barkMap, barkNor, atlas, holes, bark, leaf, caster, flies);
+  return { bark, leaf, caster, flies };
 }

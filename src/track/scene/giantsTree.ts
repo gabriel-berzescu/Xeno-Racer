@@ -64,8 +64,8 @@ const BARK_V = 5.2;
 /** The first ring of a trunk that takes its sunlight from a probe (m above its foot): below it the shadow maps do the work. */
 export const PROBE_FROM = 14;
 
-/** Tiles of the leaf atlas: two pads of foliage, the beard of lichen, a fern. */
-export const LEAF_TILES = 4;
+/** Tiles of the leaf atlas: two pads of foliage, the beard of lichen, a fern, the litter under a trunk. */
+export const LEAF_TILES = 5;
 function tileU(i: number): [number, number] {
   const w = 1 / LEAF_TILES;
   return [(i + 0.03) * w, (i + 0.97) * w];
@@ -73,6 +73,7 @@ function tileU(i: number): [number, number] {
 const PAD_U = [tileU(0), tileU(1)];
 const BEARD_U = tileU(2);
 export const FERN_U = tileU(3);
+const LITTER_U = tileU(4);
 
 /** The shape of one trunk: radius at an angle and a height, and where its axis is at a height. */
 export interface TrunkShape {
@@ -568,6 +569,32 @@ export function emitLog(b: GBuf, l: Log, sides: number): void {
     for (let j = 0; j < sides; j++) {
       if (end === 0) b.idx.push(c, ring + j, ring + j + 1);
       else b.idx.push(c, ring + j + 1, ring + j);
+    }
+  }
+}
+
+/**
+ * The litter under a giant: fallen sprays, bark and cones, centuries deep, lying on the ground round its foot out to `r` metres (a
+ * card cut in four, each corner on the ground as it is there). `ground(x, z)`: the ground as it is drawn.
+ */
+export function emitLitter(b: GBuf, x: number, z: number, r: number, yaw: number, k: number, ground: (x: number, z: number) => number): void {
+  const [u0, u1] = LITTER_U;
+  const c = Math.cos(yaw);
+  const s = Math.sin(yaw);
+  const base = b.n;
+  for (let j = 0; j <= 2; j++) {
+    for (let i = 0; i <= 2; i++) {
+      const lx = (i - 1) * r;
+      const lz = (j - 1) * r;
+      const wx = x + lx * c - lz * s;
+      const wz = z + lx * s + lz * c;
+      b.v(wx, ground(wx, wz) + 0.09, wz, 0, 1, 0, u0 + ((u1 - u0) * i) / 2, 0.02 + (0.96 * j) / 2, k, k * 0.97, k * 0.92, NO_PROBE);
+    }
+  }
+  for (let j = 0; j < 2; j++) {
+    for (let i = 0; i < 2; i++) {
+      const a = base + j * 3 + i;
+      b.idx.push(a, a + 1, a + 4, a, a + 4, a + 3);
     }
   }
 }

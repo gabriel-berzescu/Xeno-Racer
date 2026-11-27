@@ -18,7 +18,7 @@ import { placeGiants, placeLogs, placeUnder, woodDensity, type Blocked, type Gia
 import { buildSeaRocks } from './giantsRocks';
 import { mulberry32 } from '../math';
 import { rememberedGround, ShadeModel, slideToSun } from './giantsShade';
-import { emitFern, emitGiant, emitLog, GBuf } from './giantsTree';
+import { emitFern, emitGiant, emitLitter, emitLog, GBuf } from './giantsTree';
 import type { Inst } from './trees';
 
 /** How near the road a giant is built in full, and how near in part (m from the centre line), by quality tier. */
@@ -75,7 +75,7 @@ export function buildGiants(ctx: Ctx): THREE.Object3D | null {
   const under = placeUnder(rt, def, giants, blocked, UNDER[tier], logs);
   // (its own dice: the scene's are left as they were for whoever builds after)
   const rnd = mulberry32((def.seed ?? 1) ^ 0x1b873593);
-  const stats = { giants: giants.length, full: 0, part: 0, logs: logs.length, young: under.young.length, ferns: under.ferns.length, triangles: 0, casterTriangles: 0, probes: 0, parts: {} as Record<string, number> };
+  const stats = { giants: giants.length, full: 0, part: 0, logs: logs.length, young: under.young.length, ferns: under.ferns.length, flies: 0, triangles: 0, casterTriangles: 0, probes: 0, parts: {} as Record<string, number> };
 
   if (giants.length) {
     const mats = makeGiantMaterials(ctx);
@@ -96,6 +96,9 @@ export function buildGiants(ctx: Ctx): THREE.Object3D | null {
       });
       if (!lone) {
         for (const l of logs) emitLog(bark, l, tier >= 2 ? 12 : 8);
+        // the litter at the feet of the giants within sight of the road (the ground between them is the island's grass)
+        const drawn = (x: number, z: number): number => rt.drawnHeight(x, z);
+        for (const g of list) if (g.road < PART[tier]) emitLitter(leaf, g.x, g.z, g.root * (1.7 + 0.6 * rnd()), rnd() * 6.28, 0.75 + 0.3 * rnd(), drawn);
         for (const f of under.ferns) emitFern(leaf, f.x, f.y, f.z, f.s, rnd() * 6.28, 0.5 + 0.3 * rnd());
       }
       const name = lone ? 'giants_lone' : 'giants_wood';
@@ -112,6 +115,11 @@ export function buildGiants(ctx: Ctx): THREE.Object3D | null {
       const cg = new THREE.BufferGeometry();
       cg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(c.pos), 3));
       cg.setAttribute('uv', new THREE.BufferAttribute(c.uv, 2));
+      // (normals nothing reads: a geometry without them is drawn into the cascades with a depth program of its own, which the warm-up
+      // frame would not build, since it takes one caster of each kind and tells kinds apart by their materials)
+      const up = new Float32Array(c.pos.length);
+      for (let i = 1; i < up.length; i += 3) up[i] = 1;
+      cg.setAttribute('normal', new THREE.BufferAttribute(up, 3));
       cg.setIndex(new THREE.BufferAttribute(c.idx, 1));
       const cm = new THREE.Mesh(cg, mats.caster);
       cm.name = `${name}_caster`;
@@ -146,6 +154,40 @@ export function buildGiants(ctx: Ctx): THREE.Object3D | null {
         }
       }
     });
+
+    // fireflies where the ferns are: under the trees beside the road, a metre or a few over the ground
+    const nFlies = Math.min(under.ferns.length, [0, 220, 420, 600][tier]);
+    if (nFlies > 0) {
+      const pos = new Float32Array(nFlies * 3);
+      const col = new Float32Array(nFlies * 3);
+      const fly = new Float32Array(nFlies * 3);
+      for (let i = 0; i < nFlies; i++) {
+        const f = under.ferns[Math.floor(rnd() * under.ferns.length)];
+        pos[i * 3] = f.x + (rnd() - 0.5) * 9;
+        pos[i * 3 + 1] = f.y + 0.8 + 4.5 * rnd() * rnd();
+        pos[i * 3 + 2] = f.z + (rnd() - 0.5) * 9;
+        // a green-gold light, no two quite the same
+        const k = 1.6 + 1.6 * rnd();
+        col[i * 3] = 0.72 * k;
+        col[i * 3 + 1] = (0.92 + 0.08 * rnd()) * k;
+        col[i * 3 + 2] = (0.22 + 0.2 * rnd()) * k;
+        fly[i * 3] = rnd();
+        fly[i * 3 + 1] = 0.6 + 0.8 * rnd();
+        fly[i * 3 + 2] = 0.3 + 0.25 * rnd();
+      }
+      const fg = new THREE.BufferGeometry();
+      fg.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      fg.setAttribute('color', new THREE.BufferAttribute(col, 3));
+      fg.setAttribute('aFly', new THREE.BufferAttribute(fly, 3));
+      fg.computeBoundingSphere();
+      fg.boundingSphere!.radius += 6;
+      const pts = new THREE.Points(fg, mats.flies);
+      pts.name = 'giants_flies';
+      pts.matrixAutoUpdate = false;
+      group.add(pts);
+      ctx.disposables.push(fg);
+      stats.flies = nFlies;
+    }
 
     // young trees of the giants' own kind: the game's conifers, a little bluer and darker than its pines
     if (under.young.length) {
