@@ -658,6 +658,60 @@ export interface ViaductDef {
 export interface GiantsDef {
   /** Fixes what is random about it. */
   seed?: number;
+  /** The old wood: where the giants stand and how big they are. */
+  wood?: GiantWoodDef;
+  /** Giants that stand alone, as landmarks: placed by hand (height and girth as in the wood when left out). */
+  lone?: { x: number; z: number; height?: number; girth?: number }[];
+  /** A natural arch of rock standing in the sea. */
+  arch?: SeaArchDef;
+  /** Boulders where a cliff meets the sea, and round the feet of the stacks. */
+  boulders?: BoulderFieldDef[];
+}
+
+export interface GiantWoodDef {
+  /**
+   * The groves: discs on the map inside which giants stand, `density` (0..1, default 1) of the full wood at the centre of each and
+   * thinning out over the outer third. Where a road runs through a grove, a row of trunks stands close behind its barriers.
+   */
+  groves: { x: number; z: number; r: number; density?: number }[];
+  /** Glades: discs where no giant stands, nor any other tree of the island (a view kept open, a place where the light comes down). */
+  glades?: { x: number; z: number; r: number }[];
+  /** Metres between trunks deep in the wood (default 30). */
+  spacing?: number;
+  /** Heights (m, default 90 to 130) and girths (the diameter of the trunk above the flare of its roots, m; default 6 to 11). */
+  height?: [number, number];
+  girth?: [number, number];
+  /** The rows behind the barriers: metres from trunk to trunk along the road (default 24 to 38) and from the barrier's face to the tips of the roots (default 1.2 to 4). */
+  rowSpacing?: [number, number];
+  rowGap?: [number, number];
+  /** Young trees and ferns under the giants, per giant (default 1.6 and 9). */
+  young?: number;
+  ferns?: number;
+  /** Giants that fell long ago and lie in the wood within sight of the road (default 6). */
+  logs?: number;
+}
+
+export interface SeaArchDef {
+  /** The middle of its opening on the map, and the bearing of the line of sight through it (degrees east of north; 0: looking north). */
+  x: number;
+  z: number;
+  bearing?: number;
+  /** The opening: width at the water and height of its crown over the sea (m). */
+  span: number;
+  rise: number;
+  /** The rock over the opening (m, default 14), the length of the whole fin (default 2.6 spans) and its thickness at the water (default 0.45 span). */
+  cap?: number;
+  length?: number;
+  thick?: number;
+}
+
+export interface BoulderFieldDef {
+  /** A disc on the map: `n` boulders of about `size` metres in it, standing in the shallows and on the shore (none on high ground). */
+  x: number;
+  z: number;
+  r: number;
+  n: number;
+  size: number;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
