@@ -544,7 +544,7 @@ class RenderSystemImpl implements XenoRenderSystem {
     const other = forecastTo && forecastTo !== e.weather ? await solveEnvironment({ ...e, weather: forecastTo }, yieldToBrowser) : null;
     // inside an orbital ring the day turns: its hours are solved now, round the clock (cached, like every look)
     let day: RenderSystemImpl['day'] = null;
-    if (sol.orbital && e.stillDay !== true) {
+    if (sol.orbital && !sol.orbital.ring.great && e.stillDay !== true) {
       const phases = orbitalKeyPhases(sol.orbital.ring);
       const hours: EnvSolution[] = [];
       for (const p of phases) hours.push(await solveOrbitalHour(e, p, yieldToBrowser));

@@ -274,7 +274,7 @@ describe('Xenon Ring in the Xeno Cup', () => {
     });
     expect(isPlayable(state, TRACKS.map((t) => t.info.id), CARS.map((c) => c.id))).toBe(true);
     const rain = roundConfig(state, 5);
-    expect(rain).toMatchObject({ trackId: 'xenon', environment: { timeOfDay: 'night', weather: 'rain' }, forecast: 'clearing', championship: { round: 6, rounds: 7 } });
+    expect(rain).toMatchObject({ trackId: 'xenon', environment: { timeOfDay: 'night', weather: 'rain' }, forecast: 'clearing', championship: { round: 6, rounds: 8 } });
     expect(Number.isInteger(rain.forecastSeed) && (rain.forecastSeed ?? 0) >= 1).toBe(true);
     expect(rain.laps).toBe(state.calendar[5].laps);
     expect(buildView(state).rounds[5]).toMatchObject({ trackId: 'xenon', forecast: 'clearing' });

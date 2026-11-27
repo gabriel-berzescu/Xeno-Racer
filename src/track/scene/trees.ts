@@ -583,8 +583,8 @@ function scatter(ctx: Ctx, veg: VegetationDef, far = 0): { near: Record<SpeciesI
       }
       if (blocked) continue;
       let sp = pick();
-      // poplars like the water
-      if (lakeLevel !== null && y < lakeLevel + 6 && rnd() < 0.5) sp = 'poplar';
+      // poplars like the water (of a lake: by the sea it is palms, and they are in the mix already)
+      if (lakeLevel !== null && !rt.def.terrain.ocean && y < lakeLevel + 6 && rnd() < 0.5) sp = 'poplar';
       let tint = 0.88 + rnd() * 0.24;
       let hue = (rnd() - 0.5) * 0.2;
       let hmul = sp === 'poplar' ? 1.5 : sp === 'pine' ? 1.15 : sp === 'spruce' ? 1.25 : sp === 'snowbirch' ? 0.9 : 1;

@@ -39,6 +39,12 @@ uniform vec3 uAvgDry;
 uniform vec3 uAvgDirt;
 uniform vec3 uAvgRock;
 uniform float uWet;
+#ifdef XR_SHORE
+uniform vec2 uShore;
+#endif
+#ifdef XR_WOOD
+uniform vec3 uWood[8];
+#endif
 varying vec3 vWPos;
 varying vec3 vWNormal;
 varying float vSurf;
@@ -49,6 +55,9 @@ varying float vUrban;
 #ifdef XR_CITY_NEON
 uniform float uCityNight;
 vec3 gCityGlow;
+#endif
+#ifdef XR_SHORE
+float gShore;
 #endif
 float gWRock;
 float gWDirt;
@@ -135,6 +144,40 @@ const FRAG_MAP = /* glsl */ `
     cCan *= mix(1.0, 0.55 + 0.9 * mix(gN4.r, gN5.g, 0.5), smoothstep(150.0, 650.0, camDist));
     col = mix(col, cCan, cw);
   }
+#ifdef XR_WOOD
+  // under an old wood (the groves of SceneryDef.giants: x, z and radius) no meadow grows: the ground is centuries of fallen bark
+  // and needles, red-brown and dark, with a little green where the light gets in. The mown verge beside the road stays a verge.
+  {
+    float wood = 0.0;
+    for (int i = 0; i < 8; i++) {
+      vec3 g = uWood[i];
+      wood = max(wood, 1.0 - smoothstep(g.z - 42.0, g.z + 6.0, distance(vWPos.xz, g.xy) + 26.0 * (gN1.g - 0.5)));
+    }
+    if (vEdge > 0.0) wood *= smoothstep(5.0, 15.0, vEdge);
+    wood *= (0.72 + 0.28 * smoothstep(0.3, 0.6, gN2.r * 0.6 + gN3.b * 0.4)) * (1.0 - gWRock);
+    vec3 cFloor = flattenTex(uDirt, wuv / 4.2, uAvgDirt, 4.0) * vec3(0.78, 0.5, 0.36) * (0.8 + 0.4 * gN2.b) * (0.86 + 0.28 * gN3.r);
+    col = mix(col, cFloor, wood);
+    gWGrass *= 1.0 - wood;
+    gWMoss *= 1.0 - wood;
+    gWDirt = max(gWDirt, wood);
+  }
+#endif
+#ifdef XR_SHORE
+  // an island: sand from the bed of the sea to a little above the wash (how far above wanders), and in the run-offs that are beach.
+  // Pale and dry up the beach, darker where the sea wets it; the rock of a cliff stays rock.
+  {
+    float hs = vWPos.y - uShore.x;
+    float top = uShore.y * (0.55 + 0.9 * gN1.r) + 0.5 * (gN3.g - 0.5);
+    float sandW = max(1.0 - smoothstep(top * 0.5, top, hs), smoothstep(0.35, 0.8, vSurf)) * (1.0 - gWRock);
+    vec3 cSand = vec3(0.6, 0.52, 0.375) * (0.9 + 0.2 * gN2.r) * (0.93 + 0.14 * gN3.r) * (0.95 + 0.1 * gN5.g);
+    cSand *= mix(0.6, 1.0, smoothstep(0.02, 0.55, hs));
+    col = mix(col, cSand, sandW);
+    gWGrass *= 1.0 - sandW;
+    gWMoss *= 1.0 - sandW;
+    gWDirt = max(gWDirt * (1.0 - sandW), 0.0);
+    gShore = sandW;
+  }
+#endif
 #ifdef XR_URBAN
 #ifdef XR_CITY_NEON
   // a megacity: no meadow anywhere. Asphalt between the towers, slabs of concrete paving at their feet, and after dark the light of
@@ -167,7 +210,11 @@ const FRAG_MAP = /* glsl */ `
 #endif
 #endif
   // wet ground is darker: grass a little, bare earth and rock a lot
+#ifdef XR_SHORE
+  col *= mix(1.0, 0.74 * gWGrass + 0.6 * gWRock + 0.5 * gWDirt + 0.68 * gWMoss + 0.66 * gShore, uWet);
+#else
   col *= mix(1.0, 0.74 * gWGrass + 0.6 * gWRock + 0.5 * gWDirt + 0.68 * gWMoss, uWet);
+#endif
   diffuseColor.rgb *= col;
 `;
 
@@ -236,6 +283,15 @@ const LOOKS: Record<string, TerrainLook> = {
     canopy: [0.9, 140, 800, 0.15],
     canopyCol: [0.045, 0.08, 0.04],
   },
+  // an atoll: lush ground, pale rock wherever it is steep (the shoulders of a causeway, a cliff over the sea), a little forest on the far land
+  halcyon: {
+    tint: [1.05, 1.7, 2.2],
+    rockRange: [0.07, 0.19],
+    dirtSlope: [0.3, 0.6, 0.3],
+    rockTint: [1.12, 1.06, 0.96],
+    canopy: [0.6, 300, 1400, 1],
+    canopyCol: [0.05, 0.1, 0.04],
+  },
 };
 
 export function makeTerrainMaterial(ctx: Ctx): THREE.MeshStandardMaterial {
@@ -260,6 +316,8 @@ export function makeTerrainMaterial(ctx: Ctx): THREE.MeshStandardMaterial {
   const canopy = new THREE.Vector4(...look.canopy);
   const canopyCol = new THREE.Vector3(...look.canopyCol);
   const neon = ctx.rt.def.scenery?.city?.style === 'neon';
+  const shore = ctx.rt.def.terrain.ocean;
+  const groves = ctx.rt.def.scenery?.giants?.wood?.groves;
   const uCityNight = { value: 0 };
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uGrass = { value: t.moss.diff }; // lush meadow is the base layer
@@ -282,6 +340,8 @@ export function makeTerrainMaterial(ctx: Ctx): THREE.MeshStandardMaterial {
     shader.uniforms.uAvgDirt = { value: t.dirt.avg.clone() };
     shader.uniforms.uAvgRock = { value: t.rock.avg.clone() };
     shader.uniforms.uWet = ctx.wet.uWet;
+    if (shore) shader.uniforms.uShore = { value: new THREE.Vector2(shore.level, 1.9) };
+    if (groves) shader.uniforms.uWood = { value: Array.from({ length: 8 }, (_, i) => (groves[i] ? new THREE.Vector3(groves[i].x, groves[i].z, groves[i].r * Math.sqrt(groves[i].density ?? 1)) : new THREE.Vector3(1e7, 1e7, -100))) };
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\n' + VERT_DECL)
       .replace('#include <begin_vertex>', '#include <begin_vertex>\n vWPos = (modelMatrix * vec4(transformed, 1.0)).xyz; vWNormal = normalize(mat3(modelMatrix) * objectNormal); vSurf = aSurf; vEdge = aEdge;\n#ifdef XR_URBAN\n vUrban = aUrban;\n#endif');
@@ -304,7 +364,11 @@ export function makeTerrainMaterial(ctx: Ctx): THREE.MeshStandardMaterial {
       uCityNight.value = Math.min(1, Math.max(0, (env.darkness - 0.12) / 0.3));
     });
   }
-  mat.customProgramCacheKey = () => 'terrain-splat-v11-' + ctx.q.splatLayers + (neon ? '-neon' : '');
+  // an island's ground is sand at the sea's edge and under it; the other circuits do not pay for it
+  if (shore) mat.defines = { ...(mat.defines ?? {}), XR_SHORE: '' };
+  // the ground under an old wood is the wood's
+  if (groves) mat.defines = { ...(mat.defines ?? {}), XR_WOOD: '' };
+  mat.customProgramCacheKey = () => 'terrain-splat-v11-' + ctx.q.splatLayers + (neon ? '-neon' : '') + (shore ? '-shore' : '') + (groves ? '-wood' : '');
   mat.userData.wetShader = true;
   return mat;
 }

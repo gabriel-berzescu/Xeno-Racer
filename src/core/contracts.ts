@@ -145,8 +145,15 @@ export interface OrbitalRing {
   y: number;
   /** World x of the two rims (the glass walls the air ends at): [the lower x, the higher x]. */
   rims: [number, number];
-  /** Height of the canopy over the floor (m): the air ends there too. */
+  /** Height of the canopy over the floor (m): the air ends there too. 0 on a great ring, which has none. */
   canopy: number;
+  /**
+   * A ring of the great kind (an Orbital): millions of kilometres across and open to space (walls at its edges hold the air), in orbit
+   * about a star at a planet's distance, turning once in a day of twenty-four hours. Its floor is flat as far as the eye can tell,
+   * its sky is an ordinary sky by day, with a sun that rises and sets, and the rest of the ring is an arch across that sky: the
+   * hour does not turn during a race. See src/render/orbital.ts.
+   */
+  great?: boolean;
 }
 
 /**

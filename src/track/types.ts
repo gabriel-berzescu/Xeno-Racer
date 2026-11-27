@@ -214,8 +214,34 @@ export interface RingFloor {
   bermW: number;
 }
 
+/**
+ * The sea of an island circuit: everything below `level` is water (src/track/scene/water.ts draws it), and the land is the circuit's
+ * own, the ground beside its road: as far as `left` / `right` metres from the centreline (keys along the lap), with a coast that
+ * noise pulls in and out. Where the widths are small the road runs on a causeway. Off the coast the bed falls away: to a shallow
+ * lagoon on one side of the road and to the open sea on the other. See src/track/coast.ts and makeTerrain.
+ */
+export interface OceanDef {
+  /** Water surface elevation (m). */
+  level: number;
+  /** How far the land reaches from the centreline on each side of the road (m), keyed along the lap. */
+  left: Key[];
+  right: Key[];
+  /** How steeply the land rises from the waterline on each side (rise/run), keyed along the lap: 0.06 a beach, 1 a cliff. Default 0.07 all round. */
+  rise?: { left?: Key[]; right?: Key[] };
+  /** The sea bed off the shore on each side of the road: [its depth far out (m below the level), how fast it gets there (rise/run)]. */
+  bed: { left: [number, number]; right: [number, number] };
+  /** Which side of the road the open sea is on (the other side is the inside of the circuit): the sea far from the map is this one's. */
+  outside: 'L' | 'R';
+  /** The coast is pulled in and out by noise: amplitude (m) and wavelength (m). Default [34, 300]. */
+  warp?: [number, number];
+  /** Islets and stacks standing in the sea: world x and z, the radius of the shore (m), the height (m), and how sheer the sides are (0..1, default 0.5). */
+  islets?: { x: number; z: number; r: number; h: number; sheer?: number }[];
+}
+
 export interface TerrainParams {
   seed: number;
+  /** An island circuit: the sea, and the land beside the road. */
+  ocean?: OceanDef;
   /** The circuit lies inside an orbital ring: the ground curls up to the north and south, and ends at the rims. */
   ring?: RingFloor;
   sea?: SeaDef;
@@ -559,6 +585,10 @@ export interface SceneryDef {
   bridges?: { at: Mark; brand: number }[];
   /** The built world of an orbital habitat beyond the circuit: the works at the foot of the rim's glass, the stalks, the settlements. */
   habitat?: HabitatDef;
+  /** An island circuit's old wood: colossal trees, thousands of years old, and the rocks that stand in its sea (src/track/scene/giants.ts). */
+  giants?: GiantsDef;
+  /** Who came to watch an island circuit: the boats at anchor and under sail, and the great ship in the sky (src/track/scene/fleet.ts). */
+  fleet?: FleetDef;
 }
 
 /**
@@ -618,4 +648,137 @@ export interface ViaductDef {
   /** The deck's height over the ground under its lowest point (m) and the span of an arch (m). */
   height: number;
   span: number;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The old wood and the sea rocks of an island circuit (src/track/scene/giants*.ts)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** The old wood of an island circuit and the rocks in its sea. Positions are world x and z (x = -east), heights in metres. */
+export interface GiantsDef {
+  /** Fixes what is random about it. */
+  seed?: number;
+  /** The old wood: where the giants stand and how big they are. */
+  wood?: GiantWoodDef;
+  /** Giants that stand alone, as landmarks: placed by hand (height and girth as in the wood when left out). */
+  lone?: { x: number; z: number; height?: number; girth?: number }[];
+  /** A natural arch of rock standing in the sea. */
+  arch?: SeaArchDef;
+  /** Boulders where a cliff meets the sea, and round the feet of the stacks. */
+  boulders?: BoulderFieldDef[];
+}
+
+export interface GiantWoodDef {
+  /**
+   * The groves: discs on the map inside which giants stand, `density` (0..1, default 1) of the full wood at the centre of each and
+   * thinning out over the outer third. Where a road runs through a grove, a row of trunks stands close behind its barriers.
+   */
+  groves: { x: number; z: number; r: number; density?: number }[];
+  /** Glades: discs where no giant stands, nor any other tree of the island (a view kept open, a place where the light comes down). */
+  glades?: { x: number; z: number; r: number }[];
+  /** Metres between trunks deep in the wood (default 30). */
+  spacing?: number;
+  /** Heights (m, default 90 to 130) and girths (the diameter of the trunk above the flare of its roots, m; default 6 to 11). */
+  height?: [number, number];
+  girth?: [number, number];
+  /** The rows behind the barriers: metres from trunk to trunk along the road (default 24 to 38) and from the barrier's face to the tips of the roots (default 1.2 to 4). */
+  rowSpacing?: [number, number];
+  rowGap?: [number, number];
+  /** Young trees and ferns under the giants, per giant (default 1.6 and 9). */
+  young?: number;
+  ferns?: number;
+  /** Giants that fell long ago and lie in the wood within sight of the road (default 6). */
+  logs?: number;
+}
+
+export interface SeaArchDef {
+  /** The middle of its opening on the map, and the bearing of the line of sight through it (degrees east of north; 0: looking north). */
+  x: number;
+  z: number;
+  bearing?: number;
+  /** The opening: width at the water and height of its crown over the sea (m). */
+  span: number;
+  rise: number;
+  /** The rock over the opening (m, default 14), the length of the whole fin (default 2.6 spans) and its thickness at the water (default 0.45 span). */
+  cap?: number;
+  length?: number;
+  thick?: number;
+}
+
+export interface BoulderFieldDef {
+  /** A disc on the map: `n` boulders of about `size` metres in it, standing in the shallows and on the shore (none on high ground). */
+  x: number;
+  z: number;
+  r: number;
+  n: number;
+  size: number;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The fleet of an island circuit (src/track/scene/fleet*.ts)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The kinds of boat, from the smallest: an outrigger canoe under a crab-claw sail, a catamaran, a sloop, a two-masted ketch and a
+ * three-masted ship.
+ */
+export type BoatKind = 'proa' | 'cat' | 'sloop' | 'ketch' | 'tall';
+
+/**
+ * Who came to watch an island circuit. Positions are world x and z (x = -east), heights in metres, headings compass degrees (0 is
+ * the north, 90 the east).
+ */
+export interface FleetDef {
+  /** Fixes what is random about it. */
+  seed?: number;
+  /** Where the wind comes from (default 90). A boat at anchor lies head to it; one under sail trims to it. */
+  wind?: number;
+  /** Boats at anchor, a stretch of water at a time. */
+  moorings?: MooringDef[];
+  /** Boats at anchor placed one by one (the big ships). */
+  berths?: BerthDef[];
+  /** Boats under sail. */
+  courses?: CourseDef[];
+  /** The great ship in the sky. */
+  ship?: GreatShipDef;
+}
+
+export interface MooringDef {
+  /** The line the boats lie along, and how far to either side of it they are scattered (m). */
+  line: [number, number][];
+  spread: number;
+  /** How many boats (at High quality: fewer below it), and the share of each kind among them. A boat that draws too much for the water it would lie in gives way to a smaller one. */
+  count: number;
+  kinds: Partial<Record<BoatKind, number>>;
+  /** They lie in groups of about this many (default 1: each on its own). */
+  group?: number;
+}
+
+export interface BerthDef {
+  x: number;
+  z: number;
+  kind: BoatKind;
+  /** Where its bow points (default: into the wind). */
+  heading?: number;
+}
+
+export interface CourseDef {
+  kind: BoatKind;
+  /** The marks it rounds, in order: a closed course, every corner as wide a turn as its two legs allow. */
+  marks: [number, number][];
+  /** How many boats sail it (default 1) and how fast on a reach (m/s, default 2.4). */
+  boats?: number;
+  speed?: number;
+}
+
+export interface GreatShipDef {
+  /** The middle of it, and the height of its keel over the sea. */
+  x: number;
+  z: number;
+  altitude: number;
+  /** Its length, and where its bow points. */
+  length: number;
+  heading: number;
+  /** How many sails stand on its back (default 3; 0: none). */
+  masts?: number;
 }

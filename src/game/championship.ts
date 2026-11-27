@@ -46,12 +46,14 @@ const PLAYER_COLOR = '#16e0bd';
 const FALLBACK_COLOR = '#8a93a3';
 
 /**
- * The calendar is fixed: seven circuits, seven rounds, each circuit once and on the day that is most its own. A golden hour at Aurelia to
+ * The calendar is fixed: eight circuits, eight rounds, each circuit once and on the day that is most its own. A golden hour at Aurelia to
  * begin; a cloudy morning on the Kuroyama pass; a clear night at Isvik, under the northern lights. Then the weather of the season: at Porto
  * Vela the dusk starts dry under cloud and the rain comes during the race (when and how hard is fixed for the season, so a restart repeats
  * it), Brennwald is the thunderstorm, and the night at Xenon Ring starts in the rain, the road a mirror for the neon, and dries as the race
- * goes on. The last round leaves the ground: Hyperion Ring from its golden hour, where a sunset, a night and a sunrise go by before the flag.
- * The cup came to five circuits twice (ten rounds) before there were seven; a season saved then keeps the calendar it was saved with.
+ * goes on. The last two rounds leave the ground, each further into the years to come: Hyperion Ring from its golden hour, where a sunset,
+ * a night and a sunrise go by before the flag, and Halcyon Ring at dawn: a season that began in a golden hour ends in a sunrise, six
+ * thousand years on. The cup came to five circuits twice (ten rounds) while there were fewer, and to seven once before the eighth was
+ * built; a season saved then keeps the calendar it was saved with.
  */
 export const CALENDAR: readonly { trackId: string; environment: EnvironmentSettings; forecast?: Forecast }[] = [
   { trackId: 'aurelia', environment: { timeOfDay: 'golden', weather: 'clear' } },
@@ -61,6 +63,7 @@ export const CALENDAR: readonly { trackId: string; environment: EnvironmentSetti
   { trackId: 'brennwald', environment: { timeOfDay: 'noon', weather: 'storm' } },
   { trackId: 'xenon', environment: { timeOfDay: 'night', weather: 'rain' }, forecast: 'clearing' },
   { trackId: 'hyperion', environment: { timeOfDay: 'golden', weather: 'clear' } },
+  { trackId: 'halcyon', environment: { timeOfDay: 'dawn', weather: 'clear' } },
 ];
 
 /** The weather change a round really runs at this many laps (a one-lap race is over before it would come). */

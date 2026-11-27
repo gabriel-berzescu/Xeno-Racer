@@ -22,7 +22,9 @@ import { buildTerrainTiles, REACH } from './terrainTiles';
 import { buildTrees } from './trees';
 import { buildWinterScenery } from './winter';
 import { buildTufts } from './tufts';
-import { buildWater } from './water';
+import { buildOcean, buildWater } from './water';
+import { buildGiants } from './giants';
+import { buildFleet } from './fleet';
 import { loadTextures } from './textures';
 import { setupWet, tintScene } from './wet';
 
@@ -92,6 +94,11 @@ export async function buildTrackScene(rt: TrackRuntimeImpl, opts: TrackSceneOpti
   // an orbital habitat's rim works, stalks and settlements (before the trees: they keep off what it builds)
   const habitat = buildHabitat(ctx);
   if (habitat) root.add(habitat);
+  // an island circuit's old wood and sea rocks, and its fleet (before the trees too)
+  const giants = buildGiants(ctx);
+  if (giants) root.add(giants);
+  const fleet = buildFleet(ctx);
+  if (fleet) root.add(fleet);
   await yieldFrame();
 
   ctx.progress(0.3, 'terrain');
@@ -100,6 +107,8 @@ export async function buildTrackScene(rt: TrackRuntimeImpl, opts: TrackSceneOpti
   ctx.progress(0.6, 'water');
   const water = buildWater(ctx);
   if (water) root.add(water);
+  const sea = buildOcean(ctx, REACH);
+  if (sea) root.add(sea);
   await yieldFrame();
 
   ctx.progress(0.65, 'trees');

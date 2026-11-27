@@ -1,6 +1,7 @@
 /**
  * Builds a TrackRuntimeImpl from a TrackDef: plan -> samples -> elevation / bank / widths / zones.
  */
+import { makeCoast, type CoastFn } from './coast';
 import { DEG } from './math';
 import { PlanSampler, buildPlan, resolveMark } from './plan';
 import { buildChannels, buildElevation, interpKeys } from './profile';
@@ -102,6 +103,23 @@ export function buildRuntime(def: TrackDef): TrackRuntimeImpl {
       shore: fz.shore,
     };
   }
+  // an island circuit: the coast is a distance from the road
+  let coast: CoastFn | null = null;
+  const ocean = def.terrain.ocean;
+  if (ocean) {
+    coast = makeCoast({
+      ocean,
+      X,
+      Z,
+      PHI,
+      N,
+      spacing,
+      left: interpKeys(ocean.left, plan.marks, L, N, spacing),
+      right: interpKeys(ocean.right, plan.marks, L, N, spacing),
+      riseL: interpKeys(ocean.rise?.left ?? [{ at: 'main', v: 0.07 }], plan.marks, L, N, spacing),
+      riseR: interpKeys(ocean.rise?.right ?? [{ at: 'main', v: 0.07 }], plan.marks, L, N, spacing),
+    });
+  }
   const terrain = makeTerrain(
     terrainParams,
     {
@@ -111,6 +129,7 @@ export function buildRuntime(def: TrackDef): TrackRuntimeImpl {
       halfH: (maxZ - minZ) / 2,
     },
     iceLake,
+    coast,
   );
 
   const sectors: [number, number] = [resolveMark(plan.marks, L, def.sectors[0]), resolveMark(plan.marks, L, def.sectors[1])];
