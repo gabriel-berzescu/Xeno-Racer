@@ -23,7 +23,7 @@ const logs = placeLogs(rt, def, giants, open);
 const under = placeUnder(rt, def, giants, open, 1, logs);
 const mark = (name: string): number => rt.plan.marks.get(name)!;
 
-describe("Halcyon Ring's old wood", () => {
+describe("giants: Halcyon Ring's old wood", () => {
   it('belongs to this circuit alone', () => {
     for (const t of TRACKS) {
       if (t.info.id === 'halcyon') continue;
@@ -149,7 +149,7 @@ describe("Halcyon Ring's old wood", () => {
   });
 });
 
-describe('a giant', () => {
+describe('giants: one of them', () => {
   it('has no bough for its first 30 to 46 m, and roots that reach no further than the ground it was given', () => {
     for (const g of giants) {
       const sh = trunkShape(g);
@@ -208,13 +208,14 @@ describe('a giant', () => {
     giants.forEach((g, i) => emitGiant(g, g.kind === 'lone' ? 0 : g.road < 48 ? 0 : g.road < 112 ? 1 : 2, bark, leaf, shade, i));
     for (const l of logs) emitLog(bark, l, 12);
     const c = shade.casters();
-    expect(bark.tris + leaf.tris + under.ferns.length * 4).toBeLessThan(300_000);
+    // (with the ferns, four triangles each, and the litter under every giant, eight)
+    expect(bark.tris + leaf.tris + under.ferns.length * 4 + giants.length * 8).toBeLessThan(300_000);
     expect(c.idx.length / 3).toBeLessThan(30_000);
     expect(shade.probeCount).toBeLessThan(20_000);
   });
 });
 
-describe("the wood's shade", () => {
+describe("giants: the wood's shade", () => {
   const bark = new GBuf();
   const leaf = new GBuf();
   const shade = new ShadeModel();
@@ -293,7 +294,7 @@ describe("the wood's shade", () => {
   });
 });
 
-describe('the sea rocks', () => {
+describe('giants: the sea rocks', () => {
   const arch = def.arch!;
   const size = archSize(arch);
 
@@ -366,7 +367,7 @@ describe('the sea rocks', () => {
   });
 });
 
-describe('the bark', () => {
+describe('giants: the bark', () => {
   it('is a tile that repeats: opaque, and no seam at its edges', () => {
     const px = barkPixels(64, 128);
     expect(px.color.length).toBe(64 * 128 * 4);
