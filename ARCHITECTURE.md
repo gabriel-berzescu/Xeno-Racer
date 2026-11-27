@@ -25,6 +25,9 @@ Hyperion Ring is the other one, the other way: six hundred years on, bright, cal
 Orbital circuits). The circuit itself keeps to the rule above, as a heritage circuit would; what stands
 round it is white composite, pale glass and living green, with warm window light after dark and no neon.
 
+Halcyon Ring, six thousand years on, is the rule itself, undisturbed: an island, a sea, a sky. What is new
+there is in the sky (see The great ring and the atoll), and nothing on the ground argues with it.
+
 ## Layout and ownership
 
 | Path | Owner | What |
@@ -306,7 +309,7 @@ sets none of them gets the very same objects, numbers and shader programs as bef
 - **Cost** (High, 1920x1080, a night race of twelve, sampled every 2.5 s round a lap): 381 draw calls and 1.38 M triangles on average, 594 and
   2.0 M at the most. Porto Vela in the same race, run
   side by side: 447 and 1.66 M on average, 774 and 2.27 M at the most, and a frame a tenth longer.
-- **The Xeno Cup** comes to Xenon Ring once, in round six of seven, the last one on the ground: the night in the rain that clears. (The cup came
+- **The Xeno Cup** comes to Xenon Ring once, in round six of eight, the last one on the ground: the night in the rain that clears. (The cup came
   to five circuits twice while there were fewer; a season saved then keeps its calendar: `tests/championship.test.ts`, `tests/isvik.test.ts`.)
 
 ## Orbital circuits
@@ -376,7 +379,58 @@ before: the sky's ordinary program is the same source with `XR_ORBITAL` undefine
 - **The future at the trackside** (`SceneryDef.hover`; `src/track/scene/hover.ts` and `hoverKit`, `hoverTerrace`, `hoverDrones`, `hoverSky`, `hoverBanner`): seven hovering grandstands (a white hull, tiers of spectators that are strips of the hull's own mesh, a canopy, a ring of pale light under each and a pool of it on the ground that is always drawn, black by day, so that it comes up with the dark without a step), camera drones every 150 m and four marshal drones in one instanced draw call, six lanes of traffic in the sky that follow the ring's floor, and the event's name in the air over the back of the grid. The quiet lines of light (the pit wall, the grandstand fence, the wall of the Edge) and the ring over the start line are the neon kit's, with options Xenon Ring sets none of: `NeonDef.stripSpans` (strips on stretches only), a ring's inner colour, the frames' colour, `chunk`.
 - **No shader after the start** holds through a whole day: `renderer.info.programs` is 83 on the grid of a twelve-car race started at golden hour and 83 four minutes later, after a sunset, a night and a sunrise.
 - **Cost** (High, 1920x1080, that race, in stretches of 30 s): 347 to 536 draw calls and 1.58 to 2.40 M triangles on average per stretch, a frame in 7.0 ms at the median. Brennwald in a night race of twelve, counted the same way: 405 to 651 calls and 2.7 to 4.1 M triangles.
-- **The last round of the Xeno Cup** (`CALENDAR` in `src/game/championship.ts`): the cup comes to every circuit once, each on the day that is most its own, and ends here, from the golden hour, on a clear day with nothing in the forecast (the sky is the round). A round's hour is the hour its day starts at: a standard race of three laps sees the sunset in its first corners, Saturn in the night, and the sunrise before the flag (`tests/hyperion.test.ts`).
+- **The last round but one of the Xeno Cup** (`CALENDAR` in `src/game/championship.ts`): the cup comes to every circuit once, each on the day that is most its own, and its last two rounds are off the ground: this one, from the golden hour, on a clear day with nothing in the forecast (the sky is the round), and Halcyon Ring after it. A round's hour is the hour its day starts at: a standard race of three laps sees the sunset in its first corners, Saturn in the night, and the sunrise before the flag (`tests/hyperion.test.ts`).
+
+## The great ring and the atoll: Halcyon Ring
+
+Halcyon Ring lies on an Orbital, six thousand years from now: a ring 3.7 million km across, in orbit about its star at a planet's distance,
+turning once in twenty-four hours. The radius is the one at which a day's turn weighs 1 g (`g = w^2 r`: the sum that gives Hyperion Ring five
+minutes at 22.4 km gives a day at 1.855 million km); the star is outside the ring (a ring about its star would have it at the zenith for ever,
+and one this size would stand a million kilometres over its surface); and the ring is tilted to its orbit as the Earth is to its own. The race
+is a heritage event as on Hyperion Ring: asphalt, kerbs, armco, today's cars. It is `TrackInfo.orbital` again, with `great: true`, and almost
+nothing of what a habitat ring changes applies to it. A circuit that is neither gets the objects, numbers and shader programs it had.
+
+- **The ground is flat**: five kilometres away the floor has risen by seven millimetres. No `TerrainParams.ring`, no curl, no rims in sight (the
+  band is 32 000 km wide, the atoll 12 000 km from its nearer edge).
+- **The sky is an ordinary sky** (`greatHour`, `GREAT`, `GREAT_PHASE` in `src/render/orbital.ts`): a whole atmosphere under an open sky, so the
+  look of an hour is the ground's own preset for that hour, with the sun where the ring's geometry puts it. The geometry is Hyperion's with other
+  numbers (the axis along world x, one phase for everything): the sun stands 66.6 degrees from the east end of the axis (90 less the tilt), so it
+  rises in the north-north-east, stands due east at noon and sets in the south-south-east, and each hour's phase is the one at which it is as high
+  as at that hour on the ground. An hour lasts an hour: the day does not turn during a race (`RenderSystemImpl.day` stays empty, and
+  `solveOrbitalHour` answers with the still hour). The air is an island's: 1.6 times as clear as an ordinary day's.
+- **The arch** (`src/render/archShader.ts`, compiled into the sky dome's third program, `SkyDome.archMaterial`, `XR_ARCH`): the rest of the ring.
+  It leaves the horizon due north, goes over the zenith 3.7 million km away and comes down due south, beyond the air and in front of the stars,
+  as a moon is. A ray from the eye meets the floor again at `t = 2 R dy / (dy^2 + dz^2)` (the eye is on the floor, so there is nothing to
+  solve, and nothing is subtracted from anything large: single precision is enough at this size), and what it meets is a world seen from space:
+  ocean, shelf seas and land from two octaves of the shared noise, cloud masses that drift, the sun's glint on the sea, a few lights on the coasts
+  of its night side, and its own air over it as a veil that thickens where it is seen at a slant. That land's hour is its own: `n = (0, cos turn,
+  -sin turn)` against the true sun, so half the arch is in its day (the half toward the north in the evening, toward the south in the morning,
+  the top of it at midnight), with a warm line between. Our air reddens and dims it toward the horizon, where it is a pillar a few degrees wide;
+  overhead it is no wider than the moon.
+  - A pixel of sky is some 4000 km of the ring's turn at any height, and a few hundred across the band near the horizon: the weather of a world
+    is hairlines at that slant, and drawn as it is it was a column of dashes. So the land is drawn long (four times as far round the ring as
+    across it), read at the pixel's longer side (`textureGrad` with an isotropic footprint), and an octave fades out as a pixel comes to hold a
+    whole feature of it (`OCT`): only shapes several pixels long are ever drawn.
+  - The stars are hidden behind it, the cumulus and the rain deck are in front of it (in the rain there is no arch).
+- **The night** is the arch's: `greatArchLight` is the middle of its lit half (45 degrees above the north horizon at sunset, the zenith at
+  midnight), and the hour called night is two hours after sunset, when that is sixty degrees up, due north. The light takes the moon's place
+  (`TodPreset.moon`, a cool white, half as strong again), the exposure is lower than a moonlit night's and a fifth of the stars are lost: the
+  daylight of a world, given back, is several hundred full moons. No moon is drawn.
+- **The atoll** (`TerrainParams.ocean`, `src/track/coast.ts`): an island circuit. The land is the ground beside the road, as far as a width keyed
+  along the lap on each side of it, so the coast is a distance field of the centreline: baked once into a 16 m grid (a nearest-sample search per
+  node, some 50 ms) that the terrain function reads with a bilinear fetch. Noise pulls the coast in and out, never by more than half the land
+  there is; the land is capped by the shore's profile (a beach rises 7 %, a cliff 110 %, keyed along the lap); off the coast the bed falls away,
+  to five metres on the inside of the circuit (the lagoon) and to twenty-two outside it. Where the widths are 23 m the road is a causeway. Islets
+  and stacks stand where the definition puts them. The sea's level is the terrain's `lakeLevel`, so trees and tufts keep out of it as they do out
+  of a lake (and off the beach: no grass on the sand, no poplars by this water).
+- **The sea** (`buildOcean` in `src/track/scene/water.ts`): one sheet of water at the sea's level, vertex-coloured by the depth of the bed under it
+  (turquoise over the sand of the shallows, blue-black off the shelf), cut fine where the colour changes (8 m cells in the shallows near the
+  circuit) and coarse where it does not (one quad to a 64 m block of deep water, a few very large ones out past the far plane); a block that is
+  all land has none. The lake's material, less of a mirror: from a car the sea is all at a grazing angle, and a mirror there is the colour of the
+  horizon from shore to shore.
+- **Sand** (`XR_SHORE` in `src/track/scene/terrainMat.ts`): the terrain material's variant for an island paints sand from the bed of the sea to a
+  little above the wash, and in the run-offs that are beach (the `sand` surface, used here for the first time); pale and dry up the beach, darker
+  where the sea wets it, and the rock of a cliff stays rock.
 
 ## The Mammoth: all-wheel drive and the all-terrain tyre
 
