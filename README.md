@@ -248,7 +248,7 @@ Dev URL flags: `?quick=race|timeTrial|freeRoam&track=aurelia|kuroyama|brennwald|
 Surface textures are CC0 from [Poly Haven](https://polyhaven.com) (see `public/assets/track/CREDITS.md`).
 Everything else is generated in code: cars, terrain, trees, buildings, signage, sky, engine sound and music.
 
-Built by Claude (Anthropic) for Gabriel.
+Built by Claude (Anthropic) and Gabriel Berzescu.
 
 ## License
 

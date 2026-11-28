@@ -41,7 +41,7 @@ export class PauseScreen extends BaseScreen {
   private readonly music = h('div', 'pause-music');
   /** The "Next track" item: it is greyed out while no music plays. */
   private nextEl: HTMLElement | null = null;
-  /** Split screen: whose pad the menu follows ("Paused by Silviu"), and a warning when a controller has come out. */
+  /** Split screen: whose pad the menu follows ("Paused by Sam"), and a warning when a controller has come out. */
   private readonly owner = h('div', 'pause-owner');
   private readonly warn = h('div', 'pause-warn');
   private readonly items: Item[];

@@ -4,7 +4,7 @@
  * Why: on Windows, Chrome checks once per profile whether the user's Windows password is blank, by trying to sign the user in with
  * an empty password (a failed interactive logon, Security event 4625 from chrome.exe). It remembers the answer in the profile. Playwright's
  * `chromium.launch()` starts every run with a brand-new temporary profile, so EVERY launch was one failed sign-in, and ten launches in ten
- * minutes (a batch of screenshots) hit the account lockout policy: on 2026-10-20 the owner was locked out of his own laptop, again and again.
+ * minutes (a batch of screenshots) hit the account lockout policy and locked the Windows account out, again and again.
  *
  * So every launch here gets a fresh, empty profile of its own (no storage carried between runs: tests still start clean) seeded with the
  * two settings files of a template profile, where Chrome has already done that check once (.cache/chrome-profile/template: made on first

@@ -23,7 +23,7 @@ export const DEFAULT_SETTINGS: Settings = {
   camera: { fov: 62, defaultMode: 'chase', shake: 0.6 },
   damage: 'visual',
   nitro: true,
-  playerName: 'Gabriel',
+  playerName: 'Player 1',
   player2Name: 'Player 2',
   split: { layout: 'rows' },
 };

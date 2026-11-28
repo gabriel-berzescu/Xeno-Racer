@@ -323,7 +323,7 @@ describe('setup -> RaceConfig', () => {
     s.difficulty = 'alien';
     s.weather = 'overcast';
     s.startPosition = 'pole';
-    const c = buildRaceConfig(s, TRACKS, CARS, 'Gabriel');
+    const c = buildRaceConfig(s, TRACKS, CARS, 'Alex');
     expect(c.mode).toBe('race');
     expect(c.trackId).toBe('b');
     expect(c.carId).toBe(CARS[CARS.length - 1].id);
@@ -332,7 +332,7 @@ describe('setup -> RaceConfig', () => {
     expect(c.difficulty).toBe('alien');
     expect(c.environment).toEqual({ timeOfDay: 'golden', weather: 'overcast' });
     expect(c.startPosition).toBe('pole');
-    expect(c.livery).toMatchObject({ primary: LIVERY_PRESETS[1].livery!.primary, driver: 'Gabriel' });
+    expect(c.livery).toMatchObject({ primary: LIVERY_PRESETS[1].livery!.primary, driver: 'Alex' });
   });
   it('clamps laps and opponents to the legal range', () => {
     const s = defaultSetup('race', TRACKS, CARS);
@@ -772,8 +772,8 @@ describe('championship menu text', () => {
     createChampionship({
       setup: { carId: CARS[0].id, difficulty: 'pro', opponents: 3, length: 'standard', startPosition: 'back', grid: 'standings' },
       tracks,
-      playerName: 'Gabriel',
-      playerLivery: { ...CARS[0].defaultLivery, driver: 'Gabriel' },
+      playerName: 'Alex',
+      playerLivery: { ...CARS[0].defaultLivery, driver: 'Alex' },
       car: CARS[0],
       seed: 5,
     });

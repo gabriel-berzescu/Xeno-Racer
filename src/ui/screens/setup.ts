@@ -87,7 +87,7 @@ export class SetupScreen extends BaseScreen {
   private readonly driverName = h('span', 'liv-name drv-name');
   private readonly osk: Osk;
   private readonly nextLabel = h('span', null, 'Race options');
-  /** Split screen: whose car this is ("Player 2 · Silviu · Logitech Gamepad F310"), above the car. */
+  /** Split screen: whose car this is ("Player 2 · Sam · Logitech Gamepad F310"), above the car. */
   private readonly seatTag = h('div', 'seat-tag');
 
   // the join card: the second player's car step, until they are in

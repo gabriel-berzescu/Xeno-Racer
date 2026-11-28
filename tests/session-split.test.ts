@@ -37,7 +37,7 @@ function setup(n: number, laps: number, stored: number | null | (number | null)[
     const human = i < 2;
     entrants.push({
       id: i,
-      name: i === 0 ? 'Gabriel' : i === 1 ? 'Silviu' : `car${i}`,
+      name: i === 0 ? 'Alex' : i === 1 ? 'Sam' : `car${i}`,
       color: '#fff',
       carId: i === 1 ? 'kestrel-r' : 'vanta-gt',
       isPlayer: human,
@@ -63,7 +63,7 @@ function setup(n: number, laps: number, stored: number | null | (number | null)[
 /** The same field with one human (no seat): what a single-player race is. */
 function single(n: number, laps: number): Setup {
   const entrants: Entrant[] = [];
-  for (let i = 0; i < n; i++) entrants.push({ id: i, name: i === 0 ? 'Gabriel' : `car${i}`, color: '#fff', carId: 'vanta-gt', isPlayer: i === 0, state: fakeState(i) });
+  for (let i = 0; i < n; i++) entrants.push({ id: i, name: i === 0 ? 'Alex' : `car${i}`, color: '#fff', carId: 'vanta-gt', isPlayer: i === 0, state: fakeState(i) });
   entrants.forEach((e, i) => place(e.state, -10 - 8 * i));
   const cfg: RaceConfig = { mode: 'race', trackId: 'aurelia', carId: 'vanta-gt', laps, opponents: n - 1, difficulty: 'pro', environment: { timeOfDay: 'noon', weather: 'clear' }, startPosition: 'pole' };
   return { entrants, session: new RaceSession(track, cfg, entrants, null, 0) };
@@ -86,13 +86,13 @@ function drive(session: RaceSession, entrants: Entrant[], dist: number[], speeds
 describe('a session with two humans', () => {
   it('knows who is in which seat, and the one player of a single-player session is seat 0', () => {
     const { session } = setup(4, 2);
-    expect(session.player?.entrant.name).toBe('Gabriel');
-    expect(session.playerAt(0)?.entrant.name).toBe('Gabriel');
-    expect(session.playerAt(1)?.entrant.name).toBe('Silviu');
-    expect(session.players().map((p) => p.entrant.name)).toEqual(['Gabriel', 'Silviu']);
+    expect(session.player?.entrant.name).toBe('Alex');
+    expect(session.playerAt(0)?.entrant.name).toBe('Alex');
+    expect(session.playerAt(1)?.entrant.name).toBe('Sam');
+    expect(session.players().map((p) => p.entrant.name)).toEqual(['Alex', 'Sam']);
     // a single-player session: the player has no seat and answers for seat 0; nobody is in seat 1
     const one = single(3, 2).session;
-    expect(one.playerAt(0)?.entrant.name).toBe('Gabriel');
+    expect(one.playerAt(0)?.entrant.name).toBe('Alex');
     expect(one.playerAt(1)).toBeUndefined();
     expect(one.players().length).toBe(1);
     expect(one.storedBestFor(1)).toBeNull();
@@ -120,8 +120,8 @@ describe('a session with two humans', () => {
     expect(session.storedBest).toBeCloseTo(L / 60 - 5, 6);
     drive(session, entrants, [-10, -18], [60, 50], 0, (L + 40) / 50);
     const laps = session.drainEvents().flatMap((e) => (e.type === 'lap' ? [e] : []));
-    const mine = laps.find((e) => e.entrant.name === 'Gabriel');
-    const his = laps.find((e) => e.entrant.name === 'Silviu');
+    const mine = laps.find((e) => e.entrant.name === 'Alex');
+    const his = laps.find((e) => e.entrant.name === 'Sam');
     expect(mine).toBeDefined();
     expect(his).toBeDefined();
     expect(mine!.personalBest).toBe(false);
@@ -164,7 +164,7 @@ describe('the duel in the results', () => {
     const res = session.results([false, false]);
     expect(res.duel).toBeDefined();
     const d = res.duel!;
-    expect(d.names).toEqual(['Gabriel', 'Silviu']);
+    expect(d.names).toEqual(['Alex', 'Sam']);
     expect(d.winner).toBe(0);
     expect(d.positions[0]).toBeLessThan(d.positions[1]);
     expect(d.gap).toMatch(/^\+\d+\.\d{3}$/);
@@ -185,9 +185,9 @@ describe('the duel in the results', () => {
     expect(res.duel!.personalBest).toEqual([true, false]);
     expect(res.personalBest).toBe(true);
     const seats = res.entries.filter((e) => e.seat !== undefined).map((e) => [e.name, e.seat]);
-    expect(seats.sort()).toEqual([['Gabriel', 0], ['Silviu', 1]].sort());
+    expect(seats.sort()).toEqual([['Alex', 0], ['Sam', 1]].sort());
     expect(res.entries.find((e) => e.name === 'car2')!.seat).toBeUndefined();
-    expect(res.entries[0].name).toBe('Silviu');
+    expect(res.entries[0].name).toBe('Sam');
   });
 
   it('a human a lap behind is "+1 LAP" to the other, not a time', () => {

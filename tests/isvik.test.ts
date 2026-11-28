@@ -302,10 +302,10 @@ describe('Isvik Circuit and the Xeno Cup', () => {
   const season = () => {
     const car = CARS[0];
     return createChampionship({
-      setup: { carId: car.id, livery: { primary: '#16e0bd', driver: 'Gabriel' }, difficulty: 'pro', opponents: 7, length: 'standard', startPosition: 'back', grid: 'standings' },
+      setup: { carId: car.id, livery: { primary: '#16e0bd', driver: 'Alex' }, difficulty: 'pro', opponents: 7, length: 'standard', startPosition: 'back', grid: 'standings' },
       tracks: TRACKS.map((t) => t.info),
-      playerName: 'Gabriel',
-      playerLivery: { ...car.defaultLivery, driver: 'Gabriel' },
+      playerName: 'Alex',
+      playerLivery: { ...car.defaultLivery, driver: 'Alex' },
       car,
       seed: 4242,
     });

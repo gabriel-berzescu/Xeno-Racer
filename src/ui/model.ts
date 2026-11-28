@@ -298,7 +298,7 @@ export interface JoinView {
   slots: readonly [JoinSlot, JoinSlot];
   /** The second player is in (their device is bound). */
   joined: boolean;
-  /** The big line: "Player 2, press A to join" while waiting, "Silviu is in" after. */
+  /** The big line: "Player 2, press A to join" while waiting, "Sam is in" after. */
   heading: string;
   /** Under it: where to press ("on a second controller"), or what they play on once in. */
   sub: string;
@@ -360,7 +360,7 @@ export function duelTitle(d: SplitDuel): string {
   return d.gap.trim() === '' ? 'No winner' : 'Dead heat';
 }
 
-/** One line on how it went: "Gabriel beat Silviu by 3.241 s", "Silviu did not finish", "Dead heat". */
+/** One line on how it went: "Alex beat Sam by 3.241 s", "Sam did not finish", "Dead heat". */
 export function duelSummary(d: SplitDuel): string {
   if (d.winner === null) return d.gap.trim() === '' ? 'Neither player finished' : 'Dead heat';
   const win = d.names[d.winner];
@@ -395,10 +395,10 @@ export function lapRows(times: readonly number[], personalBest: boolean, max: nu
 
 // ── the pause menu of a split-screen race ──
 
-/** The apostrophe form of a name: "Silviu's", "James'". */
+/** The apostrophe form of a name: "Sam's", "James'". */
 export const possessive = (name: string): string => (/s$/i.test(name) ? name + "'" : name + "'s");
 
-/** "Paused by Silviu" while the pause menu follows one player's pad; null while it is anyone's. */
+/** "Paused by Sam" while the pause menu follows one player's pad; null while it is anyone's. */
 export function pauseOwnerLine(info: PlayersInfo, names: readonly [string, string]): string | null {
   return info.owner === null ? null : 'Paused by ' + names[info.owner];
 }

@@ -41,7 +41,7 @@ describe('saved settings', () => {
     expect(DEFAULT_SETTINGS.split.layout).toBe('rows');
     // nothing saved: the defaults, and a save from before split screen existed gets them too
     expect(loadSettings().player2Name).toBe('Player 2');
-    store[KEY] = JSON.stringify({ units: 'mph', playerName: 'Gabriel' });
+    store[KEY] = JSON.stringify({ units: 'mph', playerName: 'Alex' });
     const old = loadSettings();
     expect(old.player2Name).toBe('Player 2');
     expect(old.split).toEqual({ layout: 'rows' });
@@ -59,9 +59,9 @@ describe('saved settings', () => {
   });
 
   it('keeps a saved name for player 2 and the side-by-side layout', () => {
-    store[KEY] = JSON.stringify({ player2Name: 'Silviu', split: { layout: 'columns' } });
+    store[KEY] = JSON.stringify({ player2Name: 'Sam', split: { layout: 'columns' } });
     const s = loadSettings();
-    expect(s.player2Name).toBe('Silviu');
+    expect(s.player2Name).toBe('Sam');
     expect(s.split.layout).toBe('columns');
   });
 

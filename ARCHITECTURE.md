@@ -545,7 +545,7 @@ its body style, so the other five cars were bit for bit what they were until the
   steeper: where it allows 20 kW at 344 km/h this allows 80). The tank, two shots a lap of four seconds each (src/core/nitro.ts), the HUD gauge and the AI's
   use of it are every car's. A shot held from a standstill leaves 100 km/h where it was (2.4 s: the slicks are the limit), takes 200 to 4.15-4.5 s instead of
   5.6 and the top speed to 345 km/h, the motor's cut. With the nitro off (Settings) no shot is ever ready and the car is the engine alone, complete without
-  it, as Gabriel asked: every AI lap of `tests/ai.test.ts` is driven so.
+  it: every AI lap of `tests/ai.test.ts` is driven so.
   - **Its voice:** `CTL.NITRO` (slot 64, `CTL_LEN` 65) carries `VehicleState.nitro` to the engine voice, which only a profile with
     `EngineSoundProfile.electric` reads. The whine is locked to the crank on its 14th order (2.6 kHz at 11,000 rpm): 12-23 dB over the rest of the engine in
     its band while a shot deploys it, 14-18 dB under that while it harvests on a lift, a murmur on the throttle without a shot. `electricTaper` (kept equal

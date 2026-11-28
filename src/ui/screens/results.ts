@@ -22,7 +22,7 @@ export class ResultsScreen extends BaseScreen {
   private readonly list = new FocusList(true);
   private readonly kicker = h('div', 'kicker');
   private readonly title = h('h1', 'h1');
-  /** Split screen: how the two players got on ("Gabriel beat Silviu by 3.241 s"), under the title. */
+  /** Split screen: how the two players got on ("Alex beat Sam by 3.241 s"), under the title. */
   private readonly subline = h('div', 'res-sub');
   private readonly yoursHead = h('span', null, 'Your laps');
   /** Split screen: the head-to-head of the two players, in place of the single player's laps. */

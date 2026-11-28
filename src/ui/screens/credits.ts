@@ -16,7 +16,7 @@ export class CreditsScreen extends BaseScreen {
   constructor(ctx: UiCtx) {
     super(ctx, 'credits');
     const blocks: Block[] = [
-      { head: 'The game', lines: ['Xeno-Racer ' + ctx.deps.version, 'A realistic racing game for the browser, made to be played with a gamepad.', 'Built with Claude, for Gabriel.'] },
+      { head: 'The game', lines: ['Xeno-Racer ' + ctx.deps.version, 'A realistic racing game for the browser, made to be played with a gamepad.', 'Built by Claude and Gabriel Berzescu.'] },
       {
         head: 'Disciplines',
         lines: ['Vehicle dynamics and race logic', 'Tracks and scenery', 'Rendering and atmosphere', 'Car models and liveries', 'Engine and tire audio', 'Controls, menus and HUD', 'Racing line and AI drivers'],

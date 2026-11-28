@@ -28,12 +28,12 @@ describe('Race music setting', () => {
   });
 
   it('an old save without it loads, with the default, and keeps its other volumes', () => {
-    store[KEY] = JSON.stringify({ audio: { master: 0.4, engine: 0.7, effects: 0.3, music: 0.2, ui: 0.9 }, units: 'mph', playerName: 'Silviu' });
+    store[KEY] = JSON.stringify({ audio: { master: 0.4, engine: 0.7, effects: 0.3, music: 0.2, ui: 0.9 }, units: 'mph', playerName: 'Sam' });
     const s = loadSettings();
     expect(s.audio.raceMusic).toBe(0.45);
     expect(s.audio).toEqual({ master: 0.4, engine: 0.7, effects: 0.3, music: 0.2, raceMusic: 0.45, ui: 0.9 });
     expect(s.units).toBe('mph');
-    expect(s.playerName).toBe('Silviu');
+    expect(s.playerName).toBe('Sam');
   });
 
   it('a save from before there was any audio object at all loads too', () => {

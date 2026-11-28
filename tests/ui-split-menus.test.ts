@@ -110,10 +110,10 @@ describe('two players in the setup', () => {
   });
 
   it('names the drivers: the settings\' own, never empty', () => {
-    expect(seatName(DEFAULT_SETTINGS, 0)).toBe('Gabriel');
+    expect(seatName(DEFAULT_SETTINGS, 0)).toBe('Player 1');
     expect(seatName(DEFAULT_SETTINGS, 1)).toBe('Player 2');
     expect(seatName({ playerName: '  ', player2Name: '' }, 0)).toBe('You');
-    expect(seatName({ playerName: 'A', player2Name: '  Silviu ' }, 1)).toBe('Silviu');
+    expect(seatName({ playerName: 'A', player2Name: '  Sam ' }, 1)).toBe('Sam');
   });
 });
 
@@ -121,24 +121,24 @@ describe('the race config of two players', () => {
   const two = (over = {}) => ({ ...defaultSetup('race', TRACKS, CARS, { players: 2 }), ...over });
 
   it('one player: no second player in the config, as ever', () => {
-    const c = buildRaceConfig(defaultSetup('race', TRACKS, CARS), TRACKS, CARS, 'Gabriel');
+    const c = buildRaceConfig(defaultSetup('race', TRACKS, CARS), TRACKS, CARS, 'Alex');
     expect('player2' in c).toBe(false);
-    expect(c.livery).toMatchObject({ driver: 'Gabriel' });
+    expect(c.livery).toMatchObject({ driver: 'Alex' });
   });
 
   it('two players: the second one\'s car and name ride along', () => {
     const s = two({ carIndex: 0, car2Index: 2, liveryIndex2: LIVERY_PRESETS.findIndex((p) => p.id === 'pink') });
-    const c = buildRaceConfig(s, TRACKS, CARS, 'Gabriel', 7, 'Silviu');
+    const c = buildRaceConfig(s, TRACKS, CARS, 'Alex', 7, 'Sam');
     expect(c.mode).toBe('race');
     expect(c.carId).toBe(CARS[0].id);
     expect(c.player2?.carId).toBe(CARS[2].id);
-    expect(c.player2?.livery).toMatchObject({ primary: LIVERY_PRESETS.find((p) => p.id === 'pink')!.livery!.primary, driver: 'Silviu' });
-    expect(c.livery).toMatchObject({ driver: 'Gabriel' });
+    expect(c.player2?.livery).toMatchObject({ primary: LIVERY_PRESETS.find((p) => p.id === 'pink')!.livery!.primary, driver: 'Sam' });
+    expect(c.livery).toMatchObject({ driver: 'Alex' });
   });
 
   it('a blank second name is "Player 2"', () => {
-    expect(buildRaceConfig(two(), TRACKS, CARS, 'Gabriel', 7).player2?.livery?.driver).toBe('Player 2');
-    expect(buildRaceConfig(two(), TRACKS, CARS, 'Gabriel', 7, '   ').player2?.livery?.driver).toBe('Player 2');
+    expect(buildRaceConfig(two(), TRACKS, CARS, 'Alex', 7).player2?.livery?.driver).toBe('Player 2');
+    expect(buildRaceConfig(two(), TRACKS, CARS, 'Alex', 7, '   ').player2?.livery?.driver).toBe('Player 2');
   });
 
   it('the grid has room for ten opponents beside two players, eleven beside one', () => {
@@ -166,7 +166,7 @@ describe('the race config of two players', () => {
 });
 
 describe('the join card', () => {
-  const names: [string, string] = ['Gabriel', 'Silviu'];
+  const names: [string, string] = ['Alex', 'Sam'];
 
   it('waits for a button on a second controller, and offers the keyboard', () => {
     const v = joinView(info(), names);
@@ -177,7 +177,7 @@ describe('the join card', () => {
     expect(v.pads).toBe('1 controller connected');
     expect(v.canSwap).toBe(false);
     expect(v.slots.map((s) => s.device)).toEqual(['Logitech Gamepad F310', null]);
-    expect(v.slots.map((s) => s.name)).toEqual(['Gabriel', 'Silviu']);
+    expect(v.slots.map((s) => s.name)).toEqual(['Alex', 'Sam']);
     expect(v.slots.map((s) => s.title)).toEqual(['Player 1', 'Player 2']);
     expect(v.slots[0].color).not.toBe(v.slots[1].color);
   });
@@ -198,7 +198,7 @@ describe('the join card', () => {
   it('once the second player is in: who is on what, and the swap is possible', () => {
     const v = joinView(info({ devices: ['Logitech Gamepad F310', 'Keyboard'], joined: true }), names);
     expect(v.joined).toBe(true);
-    expect(v.heading).toBe('Silviu is in');
+    expect(v.heading).toBe('Sam is in');
     expect(v.sub).toBe('on Keyboard');
     expect(v.keyboard).toBeNull();
     expect(v.canSwap).toBe(true);
@@ -210,7 +210,7 @@ describe('the join card', () => {
 
 describe('the head to head', () => {
   const duel = (over: Partial<SplitDuel> = {}): SplitDuel => ({
-    names: ['Gabriel', 'Silviu'],
+    names: ['Alex', 'Sam'],
     winner: 0,
     gap: '+3.241',
     positions: [3, 5],
@@ -232,20 +232,20 @@ describe('the head to head', () => {
   });
 
   it('says who won and by how much', () => {
-    expect(duelTitle(duel())).toBe('Gabriel wins');
-    expect(duelTitle(duel({ winner: 1 }))).toBe('Silviu wins');
+    expect(duelTitle(duel())).toBe('Alex wins');
+    expect(duelTitle(duel({ winner: 1 }))).toBe('Sam wins');
     expect(duelMargin(duel())).toBe('by 3.241 s');
     expect(duelMargin(duel({ gap: '+1 LAP' }))).toBe('by 1 lap');
     expect(duelMargin(duel({ gap: '+3 LAPS' }))).toBe('by 3 laps');
     expect(duelMargin(duel({ gap: '' }))).toBe('');
-    expect(duelSummary(duel())).toBe('Gabriel beat Silviu by 3.241 s');
-    expect(duelSummary(duel({ winner: 1, gap: '+0.050' }))).toBe('Silviu beat Gabriel by 0.050 s');
-    expect(duelSummary(duel({ gap: '+1 LAP' }))).toBe('Gabriel beat Silviu by 1 lap');
+    expect(duelSummary(duel())).toBe('Alex beat Sam by 3.241 s');
+    expect(duelSummary(duel({ winner: 1, gap: '+0.050' }))).toBe('Sam beat Alex by 0.050 s');
+    expect(duelSummary(duel({ gap: '+1 LAP' }))).toBe('Alex beat Sam by 1 lap');
   });
 
   it('a player who did not finish is said so, and a tie or no finisher has no winner', () => {
-    expect(duelSummary(duel({ gap: '' }))).toBe('Silviu did not finish');
-    expect(duelSummary(duel({ winner: 1, gap: '' }))).toBe('Gabriel did not finish');
+    expect(duelSummary(duel({ gap: '' }))).toBe('Sam did not finish');
+    expect(duelSummary(duel({ winner: 1, gap: '' }))).toBe('Alex did not finish');
     expect(duelTitle(duel({ winner: null, gap: '+0.000' }))).toBe('Dead heat');
     expect(duelSummary(duel({ winner: null, gap: '+0.000' }))).toBe('Dead heat');
     expect(duelTitle(duel({ winner: null, gap: '' }))).toBe('No winner');
@@ -274,22 +274,22 @@ describe('the head to head', () => {
 });
 
 describe('the pause menu of two players', () => {
-  const names: [string, string] = ['Gabriel', 'Silviu'];
+  const names: [string, string] = ['Alex', 'Sam'];
 
   it('says whose pad the menu follows', () => {
     expect(pauseOwnerLine(info(), names)).toBeNull();
-    expect(pauseOwnerLine(info({ owner: 0 }), names)).toBe('Paused by Gabriel');
-    expect(pauseOwnerLine(info({ owner: 1 }), names)).toBe('Paused by Silviu');
+    expect(pauseOwnerLine(info({ owner: 0 }), names)).toBe('Paused by Alex');
+    expect(pauseOwnerLine(info({ owner: 1 }), names)).toBe('Paused by Sam');
   });
 
   it('says whose controller came out', () => {
     expect(missingPadLine(info(), names)).toBeNull();
-    expect(missingPadLine(info({ missing: 1 }), names)).toBe("Silviu's controller was disconnected. Plug it in and press A.");
+    expect(missingPadLine(info({ missing: 1 }), names)).toBe("Sam's controller was disconnected. Plug it in and press A.");
     expect(missingPadLine(info({ missing: 0 }), ['James', 'Ana'])).toBe("James' controller was disconnected. Plug it in and press A.");
   });
 
   it('writes a name as a possessive', () => {
-    expect(possessive('Silviu')).toBe("Silviu's");
+    expect(possessive('Sam')).toBe("Sam's");
     expect(possessive('Chris')).toBe("Chris'");
   });
 });
@@ -308,8 +308,8 @@ describe('the split-screen settings', () => {
       expect(name.maxLength).toBe(16);
       const s = structuredClone(DEFAULT_SETTINGS);
       expect(name.get(s)).toBe('Player 2');
-      name.set(s, 'Silviu');
-      expect(s.player2Name).toBe('Silviu');
+      name.set(s, 'Sam');
+      expect(s.player2Name).toBe('Sam');
     }
   });
 
@@ -332,7 +332,7 @@ describe('the split-screen settings', () => {
 
   it('the gameplay tab resets both', () => {
     const s = structuredClone(DEFAULT_SETTINGS);
-    s.player2Name = 'Silviu';
+    s.player2Name = 'Sam';
     s.split.layout = 'columns';
     gameplay.reset(s);
     expect(s.player2Name).toBe(DEFAULT_SETTINGS.player2Name);

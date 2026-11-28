@@ -72,7 +72,7 @@ export function mockMinimap(id: string): MinimapTrack | null {
 // Animated HudState
 // ─────────────────────────────────────────────────────────────────────────────
 
-const NAMES = ['AYALA', 'BRANDT', 'CHEN', 'DUFOUR', 'EZE', 'FONTAINE', 'GABRIEL', 'HART', 'IVANOV', 'JANSEN', 'KOVACS', 'LINDQVIST'];
+const NAMES = ['AYALA', 'BRANDT', 'CHEN', 'DUFOUR', 'EZE', 'FONTAINE', 'ALEX', 'HART', 'IVANOV', 'JANSEN', 'KOVACS', 'LINDQVIST'];
 const COLORS = ['#ff6a1a', '#2bb3ff', '#ffd12b', '#c34bff', '#ff2e63', '#16e0bd', '#16e0bd', '#e8e8ee', '#7cff4b', '#ff8fb3', '#4b6bff', '#b0b6c4'];
 /** The humans' cars' paint (two cars' default liveries): their minimap markers, while their tower chips are the seats' colours. */
 const PLAYER_PAINT: readonly [string, string] = ['#1c2c5a', '#f2c200'];
@@ -213,12 +213,12 @@ export class MockRace {
     // field
     const total = o.carCount;
     const myPos = o.mode === 'race' ? 3 + Math.round(Math.sin(raceT * 0.05) * 0.6 + 0.6) : 1;
-    const order = NAMES.slice(0, total).filter((n) => n !== 'GABRIEL');
+    const order = NAMES.slice(0, total).filter((n) => n !== 'ALEX');
     const standings: HudStanding[] = [];
     let oi = 0;
     for (let p = 1; p <= total; p++) {
       const me = p === myPos;
-      const name = me ? 'GABRIEL' : order[oi++];
+      const name = me ? 'ALEX' : order[oi++];
       const idx = NAMES.indexOf(name);
       standings.push({ position: p, name, gap: p === 1 ? 'LEADER' : '+' + (p * 0.74 + (p % 3) * 0.21).toFixed(3), isPlayer: me, color: COLORS[idx] });
     }
@@ -302,13 +302,13 @@ export class MockRace {
 
 export function mockResults(carIds: string[], personalBest: boolean, position = 3): RaceResults {
   const names = NAMES.slice(0, 12);
-  const order = names.filter((n) => n !== 'GABRIEL');
-  order.splice(position - 1, 0, 'GABRIEL');
+  const order = names.filter((n) => n !== 'ALEX');
+  order.splice(position - 1, 0, 'ALEX');
   const entries: RaceResultEntry[] = order.map((name, i) => ({
     position: i + 1,
     name,
     carId: carIds[i % carIds.length],
-    isPlayer: name === 'GABRIEL',
+    isPlayer: name === 'ALEX',
     totalTime: i === 11 ? null : 480.5 + i * 1.7 + (i % 3) * 0.4,
     bestLap: i === 11 ? null : 91.9 + i * 0.21 + (i === 4 ? -0.4 : 0),
     gap: i === 0 ? 'WINNER' : i === 11 ? 'DNF' : i < 8 ? '+' + (i * 1.7 + (i % 3) * 0.4).toFixed(3) : '+1 LAP',
@@ -326,7 +326,7 @@ export function mockResults(carIds: string[], personalBest: boolean, position = 
 // Split screen
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const SPLIT_NAMES: readonly [string, string] = ['GABRIEL', 'SILVIU'];
+export const SPLIT_NAMES: readonly [string, string] = ['ALEX', 'SAM'];
 
 /**
  * The view of one seat in a split race: `base` (a MockRace state) with the two humans in the standings at places `pos` (both rows
@@ -337,7 +337,7 @@ export function splitState(base: HudState, seat: Seat, pos: readonly [number, nu
   const total = base.totalCars;
   const humans = [clampPos(pos[0], total), clampPos(pos[1], total)];
   if (humans[0] === humans[1]) humans[1] = humans[1] === total ? total - 1 : humans[1] + 1;
-  const names = NAMES.filter((n) => n !== 'GABRIEL' && n !== 'SILVIU');
+  const names = NAMES.filter((n) => n !== 'ALEX' && n !== 'SAM');
   let ai = 0;
   const standings: HudStanding[] = [];
   const cars: HudState['cars'] = [];

@@ -45,7 +45,7 @@ const TRACK_INFO: TrackInfo[] = [
   { id: 'portovela', name: 'Porto Vela', location: 'W', description: '', difficulty: 4, defaultLaps: 3, defaultTimeOfDay: 'dusk', lengthHint: 3960, color: '#3fa9ff' },
 ];
 const CAR = CARS[0];
-const PLAYER_LIVERY: Livery = { ...CAR.defaultLivery, driver: 'Gabriel' };
+const PLAYER_LIVERY: Livery = { ...CAR.defaultLivery, driver: 'Alex' };
 
 /**
  * The calendars of older builds, as a season saved then holds them (a save keeps its own calendar). The cup came to five circuits twice
@@ -77,10 +77,10 @@ const EIGHT: readonly SavedRound[] = TEN.filter((c) => c.trackId !== 'xenon');
 const SIX: readonly SavedRound[] = EIGHT.filter((c) => c.trackId !== 'portovela').map((c) => ({ trackId: c.trackId, environment: c.environment, laps: c.laps }));
 const saved = (s: ChampionshipState, calendar: readonly SavedRound[]): ChampionshipState => ({ ...s, calendar: calendar.map((c) => ({ ...c, environment: { ...c.environment } })) });
 
-const SETUP: ChampionshipSetup = { carId: CAR.id, livery: { primary: '#16e0bd', driver: 'Gabriel' }, difficulty: 'pro', opponents: 7, length: 'standard', startPosition: 'back', grid: 'standings' };
+const SETUP: ChampionshipSetup = { carId: CAR.id, livery: { primary: '#16e0bd', driver: 'Alex' }, difficulty: 'pro', opponents: 7, length: 'standard', startPosition: 'back', grid: 'standings' };
 
 function make(over: Partial<ChampionshipSetup> = {}, seed = 12345): ChampionshipState {
-  return createChampionship({ setup: { ...SETUP, ...over }, tracks: TRACK_INFO, playerName: 'Gabriel', playerLivery: PLAYER_LIVERY, car: CAR, seed, now: 1700000000000 });
+  return createChampionship({ setup: { ...SETUP, ...over }, tracks: TRACK_INFO, playerName: 'Alex', playerLivery: PLAYER_LIVERY, car: CAR, seed, now: 1700000000000 });
 }
 
 /** A finishing order (driver ids, winner first) as race finishers: every car classified, the winner also the fastest. */
@@ -265,7 +265,7 @@ describe('creating a championship', () => {
   it('puts the player first and gives opponents a lasting identity: name, livery, colour and AI seed', () => {
     const s = make();
     expect(s.drivers).toHaveLength(8);
-    expect(s.drivers[0]).toMatchObject({ id: PLAYER_ID, name: 'Gabriel', isPlayer: true });
+    expect(s.drivers[0]).toMatchObject({ id: PLAYER_ID, name: 'Alex', isPlayer: true });
     for (const d of s.drivers.slice(1)) {
       expect(d.isPlayer).toBe(false);
       expect(d.livery).toBeDefined();
@@ -522,7 +522,7 @@ describe('grids and round configs', () => {
     const opp = c.championship!.grid.find((g) => !g.isPlayer)!;
     const d = s.drivers.find((x) => x.id === opp.id)!;
     expect(opp).toMatchObject({ name: d.name, livery: d.livery, seed: d.seed });
-    expect(c.championship!.grid.find((g) => g.isPlayer)).toMatchObject({ id: PLAYER_ID, name: 'Gabriel' });
+    expect(c.championship!.grid.find((g) => g.isPlayer)).toMatchObject({ id: PLAYER_ID, name: 'Alex' });
     expect(c.livery).toEqual(SETUP.livery);
   });
 
@@ -713,8 +713,8 @@ describe('view model', () => {
     const v = buildView(s, '  Ana ');
     expect(v.player.name).toBe('Ana');
     expect(v.table.find((r) => r.isPlayer)!.name).toBe('Ana');
-    expect(buildView(s).player.name).toBe('Gabriel');
-    expect(buildView(s, '   ').player.name).toBe('Gabriel');
+    expect(buildView(s).player.name).toBe('Alex');
+    expect(buildView(s, '   ').player.name).toBe('Alex');
     const done = recordRound(s, finishers([PLAYER_ID, ...s.drivers.slice(1).map((d) => d.id)]));
     expect(buildView(done, 'Ana').rounds[0].winner).toEqual({ name: 'Ana', isPlayer: true });
   });

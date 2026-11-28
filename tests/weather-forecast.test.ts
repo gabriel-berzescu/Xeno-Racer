@@ -509,7 +509,7 @@ describe('the setup screen and the forecast', () => {
   it('starts stable, and a stable race carries no forecast and no seed', () => {
     const s = setup();
     expect(s.forecast).toBe('stable');
-    const c = buildRaceConfig(s, TRACKS, CARS, 'Gabriel');
+    const c = buildRaceConfig(s, TRACKS, CARS, 'Alex');
     expect(c.forecast).toBeUndefined();
     expect(c.forecastSeed).toBeUndefined();
     expect(Object.keys(c)).not.toContain('forecast');
