@@ -25,7 +25,7 @@
 import type { ControlSettings, InputFrame, Seat } from '../core/contracts';
 import type { InputSystem } from '../core/systems';
 import { DINPUT, STD } from './bindings';
-import { clamp01, decodeHat, hysteresis, pedal, prettyPadName, radialDeadzone, RepeatEdge, responseCurve, stepToward } from './processing';
+import { clamp01, decodeHat, hysteresis, nonStandardPadWarning, pedal, prettyPadName, radialDeadzone, RepeatEdge, responseCurve, stepToward } from './processing';
 
 export { BINDINGS, MENU_KEYS, PAD_LABEL, STD, DINPUT } from './bindings';
 export type { Binding, DrivingAction, MenuAction, PadControl } from './bindings';
@@ -135,9 +135,6 @@ export const LOOK_DEADZONE = 0.14;
 /** Stick / trigger deflection that counts as "the player is using the pad" (above typical stick drift). */
 export const PAD_WAKE_STICK = 0.35;
 export const PAD_WAKE_TRIGGER = 0.2;
-
-const WARN_F310 = 'Switch the Logitech F310 to X mode (slide the switch on the back to X, then reconnect it).';
-const WARN_GENERIC = 'This controller is not using the standard layout. Some buttons may be mismatched; use an XInput (Xbox layout) controller.';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Implementation
@@ -299,7 +296,7 @@ class PadReader {
       this.std = p.mapping === 'standard';
       this.id = p.id;
       this.name = prettyPadName(p.id);
-      this.warn = this.std ? null : /f310|logitech/i.test(p.id) ? WARN_F310 : WARN_GENERIC;
+      this.warn = this.std ? null : nonStandardPadWarning(p.id);
       this.sx = this.sy = 0;
       this.resetRepeats();
     }

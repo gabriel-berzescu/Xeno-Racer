@@ -138,3 +138,14 @@ export function prettyPadName(id: string | null | undefined): string | null {
   s = s.replace(/\s+/g, ' ').trim();
   return s || id;
 }
+
+const WARN_X_SWITCH = 'Switch the Logitech F310 to X mode (slide the switch on the back to X, then reconnect it).';
+const WARN_GENERIC = 'This controller is not using the standard layout. Some buttons may be mismatched; use an XInput (Xbox layout) controller.';
+
+/**
+ * What to tell the player about a pad the browser does not report in the `standard` mapping: a Logitech pad has a switch for
+ * it (X / D) and is told where it is, any other pad gets the general advice.
+ */
+export function nonStandardPadWarning(id: string): string {
+  return /f310|logitech/i.test(id) ? WARN_X_SWITCH : WARN_GENERIC;
+}

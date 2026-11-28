@@ -24,7 +24,7 @@ import './styles/hud.css';
 
 import type { ChampionshipSetup, ChampionshipView, HudState, InputFrame, MinimapTrack, NowPlaying, PlayersInfo, RaceConfig, RaceResults, Seat, Settings, SplitLayout, UIIntent, UiSound } from '../core/contracts';
 import type { ReplayInfo, ScreenId, UIDeps, UISystem } from '../core/systems';
-import { prettyPadName } from '../input/processing';
+import { nonStandardPadWarning, prettyPadName } from '../input/processing';
 import type { Device, UiCtx } from './ctx';
 import { createHud, type HudView } from './hud';
 import { dividerBackground, paneLayout } from './hud/panes';
@@ -49,7 +49,7 @@ export type { Settings } from '../core/contracts';
 export interface XenoUI extends UISystem {
   /**
    * Device indicator. `name` is the gamepad name (null = keyboard). Pass `input.warning` as the second
-   * argument to show the "Switch the F310 to X mode" bar on the title screen. (If never called, the UI
+   * argument to show the warning bar of a pad that is not in the standard layout on the title screen. (If never called, the UI
    * infers both from `InputFrame.gamepadId`.)
    */
   setDevice(name: string | null, warning?: string | null): void;
@@ -63,12 +63,11 @@ const NARROW_W = 1720;
 const SOUND_HINT_SCREENS: ReadonlySet<ScreenId> = new Set(['title', 'main', 'setup', 'settings', 'pause', 'results', 'credits', 'standings', 'champion']);
 /** How long the sound has to stay held back before the hint shows (where the browser lets it start by itself it is running long before). */
 const SOUND_HINT_DELAY_MS = 1200;
-const WARN_TEXT = 'Switch the Logitech F310 to X mode (slide the switch on the back to X, then reconnect it).';
 
 function inferPadWarning(id: string | null): string | null {
   if (!id) return null;
   if (/standard gamepad/i.test(id)) return null;
-  if (/vendor:/i.test(id) && !/xinput|xbox/i.test(id)) return WARN_TEXT; // Chrome marks remapped pads "STANDARD GAMEPAD"
+  if (/vendor:/i.test(id) && !/xinput|xbox/i.test(id)) return nonStandardPadWarning(id); // Chrome marks remapped pads "STANDARD GAMEPAD"
   return null;
 }
 

@@ -4,6 +4,7 @@ import {
   decodeHat,
   hysteresis,
   KB_STEER_RAMP,
+  nonStandardPadWarning,
   pedal,
   prettyPadName,
   radialDeadzone,
@@ -227,6 +228,15 @@ describe('prettyPadName', () => {
     expect(prettyPadName('046d-c21d-Logitech Gamepad F310')).toBe('Logitech Gamepad F310');
     expect(prettyPadName('Xbox 360 Controller (XInput STANDARD GAMEPAD)')).toBe('Xbox 360 Controller');
     expect(prettyPadName(null)).toBeNull();
+  });
+});
+
+describe('nonStandardPadWarning', () => {
+  it('tells a Logitech pad where its switch is, and names no brand to any other pad', () => {
+    expect(nonStandardPadWarning(F310_D_ID)).toMatch(/F310.*X mode/);
+    const other = nonStandardPadWarning('USB Gamepad (Vendor: 0079 Product: 0006)');
+    expect(other).toMatch(/standard layout/);
+    expect(other).not.toMatch(/Logitech|F310/);
   });
 });
 

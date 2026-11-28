@@ -1,7 +1,7 @@
 # Xeno-Racer — architecture
 
-A realistic racing game for the browser, built to be played with a gamepad (Logitech F310 in
-XInput mode → Chrome's `standard` mapping). TypeScript + Vite + three.js (WebGL2), with a custom
+A realistic racing game for the browser, built to be played with a gamepad (any pad the browser
+reports with the `standard` mapping: the Xbox layout). TypeScript + Vite + three.js (WebGL2), with a custom
 vehicle-dynamics engine running at a fixed 1000 Hz.
 
 Target machine: Windows 11 laptop, **RTX 3050 6 GB Laptop GPU**, i5-12600HX, 16 GB RAM, Chrome.

@@ -751,7 +751,7 @@ export const SETTINGS_TABS: TabDef[] = [
         get: (s) => s.controls.steerSpeed, set: (s, v) => { s.controls.steerSpeed = v; }, fmt: (v) => v.toFixed(1) + 'x',
       },
       {
-        kind: 'toggle', id: 'vibration', label: 'Vibration', desc: 'Controller rumble on impacts and curbs. (The Logitech F310 has no motors.)',
+        kind: 'toggle', id: 'vibration', label: 'Vibration', desc: 'Controller rumble on impacts and curbs, on a controller that has rumble motors.',
         get: (s) => s.controls.vibration, set: (s, v) => { s.controls.vibration = v; },
       },
       {
